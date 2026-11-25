@@ -10,7 +10,7 @@ import { createMemoryExtension } from '../src/cli/memory.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
 import { saveReport } from '../src/cli/reports.mjs';
 import { startSession } from '../src/cli/session.mjs';
-import { recordSessionEnd, recordSessionStart } from '../src/cli/session-log.mjs';
+import { recordSessionEnd, recordSessionStart, sessionsToWake } from '../src/cli/session-log.mjs';
 import { recordCardAction } from '../src/cli/work/card-actions.mjs';
 import { foldFinishedLines, finishedLine } from '../src/cli/work/chat.mjs';
 import { chooseProject, fileItem, paths, readItems, readMode, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
@@ -176,12 +176,73 @@ test('a session started with --wake gives the main agent a turn as soon as it en
   }
 });
 
+test('a failed session wakes the parent with the original brief; admitting that wake is not completing it', async t => {
+  const h = fixture(t);
+  let now = Date.now();
+  const target = join(h.root, 'verified.txt');
+  const original = `Write ${target} and verify its exact value is ready.`;
+  const app = await h.openApp({ intervalMs: 60000, now: () => now, runHarness: async ({ prompt }) => {
+    const { task } = JSON.parse(prompt);
+    const brief = readFileSync(task.slice('Read '.length, -' and follow it.'.length), 'utf8');
+    assert.ok(brief.startsWith(original));
+    if (!brief.includes('Resume from the failed first attempt.')) return { status: 'failed', text: 'Queued a plan; the file is missing.' };
+    writeFileSync(target, 'ready');
+    return { status: 'completed', text: `Verified ${readFileSync(target, 'utf8')}.` };
+  } });
+  t.after(() => app.close());
+  const first = await startSession({ root: h.root, title: 'Verify outcome', brief: original, cwd: h.root, wake: true, tier: 'mid' });
+  await app.tickSessions();
+  const control = h.fake.controls.get(h.fake.opened.at(-1));
+  control.started = Promise.withResolvers();
+  control.gate = Promise.withResolvers();
+  const wake = app.tickWakes();
+  await control.started.promise;
+  const during = sessionsToWake(h.root).length;
+  control.gate.reject(Error('Provider failed after admission'));
+  await wake;
+  await app.runtime.mainWork;
+  assert.equal(during, 1);
+  assert.equal(sessionsToWake(h.root).length, 1, 'the failed parent turn remains due');
+  const due = sessionsToWake(h.root)[0];
+  assert.deepEqual([due.name, due.outcome, due.cwd, due.tier], [first.name, 'failed', h.root, 'mid']);
+  assert.ok(readFileSync(due.brief, 'utf8').startsWith(original));
+
+  control.gate = undefined;
+  const main = mainSession(h);
+  const prompt = main.prompt.bind(main);
+  let successor;
+  main.prompt = async (text, options) => {
+    const ended = JSON.parse(text.split('\n')[1]).sessions[0];
+    if (ended.name === first.name) {
+      const brief = readFileSync(ended.brief, 'utf8').split('\n\n## When you finish')[0];
+      successor = await startSession({ root: h.root, title: ended.title, cwd: ended.cwd, tier: ended.tier, wake: true,
+        brief: `${brief}\nResume from the failed first attempt.` });
+    }
+    return prompt(text, options);
+  };
+  await app.tickWakes();
+  assert.equal(successor, undefined, 'a failed wake backs off rather than spinning');
+  now += 5 * 60000;
+  await app.tickWakes();
+  await app.tickSessions();
+  assert.equal(readFileSync(target, 'utf8'), 'ready');
+  assert.equal((await app.runtime.state()).runs[`session:${successor.name}`].status, 'completed');
+  await app.tickWakes();
+  await app.tickWakes();
+  assert.deepEqual(sessionsToWake(h.root), []);
+  assert.equal(Object.values((await app.runtime.state()).runs).filter(run => run.session).length, 2);
+});
+
 test('work the user chose that work mode cannot start goes to the main agent once, as a turn of its own', async t => {
   const h = fixture(t);
   const app = await h.openApp();
   try {
-    const sent = t.mock.method(app.runtime, 'send');
+    const send = app.runtime.send.bind(app.runtime);
     app.handOff({ project: 'finboard', item: 'abc123', title: 'Browse older payment installments', branch: 'hobkin/abc123', asked: 'Refresh it.', why: 'work mode is off' });
+    app.runtime.send = async () => { throw Error('Wake was not admitted'); };
+    await app.tickWakes();
+    app.runtime.send = send;
+    const sent = t.mock.method(app.runtime, 'send');
 
     await app.tickWakes();
     await app.runtime.idle();

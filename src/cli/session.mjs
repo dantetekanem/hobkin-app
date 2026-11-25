@@ -23,14 +23,14 @@ export async function readBrief(input) {
 
 const handoffs = root => join(root, 'runtime', 'handoffs');
 // A branch or a step that lives only in a report is lost work: nothing reviews, merges, deploys or closes it. So the session files them first.
-const filing = (root, { when, only }) => `Register each branch you made as finished work ${when}: pipe \`{ "title": "...", "branch": "<branch>", "state": "branch", "summary": "...", "proof": "..." }\` to \`hobkin work item <project> --home ${root}\`, with \`"issue": { "repo": "owner/name", "number": 12 }\` when it is for a GitHub issue. The project is its name, slug or folder. hobkin then takes the branch through its review, the user's merge and deploy, and the issue's closing, so do not push, open a PR for or merge it unless this brief says to.
+const filing = (root, { when }) => `Register each finished branch you made ${when}: pipe \`{ "title": "...", "branch": "<branch>", "state": "branch", "summary": "...", "proof": "..." }\` to \`hobkin work item <project> --home ${root}\`, with \`"issue": { "repo": "owner/name", "number": 12 }\` when it is for a GitHub issue. The project is its name, slug or folder. hobkin then takes the branch through its review, the user's merge and deploy, and the issue's closing, so do not push, open a PR for or merge it unless this brief says to.
 
-File every step still to do as work, never only in ${only}: pipe \`{ "key": "...", "kind": "fix", "title": "...", "brief": "..." }\` to the same command, or record it as the next action on the item this brief names.`;
+A job requested in Chat belongs to the session and its parent, not Work Mode. Never file or trigger executable Work items for it unless the user explicitly chose that route. Keep the original outcome and acceptance check; finish the authorized steps here. If unfinished, record the verified checkpoint, the next concrete step and the actual owner or wake that will continue it. A queue receipt or a plan is not completion unless that was the request.`;
 const finishing = (root, report) => `\n\n## When you finish
 
-${filing(root, { when: 'before you hand back', only: 'your report' })}
+${filing(root, { when: 'before you hand back' })}
 
-End in one of three ways, and say which: done; waiting on one call only the user can make in the app, named exactly; or carrying on through the work you filed, named by item.
+End in one of three ways: done with acceptance evidence; waiting on one real user-only decision, named exactly; or unfinished, with the checkpoint and next authorized step for your parent to resume. Do not turn unfinished work into an approval request or start a second owner. Respect explicit stops, scope and rate limits.
 
 Write a short report of what you did to \`${report}\`, naming each branch and item, and make your last reply that report.
 `;
@@ -41,7 +41,7 @@ The main hobkin started you for the user as a durable hobkin. You do not end whe
 
 When you need the user, say exactly what you need, a choice, a fact or a yes, and stop your turn there. The user answers here in your conversation, and you carry on from their answer.
 
-${filing(root, { when: 'once it is ready', only: 'your answer' })}
+${filing(root, { when: 'once it is ready' })}
 `;
 const KEPT = "It starts as a durable hobkin of its own in hobkin's list, under the title you gave it. When a turn ends it stays and waits for the user, with no limit. The user talks to it there, and only the user ends it. You hear when it waits, as with any durable hobkin.";
 
@@ -94,9 +94,10 @@ export async function startSession({ root, title = 'session', cwd = process.cwd(
   const name = sessionName(title);
   // A kept one writes none, but a start that fails leaves why here.
   const report = join(handoffs(root), `${name}.report.md`);
-  saveBrief(root, name, brief, keep ? carryingOn(root) : finishing(root, report));
-  recordSessionStart(root, { name, title, report, ...(wake ? { wake } : {}) }, now);
-  requestJob(root, { name, title, cwd: resolve(cwd), wake, ...(keep ? { keep } : {}), ...(tier ? { tier } : {}) });
+  const file = saveBrief(root, name, brief, keep ? carryingOn(root) : finishing(root, report));
+  const folder = resolve(cwd);
+  recordSessionStart(root, { name, title, report, brief: file, cwd: folder, tier, wake }, now);
+  requestJob(root, { name, title, cwd: folder, wake, ...(keep ? { keep } : {}), ...(tier ? { tier } : {}) });
   const watch = "hobkin's agents list, where it shows within a second while hobkin runs";
   return keep ? { name, watch, note: KEPT } : { name, report, watch };
 }
