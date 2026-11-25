@@ -49,6 +49,15 @@ export interface Rect extends Point {
 
 export type Positions = Record<string, Point>
 
+/**
+ * Which way a request reads on the graph (spec 006, the user, 2026-11-25): left to right, the default, or top to bottom,
+ * where the ranks run down and the nodes of a rank stand side by side.
+ */
+export type GraphFlow = 'left-to-right' | 'top-to-bottom'
+
+/** A saved flow as the window reads it back: anything but top to bottom is left to right. */
+export const readFlow = (value: unknown): GraphFlow => (value === 'top-to-bottom' ? 'top-to-bottom' : 'left-to-right')
+
 const BAND_OF: Record<NodeKind, Band> = { criterion: 'spec', test: 'tests', code: 'code', file: 'code', context: 'context' }
 const BAND_ORDER: readonly Band[] = ['spec', 'tests', 'code', 'context']
 
@@ -60,16 +69,35 @@ export function nodeRect(kind: NodeKind, position: Point): Rect {
   return { x: position.x, y: position.y, ...NODE_SIZE[kind] }
 }
 
-/** Where a wire leaves and arrives: the middle of the right edge of `from`, the middle of the left edge of `to`. */
+/** A node where it stands: what a wire's pins are worked out from. */
+export interface PlacedNode {
+  kind: NodeKind
+  position: Point
+}
+
+/**
+ * Where a wire leaves and arrives. Left to right: the middle of the right edge of `from` and of the left edge of `to`.
+ * Top to bottom: the middle of the bottom edge of `from` and of the top edge of `to`.
+ */
+export function wirePins(from: PlacedNode, to: PlacedNode, flow: GraphFlow = 'left-to-right'): { source: Point; target: Point } {
+  const [start, end] = [NODE_SIZE[from.kind], NODE_SIZE[to.kind]]
+  if (flow === 'top-to-bottom') {
+    return {
+      source: { x: from.position.x + start.width / 2, y: from.position.y + start.height },
+      target: { x: to.position.x + end.width / 2, y: to.position.y },
+    }
+  }
+  return {
+    source: { x: from.position.x + start.width, y: from.position.y + start.height / 2 },
+    target: { x: to.position.x, y: to.position.y + end.height / 2 },
+  }
+}
+
+/** Where a wire leaves and arrives on the left-to-right graph: the middle of the right edge of `from`, the middle of the left edge of `to`. */
 export function pinPoints(edge: LayoutEdge, nodes: readonly LayoutNode[], positions: Positions): { source: Point; target: Point } {
   const from = nodes.find((node) => node.id === edge.from)!
   const to = nodes.find((node) => node.id === edge.to)!
-  const start = positions[from.id]!
-  const end = positions[to.id]!
-  return {
-    source: { x: start.x + NODE_SIZE[from.kind].width, y: start.y + NODE_SIZE[from.kind].height / 2 },
-    target: { x: end.x, y: end.y + NODE_SIZE[to.kind].height / 2 },
-  }
+  return wirePins({ kind: from.kind, position: positions[from.id]! }, { kind: to.kind, position: positions[to.id]! })
 }
 
 /**
@@ -169,7 +197,7 @@ function place(nodes: readonly LayoutNode[], edges: readonly LayoutEdge[]): Plac
 }
 
 /** Packs every column on one line, then pulls each node toward what it is wired to, column by column, so wires run level. */
-function settleColumns(columns: Column[], edges: readonly LayoutEdge[]): Map<string, number> {
+function settleColumns(columns: Column[], edges: readonly LayoutEdge[], size: Sizes = NODE_SIZE): Map<string, number> {
   const nodes = columns.flatMap((column) => column.nodes)
   const columnOf = new Map<string, number>()
   columns.forEach((column, index) => column.nodes.forEach((node) => columnOf.set(node.id, index)))
@@ -182,15 +210,15 @@ function settleColumns(columns: Column[], edges: readonly LayoutEdge[]): Map<str
   }
 
   const tops = new Map<string, number>()
-  const middle = (id: string) => tops.get(id)! + NODE_SIZE[kindOf.get(id)!].height / 2
+  const middle = (id: string) => tops.get(id)! + size[kindOf.get(id)!].height / 2
 
   // Start with every column packed and centered on the same line.
   for (const column of columns) {
-    const total = column.nodes.reduce((sum, node) => sum + NODE_SIZE[node.kind].height + ROW_GAP, -ROW_GAP)
+    const total = column.nodes.reduce((sum, node) => sum + size[node.kind].height + ROW_GAP, -ROW_GAP)
     let top = -total / 2
     for (const node of column.nodes) {
       tops.set(node.id, top)
-      top += NODE_SIZE[node.kind].height + ROW_GAP
+      top += size[node.kind].height + ROW_GAP
     }
   }
 
@@ -212,8 +240,8 @@ function settleColumns(columns: Column[], edges: readonly LayoutEdge[]): Map<str
             .map((entry) => entry.node)
     column.nodes = order
     const settled = settle(
-      order.map((node) => wanted.get(node.id)! - NODE_SIZE[node.kind].height / 2),
-      order.map((node) => NODE_SIZE[node.kind].height),
+      order.map((node) => wanted.get(node.id)! - size[node.kind].height / 2),
+      order.map((node) => size[node.kind].height),
     )
     order.forEach((node, position) => tops.set(node.id, settled[position]!))
   }
@@ -368,12 +396,12 @@ export interface Block {
  * Opens blocks in place (spec 053, a group of a large change opened). Each block starts where its node stands and fills
  * its columns top to bottom, then left to right. What stands beside it on its right moves right by the block's extra
  * width, and what stands below it moves down by its extra height, so nothing overlaps and the graph still reads left to
- * right. Every node is as wide as every other (`NODE_SIZE`), which is what keeps the moves apart.
+ * right. Every node is as wide as every other (`NODE_SIZE`), which is what keeps the moves apart. `room` is the room the
+ * zones' layout works in (`Room`).
  */
-export function openBlocks(positions: Positions, kindOf: (id: string) => NodeKind, blocks: readonly Block[]): Positions {
+export function openBlocks(positions: Positions, kindOf: (id: string) => NodeKind, blocks: readonly Block[], room: Room = ACROSS): Positions {
   const placed: Positions = Object.fromEntries(Object.entries(positions).map(([id, point]) => [id, { ...point }]))
-  const width = Math.max(...Object.values(NODE_SIZE).map((size) => size.width))
-  const height = Math.max(...Object.values(NODE_SIZE).map((size) => size.height))
+  const { width, height } = room.cell
   for (const { at, ids } of blocks) {
     const origin = placed[at]
     if (!origin || ids.length === 0) continue
@@ -381,7 +409,7 @@ export function openBlocks(positions: Positions, kindOf: (id: string) => NodeKin
     const cells = ids.length + 1
     const rows = Math.min(cells, Math.max(BLOCK_ROWS, Math.ceil(Math.sqrt(cells))))
     const columns = Math.ceil(cells / rows)
-    const own = NODE_SIZE[kindOf(at)].height
+    const own = room.size[kindOf(at)].height
     const wider = (columns - 1) * (width + BLOCK_GAP)
     const taller = rows * height + (rows - 1) * ROW_GAP - own
     const { x, y } = origin
@@ -417,13 +445,13 @@ export interface LayoutZone {
 
 /** The region of a zone around its nodes: room beside and under them, and above them for its heading. */
 export function zoneRect(rects: readonly Rect[]): Rect {
+  return framed(rects, ACROSS.frame)
+}
+
+/** The box around rects with the room `frame` keeps on each side of it. */
+function framed(rects: readonly Rect[], frame: Room['frame']): Rect {
   const box = boundsOf(rects)
-  return {
-    x: box.x - ZONE_FRAME.pad,
-    y: box.y - ZONE_FRAME.head,
-    width: box.width + 2 * ZONE_FRAME.pad,
-    height: box.height + ZONE_FRAME.head + ZONE_FRAME.pad,
-  }
+  return { x: box.x - frame.left, y: box.y - frame.top, width: box.width + frame.left + frame.right, height: box.height + frame.top + frame.bottom }
 }
 
 /** The region of each zone, from where its nodes stand, in the order its first node comes. A node with no zone has none. */
@@ -443,16 +471,49 @@ const CELL = {
   height: Math.max(...Object.values(NODE_SIZE).map((size) => size.height)),
 }
 
+/** The size of a card of each kind. */
+type Sizes = Readonly<Record<NodeKind, { width: number; height: number }>>
+
+/**
+ * The room the zones' layout works in: the size of each card, of the widest and tallest card, and the room a region
+ * keeps on each side of its nodes. The layout always reads left to right in it. Top to bottom is that layout turned
+ * over its diagonal: it lays out cards turned a quarter (`TURNED`), each as tall as a card is wide, with each region's
+ * heading on the left of its nodes, then swaps every corner's x and y back (`turnedBack`). The ranks then run down, the
+ * nodes of a rank stand side by side, and every heading is above its nodes again.
+ */
+export interface Room {
+  size: Sizes
+  cell: { width: number; height: number }
+  frame: { top: number; right: number; bottom: number; left: number }
+}
+
+/** The room of the graph that reads left to right: the cards as they are drawn, and each region's heading above its nodes. */
+const ACROSS: Room = {
+  size: NODE_SIZE,
+  cell: CELL,
+  frame: { top: ZONE_FRAME.head, right: ZONE_FRAME.pad, bottom: ZONE_FRAME.pad, left: ZONE_FRAME.pad },
+}
+
+/** The room of the graph that reads top to bottom, before it is turned back: each card and region turned a quarter. */
+const TURNED: Room = {
+  size: Object.fromEntries(Object.entries(NODE_SIZE).map(([kind, { width, height }]) => [kind, { width: height, height: width }])) as Sizes,
+  cell: { width: CELL.height, height: CELL.width },
+  frame: { top: ZONE_FRAME.pad, right: ZONE_FRAME.pad, bottom: ZONE_FRAME.pad, left: ZONE_FRAME.head },
+}
+
+/** Positions laid out in `TURNED`, as the graph draws them: each corner's x and y swapped. */
+const turnedBack = (positions: Positions): Positions => Object.fromEntries(Object.entries(positions).map(([id, { x, y }]) => [id, { x: y, y: x }]))
+
 /** Nodes wired to nothing beside them, as a grid read down each column, from a top left corner. */
-function gridOf(nodes: readonly LayoutNode[], left = 0, top = 0): Positions {
+function gridOf(nodes: readonly LayoutNode[], room: Room, left = 0, top = 0): Positions {
   const rows = Math.min(nodes.length, Math.max(BLOCK_ROWS, Math.ceil(Math.sqrt(nodes.length))))
   const positions: Positions = {}
   nodes.forEach((node, index) => {
     const column = Math.floor(index / rows)
     const row = index % rows
     positions[node.id] = {
-      x: left + column * (CELL.width + BLOCK_GAP),
-      y: top + row * (CELL.height + ROW_GAP),
+      x: left + column * (room.cell.width + BLOCK_GAP),
+      y: top + row * (room.cell.height + ROW_GAP),
     }
   })
   return positions
@@ -464,27 +525,27 @@ function wiresWithin(ids: ReadonlySet<string>, edges: readonly LayoutEdge[]): La
 }
 
 /** The far edges of placed nodes. */
-function extent(positions: Positions, kindOf: (id: string) => NodeKind): { right: number; bottom: number } {
+function extent(positions: Positions, kindOf: (id: string) => NodeKind, size: Sizes): { right: number; bottom: number } {
   const ids = Object.keys(positions)
   return {
-    right: Math.max(0, ...ids.map((id) => positions[id]!.x + NODE_SIZE[kindOf(id)].width)),
-    bottom: Math.max(0, ...ids.map((id) => positions[id]!.y + NODE_SIZE[kindOf(id)].height)),
+    right: Math.max(0, ...ids.map((id) => positions[id]!.x + size[kindOf(id)].width)),
+    bottom: Math.max(0, ...ids.map((id) => positions[id]!.y + size[kindOf(id)].height)),
   }
 }
 
 /** A zone of code on its own, from its top left corner: columns by call depth inside it, as the request goes. */
-function codeBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[]): Positions {
+function codeBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[], room: Room): Positions {
   const inside = wiresWithin(new Set(members.map((node) => node.id)), edges)
-  if (inside.length === 0) return gridOf(members)
+  if (inside.length === 0) return gridOf(members, room)
 
   const depth = bandDepths(members.map((node) => node.id), inside, MAX_WAY_COLUMNS)
   const columns = columnsAt(members, depth, 0)
-  const tops = settleColumns(columns.map((entry) => entry.column), inside)
+  const tops = settleColumns(columns.map((entry) => entry.column), inside, room.size)
   const highest = Math.min(...tops.values())
   const positions: Positions = {}
   for (const { index, column } of columns) {
     for (const node of column.nodes) {
-      positions[node.id] = { x: index * (CELL.width + COLUMN_GAP), y: Math.round(tops.get(node.id)! - highest) }
+      positions[node.id] = { x: index * (room.cell.width + COLUMN_GAP), y: Math.round(tops.get(node.id)! - highest) }
     }
   }
   return positions
@@ -496,15 +557,15 @@ function codeBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[]): 
  * start where the stack does whether its tests are drawn or folded with it: a test of code in the first column stands
  * under it. A test that covers nothing above stands at the left.
  */
-function wantedLeft(test: string, edges: readonly LayoutEdge[], above: Positions): number {
+function wantedLeft(test: string, edges: readonly LayoutEdge[], above: Positions, room: Room): number {
   const covered = edges.filter((edge) => edge.from === test && edge.to !== test && above[edge.to]).map((edge) => above[edge.to]!.x)
   if (covered.length === 0) return 0
-  return Math.max(0, Math.min(...covered) - CELL.width - LANE.lead)
+  return Math.max(0, Math.min(...covered) - room.cell.width - LANE.lead)
 }
 
 /** A zone of tests under the code it mirrors, from a top: each test where it wants to stand, in the first row with room. */
-function testBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[], above: Positions, top: number): Positions {
-  const wanted = new Map(members.map((node) => [node.id, wantedLeft(node.id, edges, above)]))
+function testBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[], above: Positions, top: number, room: Room): Positions {
+  const wanted = new Map(members.map((node) => [node.id, wantedLeft(node.id, edges, above, room)]))
   const order = members
     .map((node, index) => ({ node, index }))
     .sort((a, b) => wanted.get(a.node.id)! - wanted.get(b.node.id)! || a.index - b.index)
@@ -513,12 +574,12 @@ function testBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[], a
   const positions: Positions = {}
   for (const { node } of order) {
     const left = wanted.get(node.id)!
-    const right = left + NODE_SIZE[node.kind].width
+    const right = left + room.size[node.kind].width
     const crowds = ([from, to]: [number, number]) => left < to + LANE.room && from < right + LANE.room
     let row = 0
     while (rows[row]?.some(crowds)) row += 1
     ;(rows[row] ??= []).push([left, right])
-    positions[node.id] = { x: Math.round(left), y: Math.round(top + row * (CELL.height + ROW_GAP)) }
+    positions[node.id] = { x: Math.round(left), y: Math.round(top + row * (room.cell.height + ROW_GAP)) }
   }
   return positions
 }
@@ -612,9 +673,19 @@ function placeInColumns(built: readonly BuiltStack[], columnOf: ReadonlyMap<stri
  * Each block keeps the room of its region (`ZONE_FRAME`): no two regions overlap and every node is inside its own.
  * `blocks` are groups opened in place (`openBlocks`): a group grows its own zone, and a member of another zone stands in
  * its own, after what is there. `docks` says which code each zone of tests sits under (`zoneDocks`), so a graph whose
- * nodes fold keeps its tests where the whole graph has them. The same nodes always give the same layout.
+ * nodes fold keeps its tests where the whole graph has them. The same nodes always give the same layout. `flow` top to
+ * bottom gives the same layout turned (`Room`): ranks run down, a zone of tests stands beside the code it mirrors, and
+ * each test just above what it covers.
  */
-export function layoutZones(nodes: readonly ZoneNode[], edges: readonly LayoutEdge[], zones: readonly LayoutZone[], blocks: readonly Block[] = [], docks: Readonly<Record<string, string>> = {}): Positions {
+export function layoutZones(
+  nodes: readonly ZoneNode[],
+  edges: readonly LayoutEdge[],
+  zones: readonly LayoutZone[],
+  blocks: readonly Block[] = [],
+  docks: Readonly<Record<string, string>> = {},
+  flow: GraphFlow = 'left-to-right',
+): Positions {
+  const room = flow === 'top-to-bottom' ? TURNED : ACROSS
   const OTHER = '\u0000other'
   const listed = new Map(zones.map((zone) => [zone.id, zone]))
   const zoneOfNode = new Map(nodes.map((node) => [node.id, node.zone != null && listed.has(node.zone) ? node.zone : OTHER]))
@@ -646,30 +717,33 @@ export function layoutZones(nodes: readonly ZoneNode[], edges: readonly LayoutEd
     const own = opening
       .filter((block) => zoneOfNode.get(block.at) === zone && standing[block.at])
       .map((block) => ({ at: block.at, ids: block.ids.filter((id) => opened.has(id) && zoneOfNode.get(id) === zone) }))
-    const placed = openBlocks(standing, kind, own)
+    const placed = openBlocks(standing, kind, own, room)
     const visitors = nodes.filter((node) => opened.has(node.id) && zoneOfNode.get(node.id) === zone && !placed[node.id])
     if (visitors.length === 0) return placed
 
     const empty = Object.keys(placed).length === 0
-    const left = empty ? 0 : extent(placed, kind).right + COLUMN_GAP
+    const left = empty ? 0 : extent(placed, kind, room.size).right + COLUMN_GAP
     const top = empty ? 0 : Math.min(...Object.values(placed).map((point) => point.y))
-    return { ...placed, ...gridOf(visitors, left, top) }
+    return { ...placed, ...gridOf(visitors, room, left, top) }
   }
 
   const built = stacks.map(([head, ...under]): BuiltStack => {
     const members = membersOf.get(head!) ?? []
-    let placed = finish(head!, isTests(head!) ? gridOf(members) : codeBlock(members, edges))
+    let placed = finish(head!, isTests(head!) ? gridOf(members, room) : codeBlock(members, edges, room))
     const above = placed
     for (const zone of under) {
-      const top = extent(placed, kind).bottom + ZONE_FRAME.pad + ZONE_FRAME.gap + ZONE_FRAME.head
-      placed = { ...placed, ...finish(zone, testBlock(membersOf.get(zone) ?? [], edges, above, top)) }
+      // The room under the region above, the gap between two regions, and the room above this one's nodes.
+      const top = extent(placed, kind, room.size).bottom + room.frame.bottom + ZONE_FRAME.gap + room.frame.top
+      placed = { ...placed, ...finish(zone, testBlock(membersOf.get(zone) ?? [], edges, above, top, room)) }
     }
-    const regionOf = (zone: string) => zoneRect(Object.keys(placed).filter((id) => zoneOfNode.get(id) === zone).map((id) => nodeRect(kind(id), placed[id]!)))
+    const rectOf = (id: string): Rect => ({ ...placed[id]!, ...room.size[kind(id)] })
+    const regionOf = (zone: string) => framed(Object.keys(placed).filter((id) => zoneOfNode.get(id) === zone).map(rectOf), room.frame)
     return { head: head!, placed, box: boundsOf([head!, ...under].map(regionOf)) }
   })
 
   const columnOf = columnsOfStacks(stacks, lead, zoneOfNode, isTests, nodes, edges)
-  return placeInColumns(built, columnOf)
+  const placed = placeInColumns(built, columnOf)
+  return room === TURNED ? turnedBack(placed) : placed
 }
 
 /**

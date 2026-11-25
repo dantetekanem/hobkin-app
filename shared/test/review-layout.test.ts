@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { columnsOf, LANE_GAP, layoutRequest, layoutReview, layoutZones, nodeRect, pinPoints, MAX_CODE_COLUMNS, NODE_SIZE, ZONE_FRAME, zoneRects, type LayoutEdge, type LayoutNode, type LayoutZone, type ZoneNode } from '../review/layout.ts'
+import { columnsOf, LANE_GAP, layoutRequest, layoutReview, layoutZones, nodeRect, pinPoints, MAX_CODE_COLUMNS, NODE_SIZE, readFlow, wirePins, ZONE_FRAME, zoneRects, type LayoutEdge, type LayoutNode, type LayoutZone, type ZoneNode } from '../review/layout.ts'
 import { stressReview } from '../review/stress.ts'
 import type { NodeKind } from '../review/types.ts'
 
@@ -342,6 +342,123 @@ test('zones: zones a request reaches together stand one under the other, so no w
     }
   }
   assertNoOverlap(all, positions)
+})
+
+/** Two ways in, two controllers a request reaches together, the helper they call, and a zone of tests that mirrors it. */
+function twoWaysIn() {
+  const zones: LayoutZone[] = [
+    { id: 'routes', layer: 'route' },
+    { id: 'posts', layer: 'controller' },
+    { id: 'feeds', layer: 'controller' },
+    { id: 'helpers', layer: 'helper' },
+    { id: 'helper-tests', layer: 'test:helper' },
+  ]
+  const all: ZoneNode[] = [
+    { id: 'get-post', kind: 'context', zone: 'routes', entry: {} },
+    { id: 'get-feed', kind: 'context', zone: 'routes', entry: {} },
+    { id: 'post', kind: 'context', zone: 'posts' },
+    { id: 'feed', kind: 'context', zone: 'feeds' },
+    { id: 'render', kind: 'code', zone: 'helpers', change: 'modified' },
+    { id: 'link', kind: 'code', zone: 'helpers', change: 'modified' },
+    { id: 't-link', kind: 'test', zone: 'helper-tests' },
+  ]
+  const wires = [wire('get-post', 'post'), wire('get-feed', 'feed'), wire('post', 'render'), wire('feed', 'render'), wire('render', 'link'), wire('t-link', 'link')]
+  return { zones, all, wires }
+}
+
+test('zones left to right: ranks run across and the nodes of a rank one under the other', () => {
+  const { zones, all, wires } = twoWaysIn()
+  const positions = layoutZones(all, wires, zones, [], {}, 'left-to-right')
+  assert.deepEqual(positions, layoutZones(all, wires, zones), 'left to right is the layout as it was')
+  const rects = zoneRects(all, positions)
+  const [routes, posts, feeds, helpers, tests] = ['routes', 'posts', 'feeds', 'helpers', 'helper-tests'].map((id) => rects.get(id)!)
+  assert.ok(routes!.x + routes!.width + ZONE_FRAME.gap <= posts!.x && posts!.x + posts!.width + ZONE_FRAME.gap <= helpers!.x, 'each rank a column to the right')
+  assert.equal(posts!.x, feeds!.x, 'the two controllers share a rank')
+  assert.ok(posts!.y + posts!.height + ZONE_FRAME.gap <= feeds!.y, 'one under the other, in the order given')
+  assert.ok(tests!.y >= helpers!.y + helpers!.height + ZONE_FRAME.gap, 'the tests under the code they mirror')
+  assert.ok(positions['t-link']!.x + NODE_SIZE.test.width < positions.link!.x, 'a test just before what it covers')
+  for (const edge of wires) {
+    const [from, to] = [all.find((entry) => entry.id === edge.from)!, all.find((entry) => entry.id === edge.to)!]
+    const { source, target } = wirePins({ kind: from.kind, position: positions[from.id]! }, { kind: to.kind, position: positions[to.id]! }, 'left-to-right')
+    assert.deepEqual(source, { x: positions[from.id]!.x + NODE_SIZE[from.kind].width, y: positions[from.id]!.y + NODE_SIZE[from.kind].height / 2 }, 'it leaves the right edge')
+    assert.deepEqual(target, { x: positions[to.id]!.x, y: positions[to.id]!.y + NODE_SIZE[to.kind].height / 2 }, 'it arrives at the left edge')
+    assert.ok(source.x < target.x, `${edge.from} to ${edge.to} runs right`)
+  }
+})
+
+test('zones top to bottom: the same graph with its ranks running down and the nodes of a rank side by side', () => {
+  const { zones, all, wires } = twoWaysIn()
+  const positions = layoutZones(all, wires, zones, [], {}, 'top-to-bottom')
+  assert.deepEqual(Object.keys(positions).sort(), all.map((entry) => entry.id).sort(), 'every node has a place')
+  assertNoOverlap(all, positions)
+
+  // The regions keep their heading above their nodes, none overlaps another, and every node is inside its own.
+  const rects = zoneRects(all, positions)
+  const listed = [...rects.keys()]
+  for (const [index, one] of listed.entries()) {
+    for (const two of listed.slice(index + 1)) assert.equal(overlaps(rects.get(one)!, rects.get(two)!), false, `the zones ${one} and ${two} overlap`)
+  }
+  for (const entry of all) {
+    const box = rects.get(entry.zone!)!
+    const rect = nodeRect(entry.kind, positions[entry.id]!)
+    assert.ok(rect.x >= box.x + ZONE_FRAME.pad && rect.x + rect.width <= box.x + box.width - ZONE_FRAME.pad, `${entry.id} is inside its zone across`)
+    assert.ok(rect.y >= box.y + ZONE_FRAME.head && rect.y + rect.height <= box.y + box.height - ZONE_FRAME.pad, `${entry.id} is inside its zone down, under its heading`)
+  }
+
+  // Ranks run down: where a request enters, then the controllers, then the helper they call.
+  const [routes, posts, feeds, helpers, tests] = ['routes', 'posts', 'feeds', 'helpers', 'helper-tests'].map((id) => rects.get(id)!)
+  assert.ok(routes!.y + routes!.height + ZONE_FRAME.gap <= posts!.y && posts!.y + posts!.height + ZONE_FRAME.gap <= helpers!.y, 'each rank a row further down')
+  // The nodes of a rank spread across: the two controllers side by side in the order given, the two ways in too.
+  assert.equal(posts!.y, feeds!.y, 'the two controllers share a rank')
+  assert.ok(posts!.x + posts!.width + ZONE_FRAME.gap <= feeds!.x, 'side by side, in the order given')
+  assert.equal(positions['get-post']!.y, positions['get-feed']!.y)
+  assert.ok(positions['get-post']!.x + NODE_SIZE.context.width <= positions['get-feed']!.x)
+  // Inside a block, the caller above what it calls.
+  assert.ok(positions.render!.y + NODE_SIZE.code.height < positions.link!.y)
+  // The tests beside the code they mirror, each just above what it covers, so its wire is short.
+  assert.ok(tests!.x >= helpers!.x + helpers!.width + ZONE_FRAME.gap, 'beside the zone it mirrors, with room between')
+  assert.ok(tests!.y < helpers!.y + helpers!.height && helpers!.y < tests!.y + tests!.height, 'level with it, not off in a corner')
+  assert.ok(positions['t-link']!.y + NODE_SIZE.test.height < positions.link!.y, 't-link sits above link')
+  assert.ok(positions.link!.y - positions['t-link']!.y < 2 * NODE_SIZE.test.height + 2 * ZONE_FRAME.head, 't-link sits near link')
+
+  // Every wire leaves the bottom edge of its source and arrives at the top edge of its target, running down.
+  for (const edge of wires) {
+    const [from, to] = [all.find((entry) => entry.id === edge.from)!, all.find((entry) => entry.id === edge.to)!]
+    const { source, target } = wirePins({ kind: from.kind, position: positions[from.id]! }, { kind: to.kind, position: positions[to.id]! }, 'top-to-bottom')
+    assert.deepEqual(source, { x: positions[from.id]!.x + NODE_SIZE[from.kind].width / 2, y: positions[from.id]!.y + NODE_SIZE[from.kind].height })
+    assert.deepEqual(target, { x: positions[to.id]!.x + NODE_SIZE[to.kind].width / 2, y: positions[to.id]!.y })
+    assert.ok(source.y < target.y, `${edge.from} to ${edge.to} runs down`)
+  }
+
+  // The same review always lays out the same way, in whole points, its first region at the origin.
+  assert.deepEqual(layoutZones(all, wires, zones, [], {}, 'top-to-bottom'), positions)
+  assert.ok(Object.values(positions).every((position) => Number.isInteger(position.x) && Number.isInteger(position.y)))
+  assert.equal(Math.min(...[...rects.values()].map((rect) => rect.x)), 0)
+  assert.equal(Math.min(...[...rects.values()].map((rect) => rect.y)), 0)
+})
+
+test('zones top to bottom: a group opened in place fills its rows across, then down, and no two zones overlap', () => {
+  const zones: LayoutZone[] = [{ id: 'one', layer: 'service' }, { id: 'two', layer: 'model' }]
+  const all: ZoneNode[] = [
+    { id: 'fold:a', kind: 'file', zone: 'one' },
+    { id: 'b', kind: 'code', zone: 'one' },
+    ...Array.from({ length: 9 }, (_, index): ZoneNode => ({ id: `m${index}`, kind: 'code', zone: 'one' })),
+    { id: 'c', kind: 'code', zone: 'two' },
+  ]
+  const wires = [wire('fold:a', 'b'), wire('b', 'c')]
+  const closed = layoutZones(all.filter((entry) => !/^m\d/.test(entry.id)), wires, zones, [], {}, 'top-to-bottom')
+  const open = layoutZones(all, wires, zones, [{ at: 'fold:a', ids: Array.from({ length: 9 }, (_, index) => `m${index}`) }], {}, 'top-to-bottom')
+  assertNoOverlap(all, open)
+  assert.deepEqual(open['fold:a'], closed['fold:a'], 'the group card stays where it stood')
+  assert.equal(open.m0!.y, open['fold:a']!.y, 'its first member beside it, on its row')
+  assert.ok(open.m0!.x > open['fold:a']!.x)
+  const rects = zoneRects(all, open)
+  assert.equal(overlaps(rects.get('one')!, rects.get('two')!), false)
+  assert.ok(rects.get('one')!.y + rects.get('one')!.height <= rects.get('two')!.y, 'what it calls still a rank further down')
+})
+
+test('a saved flow reads back as left to right unless it is top to bottom', () => {
+  assert.deepEqual([readFlow('top-to-bottom'), readFlow('left-to-right'), readFlow(undefined), readFlow('down')], ['top-to-bottom', 'left-to-right', 'left-to-right', 'left-to-right'])
 })
 
 test('zones: a group opened in place grows its own zone, and no two zones overlap', () => {
