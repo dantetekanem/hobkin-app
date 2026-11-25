@@ -3,8 +3,12 @@
  * forever (`infinite`) with its file, line, selector and the properties its keyframes change, and fails one that
  * changes anything but `transform` or `opacity`, or that is set on a part of an SVG. WebKit runs only transform and
  * opacity of an HTML box on the compositor; anything else restyles, lays out and paints on the main thread every frame.
- * It also fails any endless animation under ui/src/avatar: a face and its crab play their motion for about two seconds
- * when the mood changes, then rest (2026-11-23), because every face loop that runs makes WebKit draw every frame.
+ * It also fails an endless animation under ui/src/avatar that is not under Lively (`:root[data-motion='lively']`): a face
+ * and its crab play their motion for about two seconds when the mood changes, then rest (2026-11-23), because every
+ * face loop that runs makes WebKit draw every frame. Lively is the one place a face may loop: the user asked on
+ * 2026-11-24 "why hobkin is not animated if lively is on?", so under Lively the faces loop their moods as they did
+ * before. A rule that only makes animations endless (`animation-iteration-count: infinite`, as Lively does to the faces)
+ * is judged by what every animation its style sheet sets changes, since those are the ones it can make loop.
  * And it fails an endless animation on a line's glow (`aa-glow`, agent-activity.css) that does not wait for the line to
  * be live (`[data-live]`). The user asked on 2026-11-24 for "a glow animated border, giving life like the dots and
  * rectangles are" on an agent's tasks, helpers and schedules lines; it may loop only while something on the line is live,
@@ -37,6 +41,9 @@ const HTML_BOXES = new Set(['hob', 'hob-layer'])
 const SVG_PARTS = new Set<string>()
 const GLOW = /\.aa-glow(?![\w-])/
 const LIVE = /\[data-live\]/
+const LIVELY = /^:root\[data-motion=(['"])lively\1\]/
+/** The keyframes of a rule that sets an animation's count but not its name. */
+const SET_ELSEWHERE = '(set elsewhere)'
 // Words of the `animation` shorthand that are never a keyframes name.
 const KEYWORDS = new Set([
   'none', 'infinite', 'normal', 'reverse', 'alternate', 'alternate-reverse', 'forwards', 'backwards', 'both',
@@ -213,7 +220,7 @@ function endlessNames(block: Block, keyframes: Map<string, Set<string>>): string
 
   const counts = declared.get('animation-iteration-count')
   if (counts && /\binfinite\b/.test(counts)) {
-    names.push(...splitTop(declared.get('animation-name') ?? '(set elsewhere)'))
+    names.push(...splitTop(declared.get('animation-name') ?? SET_ELSEWHERE))
   }
   return names
 }
@@ -227,24 +234,44 @@ function problemsOf(file: string, selector: string, name: string, changes: Set<s
   if (offThread.length > 0) problems.push(`changes ${offThread.sort().join(', ')}`)
 
   if (isSvgPart(selector)) problems.push('set on a part of an SVG')
-  if (file.startsWith(`${FACES}/`)) problems.push('a face plays its mood once, for about two seconds, and never loops')
+  if (file.startsWith(`${FACES}/`) && !LIVELY.test(selector)) {
+    problems.push("a face loops only under Lively, :root[data-motion='lively']; otherwise it plays its mood for about two seconds and rests")
+  }
   if (GLOW.test(selector) && !LIVE.test(selector)) problems.push('a line glows only while something on it is live: set it under [data-live]')
   return problems
 }
 
+/** What every animation the style sheet sets changes, all together, or undefined when it sets none known under ui/src. */
+function changesSetIn(blocks: Block[], keyframes: Map<string, Set<string>>): Set<string> | undefined {
+  const names = new Set<string>()
+  walk(blocks, (block) => {
+    for (const { property, value } of block.declarations) {
+      if (property === 'animation') {
+        for (const animation of splitTop(value)) names.add(nameIn(words(animation.replace(/!important/, '')), keyframes))
+      }
+      if (property === 'animation-name') for (const name of splitTop(value)) names.add(name)
+    }
+  })
+  const known = [...names].filter((name) => keyframes.has(name))
+  if (known.length === 0) return undefined
+  return new Set(known.flatMap((name) => [...keyframes.get(name)!]))
+}
+
 function endlessIn(file: string, keyframes: Map<string, Set<string>>): Endless[] {
   const found: Endless[] = []
-  walk(parse(readFileSync(file, 'utf8')), (block, parents) => {
+  const blocks = parse(readFileSync(file, 'utf8'))
+  walk(blocks, (block, parents) => {
     if (block.prelude.startsWith('@')) return
 
     for (const name of endlessNames(block, keyframes)) {
-      const changes = keyframes.get(name)
+      const setElsewhere = name === SET_ELSEWHERE
+      const changes = setElsewhere ? changesSetIn(blocks, keyframes) : keyframes.get(name)
       for (const selector of selectorsOf(block.prelude, parents)) {
         found.push({
           file: relative(ROOT, file),
           line: block.line,
           selector,
-          keyframes: name,
+          keyframes: setElsewhere ? 'any this file sets' : name,
           properties: [...(changes ?? [])].sort(),
           problems: problemsOf(file, selector, name, changes),
         })
@@ -276,7 +303,7 @@ for (const file of judged) {
   console.log(`${failed.length > 0 ? 'FAIL' : 'pass'} ${relative(ROOT, file)}: ${endless.length} endless, ${failed.length} failing`)
   for (const animation of endless) {
     const verdict = animation.problems.length > 0 ? `FAIL: ${animation.problems.join('; ')}` : 'ok'
-    console.log(`  :${animation.line} ${animation.selector} -> ${animation.keyframes} (${animation.properties.join(', ') || '?'}) ${verdict}`)
+    console.log(`  :${animation.line} ${animation.selector.replace(/\s+/g, ' ')} -> ${animation.keyframes} (${animation.properties.join(', ') || '?'}) ${verdict}`)
   }
 }
 console.log(`${total} endless animations in ${judged.length} files, ${failures} failing in ${failedFiles} files.`)

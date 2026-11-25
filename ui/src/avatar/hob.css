@@ -9,7 +9,8 @@
  *
  * A face plays its mood's motion when the mood changes, then rests (2026-11-23; mood-play.ts). Each animation plays the
  * whole number of times that comes closest to two seconds (a 0.35 s loop 6 times, one of 2 s or longer once) and holds
- * its last frame, so it ends where a loop ends and nothing jumps. None runs forever: scripts/perf/motion.ts fails one.
+ * its last frame, so it ends where a loop ends and nothing jumps. Under Lively each one loops instead (below). Anywhere
+ * else none runs forever: scripts/perf/motion.ts fails one.
  */
 
 .hob {
@@ -289,6 +290,25 @@ span.hob > *, .hob-layer > * { grid-area: 1 / 1; width: 100%; height: 100%; }
 @keyframes hob-leaf-flap-r { 0%, 75%, 100% { transform: rotate(0); } 30% { transform: rotate(14deg); } 55% { transform: rotate(-10deg); } }
 @keyframes hob-leaf-flap-l { 0%, 75%, 100% { transform: rotate(0); } 30% { transform: rotate(-14deg); } 55% { transform: rotate(10deg); } }
 @keyframes hob-leaf-wink { 0%, 100% { transform: rotate(0); } 30%, 70% { transform: rotate(-18deg); } }
+
+/*
+ * Lively (Settings, Movement): every face keeps looping its mood's motion, as the faces did before they moved on change
+ * (2026-11-24, the user: "why hobkin is not animated if lively is on?"). Each box that plays a mood's motion loops it,
+ * a small face's whole box too, and holds no frame, since a loop never ends. A box that only fades in as a mood starts
+ * (`.hob-part` with no loop of its own) is left out, so the fade plays once. Every face on screen then makes WebKit draw
+ * every frame, the cost spec 052 measured. mood-play.ts leaves these loops running.
+ */
+:root[data-motion='lively'] .hob-layer:is(
+  .hob-body,
+  .hob-l-up, .hob-l-left, .hob-l-search, .hob-l-type, .hob-l-big,
+  .hob-pulse, .hob-twinkle, .hob-spin, .hob-narrow, .hob-dot, .hob-z, .hob-hand, .hob-key, .hob-wavehand, .hob-wl, .hob-snd,
+  .hob-qfloat, .hob-confetti, .hob-puff,
+  .hob-ear, .hob-acc-antenna, .hob-bulb, .hob-acc-sprout, .hob-leaf
+),
+:root[data-motion='lively'] .hob[data-whole] {
+  animation-iteration-count: infinite;
+  animation-fill-mode: none;
+}
 
 /*
  * Reduced motion: the character holds its pose, its box too. Parts that only show mid-animation stay visible. A small

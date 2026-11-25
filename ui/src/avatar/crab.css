@@ -4,9 +4,9 @@
  * of an SVG (spec 052, A6). Lengths are shares of the box: one unit of the art is 0.390625%.
  *
  * Like the face, the crab plays its mood's motion when the mood changes, for the whole number of loops closest to two
- * seconds, and rests in the loop's last frame (mood-play.ts). Its loops run on periods and starts of their own, so the
- * crab never moves in step with hobkin beside it. hobkin is on its left: leaning in is a turn to the left about its
- * feet, and its left claw is the near one.
+ * seconds, and rests in the loop's last frame (mood-play.ts); under Lively it loops instead (below). Its loops run on
+ * periods and starts of their own, so the crab never moves in step with hobkin beside it. hobkin is on its left:
+ * leaning in is a turn to the left about its feet, and its left claw is the near one.
  */
 
 .hob.hob-crab {
@@ -69,6 +69,15 @@
 .hob.hob-crab[data-rest] .hob-layer.hob-crab-body,
 .hob.hob-crab[data-rest] .hob-layer.hob-claw,
 .hob.hob-crab[data-rest] .hob-layer.hob-crab-look { animation: none; }
+
+/*
+ * Lively (Settings, Movement): the crab keeps looping its mood's motion, as the face does (hob.css; 2026-11-24, the user:
+ * "why hobkin is not animated if lively is on?"). A resting crab still holds its pose, and the greeting plays once.
+ */
+:root[data-motion='lively'] .hob-crab .hob-layer:is(.hob-crab-body, .hob-claw, .hob-cl-up, .hob-cl-scan) {
+  animation-iteration-count: infinite;
+  animation-fill-mode: none;
+}
 
 /*
  * The greeting, when the pair first shows for a run and when the run finishes: the crab leans toward hobkin and lifts its
