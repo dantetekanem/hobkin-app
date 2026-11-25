@@ -43,22 +43,30 @@ test('Mac reconnect keeps all three real lists until the replacement snapshot ar
     context: [], path: '/test/routines/daily/check.md', prompt: 'Check.',
     nextRun: { state: 'scheduled', at: '2026-11-11T14:30:00Z' },
   }
+  // A decision hobkin filed: a waiting report only opens in Reports, so it is not an action item (isActionItem).
+  const decision = {
+    id: 'real-decision', key: null, from: 'Routine', question: 'Keep the check?', tldr: 'Keep the check?',
+    choices: [{ value: 'yes', label: 'Keep it' }, { value: 'no', label: 'Drop it' }],
+    answerTo: null, recommended: null, why: null, changed: null, at: '2026-11-11T14:30:00Z',
+  }
   hostStore.setState({ home: '/test', link: 'open' })
   hostStore.setState((state) => applyHostMessage(state, {
     type: 'state', rev: 1, reset: true,
-    set: { reports: [report], schedules: [routine], waiting: { reports: [{ id: report.id, title: report.title }] } },
+    set: { reports: [report], schedules: [routine], decisions: [decision] },
   }))
   const reports = useReports.getState().inbox.reports
   const routines = useRoutines.getState().data.routines
   const actions = useActionItems.getState().rows
   assert.equal(reports[0]?.id, report.id)
   assert.equal(routines[0]?.id, routine.id)
-  assert.equal(actions[0]?.id, `waiting:reports:${report.id}`)
+  assert.equal(actions[0]?.id, decision.id)
   for (const link of ['lost', 'connecting', 'open'] as const) {
     hostStore.setState((state) => applyLink(state, link))
-    assert.equal(useReports.getState().inbox.reports, reports)
-    assert.equal(useRoutines.getState().data.routines, routines)
-    assert.equal(useActionItems.getState().rows, actions)
+    // The same rows, not samples and not an empty list. Reports and Routines build their lists again on any change of
+    // the link, so the rows are compared, not the arrays.
+    assert.deepEqual(useReports.getState().inbox.reports, reports)
+    assert.deepEqual(useRoutines.getState().data.routines, routines)
+    assert.deepEqual(useActionItems.getState().rows, actions)
   }
   hostStore.setState((state) => applyHostMessage(state, { type: 'state', rev: 2, reset: true, set: {} }))
   assert.deepEqual(useReports.getState().inbox.reports, [])
