@@ -86,25 +86,47 @@ test('the words a pull request gets before it is closed unmerged go as the user 
   assert.equal(closingComment('  '), null)
 })
 
-test('ask for changes sends selected notes with their targets', () => {
+test('talking to the agent sends the comments with their targets, then the questions to discuss', () => {
   const notes = [
     note('n1', { target: { kind: 'node', node: idOf('send') }, text: 'Name the field after what it holds.' }),
     note('n2', { step: step('The row').id, text: 'The row should say which agent.' }),
-    note('n3', { intent: 'question', text: 'A question stays with hobkin.' }),
+    note('n3', { intent: 'question', text: 'Why one turn and not two?' }),
+    note('n4', { intent: 'question', text: 'Asked of hobkin already.', sent: 3 }),
   ]
+  const where = (title: string) => `Step ${sample.story.indexOf(step(title)) + 1} of ${sample.story.length}, "${title}".`
 
+  // Comments alone go as they always have.
   assert.equal(
-    askForChanges(sample, notes, 'Please change these two things.'),
+    askForChanges(sample, notes.slice(0, 2), 'Please change these two things.'),
     [
       'Please change these two things.',
       '',
-      `1. Step ${sample.story.indexOf(step('The runtime keeps the word for one turn')) + 1} of ${sample.story.length}, "The runtime keeps the word for one turn". About send, code in src/cli/runtime.mjs.`,
+      `1. ${where('The runtime keeps the word for one turn')} About send, code in src/cli/runtime.mjs.`,
       '   Name the field after what it holds.',
       '',
-      `2. Step ${sample.story.indexOf(step('The row')) + 1} of ${sample.story.length}, "The row".`,
+      `2. ${where('The row')}`,
       '   The row should say which agent.',
     ].join('\n'),
   )
-  // With nothing to ask for, there is nothing to send.
-  assert.equal(askForChanges(sample, [notes[2]!], ''), null)
+  // With a question to discuss, each kind is named, and a question asked of hobkin already does not go again.
+  assert.equal(
+    askForChanges(sample, notes, ''),
+    [
+      'Comments: act on each one, or answer it when it asks something.',
+      '',
+      `1. ${where('The runtime keeps the word for one turn')} About send, code in src/cli/runtime.mjs.`,
+      '   Name the field after what it holds.',
+      '',
+      `2. ${where('The row')}`,
+      '   The row should say which agent.',
+      '',
+      'To discuss: answer these in words, and change no code for them.',
+      '',
+      `3. ${where('The runtime keeps the word for one turn')}`,
+      '   Why one turn and not two?',
+    ].join('\n'),
+  )
+  // A question alone is something to talk over too, and with nothing at all there is nothing to send.
+  assert.match(askForChanges(sample, [notes[2]!], '')!, /^To discuss: [\s\S]*Why one turn and not two\?$/)
+  assert.equal(askForChanges(sample, [notes[3]!], ''), null)
 })

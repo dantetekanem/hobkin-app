@@ -1670,7 +1670,7 @@ export class Reviews {
       return { review, card, preview: { verdict, lines: [card.yes, `${reviewedAt(at, this.status(id).carried)} A branch that moved since is refused.`], confirm: token(card.landing) } }
     }
     const note = askForChanges(review, notes, summary)
-    if (!note) throw new Unavailable('There is nothing to ask for yet. Write a comment, or say what to change.')
+    if (!note) throw new Unavailable('There is nothing to talk over yet. Write a comment, or a question to discuss with D.')
     return { review, card, preview: { verdict, lines: ["hobkin's agent goes back to this change with your notes:"], note, confirm: token(note) } }
   }
 
@@ -2126,13 +2126,17 @@ export class Reviews {
 
   /**
    * A verdict that went takes its comments with it: they are marked sent, so they are never sent twice. A pull request
-   * takes only the user's own, so hobkin's notes stay unsent.
+   * takes only the user's own, so hobkin's notes stay unsent. Talk to agent on a finished change takes the user's
+   * questions to discuss too.
    */
   private markSent(target: ReviewTarget, verdict: Verdict) {
     if ((verdict === 'approve' || verdict === 'approve-merge') && target.kind === 'change') return
     const saved = this.options.store.notes(target)
     const at = (this.options.now ?? Date.now)()
-    const took = (note: Note) => note.intent === 'comment' && note.sent == null && (target.kind === 'change' || note.author !== 'hobkin')
+    const discussed = target.kind === 'change' && verdict === 'request-changes'
+    const comment = (note: Note) => note.intent === 'comment' && (target.kind === 'change' || note.author !== 'hobkin')
+    const question = (note: Note) => discussed && note.intent === 'question' && note.author !== 'hobkin'
+    const took = (note: Note) => note.sent == null && (comment(note) || question(note))
     const entries = foldNotes(saved.entries as NoteEntry[]).map((note) => ({ op: 'put' as const, note: took(note) ? { ...note, sent: at } : note }))
     this.options.store.saveNotes(target, { entries, draft: saved.draft })
   }

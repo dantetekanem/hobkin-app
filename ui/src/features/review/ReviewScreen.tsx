@@ -429,9 +429,16 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
         verdict: (kind: Verdict) => {
           // A key held down only repeats: it never gives the second click that confirms.
           if (event.repeat) return
-          // The key is the click on its choice: the first shows what it will do, and a second press within ten seconds
-          // does it. The keyboard goes with it, which opens the panel.
-          const choice = steps?.querySelector<HTMLElement>(`[data-verdict="${kind}"]:not([disabled])`)
+          // The key is the click on its choice, in the panel or along the code view's line: the first shows what it will
+          // do, and a second press within ten seconds does it. The keyboard goes with it, which opens the panel.
+          const choice = element.querySelector<HTMLElement>(`[data-verdict="${kind}"]:not([disabled])`)
+          choice?.focus({ preventScroll: true })
+          choice?.click()
+        },
+        // X: Talk to agent, wherever the verdict shows it. A key held down only repeats.
+        talk: () => {
+          if (event.repeat) return
+          const choice = element.querySelector<HTMLElement>('[data-talk]:not([disabled])')
           choice?.focus({ preventScroll: true })
           choice?.click()
         },

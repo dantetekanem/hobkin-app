@@ -64,18 +64,37 @@ test('records the author', (t) => {
   )
 })
 
-test('ask for changes sends selected notes with their targets', async (t) => {
+test('talk to agent sends the comments and the questions to discuss with their targets, and marks both sent', async (t) => {
   const home = temporaryDirectory(t)
   reviewStore(home).write({ kind: 'change', slug: 'hobkin', item: '7d02c9' }, sample, files)
   const actions: unknown[][] = []
   const reviews = reviewsIn(home, actions)
-  reviews.saveNotes(ID, { entries: [note('n1', { text: 'Clear it where it is set.' }), note('n2', { intent: 'question', text: 'Only for hobkin.' })].map((entry) => ({ op: 'put', note: entry })), draft: null })
+  const notes = [note('n1', { text: 'Clear it where it is set.' }), note('n2', { intent: 'question', text: 'Why here and not in the loop?' })]
+  reviews.saveNotes(ID, { entries: notes.map((entry) => ({ op: 'put', note: entry })), draft: null })
 
   const preview = await reviews.preview(ID, 'request-changes', 'One thing.')
-  assert.equal(preview.note, ['One thing.', '', `1. Step ${sample.story.indexOf(step) + 1} of ${sample.story.length}, "${step.title}".`, '   Clear it where it is set.'].join('\n'))
+  const where = `Step ${sample.story.indexOf(step) + 1} of ${sample.story.length}, "${step.title}".`
+  assert.equal(
+    preview.note,
+    [
+      'One thing.',
+      '',
+      'Comments: act on each one, or answer it when it asks something.',
+      '',
+      `1. ${where}`,
+      '   Clear it where it is set.',
+      '',
+      'To discuss: answer these in words, and change no code for them.',
+      '',
+      `2. ${where}`,
+      '   Why here and not in the loop?',
+    ].join('\n'),
+  )
   await reviews.verdict(ID, 'request-changes', 'One thing.', preview.confirm)
 
   assert.deepEqual(actions, [['ask', 'hobkin', '7d02c9', preview.note]])
+  const sent = foldNotes(reviews.get(ID).notes.entries).map((entry) => [entry.id, typeof entry.sent])
+  assert.deepEqual(sent, [['n1', 'number'], ['n2', 'number']], 'neither is sent twice')
 })
 
 test('keeps a detached note', (t) => {

@@ -1,7 +1,8 @@
 /**
  * The verdict's foot, at the bottom of the review panel for every review (the user, 2026-11-24: "verdict should be fixed
- * in the bottom with my options"). Four places that never move from one review to the next: Approve, Approve and merge,
- * the third (Send fixes on a finished change, Comment on a pull request) and Remove. A choice that review cannot be given
+ * in the bottom with my options"), and in the code view's bottom line. Places that never move from one review of a kind
+ * to the next: on a finished change Approve, Approve and merge, Talk to agent and Remove; on a pull request Approve,
+ * Approve and merge, Publish comments, Request changes, Talk to agent and Remove. A choice that review cannot be given
  * keeps its place, off, with the reason. Remove is the review and the code: its first press does not act, it shows what
  * will go and offers two ways out (`removeChoices`). Pure, but for the one-confirm removal store.
  */
@@ -18,7 +19,7 @@ export interface FootSlot {
   offered: boolean
 }
 
-/** What the foot offers one review: three verdict places, the reason one of them is off, and how Remove goes. */
+/** What the foot offers one review: its verdict places, the reason one of them is off, and how Remove goes. */
 export interface Foot {
   slots: FootSlot[]
   /** Why a place is off, for the review that is someone else's pull request. */
@@ -37,7 +38,8 @@ export function footOf(id: string, owner?: PullOwner | null): Foot {
   const kind = verdictKind(id)
   const { choices, why } = verdictChoices(id, owner)
   const offered = new Set(choices.map((choice) => choice.verdict))
-  const slots = VERDICT_CHOICES[kind].slice(0, 3).map(({ verdict, label, keys }) => ({ verdict, label, ...(keys ? { keys } : {}), offered: offered.has(verdict) }))
+  const verdicts = VERDICT_CHOICES[kind].filter(({ verdict }) => verdict !== 'discard' && verdict !== 'discard-branch')
+  const slots = verdicts.map(({ verdict, label, keys }) => ({ verdict, label, ...(keys ? { keys } : {}), offered: offered.has(verdict) }))
   const own = kind === 'change' || owner?.mine === true
   return { slots, why, remove: own ? 'both' : 'review' }
 }

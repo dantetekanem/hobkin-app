@@ -3,7 +3,7 @@ import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { Note } from '#shared/review/notes.ts'
 import type { PullOwner, ReviewLanding, VerdictPreview } from '#shared/review/status.ts'
-import { usersComments, type Verdict } from '#shared/review/verdict.ts'
+import { questionsToDiscuss, usersComments, type Verdict } from '#shared/review/verdict.ts'
 
 type VerdictCommand = 'review.preview' | 'review.verdict' | 'review.remove'
 export type VerdictCommands = <Name extends VerdictCommand>(name: Name, args: CommandArgs<Name>) => Promise<CommandResults[Name]>
@@ -115,7 +115,7 @@ export function createVerdict({ id, head, command, saveNotes, current, done, fai
 
 /**
  * Whether a verdict takes the reviewer's comments with it, as the host marks them: every verdict but a finished change's
- * Approve and Approve and merge, which leave them for the fixes, and the two discards, which post no review.
+ * Approve and Approve and merge, which leave them for Talk to agent, and the two discards, which post no review.
  */
 export function sendsComments(id: string, verdict: Verdict): boolean {
   if (verdict === 'discard' || verdict === 'discard-branch') return false
@@ -123,12 +123,14 @@ export function sendsComments(id: string, verdict: Verdict): boolean {
 }
 
 /**
- * The comments not sent yet that a verdict on this review can take: on a pull request only the user's own, since
- * hobkin's notes never go there; on a finished change every comment, for the fixes.
+ * The notes not sent yet that a verdict on this review can take: on a pull request only the user's own comments, since
+ * hobkin's notes never go there and its questions are talked over with hobkin instead; on a finished change every
+ * comment and the user's questions to discuss, for Talk to agent.
  */
 export function verdictComments(id: string, notes: readonly Note[]): string[] {
-  const unsent = verdictKind(id) === 'pull' ? usersComments(notes) : notes.filter((note) => note.intent === 'comment' && note.sent == null)
-  return unsent.map((note) => note.id)
+  if (verdictKind(id) === 'pull') return usersComments(notes).map((note) => note.id)
+  const comments = notes.filter((note) => note.intent === 'comment' && note.sent == null)
+  return [...comments, ...questionsToDiscuss(notes)].map((note) => note.id)
 }
 
 /**
@@ -163,7 +165,8 @@ export const VERDICT_CHOICES: Record<'change' | 'pull', readonly VerdictChoice[]
   change: [
     { verdict: 'approve', label: 'Approve', doing: 'Opening its pull request…', keys: 'A' },
     { verdict: 'approve-merge', label: 'Approve and merge', doing: 'Merging…', keys: 'M' },
-    { verdict: 'request-changes', label: 'Send fixes', doing: 'Sending…', keys: 'X' },
+    // The comments and the questions to discuss go to the change's agent, as pi-coder's local review goes to its agent.
+    { verdict: 'request-changes', label: 'Talk to agent', doing: 'Sending…', keys: 'X' },
     // The no. It has no key of its own, so it is never one slip away: it is clicked, or walked to, and then confirmed.
     { verdict: 'discard', label: 'Remove', doing: 'Removing…' },
     // The no, and its branch deleted too. Last, and with no key either.
@@ -172,15 +175,16 @@ export const VERDICT_CHOICES: Record<'change' | 'pull', readonly VerdictChoice[]
   pull: [
     { verdict: 'approve', label: 'Approve', doing: 'Posting…', keys: 'A' },
     { verdict: 'approve-merge', label: 'Approve and merge', doing: 'Merging…', keys: 'M' },
-    // A pull request is only commented on or approved: the user does not send one back from here.
-    { verdict: 'comment', label: 'Comment', doing: 'Posting…' },
+    // The user's comments as one review on GitHub, their grammar checked by an agent first (`fixedPost`, as pi-coder's).
+    { verdict: 'comment', label: 'Publish comments', doing: 'Posting…' },
+    { verdict: 'request-changes', label: 'Request changes', doing: 'Posting…' },
     { verdict: 'discard', label: 'Remove', doing: 'Closing…' },
     { verdict: 'discard-branch', label: 'Remove and delete branch', doing: 'Deleting…' },
   ],
 }
 
-/** What someone else's pull request can get here: it is approved or commented on, and its author merges or closes it. */
-const THEIRS = new Set<Verdict>(['approve', 'comment'])
+/** What someone else's pull request can get here: an approval, comments or a request for changes. Its author merges or closes it. */
+const THEIRS = new Set<Verdict>(['approve', 'comment', 'request-changes'])
 
 /**
  * The choices a review offers, and why some are missing. A pull request that is not the user's, as its review recorded

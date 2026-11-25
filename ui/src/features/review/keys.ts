@@ -30,6 +30,11 @@ export interface KeyEffects {
   /** Shows what a verdict would do, ready for the reviewer's yes. */
   verdict(kind: Verdict): void
   /**
+   * X: Talk to agent, the host's verdict that takes the notes to a finished change's agent, or on a pull request the
+   * questions to discuss handed to hobkin. Missing where nothing shows it, and X then asks for the verdict itself.
+   */
+  talk?(): void
+  /**
    * T, and Shift+T when `shift`: opens the proof beside the review on the change's first model that needs a look, or
    * closes it; Shift+T opens the full page (053-work-control-room, `proof/beside.ts`).
    */
@@ -123,7 +128,7 @@ function panelKeys(session: Session, key: string, effects: KeyEffects): boolean 
     case 'h':
     case 'H':
       return session.startNote('question', { ask: true }), true
-    // The verdicts, each shown first and done only on a second press: A approves, M approves and merges, X sends the fixes.
+    // The verdicts, each shown first and done only on a second press: A approves, M approves and merges, X talks to the agent.
     case 'a':
     case 'A':
       return effects.verdict('approve'), true
@@ -132,7 +137,7 @@ function panelKeys(session: Session, key: string, effects: KeyEffects): boolean 
       return effects.verdict('approve-merge'), true
     case 'x':
     case 'X':
-      return effects.verdict('request-changes'), true
+      return effects.talk ? effects.talk() : effects.verdict('request-changes'), true
     // L for the outline at the left: every unit and file, the folded ones too (spec 053).
     case 'l':
     case 'L':

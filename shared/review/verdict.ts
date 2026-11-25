@@ -84,17 +84,36 @@ export function pullReviewPost(review: Review, notes: readonly Note[], verdict: 
   return { event: EVENT[verdict], commit_id: review.change.head, ...(body ? { body } : {}), comments: lines }
 }
 
+/** The user's questions not asked yet: what "Talk to agent" takes to discuss, as pi-coder's DISCUSS items. */
+export const questionsToDiscuss = (notes: readonly Note[]) => notes.filter((note) => note.intent === 'question' && note.author !== 'hobkin' && note.sent == null)
+
+const COMMENTS_HEADING = 'Comments: act on each one, or answer it when it asks something.'
+const DISCUSS_HEADING = 'To discuss: answer these in words, and change no code for them.'
+
 /**
- * hobkin's "ask for changes" note: the reviewer's words, then each comment with its step and target written out, so
- * the work agent can act without the graph. Null when there is nothing to ask for.
+ * What "Talk to agent" gives a finished change's agent: the reviewer's words, then each comment, then each question to
+ * discuss, with its step and target written out, so the work agent can act without the graph. With questions, each
+ * kind is named, as pi-coder names its COMMENT and DISCUSS items; comments alone go as they always have. The items are
+ * numbered through, so the agent can answer one by its number. Null when there is nothing to send.
  */
 export function askForChanges(review: Review, notes: readonly Note[], summary: string): string | null {
   const asked = inStoryOrder(review, comments(notes))
+  const discussed = inStoryOrder(review, questionsToDiscuss(notes))
   const said = summary.trim()
-  if (asked.length === 0 && !said) return null
+  if (asked.length === 0 && discussed.length === 0 && !said) return null
+
   const parts = said ? [said] : []
-  asked.forEach((note, index) => {
-    parts.push('', `${index + 1}. ${whereInWords(review, note)}`, ...note.text.split('\n').map((line) => `   ${line}`))
-  })
+  let number = 0
+  const list = (items: readonly Note[]) => {
+    for (const note of items) {
+      number += 1
+      parts.push('', `${number}. ${whereInWords(review, note)}`, ...note.text.split('\n').map((line) => `   ${line}`))
+    }
+  }
+  const named = discussed.length > 0
+  if (named && asked.length > 0) parts.push(...(said ? [''] : []), COMMENTS_HEADING)
+  list(asked)
+  if (named) parts.push(...(parts.length > 0 ? [''] : []), DISCUSS_HEADING)
+  list(discussed)
   return parts.join('\n').replace(/^\n/, '')
 }

@@ -3,7 +3,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { useStore } from 'zustand'
 import type { ReviewLanding, ReviewStatus, VerdictPreview } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
-import type { Verdict } from '#shared/review/verdict.ts'
+import { discussionMessage } from '#shared/review/notes.ts'
+import { questionsToDiscuss, type Verdict } from '#shared/review/verdict.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
 import { dayLabel, timeOf } from '@/features/reports/time.ts'
 import { Button } from '@/components/ui/button.tsx'
@@ -43,9 +44,11 @@ function mergedWords({ into, sha, at }: ReviewLanding): string {
 }
 
 /**
- * The verdict, fixed at the foot of the review panel and confirmed in place (`footOf`). Four choices in four places that
- * never move: Approve, Approve and merge, the third (Send fixes, or Comment on a pull request) and Remove. Each is the
- * host's own verdict, for the commit of the review on screen. The first click asks the host what it will do: the same
+ * The verdict, fixed at the foot of the review panel, or along the code view's bottom line (`layout: 'line'`), and
+ * confirmed in place (`footOf`). Choices in places that never move: Approve, Approve and merge, Talk to agent and
+ * Remove, and on a pull request Publish comments and Request changes too. Each but a pull request's Talk to agent is the
+ * host's own verdict, for the commit of the review on screen. That one hands the questions to discuss to hobkin in one
+ * message, at once, as a question to hobkin goes: nothing is posted. The first click asks the host what it will do: the same
  * button then reads "Click again to confirm", with what will happen under the choices, and a second click within ten
  * seconds does it. Approve and merge of a finished change whose branch moved since the review reads "Merge it as it is
  * now". After ten seconds, on Escape, or when the keyboard leaves the foot, it goes back. A key held down never gives
@@ -61,7 +64,9 @@ function mergedWords({ into, sha, at }: ReviewLanding): string {
  * Nothing moves on the way (the user, 2026-11-12: "approve and merge is doing a weird jump"): the choices keep their
  * size and place whatever they say, and what the foot says keeps its height, scrolling what does not fit.
  */
-export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, status }: {
+export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, status, layout = 'panel' }: {
+  /** In the panel's foot, a grid with what it says under it; along the code view's bottom line, a row with what it says over it. */
+  layout?: 'panel' | 'line'
   review: Review
   notes: readonly Note[]
   live: boolean
@@ -99,6 +104,21 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
   onAsk.current = ask
   // Remove was pressed and the foot is showing what goes.
   const [removing, setRemoving] = useState(false)
+  // A pull request's Talk to agent: its questions to discuss go to hobkin as one message, and are marked asked once it has them.
+  const questions = kind === 'pull' ? questionsToDiscuss(notes) : []
+  const [talking, setTalking] = useState(false)
+  const talk = async () => {
+    const message = discussionMessage(review, questions)
+    if (!ask || !message || talking) return
+    setTalking(true)
+    try {
+      if (await ask(message)) {
+        reviewMemory.getState().markSent(review, questions.map((note) => note.id), Date.now())
+      }
+    } finally {
+      setTalking(false)
+    }
+  }
 
   const choices = useMemo(
     () =>
@@ -212,11 +232,121 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
   // Under the choices, the foot has a box only while it has something to say.
   const says = Boolean(landing) || flow.busy || flow.error != null || flow.preview != null || flow.message != null || !live
 
+  const line = layout === 'line'
+  const choiceClass = line
+    ? 'rv-verdict relative h-8 shrink-0 justify-between gap-2 overflow-hidden rounded-full px-3 text-[13px] font-semibold'
+    : 'rv-verdict relative h-9 w-full justify-between overflow-hidden rounded-full px-3 text-[14px] font-semibold'
+  // Along the line, what the foot says shows over the choices only while it has something to say: never the sample's standing note.
+  const speaks = removeShown || Boolean(landing) || flow.busy || flow.error != null || flow.preview != null || flow.message != null
+  const saidBox = (
+    <div
+      ref={box}
+      role="status"
+      tabIndex={-1}
+      className={cn('rv-scroll min-h-0 flex-1 overflow-y-auto rounded-xl px-3 py-2.5 text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] outline-none', says && 'bg-background')}
+    >
+      <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} unseen={unseen} why={foot.why} />
+    </div>
+  )
+  const said = removeShown ? (
+    <RemoveSaid ways={foot.remove} choices={choosable} flow={flow} removal={removalFlow} lines={flow.preview?.verdict === 'discard-branch' ? flow.preview.lines : null} buttons={buttons} onChoose={choose} />
+  ) : (
+    saidBox
+  )
+
+  const choicesRow = (
+    <>
+      {foot.slots.map((choice) => {
+        const waitingHere = armed === choice.verdict
+        const working = flow.busy && (doing.current === choice.verdict || asking.current === choice.verdict)
+        const primary = choice.verdict === PRIMARY
+        const secondClick = choice.verdict === 'approve-merge' && moved ? 'Merge it as it is now' : 'Click again to confirm'
+        const label = VERDICT_CHOICES[kind].find((entry) => entry.verdict === choice.verdict)
+        // X presses Talk to agent: on a finished change, the host's verdict that takes the notes to its agent.
+        const talks = kind === 'change' && choice.verdict === 'request-changes'
+        return (
+          <Button
+            key={choice.verdict}
+            ref={(element) => {
+              if (element) buttons.current.set(choice.verdict, element)
+              else buttons.current.delete(choice.verdict)
+            }}
+            data-stop
+            data-verdict={choice.verdict}
+            data-talk={talks ? '' : undefined}
+            data-armed={waitingHere}
+            aria-pressed={waitingHere}
+            title={choice.offered ? undefined : (foot.why ?? undefined)}
+            variant={primary ? 'default' : 'outline'}
+            className={choiceClass}
+            // Not disabled while the host works: a focused button that is disabled drops the keyboard out of the review.
+            // A click then does nothing. A change that lands is past choosing, and some choices are not this review's to give.
+            disabled={off || !choice.offered || (needsComment(choice.verdict) && comments === 0)}
+            // A stopped key presses nothing: Enter held from the first click, or Space held while it was clicked, does not confirm.
+            onKeyDown={(event) => {
+              if (heldDown(event)) event.preventDefault()
+            }}
+            onClick={() => void press(choice.verdict)}
+          >
+            {waitingHere ? (
+              <>
+                <span className="truncate">{secondClick}</span>
+                <span className="rv-confirm-time" aria-hidden="true" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
+              </>
+            ) : working ? (
+              <span className="truncate">{doing.current === choice.verdict ? label?.doing : 'Checking…'}</span>
+            ) : (
+              <>
+                <span className="truncate">
+                  {choice.label}
+                  {needsComment(choice.verdict) ? <span className="ml-1.5 tabular-nums">{comments}</span> : null}
+                </span>
+                {choice.keys ? <Kbd className={primary ? 'bg-primary-foreground/15 text-primary-foreground' : undefined}>{choice.keys}</Kbd> : null}
+              </>
+            )}
+          </Button>
+        )
+      })}
+      {kind === 'pull' ? (
+        <Button
+          data-stop
+          data-talk
+          variant="outline"
+          className={choiceClass}
+          title={ask ? 'Your questions to discuss go to hobkin in one message. Your comments stay for the pull request.' : 'Hobkin is not connected here.'}
+          // Not disabled while it sends, so the keyboard stays: a second press while it sends does nothing.
+          disabled={off || !ask || questions.length === 0}
+          onClick={() => void talk()}
+        >
+          <span className="truncate">
+            {talking ? 'Sending…' : 'Talk to agent'}
+            {talking ? null : <span className="ml-1.5 tabular-nums">{questions.length}</span>}
+          </span>
+          <Kbd>X</Kbd>
+        </Button>
+      ) : null}
+      {/* Remove, last: the review and the code. It reads apart from the yeses, in the color of what cannot be taken back. */}
+      <Button
+        data-stop
+        data-remove
+        data-armed={removeShown}
+        aria-pressed={removeShown}
+        variant="outline"
+        className={cn(choiceClass, 'text-destructive hover:text-destructive')}
+        disabled={off}
+        onClick={pressRemove}
+      >
+        <span className="truncate">Remove</span>
+        {removeShown ? <span className="rv-confirm-time" aria-hidden="true" style={{ animationDuration: `${CONFIRM_MS}ms` }} /> : null}
+      </Button>
+    </>
+  )
+
   return (
     <section
       ref={section}
       aria-label="Verdict"
-      className="flex flex-col gap-2"
+      className={line ? 'relative flex min-w-0 items-center gap-1.5' : 'flex flex-col gap-2'}
       // Escape steps back from the second click before it reaches the review, which would close.
       onKeyDownCapture={(event) => {
         if (event.key !== 'Escape' || doing.current || !(waiting || flow.busy)) return
@@ -229,95 +359,38 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
         removal.cancel()
       }}
     >
-      {/* The choices' place, a grid of four that never changes. Once the change merged, where it landed is told in it, at its size. */}
-      <div className="grid">
-        <div className={cn('col-start-1 row-start-1 grid grid-cols-[5fr_7fr] gap-1.5', merged && 'invisible')} inert={merged}>
-          {foot.slots.map((choice) => {
-            const waitingHere = armed === choice.verdict
-            const working = flow.busy && (doing.current === choice.verdict || asking.current === choice.verdict)
-            const primary = choice.verdict === PRIMARY
-            const secondClick = choice.verdict === 'approve-merge' && moved ? 'Merge it as it is now' : 'Click again to confirm'
-            const label = VERDICT_CHOICES[kind].find((entry) => entry.verdict === choice.verdict)
-            return (
-              <Button
-                key={choice.verdict}
-                ref={(element) => {
-                  if (element) buttons.current.set(choice.verdict, element)
-                  else buttons.current.delete(choice.verdict)
-                }}
-                data-stop
-                data-verdict={choice.verdict}
-                data-armed={waitingHere}
-                aria-pressed={waitingHere}
-                title={choice.offered ? undefined : (foot.why ?? undefined)}
-                variant={primary ? 'default' : 'outline'}
-                className="rv-verdict relative h-9 w-full justify-between overflow-hidden rounded-full px-3 text-[14px] font-semibold"
-                // Not disabled while the host works: a focused button that is disabled drops the keyboard out of the review.
-                // A click then does nothing. A change that lands is past choosing, and some choices are not this review's to give.
-                disabled={off || !choice.offered || (needsComment(choice.verdict) && comments === 0)}
-                // A stopped key presses nothing: Enter held from the first click, or Space held while it was clicked, does not confirm.
-                onKeyDown={(event) => {
-                  if (heldDown(event)) event.preventDefault()
-                }}
-                onClick={() => void press(choice.verdict)}
-              >
-                {waitingHere ? (
-                  <>
-                    <span className="truncate">{secondClick}</span>
-                    <span className="rv-confirm-time" aria-hidden="true" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
-                  </>
-                ) : working ? (
-                  <span className="truncate">{doing.current === choice.verdict ? label?.doing : 'Checking…'}</span>
-                ) : (
-                  <>
-                    <span className="truncate">
-                      {choice.label}
-                      {needsComment(choice.verdict) ? <span className="ml-1.5 tabular-nums">{comments}</span> : null}
-                    </span>
-                    {choice.keys ? <Kbd className={primary ? 'bg-primary-foreground/15 text-primary-foreground' : undefined}>{choice.keys}</Kbd> : null}
-                  </>
-                )}
-              </Button>
-            )
-          })}
-          {/* Remove, in the fourth place: the review and the code. It reads apart from the yeses, in the color of what cannot be taken back. */}
-          <Button
-            data-stop
-            data-remove
-            data-armed={removeShown}
-            aria-pressed={removeShown}
-            variant="outline"
-            className="rv-verdict relative h-9 w-full justify-between overflow-hidden rounded-full px-3 text-[14px] font-semibold text-destructive hover:text-destructive"
-            disabled={off}
-            onClick={pressRemove}
-          >
-            <span className="truncate">Remove</span>
-            {removeShown ? <span className="rv-confirm-time" aria-hidden="true" style={{ animationDuration: `${CONFIRM_MS}ms` }} /> : null}
-          </Button>
-        </div>
-        {merged ? (
-          <p className="col-start-1 row-start-1 flex items-center gap-2 self-center px-1 font-heading text-[15px] leading-snug font-semibold text-pretty">
-            <CircleCheck aria-hidden="true" className="size-[18px] shrink-0 text-ok-fg" />
-            <span>{mergedWords(landing)}</span>
-          </p>
-        ) : null}
-      </div>
-
-      {/* What the foot says, in a place of its own size. Focusable, so a click into it to scroll keeps the keyboard with the verdict and takes nothing back. */}
-      <div className={cn(SLOT, 'flex min-h-0 flex-col gap-1.5')}>
-        {removeShown ? (
-          <RemoveSaid ways={foot.remove} choices={choosable} flow={flow} removal={removalFlow} lines={flow.preview?.verdict === 'discard-branch' ? flow.preview.lines : null} buttons={buttons} onChoose={choose} />
-        ) : (
-          <div
-            ref={box}
-            role="status"
-            tabIndex={-1}
-            className={cn('rv-scroll min-h-0 flex-1 overflow-y-auto rounded-xl px-3 py-2.5 text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] outline-none', says && 'bg-background')}
-          >
-            <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} unseen={unseen} why={foot.why} />
+      {line ? (
+        <>
+          {merged ? (
+            <p className="flex items-center gap-2 font-heading text-[13px] font-semibold whitespace-nowrap">
+              <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-ok-fg" />
+              <span>{mergedWords(landing)}</span>
+            </p>
+          ) : (
+            choicesRow
+          )}
+          {/* What it says, over the line: the one thing that may lie over the code, and only while it speaks. */}
+          {speaks ? <div className="absolute right-0 bottom-full z-30 mb-2 flex max-h-[260px] w-[min(420px,calc(100vw-2rem))] flex-col rounded-2xl bg-popover p-1.5 text-popover-foreground shadow-float">{said}</div> : null}
+        </>
+      ) : (
+        <>
+          {/* The choices' place, a grid that never changes for a kind of review. Once the change merged, where it landed is told in it, at its size. */}
+          <div className="grid">
+            <div className={cn('col-start-1 row-start-1 grid grid-cols-[5fr_7fr] gap-1.5', merged && 'invisible')} inert={merged}>
+              {choicesRow}
+            </div>
+            {merged ? (
+              <p className="col-start-1 row-start-1 flex items-center gap-2 self-center px-1 font-heading text-[15px] leading-snug font-semibold text-pretty">
+                <CircleCheck aria-hidden="true" className="size-[18px] shrink-0 text-ok-fg" />
+                <span>{mergedWords(landing)}</span>
+              </p>
+            ) : null}
           </div>
-        )}
-      </div>
+
+          {/* What the foot says, in a place of its own size. Focusable, so a click into it to scroll keeps the keyboard with the verdict and takes nothing back. */}
+          <div className={cn(SLOT, 'flex min-h-0 flex-col gap-1.5')}>{said}</div>
+        </>
+      )}
     </section>
   )
 }

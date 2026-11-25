@@ -65,8 +65,8 @@ test("approve and approve-and-merge reach the host's verdict", async () => {
   assert.match(moved.choices.getState().error ?? '', /changed since it was shown/)
 })
 
-test("Send fixes and a pull request's own choices are the host's verdict too, shown before they go", async () => {
-  const choices: [string, Verdict][] = [[CHANGE, 'request-changes'], [PULL, 'approve'], [PULL, 'comment']]
+test("Talk to agent on a change, and a pull request's Approve, Publish comments and Request changes, are the host's verdict too, shown before they go", async () => {
+  const choices: [string, Verdict][] = [[CHANGE, 'request-changes'], [PULL, 'approve'], [PULL, 'comment'], [PULL, 'request-changes']]
   for (const [id, verdict] of choices) {
     const panelFor = panel(id, host)
     await panelFor.choices.choose(verdict)
@@ -208,19 +208,20 @@ test('a verdict is confirmed in place: the first click shows what it does, a sec
   assert.equal(landed.length, 1)
 })
 
-test('a pull request is approved, approved and merged, or commented on, never sent back; a finished change approved, merged or sent its fixes', () => {
-  assert.deepEqual(VERDICT_CHOICES.pull.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'comment', 'discard', 'discard-branch'])
+test('a pull request is approved, approved and merged, commented on or asked for changes; a finished change approved, merged or talked over with its agent', () => {
+  assert.deepEqual(VERDICT_CHOICES.pull.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'comment', 'request-changes', 'discard', 'discard-branch'])
   assert.deepEqual(VERDICT_CHOICES.change.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'request-changes', 'discard', 'discard-branch'])
-  // Its key is the click on it: A and M, wherever the reviewer is in the review. Comment and the two discards have none.
-  assert.deepEqual(VERDICT_CHOICES.pull.map(({ keys }) => keys ?? null), ['A', 'M', null, null, null])
+  // Its key is the click on it: A and M, wherever the reviewer is in the review. What posts for everyone to read, and the two discards, have none.
+  assert.deepEqual(VERDICT_CHOICES.pull.map(({ keys }) => keys ?? null), ['A', 'M', null, null, null, null])
+  assert.deepEqual(VERDICT_CHOICES.change.map(({ label }) => label), ['Approve', 'Approve and merge', 'Talk to agent', 'Remove', 'Remove and delete branch'])
   assert.deepEqual([verdictKind(PULL), verdictKind(CHANGE)], ['pull', 'change'])
 })
 
-test("on someone else's pull request only Approve and Comment are offered, with why; on the user's own every choice", () => {
+test("on someone else's pull request Approve, Publish comments and Request changes are offered, with why; on the user's own every choice", () => {
   const verdicts = (id: string, owner?: { author: string | null; mine: boolean }) => verdictChoices(id, owner).choices.map(({ verdict }) => verdict)
-  assert.deepEqual(verdicts(PULL, { author: 'dev', mine: true }), ['approve', 'approve-merge', 'comment', 'discard', 'discard-branch'])
-  assert.deepEqual(verdicts(PULL, { author: 'dev', mine: false }), ['approve', 'comment'])
-  assert.deepEqual(verdicts(PULL), ['approve', 'comment'], 'a review from before it was recorded reads as someone else’s')
+  assert.deepEqual(verdicts(PULL, { author: 'dev', mine: true }), ['approve', 'approve-merge', 'comment', 'request-changes', 'discard', 'discard-branch'])
+  assert.deepEqual(verdicts(PULL, { author: 'dev', mine: false }), ['approve', 'comment', 'request-changes'])
+  assert.deepEqual(verdicts(PULL), ['approve', 'comment', 'request-changes'], 'a review from before it was recorded reads as someone else’s')
   assert.equal(verdictChoices(PULL, { author: 'dev', mine: false }).why, 'This pull request is by dev: merging or closing it is left to them.')
   assert.equal(verdictChoices(PULL).why, 'Merging or closing this pull request is left to its author.')
   assert.equal(verdictChoices(PULL, { author: 'dev', mine: true }).why, null)
@@ -228,7 +229,7 @@ test("on someone else's pull request only Approve and Comment are offered, with 
   assert.equal(verdictChoices(CHANGE).why, null)
 })
 
-test("a pull request's verdict takes only the user's own comments, and a finished change's fixes take hobkin's too", () => {
+test("a pull request's verdict takes only the user's own comments; a finished change's Talk to agent takes hobkin's comments and the user's questions too", () => {
   const base = { step: 's1', target: { kind: 'step' as const }, at: 1 }
   const notes = [
     { ...base, id: 'mine', intent: 'comment' as const, author: 'user' as const, text: 'Mine.' },
@@ -237,7 +238,7 @@ test("a pull request's verdict takes only the user's own comments, and a finishe
     { ...base, id: 'gone', intent: 'comment' as const, author: 'user' as const, text: 'Sent.', sent: 5 },
   ]
   assert.deepEqual(verdictComments(PULL, notes), ['mine'])
-  assert.deepEqual(verdictComments(CHANGE, notes), ['mine', 'hobkins'])
+  assert.deepEqual(verdictComments(CHANGE, notes), ['mine', 'hobkins', 'asked'])
 })
 
 test('Remove comes after every yes for a finished change and for a pull request, shown before it goes, and takes no comments with it', async () => {

@@ -93,7 +93,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
     keys: [
       [['A'], 'Approve a hobkin change: shows how its pull request opens, and how many nodes that need you are not seen. Press again within ten seconds to open it'],
       [['M'], 'Approve and merge a hobkin change: shows how it lands. Press again within ten seconds to land it'],
-      [['X'], "Send the fixes to hobkin's agent, or request changes on a pull request: shows what goes. Press again within ten seconds to send it"],
+      [['X'], "Talk to agent. On a hobkin change your comments and questions to discuss go to its agent: shows what goes, and again within ten seconds sends it. On a pull request your questions to discuss go to Hobkin at once"],
     ],
   },
   {

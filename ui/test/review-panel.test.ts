@@ -24,7 +24,7 @@ test("a note hobkin left on the host joins the window's notes, unless the window
   assert.equal(mergeHostNotes(merged, host), merged, 'nothing new leaves the log as it is')
 })
 
-test('A approves, M approves and merges, and X sends the fixes', () => {
+test('A approves, M approves and merges, and X talks to the agent', () => {
   const session = createSession(sample, createReviewMemory(memoryStorage()))
   const asked: string[] = []
   for (const key of ['a', 'M', 'x']) {
@@ -52,6 +52,15 @@ test("N and C start a comment, D a question to discuss with the agent, and H a q
     assert.deepEqual(session.getState().editor, editor, key)
     assert.equal(memory.getState().of(sample).draft?.intent, intent, key)
   }
+})
+
+test('X presses Talk to agent, and asks for the verdict itself where nothing shows Talk to agent', () => {
+  const session = createSession(sample, createReviewMemory(memoryStorage()))
+  const said: string[] = []
+  const verdict = (kind: string) => void said.push(`verdict ${kind}`)
+  assert.equal(pressKey(session.getState(), { key: 'x', shift: false, alt: false }, { ...effects, verdict, talk: () => void said.push('talk') }), true)
+  assert.equal(pressKey(session.getState(), { key: 'X', shift: false, alt: false }, { ...effects, verdict }), true)
+  assert.deepEqual(said, ['talk', 'verdict request-changes'])
 })
 
 test("in the review's input Enter sends, Shift with Enter starts a line, and Escape gives the keyboard back to the review", () => {

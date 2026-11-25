@@ -5,12 +5,23 @@ import { createReviewRemoval, footOf, removeChoices } from '../src/features/revi
 const CHANGE = 'change:hobkin:7d02c9'
 const PULL = 'pr:acme/shop/482'
 
-test('the foot has the same four places for every review: the three verdicts in a fixed order, then Remove', () => {
+test('the foot has the same places for every review of a kind: its verdicts in a fixed order, then Remove', () => {
   const places = (id: string, owner?: { author: string | null; mine: boolean }) => footOf(id, owner).slots.map(({ verdict, label, keys, offered }) => [verdict, label, keys ?? null, offered])
-  assert.deepEqual(places(CHANGE), [['approve', 'Approve', 'A', true], ['approve-merge', 'Approve and merge', 'M', true], ['request-changes', 'Send fixes', 'X', true]])
-  assert.deepEqual(places(PULL, { author: 'me', mine: true }), [['approve', 'Approve', 'A', true], ['approve-merge', 'Approve and merge', 'M', true], ['comment', 'Comment', null, true]])
+  assert.deepEqual(places(CHANGE), [['approve', 'Approve', 'A', true], ['approve-merge', 'Approve and merge', 'M', true], ['request-changes', 'Talk to agent', 'X', true]])
+  // A pull request publishes the comments or requests changes on GitHub; Talk to agent there is the window's own (`Actions`).
+  assert.deepEqual(places(PULL, { author: 'me', mine: true }), [
+    ['approve', 'Approve', 'A', true],
+    ['approve-merge', 'Approve and merge', 'M', true],
+    ['comment', 'Publish comments', null, true],
+    ['request-changes', 'Request changes', null, true],
+  ])
   // Someone else's pull request keeps Approve and merge in its place, off, and says why.
-  assert.deepEqual(places(PULL, { author: 'dev', mine: false }), [['approve', 'Approve', 'A', true], ['approve-merge', 'Approve and merge', 'M', false], ['comment', 'Comment', null, true]])
+  assert.deepEqual(places(PULL, { author: 'dev', mine: false }), [
+    ['approve', 'Approve', 'A', true],
+    ['approve-merge', 'Approve and merge', 'M', false],
+    ['comment', 'Publish comments', null, true],
+    ['request-changes', 'Request changes', null, true],
+  ])
   assert.equal(footOf(PULL, { author: 'dev', mine: false }).why, 'This pull request is by dev: merging or closing it is left to them.')
   assert.equal(footOf(CHANGE).why, null)
 })
