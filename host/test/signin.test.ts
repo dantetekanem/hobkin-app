@@ -141,10 +141,13 @@ test('no credential field reaches the socket or the log', async (t) => {
   // sends it back with startup.force so a force reaches only the startup it saw. Its token is a nonce the host draws for
   // each startup, not a credential: it travels only on the socket, which opens only with the host's own token, and it
   // lets that socket do nothing it could not do already. The field rule reads the wire without it.
-  const startupTarget = (value: unknown): value is { token: string } => Boolean(value && typeof value === 'object' && 'epoch' in value && 'sessionId' in value && 'token' in value)
-  const wireFields = pi.client.received
-    .map((message) => JSON.stringify(message, (key, value: unknown) => (key === 'target' && startupTarget(value) ? { ...value, token: undefined } : value)))
-    .join('\n')
+  const isStartupTarget = (value: unknown): value is { token: string } =>
+    typeof value === 'object' && value !== null && 'epoch' in value && 'sessionId' in value && 'token' in value
+  const withoutStartupToken = (key: string, value: unknown) => {
+    if (key !== 'target' || !isStartupTarget(value)) return value
+    return { ...value, token: undefined }
+  }
+  const wireFields = pi.client.received.map((message) => JSON.stringify(message, withoutStartupToken)).join('\n')
   const logged = pi.log.join('\n')
   assert.ok(wire.length > 1000 && pi.client.received.some((message) => message.type === 'state' && message.signIn))
   for (const [where, text, fields] of [['a message to the UI', wire, wireFields], ['the log', logged, logged]] as const) {
