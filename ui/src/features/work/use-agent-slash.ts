@@ -37,20 +37,22 @@ export function useAgentSlash({ agent, text, setText, open, onRun }: AgentSlashO
   const state = kept.text === text ? kept.state : closedSlash
   const list = open ? slashList(text, commands, state) : null
 
+  // `who` names the agent, so a new object for the same one asks nothing.
   const who = agent && ('run' in agent ? `run:${agent.run}` : `hobkin:${agent.hobkin}`)
   const typing = text.startsWith('/')
   useEffect(() => {
     if (!agent || !open) return
     let current = true
     runCommand('slash.list', agent).then(
-      ({ commands: listed }) => current && setPi(listed),
+      ({ commands: listed }) => {
+        if (current) setPi(listed)
+      },
       // Without the list a slash is the start of a message, as before the agent's session could be asked.
       () => {},
     )
     return () => {
       current = false
     }
-    // `who` names the agent, so a new object for the same one asks nothing.
   }, [who, open, typing, ran])
 
   const apply = (result: AgentSlashKeyResult) => {
@@ -62,12 +64,19 @@ export function useAgentSlash({ agent, text, setText, open, onRun }: AgentSlashO
   /** The list's keys come first while it is open. True when the key was the list's. */
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
     if (!list || event.nativeEvent.isComposing) return false
+
     const plain = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
-    const result = plain && LIST_KEYS.includes(event.key) ? agentSlashKey({ text, commands, state }, event.key as SlashKey) : null
+    const listKey = plain && LIST_KEYS.includes(event.key)
+    const result = listKey ? agentSlashKey({ text, commands, state }, event.key as SlashKey) : null
+    if (result) {
+      event.preventDefault()
+      apply(result)
+      return true
+    }
+
     // The frame leaves Tab to an open list, so with nothing to complete it must not walk the keyboard out of the box.
-    if (!result && event.key !== 'Tab') return false
+    if (event.key !== 'Tab') return false
     event.preventDefault()
-    if (result) apply(result)
     return true
   }
 
@@ -144,7 +153,11 @@ export function usePageSlash({ agentId, agent, text, setText, open, setProblem, 
   const run = (asked: AgentSlashRun) => {
     setProblem(null)
     setSaid(null)
-    if (asked.kind === 'pi') return void runPi(asked.name, asked.args)
+    if (asked.kind === 'pi') {
+      void runPi(asked.name, asked.args)
+      return
+    }
+
     // The agent as it is now: one on Claude Code, or a run that waits for its time, says why it keeps its model.
     const found = findAgent(agentId)
     const offer = found ? changeTarget(found) : { why: 'It has left the list, so it has no model to change.' }

@@ -75,13 +75,20 @@ interface AgentSessions {
   }
 }
 
+/** A command's one line: the first line of what Pi says it does, or plain words when it says nothing. */
+function firstLine(description: unknown): string {
+  if (typeof description !== 'string' || !description.trim()) return 'a Pi command'
+  const [line = ''] = description.trim().split('\n', 1)
+  return line.slice(0, 120)
+}
+
 /** Pi's listing as the input shows it: each with its slash and its first line. */
 function offered(listed: readonly PiCommand[]): Offered[] {
   return listed
     .filter(({ name }) => typeof name === 'string' && name.length > 0)
     .map(({ name, description, source }) => ({
       name: `/${String(name)}`,
-      description: typeof description === 'string' && description.trim() ? description.trim().split('\n', 1)[0]!.slice(0, 120) : 'a Pi command',
+      description: firstLine(description),
       extension: source === 'extension',
     }))
 }
@@ -116,8 +123,11 @@ async function agentCommands(app: AgentSessions | null, agent: SlashAgent): Prom
 }
 
 /** The agent a command's arguments name, or none for the main chat's. */
-export const slashAgent = ({ run, hobkin }: { run?: string; hobkin?: string }): SlashAgent | undefined =>
-  run !== undefined ? { run } : hobkin !== undefined ? { hobkin } : undefined
+export function slashAgent({ run, hobkin }: { run?: string; hobkin?: string }): SlashAgent | undefined {
+  if (run !== undefined) return { run }
+  if (hobkin !== undefined) return { hobkin }
+  return undefined
+}
 
 export interface SlashOptions {
   /** The home the counts are kept in. */
@@ -172,20 +182,16 @@ export class SlashCommands {
    */
   async list(app: HobkinApplication | null, agent?: SlashAgent): Promise<SlashCommand[]> {
     if (agent) return this.piRows(await agentCommands(app as AgentSessions | null, agent))
+
     const own = HOBKIN_COMMANDS.map(([name, description]): SlashCommand => ({ name, description, source: 'hobkin', count: this.counts[name] ?? 0 }))
-    const pi = this.piRows(await piCommands(app?.runtime.main as CommandSource | undefined), new Set(own.map(({ name }) => name)))
+    const taken = new Set(own.map(({ name }) => name))
+    const pi = this.piRows(await piCommands(app?.runtime.main as CommandSource | undefined), taken)
     return [...own, ...pi]
   }
 
   /** Runs a command the way the terminal app does, in the main chat or in an agent's own session, and counts it once it ran. */
   async run(app: HobkinApplication, name: string, args: string, agent?: SlashAgent): Promise<SlashOutcome> {
-    if (agent) {
-      const command = (await agentCommands(app as unknown as AgentSessions, agent)).find((listed) => listed.name === name)
-      if (!command) throw Error(`There is no command ${name}.`)
-      const outcome = await this.runForAgent(app as unknown as AgentSessions, agent, command, args)
-      this.count(name)
-      return outcome
-    }
+    if (agent) return this.runForAgent(app as unknown as AgentSessions, agent, name, args)
 
     const command = (await this.list(app)).find((listed) => listed.name === name)
     if (!command) throw Error(`There is no command ${name}.`)
@@ -197,34 +203,49 @@ export class SlashCommands {
 
   /**
    * An agent's command goes to its session as typed, without a note's mark ahead of it, so Pi runs it there as the
-   * terminal would: an extension command runs, and a template or skill becomes the message it expands to. A working
-   * run hears it through `message_check`; a durable hobkin as its own words, which start its next turn while it waits.
-   * Its process is gone between turns, so an extension command waits for a turn to run in.
+   * terminal would: an extension command runs, and a template or skill becomes the message it expands to.
    */
-  private async runForAgent(app: AgentSessions, agent: SlashAgent, command: Offered, args: string): Promise<SlashOutcome> {
-    const text = args ? `${command.name} ${args}` : command.name
-    const ran = { said: `Ran ${command.name}.` }
-    if ('hobkin' in agent) {
-      const hobkins = app.hobkins!
-      try {
-        if (command.extension && (await hobkins.read(agent.hobkin)).hobkin.state !== 'working') throw new Unavailable(`It runs ${command.name} only while it works.`)
-        const said = await hobkins.say(agent.hobkin, { text })
-        return command.extension ? ran : { sent: { run: said.run, started: said.started } }
-      } catch (error) {
-        // hobkin's refusals are plain sentences, told as the command's reason.
-        throw error instanceof Unavailable || !(error instanceof Error) ? error : new Unavailable(error.message)
-      }
-    }
+  private async runForAgent(app: AgentSessions, agent: SlashAgent, name: string, args: string): Promise<SlashOutcome> {
+    const command = (await agentCommands(app, agent)).find((listed) => listed.name === name)
+    if (!command) throw Error(`There is no command ${name}.`)
 
-    const run = this.options.runs?.().find(({ id }) => id === agent.run)
+    const text = args ? `${name} ${args}` : name
+    const sent = 'hobkin' in agent ? await this.sayToHobkin(app, agent.hobkin, command, text) : await this.sayToRun(app, agent.run, text)
+    this.count(name)
+    return command.extension ? { said: `Ran ${name}.` } : { sent }
+  }
+
+  /**
+   * A durable hobkin takes the command as its own words, which start its next turn while it waits. Its process is gone
+   * between turns, so an extension command waits for a turn to run in.
+   */
+  private async sayToHobkin(app: AgentSessions, id: string, command: Offered, text: string): Promise<{ run: string; started: boolean }> {
+    const hobkins = app.hobkins
+    if (!hobkins) throw new Unavailable('This hobkin cannot run an agent\'s commands yet. Restart the app to load it.')
+    try {
+      if (command.extension) {
+        const { state } = (await hobkins.read(id)).hobkin
+        if (state !== 'working') throw new Unavailable(`It runs ${command.name} only while it works.`)
+      }
+      const said = await hobkins.say(id, { text })
+      return { run: said.run, started: said.started }
+    } catch (error) {
+      // hobkin's refusals are plain sentences, told as the command's reason.
+      throw error instanceof Unavailable || !(error instanceof Error) ? error : new Unavailable(error.message)
+    }
+  }
+
+  /** A working run hears the command through `message_check`, by the schedule it takes messages on. */
+  private async sayToRun(app: AgentSessions, runId: string, text: string): Promise<{ run: string; started: boolean }> {
+    const run = this.options.runs?.().find(({ id }) => id === runId)
     const scheduleId = run?.state === 'running' ? run.scheduleId : undefined
     if (!scheduleId) throw new Unavailable('It is not working, so nothing was sent.')
     try {
-      await app.runner.messageCheck({ scheduleId, runId: agent.run, message: text })
+      await app.runner.messageCheck({ scheduleId, runId, message: text })
     } catch (error) {
       throw error instanceof Error && 'notQueued' in error ? new Unavailable(error.message) : error
     }
-    return command.extension ? ran : { sent: { run: agent.run, started: false } }
+    return { run: runId, started: false }
   }
 
   /** Pi runs its own commands when it is given their text. It goes in without hobkin's notes ahead of it, which would hide the slash. */

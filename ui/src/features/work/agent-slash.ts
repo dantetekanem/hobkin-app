@@ -38,10 +38,13 @@ export interface AgentSlashKeyResult {
 export function agentSlashKey(input: { text: string; commands: readonly SlashCommand[]; state: SlashState }, key: SlashKey): AgentSlashKeyResult | null {
   const result = slashKey(input, key)
   if (!result) return null
-  if (!result.run) return { state: result.state, ...(result.text === undefined ? {} : { text: result.text }) }
-  const { name } = result.run
-  if (name === EFFORT) return { state: result.state, text: `${EFFORT} ` }
-  return { state: result.state, text: '', run: name === MODEL ? { kind: 'model' } : { kind: 'pi', name, args: '' } }
+
+  const { state, text, run } = result
+  if (!run) return text === undefined ? { state } : { state, text }
+  if (run.name === EFFORT) return { state, text: `${EFFORT} ` }
+
+  const chosen: AgentSlashRun = run.name === MODEL ? { kind: 'model' } : { kind: 'pi', name: run.name, args: '' }
+  return { state, text: '', run: chosen }
 }
 
 /**

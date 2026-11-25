@@ -177,7 +177,9 @@ export function AgentModelChoiceOver({ agentId, ...props }: AgentModelChoiceOver
   return agent ? <ChoiceOver agent={agent} {...props} /> : null
 }
 
-function ChoiceOver({ agent, target, open, onOpenChange, anchor, back }: Omit<AgentModelChoiceOverProps, 'agentId'> & { agent: RunningAgent }) {
+type ChoiceOverProps = Omit<AgentModelChoiceOverProps, 'agentId'> & { agent: RunningAgent }
+
+function ChoiceOver({ agent, target, open, onOpenChange, anchor, back }: ChoiceOverProps) {
   const runs = useAgentRuns(agent)
   const models = useModelChoices()
   const { clear, ...choice } = useModelChange(target, runs)
