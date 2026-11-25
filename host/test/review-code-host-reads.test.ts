@@ -57,6 +57,24 @@ test("a named host's pull request is read through its own API, fetched by its he
   assert.ok(calls.every((call) => (call.method ?? 'GET') === 'GET'), 'only reads')
 })
 
+test("a named host's pull request asked for again at the same commit opens the review made before, though its host says nothing of where it starts", async (t) => {
+  const { repo, base, head } = repository(t)
+  const api: HostApi = async () => JSON.stringify({ state: 'open', title: 'Round the total', body: '', base: { ref: 'main' }, head: { ref: 'round', sha: head }, user: { login: 'dev' } })
+  const fetched: unknown[] = []
+  const checkout = { fetch: async (_pull: unknown, asked: unknown) => (fetched.push(asked), { repo, base }), repoFor: async () => repo, deleteBranch: async () => {} }
+  const source = pullSource({ gh: async () => ({ kind: 'missing' }), apiOf: () => api, checkout, whoIsMe: async () => ({ viewer: null }) })
+  const reviews = new Reviews({ store: reviewStore(temporaryDirectory(t)), sources: { change: source, pull: source }, work: () => ({ workAction: async () => ({}) }), card: () => null })
+  t.after(() => reviews.close())
+  const id = 'pr:corp:acme/shop/7'
+
+  reviews.prepare(id)
+  await reviews.settled(id)
+  reviews.prepare(id)
+  await reviews.settled(id)
+  assert.equal(reviews.status(id).state, 'ready')
+  assert.equal(fetched.length, 1, 'read once: the second ask compares with the base of the review it made')
+})
+
 const sample = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const files = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/files.json', import.meta.url), 'utf8')) as ReviewFileContents[]
 

@@ -1137,7 +1137,8 @@ export class Reviews {
 
     // One preparation for each commit: a review already made for it is used as it is, unless older rules drew its graph.
     const kept = refresh ? null : store.read(target, head)
-    const base = kept && source.start ? await source.start(target, head) : kept?.review.change.base
+    // A source that cannot say where the change starts now leaves the start the kept review was made from.
+    const base = (kept && source.start ? await source.start(target, head) : null) ?? kept?.review.change.base
     const cached = kept?.review.change.head === head && kept.review.change.base === base && kept.meta?.graph === GRAPH_RULES ? kept : null
     if (cached) {
       this.lookedStart.set(id, { head, start: cached.review.change.base, stale: false })
