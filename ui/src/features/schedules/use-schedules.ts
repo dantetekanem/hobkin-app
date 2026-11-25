@@ -13,7 +13,7 @@ const NONE: readonly AgentSchedule[] = []
 const sameSchedule = (a: AgentSchedule, b: AgentSchedule) => sameFields(a, b)
 
 /**
- * The schedules a place shows, in the host's order: every one in the home for the main chat, an agent's own for its
+ * The schedules a place shows, in the host's order: the main chat's own for the main chat, an agent's own for its
  * page. Drawn again only when one of them changes. With no host, the sample's (`sample.ts`).
  */
 export function useSchedules(place: SchedulePlace): readonly AgentSchedule[] {
@@ -43,7 +43,8 @@ function useSampleSchedules(on: boolean, place: SchedulePlace): readonly AgentSc
   const id = place.kind === 'main' ? null : place.id
   return useMemo(() => {
     if (!on) return NONE
-    if (kind === 'main' || !id) return list
+    if (kind === 'main') return schedulesIn(list, { kind })
+    if (!id) return list
     const owned = kind === 'hobkin' ? list.map((schedule) => (schedule.owner?.id === SAMPLE_HOBKIN ? { ...schedule, owner: { kind, id } } : schedule)) : list
     return schedulesIn(owned, { kind, id })
   }, [on, list, kind, id])

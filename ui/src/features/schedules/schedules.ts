@@ -6,7 +6,7 @@ import { ENDED_SCHEDULE_STATES, type AgentSchedule, type AgentScheduleState } fr
  * but `id` may be missing, from a host that says less: a schedule with no state is taken as waiting.
  */
 
-/** Where a line is: the main chat, which lists every schedule in the home, or one agent's page, which lists its own. */
+/** Where a line is: the main chat or one agent's page, each listing the schedules its own agent made. */
 export type SchedulePlace = { kind: 'main' } | { kind: 'run'; id: string } | { kind: 'hobkin'; id: string }
 
 const SECOND = 1000
@@ -23,9 +23,9 @@ export const isLive = (schedule: AgentSchedule): boolean => !isEnded(schedule)
 /** One key for a place, for the one list open at a time. */
 export const placeKey = (place: SchedulePlace): string => (place.kind === 'main' ? 'main' : `${place.kind}:${place.id}`)
 
-/** The main chat shows every schedule in the home. A page shows the ones its own agent made. */
+/** Each place shows the schedules its own agent made: the main chat its own, a page its agent's. An agent's is never in the main chat. */
 export function schedulesIn(all: readonly AgentSchedule[], place: SchedulePlace): readonly AgentSchedule[] {
-  if (place.kind === 'main') return all
+  if (place.kind === 'main') return all.filter(({ owner }) => owner?.kind === 'main')
   return all.filter(({ owner }) => owner?.kind === place.kind && owner.id === place.id)
 }
 

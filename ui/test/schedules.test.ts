@@ -106,16 +106,17 @@ test('a schedule with no name is named by its command or its note', () => {
   assert.equal(scheduleLine([{ id: 'w', does: 'wake', note: 'Look at the deploy', nextAt: at(30 * SECOND) }], NOW)?.text, 'Look at the deploy in 30s')
 })
 
-test('the main chat shows every schedule in the home, and a page shows only its own agent’s', () => {
+test('the main chat shows only the schedules it made, and a page shows only its own agent’s', () => {
   const main: AgentSchedule = { ...watch, id: 'm', owner: { kind: 'main' } }
   const hobkin: AgentSchedule = { ...watch, id: 'h', owner: { kind: 'hobkin', id: 'hb1' } }
   const other: AgentSchedule = { ...watch, id: 'o', owner: { kind: 'run', id: 'run-9' } }
   const all = [watch, main, hobkin, other]
-  assert.deepEqual(schedulesIn(all, { kind: 'main' }).map(({ id }) => id), ['s1', 'm', 'h', 'o'])
+  assert.deepEqual(schedulesIn(all, { kind: 'main' }).map(({ id }) => id), ['m'], 'an agent’s schedule shows on its page, not in the main chat')
   assert.deepEqual(schedulesIn(all, { kind: 'run', id: 'run-412' }).map(({ id }) => id), ['s1'])
   assert.deepEqual(schedulesIn(all, { kind: 'hobkin', id: 'hb1' }).map(({ id }) => id), ['h'])
   assert.deepEqual(schedulesIn(all, { kind: 'hobkin', id: 'run-412' }), [], 'a hobkin is not a run of the same id')
-  assert.deepEqual(schedulesIn([{ id: 'nobody' }], { kind: 'run', id: 'run-412' }), [], 'one with no owner shows only in the main chat')
+  assert.deepEqual(schedulesIn([{ id: 'nobody' }], { kind: 'main' }), [], 'one with no owner is no one’s, the main chat’s included')
+  assert.deepEqual(schedulesIn([{ id: 'nobody' }], { kind: 'run', id: 'run-412' }), [])
 })
 
 test('running ones come first, then the soonest, then paused ones, then those that ended, newest end first', () => {
