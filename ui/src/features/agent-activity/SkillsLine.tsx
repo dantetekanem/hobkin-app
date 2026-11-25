@@ -22,10 +22,10 @@ export function AgentSkillsLine({ agentId, hue }: { agentId: string | null; hue:
 }
 
 /** The line for steps read elsewhere, kept as it is until the agent loads another skill: it draws again only then. */
-export function SkillsLine({ entries, hue }: { entries?: readonly ActivityEntry[] | null; hue: number }) {
-  const read = useMemo(() => (entries ? skillsOf(entries) : NO_SKILLS), [entries])
-  const held = useRef(read)
-  if (!sameSkills(held.current, read)) held.current = read
+export function SkillsLine({ entries, hue }: { entries: readonly ActivityEntry[] | null; hue: number }) {
+  const loaded = useMemo(() => (entries ? skillsOf(entries) : NO_SKILLS), [entries])
+  const held = useRef(loaded)
+  if (!sameSkills(held.current, loaded)) held.current = loaded
   return <Skills skills={held.current} hue={hue} />
 }
 

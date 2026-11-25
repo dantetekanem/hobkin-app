@@ -24,28 +24,34 @@ function argsOf(entry: ActivityEntry): Args {
   }
 }
 
-const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
+/** A text argument without its outer spaces, or undefined when there are no words in it. */
+const trimmed = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
 
 /** A read's file, as Pi's and Claude Code's read tools take it. */
-const pathOf = (args: Args) => text(args.path) ?? text(args.file_path) ?? text(args.filePath) ?? text(args.file)
+const pathOf = (args: Args) => trimmed(args.path) ?? trimmed(args.file_path) ?? trimmed(args.filePath) ?? trimmed(args.file)
 
 /** The folder a `SKILL.md` sits in, which is its skill's name. */
 const SKILL_FILE = /([^/]+)\/SKILL\.md$/
 
 function nameOf(entry: ActivityEntry): string | null {
   if (entry.kind !== 'tool' || entry.state === 'failed') return null
-  if (entry.name === 'load_skill') return text(argsOf(entry).name) ?? null
-  if (entry.name === 'Skill') return text(argsOf(entry).skill) ?? null
+  if (entry.name === 'load_skill') return trimmed(argsOf(entry).name) ?? null
+  if (entry.name === 'Skill') return trimmed(argsOf(entry).skill) ?? null
   if (!READ.test(entry.name ?? '')) return null
-  return SKILL_FILE.exec(pathOf(argsOf(entry)) ?? '')?.[1] ?? null
+
+  const path = pathOf(argsOf(entry)) ?? ''
+  return SKILL_FILE.exec(path)?.[1] ?? null
 }
 
 const named = new WeakMap<ActivityEntry, string | null>()
 
 /** The skill this entry loaded, or null. */
 export function skillOf(entry: ActivityEntry): string | null {
-  let name = named.get(entry)
-  if (name === undefined) named.set(entry, (name = nameOf(entry)))
+  const known = named.get(entry)
+  if (known !== undefined) return known
+
+  const name = nameOf(entry)
+  named.set(entry, name)
   return name
 }
 
@@ -62,7 +68,10 @@ export function skillsOf(entries: readonly ActivityEntry[]): readonly string[] {
   return [...skills]
 }
 
-export const sameSkills = (left: readonly string[], right: readonly string[]): boolean => left === right || (left.length === right.length && left.every((name, index) => name === right[index]))
+export function sameSkills(left: readonly string[], right: readonly string[]): boolean {
+  if (left === right) return true
+  return left.length === right.length && left.every((name, index) => name === right[index])
+}
 
 /** The line's words: "1 loaded skill", "3 loaded skills". */
 export const skillsCount = (count: number): string => (count === 1 ? '1 loaded skill' : `${count} loaded skills`)
