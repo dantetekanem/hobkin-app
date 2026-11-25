@@ -69,6 +69,22 @@ export interface HobkinTurn {
   /** Why it failed or was cut off, when it was. */
   error: string | null
   endedAt: string | null
+  /** What the user added to it while it worked, oldest first. None when they added nothing, and from a runtime from before. */
+  notes?: KeptNote[]
+}
+
+/**
+ * Something the user added to a run while it worked, as hobkin keeps it on the run (`HobkinRunner.keepNotes`): the id the
+ * window sent it with, its words, when hobkin took it, in milliseconds, how it waited for the turn and, once the turn read
+ * it in, when. hobkin counts the images that went with it and keeps none of them.
+ */
+export interface KeptNote {
+  noteId: string
+  text: string
+  at: number
+  queue: 'steer' | 'follow-up' | 'interrupt'
+  images?: number
+  receivedAt?: number
 }
 
 export interface HobkinConversation {

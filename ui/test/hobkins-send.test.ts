@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
-import type { HobkinConversation, HobkinSummary, HobkinTurn } from '#shared/protocol/hobkins.ts'
+import type { HobkinConversation, HobkinSummary, HobkinTurn, KeptNote } from '#shared/protocol/hobkins.ts'
 import { atOf } from '../src/features/agent-activity/steps.ts'
-import { pageRows, pageTurns, withReceipts, type LiveActivity, type PageRow, type SendingNote, type SentNote } from '../src/features/hobkins/conversation.ts'
+import { pageRows, pageTurns, waitsForTurn, withKept, withReceipts, type LiveActivity, type PageRow, type SendingNote, type SentNote } from '../src/features/hobkins/conversation.ts'
 
 // Every state a durable hobkin's page passes through from Enter until the host has caught up, in the order the host
 // sends them: the say's answer comes before the snapshot that shows the new turn, and the read comes after both.
@@ -245,4 +245,40 @@ test('a message the turn ended without reading says so, and one sent with no id 
   // The snapshot says it waits again, and the read still has the turn running: its end is not known yet.
   assert.deepEqual(addedMarks(read, ended), [['also the README', 'waiting'], ['/review', 'waiting']])
   assert.deepEqual(addedMarks(done, ended), [['also the README', 'unconfirmed'], ['/review', 'waiting']])
+})
+
+test('a message added while a turn works shows again, with its mark, when the page comes back without it', () => {
+  // A reload, a hot update or another screen took the page's own copy: what hobkin kept with the turn is what it reads back.
+  const noteId = '00000000-0000-4000-8000-000000000001'
+  const kept: KeptNote = { noteId, text: 'Delegate it through team-leader.', at: 1200, queue: 'steer' }
+  const read: HobkinConversation = { hobkin: working, turns: [...earlier, { ...turn(3, 'lets prototype it', 'running'), notes: [kept] }] }
+  const back = withKept([], read.turns)
+  assert.deepEqual(back, [{ text: 'Delegate it through team-leader.', at: 1200, run: runOf(3), started: false, noteId, queue: 'steer' }])
+
+  // Not read in yet, it waits above the box. Read in, it shows in its turn with two checks, after the message that began it.
+  assert.equal(waitsForTurn(back[0]!, working), true)
+  const received = withReceipts({ [id]: back }, { [runOf(3)]: [{ noteId, at: 1300 }] })[id]!
+  assert.deepEqual(marks(pageRows(pageTurns(read, working, received), { sending: null, activity: null })).slice(-2), [
+    ['lets prototype it', 'received'],
+    ['Delegate it through team-leader.', 'received'],
+  ])
+
+  // After a restart hobkin has no receipt of its own, and the note says it was read; once the turn is over it is above its answer.
+  const done: HobkinConversation = { hobkin: summary({ turns: 3 }), turns: [...earlier, { ...turn(3, 'lets prototype it', 'completed', 'Delegated.'), notes: [{ ...kept, receivedAt: 1300 }] }] }
+  const rows = pageRows(pageTurns(done, summary({ turns: 3 }), withKept([], done.turns)), { sending: null, activity: null })
+  assert.deepEqual(rows.slice(-3).map((row) => (row.kind === 'said' ? [row.text, row.delivery, row.at] : row.kind)), [
+    ['lets prototype it', 'received', Date.parse('2026-11-13T12:03:00.000Z')],
+    ['Delegate it through team-leader.', 'received', 1200],
+    'answer',
+  ])
+
+  // A note the page still has is the same note, with its own key and images: nothing new comes back.
+  const opened: SentNote = { text: 'lets prototype it', at: 1000, run: runOf(3), started: true }
+  const own: SentNote = { text: 'Delegate it through team-leader.', at: 1190, run: runOf(3), started: false, noteId, queue: 'steer' }
+  const page = [opened, own]
+  assert.equal(withKept(page, read.turns), page)
+  // One sent by Control+Enter started over at once, so it waits for nothing; the notes are in the order they were sent.
+  const interrupted: KeptNote = { noteId: '00000000-0000-4000-8000-000000000002', text: 'Plan the month instead.', at: 1100, queue: 'interrupt' }
+  const both = withKept([opened], [{ ...turn(3, 'lets prototype it', 'running'), notes: [kept, interrupted] }])
+  assert.deepEqual(both.map((note) => [note.text, note.queue]), [['lets prototype it', undefined], ['Plan the month instead.', undefined], ['Delegate it through team-leader.', 'steer']])
 })

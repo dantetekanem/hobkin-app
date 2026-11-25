@@ -47,7 +47,7 @@ export interface SendingNote {
   queue?: 'steer' | 'follow-up'
 }
 
-export interface ShownTurn extends HobkinTurn {
+export interface ShownTurn extends Omit<HobkinTurn, 'notes'> {
   /** The turn in flight, drawn with its live steps. */
   live: boolean
   /** A live turn whose run is over before a read has its end: it keeps its last steps, and thinks no more, until one has. */
@@ -58,7 +58,7 @@ export interface ShownTurn extends HobkinTurn {
   askedWhen: number | null
   /** The images that went with the message that began it, when this window sent it. */
   askedImages: readonly Attachment[]
-  /** What the user added to it while it worked, as this window sent it. hobkin keeps no copy apart from the turn. */
+  /** What the user added to it while it worked: as this window sent it, or as hobkin kept it for a page that lost its copy (`withKept`). */
   notes: readonly SentNote[]
   /** hobkin has begun it: a read has it, or the snapshot shows it in flight. Its message is taken in from then on. */
   begun: boolean
@@ -260,6 +260,31 @@ export function withReceipts(
     if (!same) changed = true
   }
   return changed ? next : sent
+}
+
+/**
+ * The notes the user sent, with what hobkin kept of those this window no longer has: sent from a page that a reload, a
+ * hot update or another screen has taken away since. Each joins in the order it was sent, under its turn's run, as the
+ * page would have it had it sent it now, without its images. A note this window still has stays as it is, so with nothing
+ * new the same notes come back.
+ */
+export function withKept(sent: readonly SentNote[], turns: readonly HobkinTurn[]): readonly SentNote[] {
+  const known = new Set(sent.map((note) => note.noteId))
+  const kept = turns.flatMap(({ run, notes = [] }) =>
+    notes
+      .filter(({ noteId }) => !known.has(noteId))
+      .map(({ noteId, text, at, queue, receivedAt }): SentNote => ({
+        text,
+        at,
+        run,
+        started: false,
+        noteId,
+        ...(receivedAt === undefined ? {} : { receivedAt }),
+        // An interrupting note began over at once, so it waits for nothing.
+        ...(queue === 'interrupt' ? {} : { queue }),
+      })),
+  )
+  return kept.length ? [...sent, ...kept].sort((left, right) => left.at - right.at) : sent
 }
 
 export type PageState = 'live' | 'starting' | 'ended'

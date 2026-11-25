@@ -1,7 +1,7 @@
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { HOBKIN_MESSAGE_MAX, HOBKIN_TITLE_MAX, hobkinAgentId, hobkinOfAgent, type HobkinConversation, type HobkinSummary } from '#shared/protocol/hobkins.ts'
+import { HOBKIN_MESSAGE_MAX, HOBKIN_TITLE_MAX, hobkinAgentId, hobkinOfAgent, type HobkinConversation, type HobkinSummary, type HobkinTurn } from '#shared/protocol/hobkins.ts'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
@@ -35,7 +35,7 @@ import { hostStore, runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
 import { sentAtArg } from '@/lib/host/state.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, waitsForTurn, withReceipts, type Delivery, type PageRow, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
+import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, waitsForTurn, withKept, withReceipts, type Delivery, type PageRow, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
 import { ContinueButton, imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
 import { CONTINUE_WORDS, waitingRows, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
 import { useTalkControls } from '@/features/work/use-talk-controls.ts'
@@ -84,7 +84,7 @@ export function HobkinScreen() {
         {/* Propagated, so a page leaving with its screen counts as gone. */}
         <AnimatePresence initial={false} propagate>
           {id ? (
-            <Part key={agentId} id={id} split={split} sent={notes.sent[id] ?? NO_NOTES} sending={notes.sending[id] ?? null} />
+            <Part key={agentId} id={id} split={split} sent={notes.sent[id] ?? NO_NOTES} sending={notes.sending[id] ?? null} recall={notes.recall} />
           ) : agentId ? (
             <RunPart key={agentId} agentId={agentId} />
           ) : null}
@@ -111,7 +111,8 @@ export function HobkinScreen() {
 const NO_NOTES: readonly SentNote[] = []
 
 /**
- * What the user sent from the page, by hobkin, and the message on its way now. Kept while the window is open. hobkin's
+ * What the user sent from the page, by hobkin, and the message on its way now. Kept while the page is open, and read back
+ * from what hobkin keeps with each turn once the page is back from a reload, a hot update or another screen. hobkin's
  * receipts mark what each turn read in as they come.
  */
 function useSentNotes() {
@@ -120,9 +121,18 @@ function useSentNotes() {
 
   const add = useCallback((id: string, note: SentNote) => {
     setSent((all) => {
-      const added = { ...all, [id]: [...(all[id] ?? []), note] }
+      // A read can bring hobkin's copy back before the say answers: this window's own, with its images, takes its place.
+      const others = (all[id] ?? []).filter((each) => note.noteId === undefined || each.noteId !== note.noteId)
       // A receipt that came before the say answered counts too.
-      return withReceipts(added, hostStore.getState().snapshot.steeringReceipts)
+      return withReceipts({ ...all, [id]: [...others, note] }, hostStore.getState().snapshot.steeringReceipts)
+    })
+  }, [])
+
+  const recall = useCallback((id: string, turns: readonly HobkinTurn[]) => {
+    setSent((all) => {
+      const notes = all[id] ?? NO_NOTES
+      const recalled = withKept(notes, turns)
+      return recalled === notes ? all : withReceipts({ ...all, [id]: recalled }, hostStore.getState().snapshot.steeringReceipts)
     })
   }, [])
 
@@ -143,7 +153,7 @@ function useSentNotes() {
     setSent((all) => ({ ...all, [id]: (all[id] ?? []).filter((note) => !note.noteId || !noteIds.includes(note.noteId)) }))
   }, [])
 
-  return { sent, sending, add, sendingTo, drop }
+  return { sent, sending, add, recall, sendingTo, drop }
 }
 
 /**
@@ -168,14 +178,27 @@ function TurnStopAsk({ id }: { id: string }) {
   return run ? <StopAsk key={run} runId={run} /> : null
 }
 
+interface PartProps {
+  id: string
+  split: boolean
+  sent: readonly SentNote[]
+  sending: SendingNote | null
+  /** Takes what hobkin kept of the notes the user added to these turns, for those the page no longer has. */
+  recall: (id: string, turns: readonly HobkinTurn[]) => void
+}
+
 /** The hobkin's own pieces: its header, its lines and its conversation. Leaving, they take no keyboard and no pointer. */
-function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: readonly SentNote[]; sending: SendingNote | null }) {
+function Part({ id, split, sent, sending, recall }: PartProps) {
   const present = useIsPresent()
   const { hobkin, state, connected, fresh } = useHobkin(id)
   const onPage = useView((view) => view.screen === 'agent' && view.openAgent === hobkinAgentId(id))
   useMarkSeen(hobkin, onPage && present, connected)
   usePageShown(hobkin, onPage && present, connected)
   const { conversation, problem } = useConversation(id, hobkin, connected)
+  // Each read brings back what the user added to its turns, so a page that lost its copy shows them again.
+  useEffect(() => {
+    if (conversation) recall(id, conversation.turns)
+  }, [conversation, id, recall])
 
   // Before the first read answers, a turn in flight still shows, with the message that began it.
   const read = useMemo<HobkinConversation | null>(() => conversation ?? (hobkin?.run ? { hobkin, turns: [] } : null), [conversation, hobkin])
