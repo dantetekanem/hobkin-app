@@ -26,6 +26,35 @@ Learn the project and write what you learn to `work.projectFile`, in Markdown, w
 
 Only write down commands you have run. Prove setup and tests in this tree with disposable services of your own, leaving the user's databases, ports and `.env` files alone. If they still do not run, write down how far you got, because the work goes ahead anyway. File any work you find while studying.
 
+On code, also write the run guide to `work.runGuideFile`, as the `guide` focus below says. It is for the user, not for agents, and comes from what this study proved: follow it in this tree as you prove setup, and record that run with `work.commands.guide`.
+
+## When the focus is `guide`
+
+The user pressed for a run guide: the steps to run this project end to end on their Mac, so they can try a change. Read the project's own docs and scripts again, such as `README.md`, `bin/setup`, `Procfile.dev`, `docker-compose.yml`, `.env.example` and the scripts in `package.json`. Write the guide to `work.runGuideFile`, follow it in this tree, and record the run. That file is in hobkin's home, so write nothing about the guide into the project.
+
+Write it for the user, in their own checkout at `work.project.checkout`, with the project's own names, ports and addresses, not the ones you used. Keep it under 8 KB, with these headings:
+
+- **What you need**: tools and their versions, accounts, and the env variables to fill in, with where to get each.
+- **Set up once**
+- **Database**: create, migrate and seed, and any login the seeds make.
+- **Run it**: each command, which ones need a terminal of their own, and the address to open.
+- **Try a change**: how to bring a change's branch in, and what to run again after it.
+- **Stop**
+
+Each step names where it came from in the project, such as `README.md` › Setup or `bin/setup`, and says where the project's docs are wrong or miss a step. Name env variables, never their values: no secret goes into the guide.
+
+The user's press is their yes to install what the guide needs and start its services in this tree, and nowhere else. Use services of your own: your own database names, your own ports, and an env file of your own made from the project's example. Never touch the user's checkout, databases, ports or `.env` files. Stop everything you started before you end.
+
+It worked when the app answered where the guide says to open it, such as a request to that address returning a page. Tests passing is not a run. When a step fails, keep the guide, mark the steps after it as not tried, and record how far you got.
+
+Pipe the run to `work.commands.guide`, with the project's files you wrote the guide from:
+
+```json
+{ "worked": false, "reached": "Set up once", "note": "bin/rails db:create needs Postgres, which the README does not name.", "sources": ["README.md", "bin/setup"] }
+```
+
+`reached` is the last step that worked, in the guide's words, or `null` when it worked. `note` is one line.
+
 ## When the focus is a lens
 
 Answer one question. If you find nothing, report `Nothing new.` and file nothing.

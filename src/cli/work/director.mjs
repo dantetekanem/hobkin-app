@@ -61,6 +61,8 @@ const MAX_ITEMS_SENT = 40;
 const MAX_REASON_LENGTH = 500;
 // These looks run tests, which write files, so they never run in the project's own folder. A guide look installs and starts services too.
 const looksThatWrite = ['study', 'bugs', 'improvements', 'guide'];
+// The looks that write a code project's run guide (`run-guide.mjs`).
+const looksThatWriteTheGuide = ['study', 'guide'];
 // Nothing else gives a run a deadline, and a run that has hung holds its worker for good.
 const QUIET_MS = HOUR_MS;
 const QUIET_REASON = 'It went quiet for an hour.';
@@ -587,6 +589,16 @@ export class WorkDirector {
     };
   }
 
+  /**
+   * A code project's run guide, for a run that writes it or follows it: the file, and the command that records a run of it. A study's command
+   * says it is the study's. A goal has no guide, so its runs get neither.
+   */
+  withRunGuide(project, described, { study = false } = {}) {
+    if (isGoal(project)) return described;
+    const guide = this.command(`guide ${project.slug}${study ? ' study' : ''}`);
+    return { ...described, runGuideFile: paths(this.root, project.slug).runGuide, commands: { ...described.commands, guide } };
+  }
+
   // Two runs of one project may start together, and a second clone into the same path would fail, so they share the one in flight.
   cloning = new Map();
 
@@ -774,6 +786,7 @@ export class WorkDirector {
   describeLook(project, focus) {
     const { slug } = project;
     const described = this.describe(project);
+    if (looksThatWriteTheGuide.includes(focus)) return this.withRunGuide(project, described, { study: focus === 'study' });
     // The state machines look pipes each machine it found, with its files, which readiness and the YOLO pass read (`machines.mjs`).
     if (focus === 'state-machines') return { ...described, commands: { ...described.commands, machines: this.command(`machines ${slug}`) } };
     const reads = { signals: () => readSignals(this.root, slug), watch: () => watchBrief(this.root, slug) }[focus];
@@ -839,7 +852,8 @@ export class WorkDirector {
     // Where a project's readiness run records what it found (`yolo.mjs`), which only that run's record is kept from.
     const yolo = this.command(`yolo ${project.slug}`);
     const proof = hobkinCommand(this.root, `proof check --project ${project.slug} --item ${id}`);
-    return { ...described, commands: { ...described.commands, decide, yolo, proof } };
+    // A change's run that starts the app to show its change records that run of the guide, with its item.
+    return this.withRunGuide(project, { ...described, commands: { ...described.commands, decide, yolo, proof } });
   }
 
   startDo(project, item, cost = {}) {

@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { buildInvocation } from '../src/cli/harnesses.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { readRunGuide, requestRunGuide } from '../src/cli/work/run-guide.mjs';
 import { chooseProject, fileItem, paths, proposeProject, readMode, readState, writeMode } from '../src/cli/work/store.mjs';
 import { director, studied } from './helpers/work-director.mjs';
-import { commit, git } from './helpers/work-fixture.mjs';
+import { commit, git, repository } from './helpers/work-fixture.mjs';
 
 const piped = value => Readable.from([JSON.stringify(value)]);
 const guide = (h, slug = 'api') => paths(h.root, slug).runGuide;
@@ -194,4 +196,64 @@ test('while the guide look runs the guide reads as being written, and the button
   gate.resolve();
   await h.settled();
   assert.equal(readRunGuide(h.root, 'api').pending, null);
+});
+
+test('a code project\'s study and its guide look are given the guide\'s file and command, and a goal\'s study neither', async t => {
+  const h = director(t);
+  writeMode(h.root, { machinesLook: false });
+  chooseProject(h.root, repository(h.base, 'api'), 'important', h.clock);
+  takeGoal(h);
+  h.agent = request => {
+    const { project, focus } = h.work(request);
+    if (focus === 'study') writeFileSync(paths(h.root, project.slug).project, '# What it is\n');
+  };
+
+  const run = (slug, focus) => h.calls.map(call => h.work(call)).find(work => work.project.slug === slug && work.focus === focus);
+  for (let tick = 0; tick < 6 && !(run('api', 'study') && run('novel', 'study')); tick++) await h.tick();
+  requestRunGuide(h.root, 'api');
+  await h.tick();
+
+  const [study, guideLook, goalStudy] = [run('api', 'study'), run('api', 'guide'), run('novel', 'study')];
+  for (const work of [study, guideLook]) assert.equal(work.runGuideFile, paths(h.root, 'api').runGuide);
+  assert.match(study.commands.guide, / work guide api study --home /);
+  assert.match(guideLook.commands.guide, / work guide api --home /);
+  assert.equal('runGuideFile' in goalStudy, false);
+  assert.equal('guide' in goalStudy.commands, false);
+});
+
+test('a change\'s run is given the guide\'s file and command, and a goal\'s step is not', async t => {
+  const h = director(t);
+  quietProject(h);
+  takeGoal(h);
+  writeMode(h.root, { agents: 2 });
+  mkdirSync(paths(h.root, 'novel').directory, { recursive: true });
+  writeFileSync(paths(h.root, 'novel').project, '# Where it stands\n');
+  fileItem(h.root, 'api', { key: 'fix:a', kind: 'fix', title: 'Fix it', brief: 'Fix it.' });
+  fileItem(h.root, 'novel', { key: 'draft', kind: 'chore', title: 'Draft chapter three', brief: 'Write it.' });
+  const doRuns = () => h.calls.filter(call => call.purpose === 'work-do');
+
+  for (let tick = 0; tick < 6 && doRuns().length < 2; tick++) await h.tick();
+
+  const runs = doRuns().map(call => h.work(call));
+  const code = runs.find(work => work.project.slug === 'api');
+  const goal = runs.find(work => work.project.slug === 'novel');
+  assert.equal(code.runGuideFile, paths(h.root, 'api').runGuide);
+  assert.match(code.commands.guide, / work guide api --home /);
+  assert.equal('runGuideFile' in goal, false);
+  assert.equal('guide' in goal.commands, false);
+});
+
+test('the look and do prompts name the guide\'s file and command the runs are given', t => {
+  const cwd = mkdtempSync(join(tmpdir(), 'hobkin-guide-prompt-'));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const promptOf = purpose => {
+    const { args } = buildInvocation({ id: 'f094b0ba-036c-4abc-9198-745fd1226765', harness: 'pi', cwd, model: null, effort: 'medium', prompt: 'x', sessionFile: join(cwd, 'job.jsonl'), purpose });
+    return args.flatMap((arg, index) => (arg === '--append-system-prompt' ? [args[index + 1]] : []))[1];
+  };
+
+  const look = promptOf('work-look');
+  assert.match(look, /## When the focus is `guide`/);
+  assert.match(look, /`work\.runGuideFile`/);
+  assert.match(look, /`work\.commands\.guide`/);
+  assert.match(promptOf('work-do'), /`work\.commands\.guide`/);
 });
