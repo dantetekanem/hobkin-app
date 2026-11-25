@@ -76,6 +76,8 @@ function Sheet({ path, still }: { path: string; still: boolean }) {
   const name = (state.status === 'ready' ? state.file.name : path.split('/').at(-1)) || path
   // An image's frame fills the sheet from the start, so nothing moves while it loads.
   const pictured = state.status === 'ready' ? state.file.kind === 'image' : IMAGE_NAME.test(path)
+  // The image frame stays mounted from reading to drawn; anything else lands anew once read.
+  const contentKey = pictured ? `image ${path}` : state.status === 'ready' ? state.file.path : state.status
 
   const openInApp = () => {
     setProblem(null)
@@ -109,11 +111,15 @@ function Sheet({ path, still }: { path: string; still: boolean }) {
       <motion.div
         // Scrolls with the arrow keys once focused.
         tabIndex={0}
-        className={cn('min-h-0 flex-1 px-6 pt-1 outline-none', pictured ? 'flex basis-[100vh] flex-col gap-3 overflow-hidden pb-5' : 'overflow-y-auto pb-6')}
+        className={cn(
+          'min-h-0 flex-1 px-6 pt-1 outline-none',
+          // basis-[100vh] asks for more than the sheet's most, so the frame takes every pixel the header leaves.
+          pictured ? 'flex basis-[100vh] flex-col gap-3 overflow-hidden pb-5' : 'overflow-y-auto pb-6',
+        )}
         initial={holdStill({ opacity: 0, transform: 'translateY(26px) scale(0.98)' }, still)}
         animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)' }, still)}
         transition={{ transform: spring.rise, opacity: tween.enter, delay: 0.08 }}
-        key={pictured ? `image ${path}` : state.status === 'ready' ? state.file.path : state.status}
+        key={contentKey}
       >
         {pictured ? <Picture state={state} /> : <Body state={state} />}
       </motion.div>
@@ -125,6 +131,7 @@ function Body({ state }: { state: FileState }) {
   if (state.status === 'loading') return <p className="py-8 text-center text-[14px] text-muted-foreground">Reading the file...</p>
   if (state.status === 'refused') return <p className="py-8 text-center text-[14px] text-muted-foreground">{state.reason}</p>
   const { file } = state
+  // Images go to Picture.
   if (file.kind === 'image') return null
   if (file.markdown) return <article className="text-[15px] leading-[1.65]"><Markdown text={file.text} /></article>
   if (file.text === '') return <p className="py-8 text-center text-[14px] text-muted-foreground">The file is empty.</p>
@@ -136,10 +143,10 @@ function Body({ state }: { state: FileState }) {
  * ever an `<img>`, so an SVG's script does not run. While it loads, or when it cannot be drawn, the frame stays.
  */
 function Picture({ state }: { state: FileState }) {
-  const [drawn, setDrawn] = useState<{ width: number; height: number } | 'broken' | null>(null)
-  const file: ImageFile | null = state.status === 'ready' && state.file.kind === 'image' ? state.file : null
-  const words = state.status === 'loading' ? 'Reading the file...' : state.status === 'refused' ? state.reason : drawn === 'broken' ? 'This image cannot be drawn.' : null
-  const caption = file && drawn ? (drawn === 'broken' ? formatBytes(file.bytes) : `${drawn.width} × ${drawn.height} px · ${formatBytes(file.bytes)}`) : null
+  const [drawn, setDrawn] = useState<Drawn>(null)
+  const file = state.status === 'ready' && state.file.kind === 'image' ? state.file : null
+  const words = frameWords(state, drawn)
+  const caption = captionOf(file, drawn)
 
   return (
     <>
@@ -159,6 +166,25 @@ function Picture({ state }: { state: FileState }) {
       <p className="h-5 shrink-0 text-center text-[12.5px] leading-5 text-muted-foreground tabular-nums">{caption}</p>
     </>
   )
+}
+
+/** The image's size in pixels once the window has drawn it, or `broken` when it could not. */
+type Drawn = { width: number; height: number } | 'broken' | null
+
+/** What the frame says where the image would be: while the file is read, when it is refused, or when it cannot be drawn. */
+function frameWords(state: FileState, drawn: Drawn): string | null {
+  if (state.status === 'loading') return 'Reading the file...'
+  if (state.status === 'refused') return state.reason
+  if (drawn === 'broken') return 'This image cannot be drawn.'
+  return null
+}
+
+/** The line under the image: its size in pixels and bytes, shown with the image once it is drawn. */
+function captionOf(file: ImageFile | null, drawn: Drawn): string | null {
+  if (!file || !drawn) return null
+  const bytes = formatBytes(file.bytes)
+  if (drawn === 'broken') return bytes
+  return `${drawn.width} × ${drawn.height} px · ${bytes}`
 }
 
 /** Text that is not Markdown, as code: Shiki's colors for both themes, and plain text where it has none yet. */

@@ -76,7 +76,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><script>alert(1)</script><rect width="4" height="4"/></svg>\n'
 
 /** Bytes from text and byte lists, in order. */
-const bytesOf = (...parts: (string | number[])[]) => Buffer.concat(parts.map((part) => (typeof part === 'string' ? Buffer.from(part) : Buffer.from(part))))
+const bytesOf = (...parts: (string | number[])[]) => Buffer.concat(parts.map((part) => (typeof part === 'string' ? Buffer.from(part, 'utf8') : Buffer.from(part))))
 
 test('an image is known by its bytes, not its name', () => {
   const cases: [string, Buffer, string | null][] = [
@@ -110,20 +110,39 @@ test('file.read answers an image with its own bytes as a data URL, whatever its 
     type: 'image/png',
     url: `data:image/png;base64,${PNG.toString('base64')}`,
   })
+
   const svg = await readForViewer(join(root, 'icon.svg'), { home })
-  assert.equal(svg.kind === 'image' && svg.type, 'image/svg+xml')
-  assert.equal(svg.kind === 'image' && Buffer.from(svg.url.replace('data:image/svg+xml;base64,', ''), 'base64').toString(), SVG, 'an SVG goes as an image, never as markup')
+  assert.deepEqual(
+    svg,
+    {
+      kind: 'image',
+      path: join(root, 'icon.svg'),
+      name: 'icon.svg',
+      bytes: Buffer.byteLength(SVG),
+      type: 'image/svg+xml',
+      url: `data:image/svg+xml;base64,${Buffer.from(SVG).toString('base64')}`,
+    },
+    'an SVG goes as an image, never as markup',
+  )
+
   const fake = await readForViewer(join(root, 'fake.png'), { home })
-  assert.equal(fake.kind === 'text' && fake.text, 'not really a picture\n', 'a name that says image does not make one')
+  assert.deepEqual(
+    fake,
+    { kind: 'text', path: join(root, 'fake.png'), name: 'fake.png', text: 'not really a picture\n', bytes: 21, markdown: false },
+    'a name that says image does not make one',
+  )
 })
 
 test('file.read refuses an image over 20 MB, and still refuses other binary files', async (t) => {
   const { root, home } = fixtures(t)
   const big = join(root, 'big.png')
-  writeFileSync(big, Buffer.concat([PNG.subarray(0, 8), Buffer.alloc(MAX_IMAGE_BYTES + 1 - 8)]))
+  const pngSignature = PNG.subarray(0, 8)
+  writeFileSync(big, Buffer.concat([pngSignature, Buffer.alloc(MAX_IMAGE_BYTES + 1 - pngSignature.length)]))
+
   await assert.rejects(readForViewer(big, { home }), /image is too large.*20 MB/i)
   const read = await readForViewer(big, { home, maxImageBytes: MAX_IMAGE_BYTES + 10 })
   assert.equal(read.bytes, MAX_IMAGE_BYTES + 1, 'the cap is the only reason it was refused, and an image may pass the text limit')
+
   await assert.rejects(readForViewer(join(root, 'binary.bin'), { home }), /not a text file/i)
 })
 

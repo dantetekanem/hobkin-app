@@ -72,10 +72,16 @@ export async function readForViewer(path: string, { home = homedir(), maxBytes =
   try {
     const info = await handle.stat()
     if (!info.isFile()) throw new Unavailable(`${path} is not a regular file (a folder or a device cannot be shown).`)
+
+    // The first bytes say whether it is an image, and an image has its own, larger limit.
     type = imageTypeOf(await readUpTo(handle, SNIFF_BYTES))
     const what = type ? 'image' : 'file'
     const limit = type ? maxImageBytes : maxBytes
-    if (info.size > limit) throw new Unavailable(`The ${what} is too large to show (${info.size.toLocaleString('en-US')} bytes; the limit is ${megabytes(limit)}).`)
+    if (info.size > limit) {
+      const size = info.size.toLocaleString('en-US')
+      throw new Unavailable(`The ${what} is too large to show (${size} bytes; the limit is ${megabytes(limit)}).`)
+    }
+
     bytes = await readUpTo(handle, limit + 1)
     if (bytes.length > limit) throw new Unavailable(`The ${what} is too large to show (more than ${megabytes(limit)}).`)
   } finally {
@@ -83,7 +89,15 @@ export async function readForViewer(path: string, { home = homedir(), maxBytes =
   }
 
   const shown = { path: real, name: basename(real), bytes: bytes.length }
-  if (type) return { kind: 'image', ...shown, type, url: `data:${type};base64,${bytes.toString('base64')}` }
+  if (type) {
+    return {
+      kind: 'image',
+      ...shown,
+      type,
+      url: `data:${type};base64,${bytes.toString('base64')}`,
+    }
+  }
+
   if (bytes.subarray(0, SNIFF_BYTES).includes(0)) throw new Unavailable('This is not a text file (it looks binary), so it cannot be shown.')
   let text: string
   try {

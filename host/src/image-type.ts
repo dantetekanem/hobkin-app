@@ -16,19 +16,29 @@ export function imageTypeOf(head: Uint8Array): ImageType | null {
   return null
 }
 
-const bytesAt = (head: Uint8Array, at: number, wanted: readonly number[]) => head.length >= at + wanted.length && wanted.every((byte, index) => head[at + index] === byte)
+function bytesAt(head: Uint8Array, at: number, wanted: readonly number[]): boolean {
+  if (head.length < at + wanted.length) return false
+  return wanted.every((byte, index) => head[at + index] === byte)
+}
 
-const textAt = (head: Uint8Array, at: number, wanted: string) => bytesAt(head, at, [...wanted].map((char) => char.charCodeAt(0)))
+function textAt(head: Uint8Array, at: number, wanted: string): boolean {
+  const codes = [...wanted].map((char) => char.charCodeAt(0))
+  return bytesAt(head, at, codes)
+}
 
 const view = (head: Uint8Array) => new DataView(head.buffer, head.byteOffset, head.byteLength)
 
 /** An ISO media file whose `ftyp` box names an AVIF brand, as its main brand or a compatible one (HEIC does not). */
 function isAvif(head: Uint8Array): boolean {
   if (head.length < 16 || !textAt(head, 4, 'ftyp')) return false
-  const end = Math.min(view(head).getUint32(0), head.length)
-  const brand = (at: number) => textAt(head, at, 'avif') || textAt(head, at, 'avis')
-  if (brand(8)) return true
-  for (let at = 16; at + 4 <= end; at += 4) if (brand(at)) return true
+  const isAvifBrand = (at: number) => textAt(head, at, 'avif') || textAt(head, at, 'avis')
+  if (isAvifBrand(8)) return true
+
+  // The compatible brands run from byte 16 to the end of the box, four bytes each.
+  const boxEnd = Math.min(view(head).getUint32(0), head.length)
+  for (let at = 16; at + 4 <= boxEnd; at += 4) {
+    if (isAvifBrand(at)) return true
+  }
   return false
 }
 
@@ -36,7 +46,9 @@ function isAvif(head: Uint8Array): boolean {
 const BITMAP_HEADERS = new Set([12, 40, 52, 56, 64, 108, 124])
 
 function isBitmap(head: Uint8Array): boolean {
-  return head.length >= 18 && textAt(head, 0, 'BM') && bytesAt(head, 6, [0, 0, 0, 0]) && BITMAP_HEADERS.has(view(head).getUint32(14, true))
+  if (head.length < 18 || !textAt(head, 0, 'BM')) return false
+  const reservedAreZero = bytesAt(head, 6, [0, 0, 0, 0])
+  return reservedAreZero && BITMAP_HEADERS.has(view(head).getUint32(14, true))
 }
 
 /** An icon file: reserved zero, type 1, and at least one picture. */
