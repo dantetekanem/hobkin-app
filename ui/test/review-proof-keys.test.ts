@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { inProofPanel, keyOwner, type HeardKey } from '../src/features/review/keys.ts'
+import { inProofPanel, keyOwner, listsKeys, type HeardKey } from '../src/features/review/keys.ts'
 
 const key = (name: string, more: Partial<HeardKey> = {}): HeardKey => ({ key: name, shift: false, meta: false, ctrl: false, alt: false, typing: false, ...more })
 
@@ -21,6 +21,15 @@ test("while the keyboard is in the proof beside the review, every key is the pro
   for (const name of ['t', 'Escape', 'a']) assert.equal(keyOwner(key(name, { typing: true }), true), 'proof', `${name} while typing`)
   // With Option or Control a key is no review key, in the proof or out of it.
   assert.equal(keyOwner(key('t', { alt: true }), true), 'proof')
+})
+
+test('⌘/ lists every key, as ⌘? does where the Mac lets it through: its Help menu takes ⌘? first', () => {
+  assert.equal(listsKeys(key('/', { meta: true })), true, '⌘/')
+  assert.equal(listsKeys(key('?', { meta: true, shift: true })), true, '⌘?')
+  assert.equal(listsKeys(key('/', { meta: true, shift: true })), true, '⌘⇧/ heard as its key')
+  assert.equal(listsKeys(key('/')), false, '/ alone is the finder')
+  assert.equal(listsKeys(key('/', { meta: true, ctrl: true })), false)
+  assert.equal(keyOwner(key('/', { meta: true }), true), 'review', 'from the proof beside the review too')
 })
 
 test('with the keyboard anywhere else in the review, every key is the review’s', () => {

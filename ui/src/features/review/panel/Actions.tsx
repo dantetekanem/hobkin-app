@@ -514,7 +514,7 @@ function Said({ kind, live, flow, doing, landing, unseen, why, suggestion }: {
       </p>
       <p className="flex items-center gap-1">
         <Kbd>⌘</Kbd>
-        <Kbd>?</Kbd> lists every key.
+        <Kbd>/</Kbd> lists every key.
       </p>
     </div>
   )

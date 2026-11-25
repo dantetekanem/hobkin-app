@@ -78,9 +78,15 @@ export function inProofPanel(target: unknown): boolean {
 }
 
 /**
+ * ⌘/ lists every key of the review, and so does ⌘? where it comes through: on the Mac the Help menu takes ⌘? first and
+ * opens its search, so ⌘/ is the one that always works.
+ */
+export const listsKeys = (press: Pick<HeardKey, 'key' | 'meta' | 'ctrl'>): boolean => press.meta && !press.ctrl && (press.key === '/' || press.key === '?')
+
+/**
  * Who gets a key (053-work-control-room, "Proofs"). With the keyboard in the proof beside the review, every key is the
  * proof's: J and K, F, 1 2 3, /, R, the arrows, Enter, and every letter the review would take, so none approves or
- * walks the graph underneath. T and Escape close the proof, Shift+T opens its page and ⌘? lists the keys: those are
+ * walks the graph underneath. T and Escape close the proof, Shift+T opens its page and ⌘/ lists the keys: those are
  * the review's too, for a proof that leaves them (the proof uses a key first, and what it uses goes no further).
  * Typing in the proof's search, every key is the field's. Anywhere else in the review, every key is the review's.
  */
@@ -88,8 +94,7 @@ export function keyOwner(press: HeardKey, inProof: boolean): 'review' | 'proof' 
   if (!inProof) return 'review'
   if (press.typing) return 'proof'
 
-  const listsKeys = press.meta && !press.ctrl && (press.key === '?' || (press.shift && press.key === '/'))
-  if (listsKeys) return 'review'
+  if (listsKeys(press)) return 'review'
   if (press.meta || press.ctrl || press.alt) return 'proof'
 
   const closesOrExpands = press.key === 'Escape' || press.key === 't' || press.key === 'T'

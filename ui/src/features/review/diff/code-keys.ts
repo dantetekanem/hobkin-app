@@ -1,7 +1,7 @@
 /**
  * The code view's own keys (spec 071, "Keys in the code view"), as pi-coder's `/diff` has them: what each does to the
  * code view's state. Pure, so every key is tested without a screen. A key it does not own (C and N, D and H, A, M, X, S,
- * T, I, O, P, /, ⌘?, Enter in the diff) is null here and left to the review.
+ * T, I, O, P, /, ⌘/, Enter in the diff) is null here and left to the review.
  */
 import { showMoreEverywhere, showWholeFile, type Diff, type DiffView } from '../code/diff-rows.ts'
 import type { KeyPress } from '../keys.ts'

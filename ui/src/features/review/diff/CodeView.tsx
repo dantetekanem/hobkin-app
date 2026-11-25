@@ -523,7 +523,7 @@ function Foot({ notice, verdict }: { notice: Session['notice']; verdict?: ReactN
         <span className={cn('ml-1.5 flex h-5 min-w-0 flex-1 flex-wrap items-center gap-x-2.5 overflow-hidden', said && 'invisible')}>
           {hint('C', 'a comment', true)}
           {hint('D', 'discuss with the agent')}
-          {hint('⌘?', 'every key')}
+          {hint('⌘/', 'every key')}
         </span>
         <span role="status" className="absolute inset-0 truncate pl-1.5 font-heading text-[13px] leading-5 font-medium text-foreground">
           {said}

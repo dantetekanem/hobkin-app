@@ -100,13 +100,13 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
     title: 'Leaving',
     keys: [
       [['esc'], 'One level back: the note being written, the finder, the proof, a wire, selected lines, the code, every open group at once, then the review'],
-      [['⌘', '?'], 'These shortcuts'],
+      [['⌘', '/'], 'These shortcuts'],
     ],
   },
 ]
 
 /**
- * Every key of the review, on ⌘?. It sits over the graph and goes with Escape, ⌘? again, or a click outside it,
+ * Every key of the review, on ⌘/. It sits over the graph and goes with Escape, ⌘/ again, or a click outside it,
  * and gives the keyboard back to the review.
  */
 export function Shortcuts({ onClose }: { onClose: () => void }) {

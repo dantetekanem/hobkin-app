@@ -33,7 +33,7 @@ import { planEntrance, type EntrancePlan } from './graph/entrance-plan.ts'
 import { Finder } from './graph/Finder.tsx'
 import { Graph } from './graph/Graph.tsx'
 import { WireCard } from './graph/WireCard.tsx'
-import { inProofPanel, keyOwner, pressKey } from './keys.ts'
+import { inProofPanel, keyOwner, listsKeys, pressKey } from './keys.ts'
 import { Actions } from './panel/Actions.tsx'
 import { LAYER_EVENT } from './panel/StackStrip.tsx'
 import { useAskHobkin } from './panel/use-ask.ts'
@@ -405,8 +405,8 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
       const typing = target.closest('input, textarea, select, [contenteditable="true"]') != null
       const heard = { key: event.key, shift: event.shiftKey, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, typing }
       if (keyOwner(heard, inProofPanel(target)) === 'proof') return
-      // ⌘? shows every key of the review, and hides them again.
-      if (!event.defaultPrevented && event.metaKey && !event.ctrlKey && (event.key === '?' || (event.shiftKey && event.key === '/'))) {
+      // ⌘/ shows every key of the review, and hides them again (⌘? too, where the Mac's Help menu lets it through).
+      if (!event.defaultPrevented && listsKeys(heard)) {
         setShortcuts((open) => !open)
         event.preventDefault()
         return
