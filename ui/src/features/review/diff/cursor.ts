@@ -44,8 +44,11 @@ interface Cell {
   column: Column
 }
 
+/** The column a line is in when the diff is drawn in one: a removed line is the old side's, any other the new side's. */
+const columnOf = (line: DiffLine): Column => (line.kind === 'removed' ? 'old' : 'new')
+
 function cellsOf(item: DiffItem | SplitItem): Cell[] {
-  if (item.type === 'line') return [{ line: item.line, column: item.line.kind === 'removed' ? 'old' : 'new' }]
+  if (item.type === 'line') return [{ line: item.line, column: columnOf(item.line) }]
   if (item.type !== 'row') return []
   const cells: Cell[] = []
   if (item.left) cells.push({ line: item.left, column: 'old' })
@@ -79,14 +82,15 @@ export function lineAt(rows: Rows, cursor: Cursor): DiffLine | undefined {
 
 /** The first changed line of the rows taken in `order`, in two columns the new side of its row when it has one; with no change, the first line. */
 function edge(rows: Rows, split: boolean, order: readonly number[]): Cursor | null {
-  const prefer = (cells: Cell[]) => (split ? cells.find((cell) => cell.column === 'new') : undefined) ?? cells[0]
-  for (const wanted of [changed, () => true]) {
+  const first = (wanted: (line: DiffLine) => boolean): Cursor | null => {
     for (const index of order) {
-      const cell = prefer(cellsOf(rows[index]!).filter((each) => wanted(each.line)))
+      const cells = cellsOf(rows[index]!).filter((cell) => wanted(cell.line))
+      const cell = (split ? cells.find((each) => each.column === 'new') : undefined) ?? cells[0]
       if (cell) return cursorOn(cell.line, cell.column)
     }
+    return null
   }
-  return null
+  return first(changed) ?? first(() => true)
 }
 
 /** Where a file opens, and Home: its first changed line as drawn. In two columns, the new side of that row when it has one. */
@@ -94,6 +98,12 @@ export const firstChange = (rows: Rows, split: boolean): Cursor | null => edge(r
 
 /** End: the last changed line as drawn. */
 export const lastChange = (rows: Rows, split: boolean): Cursor | null => edge(rows, split, rows.map((_, index) => rows.length - 1 - index))
+
+/** The cursor a file shows: the one it kept, on the nearest line drawn when its own is not, else the file's first changed line. */
+export function cursorIn(rows: Rows, split: boolean, kept: Cursor | null): Cursor | null {
+  const drawn = kept ? snapped(rows, kept) : null
+  return drawn ?? firstChange(rows, split)
+}
 
 export interface Moved {
   view: DiffView
@@ -110,13 +120,8 @@ export function moved(diff: Diff, view: DiffView, split: boolean, cursor: Cursor
   let rows = rowsOf(diff, view, split)
   const from = rowOfLine(rows, cursor.side, cursor.line)
   if (from < 0) return null
-  let { side, anchor } = cursor
-  if (extend && split && cursor.anchor === cursor.line) {
-    const columnSide: Side = cursor.column === 'old' ? 'deleted' : 'added'
-    const own = cellsOf(rows[from]!).find((cell) => cell.column === cursor.column)
-    const number = own ? lineNumberOn(own.line, columnSide) : undefined
-    if (number != null) [side, anchor] = [columnSide, number]
-  }
+
+  const { side, anchor } = extend ? selectionStart(rows[from]!, split, cursor) : cursor
   // The cursor's line, numbered on the side it moves along.
   const here = side === cursor.side ? cursor.line : anchor
 
@@ -125,9 +130,10 @@ export function moved(diff: Diff, view: DiffView, split: boolean, cursor: Cursor
     shown = revealLines(diff, view, side, here + delta, here + delta)
     rows = rowsOf(diff, shown, split)
   }
+
+  const walked = (cell: Cell) => (!split || cell.column === cursor.column) && (lines || changed(cell.line))
   for (let index = rowOfLine(rows, side, here) + delta; index >= 0 && index < rows.length; index += delta) {
-    for (const cell of cellsOf(rows[index]!)) {
-      if ((split && cell.column !== cursor.column) || (!lines && !changed(cell.line))) continue
+    for (const cell of cellsOf(rows[index]!).filter(walked)) {
       if (!extend) return { view: shown, cursor: cursorOn(cell.line, split ? cursor.column : cell.column) }
       const number = lineNumberOn(cell.line, side)
       if (number != null) return { view: shown, cursor: { side, line: number, anchor, column: cursor.column } }
@@ -136,11 +142,24 @@ export function moved(diff: Diff, view: DiffView, split: boolean, cursor: Cursor
   return null
 }
 
+/**
+ * Where a selection grows from, and along which side. One under way keeps its own. One that starts now, from the cursor's
+ * line alone, is on the cursor's side, or in two columns on the side of the cursor's column, as an unchanged line is on both.
+ */
+function selectionStart(row: DiffItem | SplitItem, split: boolean, cursor: Cursor): Pick<Cursor, 'side' | 'anchor'> {
+  if (!split || cursor.anchor !== cursor.line) return cursor
+  const side: Side = cursor.column === 'old' ? 'deleted' : 'added'
+  const own = cellsOf(row).find((cell) => cell.column === cursor.column)
+  const anchor = own ? lineNumberOn(own.line, side) : undefined
+  return anchor == null ? cursor : { side, anchor }
+}
+
 /** Page Up and Page Down: `count` lines on, of any kind, in two columns in the cursor's column, as far as the lines drawn go. */
 export function paged(rows: Rows, split: boolean, cursor: Cursor, delta: 1 | -1, count: number): Cursor {
   let reached = cursor
   let moves = 0
-  for (let index = rowOfLine(rows, cursor.side, cursor.line) + delta; index >= 0 && index < rows.length && moves < count; index += delta) {
+  for (let index = rowOfLine(rows, cursor.side, cursor.line) + delta; index >= 0 && index < rows.length; index += delta) {
+    if (moves === count) break
     const cell = cellsOf(rows[index]!).find((each) => !split || each.column === cursor.column)
     if (!cell) continue
     reached = cursorOn(cell.line, split ? cursor.column : cell.column)
@@ -162,7 +181,10 @@ export function changesOf(diff: Diff): { start: number; end: number }[] {
 
 /** The row of the diff that holds a cursor's line. */
 function diffRowOf(diff: Diff, cursor: Pick<Cursor, 'side' | 'line'>): number {
-  return diff.rows.findIndex((row) => (cursor.side === 'added' ? row.kind !== 'delete' && row.newLine === cursor.line : row.kind !== 'insert' && row.oldLine === cursor.line))
+  return diff.rows.findIndex((row) => {
+    if (cursor.side === 'added') return row.kind !== 'delete' && row.newLine === cursor.line
+    return row.kind !== 'insert' && row.oldLine === cursor.line
+  })
 }
 
 /**
@@ -176,9 +198,12 @@ export function toChange(diff: Diff, split: boolean, cursor: Cursor, delta: 1 | 
   const group = delta > 0 ? groups.find((each) => each.start > row) : groups.findLast((each) => each.end < row)
   if (!group) return null
   const first = diff.rows[group.start]!
-  const old = split && cursor.column === 'new' ? first.kind === 'delete' : first.kind !== 'insert'
-  const line = (old ? first.oldLine : first.newLine) ?? 0
-  return { side: old ? 'deleted' : 'added', line, anchor: line, column: old ? 'old' : 'new' }
+  const removes = first.kind !== 'insert'
+  const adds = first.kind !== 'delete'
+  // As drawn in one column, and in the old column, a group starts with what it removed; in the new column, with what it added.
+  const onOld = split && cursor.column === 'new' ? !adds : removes
+  const line = (onOld ? first.oldLine : first.newLine) ?? 0
+  return { side: onOld ? 'deleted' : 'added', line, anchor: line, column: onOld ? 'old' : 'new' }
 }
 
 /** Which group of changes the cursor is in, from 0, for "Change 2 of 5": on unchanged lines, the last group before it, -1 before the first. */
@@ -227,5 +252,5 @@ export function snapped(rows: Rows, cursor: Cursor): Cursor | null {
 export function clicked(cursor: Cursor | null, line: DiffLine, column: Column, extend: boolean, split: boolean): Cursor {
   const number = cursor ? lineNumberOn(line, cursor.side) : undefined
   if (extend && cursor && number != null) return { ...cursor, line: number, column: split ? column : cursor.column }
-  return cursorOn(line, split ? column : line.kind === 'removed' ? 'old' : 'new')
+  return cursorOn(line, split ? column : columnOf(line))
 }

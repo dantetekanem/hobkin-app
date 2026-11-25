@@ -1,6 +1,21 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { diffFromPatch, diffOf, lineNumberOn, linesIn, revealLines, rowOfLine, splitRows, stableScroll, startView, unifiedRows, type DiffItem, type DiffView, type SplitItem } from '../src/features/review/code/diff-rows.ts'
+import {
+  diffFromPatch,
+  diffOf,
+  lineNumberOn,
+  linesIn,
+  revealLines,
+  rowOfLine,
+  splitRows,
+  stableScroll,
+  startView,
+  unifiedRows,
+  type DiffItem,
+  type DiffLine,
+  type DiffView,
+  type SplitItem,
+} from '../src/features/review/code/diff-rows.ts'
 import {
   changeAt,
   changesOf,
@@ -24,12 +39,22 @@ import {
  * the numbers agree again.
  */
 const base = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`)
-const head = [...base.slice(0, 4), 'changed 5', ...base.slice(7, 20), 'new A', 'new B', ...base.slice(20, 34), 'changed 35', ...base.slice(35)]
+const head = [
+  ...base.slice(0, 4),
+  'changed 5',
+  ...base.slice(7, 20),
+  'new A',
+  'new B',
+  ...base.slice(20, 34),
+  'changed 35',
+  ...base.slice(35),
+]
 const diff = diffOf(`${base.join('\n')}\n`, `${head.join('\n')}\n`)
 const start = startView(diff)
 
-/** A cursor as it reads: `-5` a removed line, `+5` an added one, ` 6` an unchanged line by its new number, `old 8` by its old. */
+/** A cursor as it reads: `-8` for line 8 of the old side, `+6` for line 6 of the new side. An unchanged line can be either. */
 const at = (cursor: Pick<Cursor, 'side' | 'line'> | null | undefined) => (cursor == null ? null : `${cursor.side === 'deleted' ? '-' : '+'}${cursor.line}`)
+/** The cursor on one line, with nothing more selected, in the column that line's side is drawn in. */
 const single = (side: Cursor['side'], line: number, column: Cursor['column'] = side === 'deleted' ? 'old' : 'new'): Cursor => ({ side, line, anchor: line, column })
 /** Every place the cursor goes with one key pressed again and again, from where it starts. */
 function walk(view: DiffView, split: boolean, from: Cursor, delta: 1 | -1, how: { lines?: boolean; extend?: boolean } = {}) {
@@ -45,8 +70,9 @@ function walk(view: DiffView, split: boolean, from: Cursor, delta: 1 | -1, how: 
   }
   return { places, cursor, view: shown }
 }
-const shownNew = (items: readonly (DiffItem | SplitItem)[]) =>
-  items.flatMap((item) => (item.type === 'line' ? [item.line] : item.type === 'row' ? [item.right ?? item.left!] : [])).map((line) => line.newLine ?? `-${line.oldLine}`)
+/** The new side's line numbers drawn, a removed line by its old number after a minus. */
+const shownNew = (items: readonly (DiffItem | SplitItem)[]) => items.map((item) => linesIn(item).at(-1)).filter((line) => line != null).map((line) => line.newLine ?? `-${line.oldLine}`)
+/** How many lines each gap holds back, top to bottom. */
 const hidden = (items: readonly (DiffItem | SplitItem)[]) => items.flatMap((item) => (item.type === 'gap' ? [item.hidden] : []))
 
 test('a file opens on its first changed line: in one column a removed line comes first, in two the new side of its row', () => {
@@ -82,7 +108,7 @@ test('Option with Up and Down reaches every line, opening the unchanged lines it
   assert.deepEqual(hidden(unifiedRows(diff, first.view)), [1, 6, 8, 2], 'the gap under it is one line shorter')
   const down = walk(start, false, from, 1, { lines: true })
   assert.deepEqual(down.places.slice(0, 10), ['+9', '+10', '+11', '+12', '+13', '+14', '+15', '+16', '+17', '+18'])
-  assert.ok(down.places.includes('+40') && down.places.at(-1) === '+40', 'it goes on to the last line of the file')
+  assert.equal(down.places.at(-1), '+40', 'it goes on to the last line of the file')
   assert.deepEqual(hidden(unifiedRows(diff, down.view)), [1], 'only the line above the first change is still held back')
 
   // Up from the first line drawn opens the line above it, at the top of the file.
@@ -169,7 +195,9 @@ test('lines of one side are opened from the nearer end of the gap they are in, a
   const opened = revealLines(diff, start, 'added', 12, 14)
   const items = unifiedRows(diff, opened)
   assert.deepEqual(hidden(items), [1, 3, 8, 2])
-  assert.ok([12, 13, 14, 15].every((line) => shownNew(items).includes(line)) && !shownNew(items).includes(11))
+  const lines = shownNew(items)
+  assert.ok([12, 13, 14, 15].every((line) => lines.includes(line)))
+  assert.ok(!lines.includes(11))
   assert.equal(revealLines(diff, opened, 'added', 12, 14), opened, 'lines already drawn open nothing')
   // A range across two gaps opens both, the one at the top of the file from its bottom, as nothing is above it.
   assert.deepEqual(hidden(unifiedRows(diff, revealLines(diff, start, 'deleted', 1, 20))), [8, 2])
@@ -180,24 +208,30 @@ test('lines of one side are opened from the nearer end of the gap they are in, a
 
   // An unchanged line is on both sides, a removed line on the old one only.
   const unified = rowsOf(diff, start, false)
-  const context = unified[rowOfLine(unified, 'deleted', 8)]
-  assert.ok(context?.type === 'line' && context.line.kind === 'context' && lineNumberOn(context.line, 'added') === 6)
-  assert.equal(rowOfLine(unified, 'added', 12), -1)
+  const [context] = linesIn(unified[rowOfLine(unified, 'deleted', 8)]!)
+  assert.equal(context?.kind, 'context')
+  assert.equal(lineNumberOn(context!, 'added'), 6)
+  assert.equal(rowOfLine(unified, 'added', 12), -1, 'a line held back has no row')
   const split = splitRows(diff, start)
-  const row = split[rowOfLine(split, 'added', 5)]
-  assert.ok(row?.type === 'row' && row.left?.oldLine === 5, 'in two columns a changed line shares its row with what it replaced')
-  assert.equal(lineNumberOn({ kind: 'removed', marker: '-', oldLine: 3, text: '', words: [], emphasis: false }, 'added'), undefined)
+  const [left] = linesIn(split[rowOfLine(split, 'added', 5)]!)
+  assert.equal(left?.oldLine, 5, 'in two columns a changed line shares its row with what it replaced')
+  const removed: DiffLine = { kind: 'removed', marker: '-', oldLine: 3, text: '', words: [], emphasis: false }
+  assert.equal(lineNumberOn(removed, 'added'), undefined)
 })
 
 test('a click on a line number puts the cursor there, and with Shift moves the end of the selection along its side', () => {
   const rows = rowsOf(diff, start, false)
-  const lineOf = (side: Cursor['side'], number: number) => linesIn(rows[rowOfLine(rows, side, number)]!).find((line) => lineNumberOn(line, side) === number)!
+  const lineOf = (side: Cursor['side'], number: number) => {
+    const row = rows[rowOfLine(rows, side, number)]!
+    return linesIn(row).find((line) => lineNumberOn(line, side) === number)!
+  }
   assert.deepEqual(clicked(single('deleted', 5), lineOf('added', 19), 'new', false, false), single('added', 19))
   assert.deepEqual(clicked(single('deleted', 5), lineOf('deleted', 8), 'old', true, false), { side: 'deleted', line: 8, anchor: 5, column: 'old' })
   // An added line is not on the old side: Shift with a click on one starts a selection there.
   assert.deepEqual(clicked(single('deleted', 5), lineOf('added', 19), 'new', true, false), single('added', 19))
-  // The cursor's line is found by its number on its side: old line 8 is unchanged.
-  assert.deepEqual([lineAt(rows, single('deleted', 8))?.kind, lineAt(rows, single('deleted', 8))?.newLine], ['context', 6])
+  // The cursor's line is found by its number on its side: old line 8 is unchanged, and new line 6.
+  const unchanged = lineAt(rows, single('deleted', 8))
+  assert.deepEqual([unchanged?.kind, unchanged?.newLine], ['context', 6])
 })
 
 test('the view stays still while the cursor is in it, and centers it when it leaves', () => {

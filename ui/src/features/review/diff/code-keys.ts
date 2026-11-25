@@ -5,7 +5,7 @@
  */
 import { showMoreEverywhere, showWholeFile, type Diff, type DiffView } from '../code/diff-rows.ts'
 import type { KeyPress } from '../keys.ts'
-import { columnMoved, firstChange, lastChange, moved, paged, rowsOf, snapped, toChange, type Column, type Cursor, type Rows } from './cursor.ts'
+import { columnMoved, cursorIn, firstChange, lastChange, moved, paged, rowsOf, toChange, type Column, type Cursor, type Rows } from './cursor.ts'
 
 /** Where the code view has the keyboard: the list of files, or the diff. */
 export type Pane = 'files' | 'diff'
@@ -48,8 +48,7 @@ export function codeKey(press: KeyPress, state: CodeKeyState): CodeKeyChange | n
   const letter = key.length === 1 ? key.toLowerCase() : ''
   const plain = !shift && !alt
   const rows = state.diff && state.view ? rowsOf(state.diff, state.view, state.split) : null
-  // A file opens on its first changed line, and a cursor kept on a line no longer drawn moves from the nearest one.
-  const cursor = rows ? ((state.cursor && snapped(rows, state.cursor)) ?? firstChange(rows, state.split)) : null
+  const cursor = rows ? cursorIn(rows, state.split, state.cursor) : null
 
   if (plain && (key === ']' || key === '[')) return around(state, key === ']' ? 1 : -1)
   if (!alt && letter === 'u') return unseen(state, shift ? -1 : 1)
@@ -62,20 +61,28 @@ export function codeKey(press: KeyPress, state: CodeKeyState): CodeKeyChange | n
   if (plain && (letter === 'j' || letter === 'k')) {
     if (!state.diff || !cursor) return {}
     const next = toChange(state.diff, state.split, cursor, letter === 'j' ? 1 : -1)
-    return next ? { pane: 'diff', cursor: next, scroll: 'keep' } : { say: letter === 'j' ? 'No change below this one in the file.' : 'No change above this one in the file.' }
+    if (next) return { pane: 'diff', cursor: next, scroll: 'keep' }
+    return { say: letter === 'j' ? 'No change below this one in the file.' : 'No change above this one in the file.' }
   }
   // Escape takes a selection of several lines back to the cursor's line. With none, it is the review's.
-  if (key === 'Escape') return plain && state.pane === 'diff' && cursor && cursor.anchor !== cursor.line ? { cursor: { ...cursor, anchor: cursor.line } } : null
+  if (key === 'Escape') {
+    const several = plain && state.pane === 'diff' && cursor != null && cursor.anchor !== cursor.line
+    return several ? { cursor: { ...cursor, anchor: cursor.line } } : null
+  }
   return state.pane === 'files' ? filesKey(press, state) : diffKey(press, state, rows, cursor)
 }
+
+/** An index into a list of `count`, round from the end to the start and from the start to the end. */
+const round = (index: number, count: number) => ((index % count) + count) % count
 
 /** ] and [: the next and the previous file, round from the last to the first. */
 function around(state: CodeKeyState, delta: 1 | -1): CodeKeyChange {
   const count = state.files.length
   if (count < 2) return {}
   const at = state.files.findIndex((file) => file.id === state.file)
+  // A file not in the list is before its first going forward, and after its last going back.
   const from = at >= 0 ? at : delta > 0 ? -1 : count
-  return { file: state.files[(from + delta + count) % count]!.id }
+  return { file: state.files[round(from + delta, count)]!.id }
 }
 
 /** U and Shift+U: the next and the previous file not seen, round the ends, and a word when there is none. */
@@ -83,11 +90,13 @@ function unseen(state: CodeKeyState, delta: 1 | -1): CodeKeyChange {
   const count = state.files.length
   const at = state.files.findIndex((file) => file.id === state.file)
   const from = at >= 0 ? at : delta > 0 ? -1 : count
-  for (let step = 1; step <= (at >= 0 ? count - 1 : count); step += 1) {
-    const file = state.files[(((from + delta * step) % count) + count) % count]!
+  const others = at >= 0 ? count - 1 : count
+  for (let step = 1; step <= others; step += 1) {
+    const file = state.files[round(from + delta * step, count)]!
     if (!file.seen) return { file: file.id }
   }
-  return { say: at >= 0 && !state.files[at]!.seen ? 'This is the last file not seen yet.' : 'Every file is seen.' }
+  const onLastUnseen = at >= 0 && !state.files[at]!.seen
+  return { say: onLastUnseen ? 'This is the last file not seen yet.' : 'Every file is seen.' }
 }
 
 /** The list's keys: Up and Down change the file and the diff follows, Enter or Right go to the diff. */
@@ -119,7 +128,8 @@ function filesKey({ key, shift, alt }: KeyPress, state: CodeKeyState): CodeKeyCh
   }
 }
 
-const MOVES = ['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']
+/** The keys that move the cursor in the diff. */
+const CURSOR_KEYS = ['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']
 
 /** The diff's keys: the cursor and the selection, and Left back to the list. */
 function diffKey({ key, shift, alt }: KeyPress, state: CodeKeyState, rows: Rows | null, cursor: Cursor | null): CodeKeyChange | null {
@@ -133,7 +143,7 @@ function diffKey({ key, shift, alt }: KeyPress, state: CodeKeyState, rows: Rows 
     }
     return key === 'ArrowLeft' ? { pane: 'files' } : {}
   }
-  if (!MOVES.includes(key)) return null
+  if (!CURSOR_KEYS.includes(key)) return null
   if (!state.diff || !state.view || !rows || !cursor) return {}
   if (key === 'ArrowUp' || key === 'ArrowDown') {
     const next = moved(state.diff, state.view, state.split, cursor, key === 'ArrowDown' ? 1 : -1, { lines: alt, extend: shift })

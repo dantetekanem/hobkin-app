@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { useStore } from 'zustand'
 import type { Unit } from '#shared/review/assessment.ts'
 import { hashLines } from '#shared/review/lines.ts'
+import type { Note } from '#shared/review/notes.ts'
 import type { Review, ReviewFile, ReviewFileContents } from '#shared/review/types.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
@@ -18,12 +19,12 @@ import { NoteInput } from '../panel/notes.tsx'
 import { reviewMemory, useReviewMemory, useRig, useSession, useSessionStore, useSource } from '../state/context.tsx'
 import { fileSeen, placeOfPart } from '../state/look.ts'
 import { reviewNodesOf, type Session } from '../state/session.ts'
-import { codeKey, type CodeKeyState } from './code-keys.ts'
+import { codeKey, type CodeKeyChange, type CodeKeyState } from './code-keys.ts'
 import './code-view.css'
-import { changeAt, clicked, firstChange, lineAt, rangeOf, rowsOf, snapped, type Cursor } from './cursor.ts'
+import { changeAt, clicked, cursorIn, lineAt, rangeOf, rowsOf, type Cursor } from './cursor.ts'
 import { FILE_ROW, FileList } from './FileList.tsx'
 import { fileRows, storyOrder } from './files.ts'
-import { codeViewStore, diffOfRead, placeOf, startOf, type CodeViewStore } from './view-state.ts'
+import { codeViewStore, diffOfRead, placeOf, startOf, type CodeViewStore, type FilePlace } from './view-state.ts'
 
 /** The open code view's own keys. The review asks here first while the code view is its look (`KeyEffects.codeKey`). */
 let openViewKey: ((press: KeyPress) => boolean) | null = null
@@ -52,34 +53,79 @@ function orderOf(review: Review, view: Session['view']): ReviewFile[] {
 }
 
 /** The file the code view shows: the one the session names when it lists it, else its first. */
-const shownFile = (files: readonly ReviewFile[], named: string | null): string | null => (files.some((file) => file.id === named) ? named : (files[0]?.id ?? null))
+function shownFile(files: readonly ReviewFile[], named: string | null): string | null {
+  if (files.some((file) => file.id === named)) return named
+  return files[0]?.id ?? null
+}
+
+/** The file the session's code view shows now. */
+const fileNow = (session: Session) => shownFile(orderOf(session.review, session.view), session.diff.file)
 
 /** The lines selected, as the session holds them for a note: with the hash of their text on their side. */
-function linesOf(file: ReviewFileContents, range: Emphasis): Extract<Session['selection'], object> {
+function linesOf(file: ReviewFileContents, range: Emphasis): NonNullable<Session['selection']> {
   const text = (range.side === 'added' ? file.head : file.base) ?? ''
   return { kind: 'lines', fileId: file.fileId, ...range, hash: hashLines(text, range.startLine, range.endLine) }
 }
 
-const sameLines = (a: Session['selection'], b: Session['selection']) =>
-  a === b || (a != null && b != null && a.fileId === b.fileId && a.side === b.side && a.startLine === b.startLine && a.endLine === b.endLine && a.hash === b.hash)
+function sameLines(a: Session['selection'], b: Session['selection']): boolean {
+  if (a === b) return true
+  if (a == null || b == null) return false
+  return a.fileId === b.fileId && a.side === b.side && a.startLine === b.startLine && a.endLine === b.endLine && a.hash === b.hash
+}
+
+/** The notes on a file's lines, by range, as glyphs: how many comments and questions start on each. */
+function glyphsOf(notes: readonly Note[], fileId: string | null): LineGlyph[] {
+  const ranges = new Map<string, LineGlyph>()
+  for (const note of notes) {
+    const { target } = note
+    if (target.kind !== 'lines' || target.fileId !== fileId) continue
+    const key = `${target.side}:${target.startLine}:${target.endLine}`
+    const glyph = ranges.get(key) ?? { side: target.side, startLine: target.startLine, endLine: target.endLine, comments: 0, questions: 0 }
+    if (note.intent === 'question') glyph.questions += 1
+    else glyph.comments += 1
+    ranges.set(key, glyph)
+  }
+  return [...ranges.values()]
+}
+
+/** Z, R and the header's check: a file's seen mark goes on or comes off, and a file with no part to mark says so. */
+function toggleSeen(session: Session, fileId: string): void {
+  if (!session.toggleFileSeen(fileId)) session.say('This file has no part to mark seen.')
+}
 
 /** What the code view's keys read, as it is now, from the session, the code view's state and the window's choice of columns. */
 function keyState(session: Session, code: CodeViewStore, pages: { lines: number; files: number }): CodeKeyState {
   const files = orderOf(session.review, session.view)
   const file = shownFile(files, session.diff.file)
   const state = code.getState()
+  const place = placeOf(state.places, file)
   const diff = diffOfRead(file ? state.files[file] : undefined)
   return {
     pane: state.pane,
     files: files.map((each) => ({ id: each.id, seen: fileSeen(session.review.nodes, each, session.seen) })),
     file,
     diff,
-    view: diff ? (placeOf(state.places, file).view ?? startOf(diff)) : null,
-    cursor: placeOf(state.places, file).cursor,
+    view: diff ? (place.view ?? startOf(diff)) : null,
+    cursor: place.cursor,
     split: reviewMemory.getState().splitDiff,
     page: pages.lines,
     filesPage: pages.files,
   }
+}
+
+/** Takes in what a key changed of the code view, its file and the session. */
+function applyChange(change: CodeKeyChange, session: Session, code: CodeViewStore, file: string | null): void {
+  if (change.pane) code.setState({ pane: change.pane })
+  if (file && (change.cursor || change.view)) {
+    const kept: Partial<FilePlace> = {}
+    if (change.cursor) kept.cursor = change.cursor
+    if (change.view) kept.view = change.view
+    code.place(file, kept)
+  }
+  if (change.file) session.showFile(change.file)
+  if (change.split != null) reviewMemory.getState().setSplitDiff(change.split)
+  if (change.seen) toggleSeen(session, change.seen)
+  if (change.say) session.say(change.say)
 }
 
 /**
@@ -117,23 +163,24 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
   const file = shownFile(files, asked.file)
   const shown = files.find((each) => each.id === file)
   const read = file ? reads[file] : undefined
+  // The file's two sides, once read.
+  const contents = read && !('failed' in read) ? read : null
   const diff = diffOfRead(read)
   const place = placeOf(places, file)
   const view = diff ? (place.view ?? startOf(diff)) : null
   const drawn = useMemo(() => (diff && view ? rowsOf(diff, view, split) : null), [diff, split, view])
-  // A file opens on its first changed line, and a cursor kept on a line no longer drawn moves to the nearest.
-  const cursor = useMemo(() => (drawn ? ((place.cursor && snapped(drawn, place.cursor)) ?? firstChange(drawn, split)) : null), [drawn, place.cursor, split])
+  const cursor = useMemo(() => (drawn ? cursorIn(drawn, split, place.cursor) : null), [drawn, place.cursor, split])
 
+  const section = useRef<HTMLElement>(null)
   const diffView = useRef<DiffViewHandle>(null)
   const list = useRef<HTMLDivElement>(null)
-  /** What the diff scrolls to keep in sight after a move: the cursor's line, or the input under the lines. */
-  const aim = useRef<'cursor' | null>(null)
-  const fileNow = useRef(file)
-  fileNow.current = file
+  /** Set by a move: the next draw scrolls the diff to keep the cursor, or the input of a note being written, in sight. */
+  const keepInSight = useRef(false)
 
   // The session names a file the code view does not list, or none yet: it shows its first.
   useEffect(() => {
-    if (files[0] && !files.some((each) => each.id === asked.file)) store.getState().showFile(files[0].id)
+    const listed = files.some((each) => each.id === asked.file)
+    if (files[0] && !listed) store.getState().showFile(files[0].id)
   }, [asked.file, files, store])
 
   // A step, a part or a note asked to show a file: its kept cursor, or the lines asked for, selected, with the diff focused.
@@ -144,12 +191,17 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
     opening.current = false
     if (asked.ask === code.getState().handled) return
     code.setState({ handled: asked.ask })
-    aim.current = 'cursor'
+    keepInSight.current = true
+
     const kept = store.getState().selection
     const lines = first && kept?.fileId === asked.file ? kept : asked.at
     if (!lines || !asked.file) return
     const { side, startLine, endLine } = lines
-    code.place(asked.file, { cursor: { side, line: startLine, anchor: endLine, column: side === 'deleted' ? 'old' : 'new' }, reveal: { side, startLine, endLine } })
+    code.place(asked.file, {
+      // The cursor on the first of the lines, with all of them selected.
+      cursor: { side, line: startLine, anchor: endLine, column: side === 'deleted' ? 'old' : 'new' },
+      reveal: { side, startLine, endLine },
+    })
     code.setState({ pane: 'diff' })
   }, [asked, code, store])
 
@@ -158,9 +210,9 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
     if (!file || !diff || !view || !place.reveal) return
     const { side, startLine, endLine } = place.reveal
     const opened = revealLines(diff, view, side, startLine, endLine)
-    const rowsNow = rowsOf(diff, opened, split)
-    code.place(file, { view: opened, cursor: (place.cursor && snapped(rowsNow, place.cursor)) ?? firstChange(rowsNow, split), reveal: null })
-    aim.current = 'cursor'
+    const cursorNow = cursorIn(rowsOf(diff, opened, split), split, place.cursor)
+    code.place(file, { view: opened, cursor: cursorNow, reveal: null })
+    keepInSight.current = true
   }, [code, diff, file, place.cursor, place.reveal, split, view])
 
   // The file shown, and the ones beside it in the list, are read from the source once each.
@@ -169,32 +221,45 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
     for (const id of [file, files[at + 1]?.id, files[at - 1]?.id]) {
       if (!id || code.getState().files[id] || code.reading.has(id)) continue
       code.reading.add(id)
-      const done = (read: ReviewFileContents | { failed: string }) => {
+      const keep = (read: ReviewFileContents | { failed: string }) => {
         code.reading.delete(id)
         code.setState((state) => ({ files: { ...state.files, [id]: read } }))
       }
-      source.getFile(review.id, id).then(done, (error: unknown) => done({ failed: error instanceof Error ? error.message : 'The file did not load.' }))
+      const fail = (error: unknown) => keep({ failed: error instanceof Error ? error.message : 'The file did not load.' })
+      source.getFile(review.id, id).then(keep, fail)
     }
   }, [code, file, files, review.id, source])
 
   // While the diff has the keyboard, the session's selection is the cursor's lines, so a note is about them. While the
   // files have it, there is none, and a note is about the file.
   useEffect(() => {
-    const wanted = pane === 'diff' && cursor && read && !('failed' in read) ? linesOf(read, rangeOf(cursor)) : null
+    const wanted = pane === 'diff' && cursor && contents ? linesOf(contents, rangeOf(cursor)) : null
     if (!sameLines(selection, wanted)) store.getState().selectLines(wanted)
-  }, [cursor, pane, read, selection, store])
+  }, [contents, cursor, pane, selection, store])
 
-  // A note being written about lines of another file the code view lists goes to that file, and its input with it.
+  // A note opened about lines of another file the code view lists goes to that file, and its input with it. Gone to
+  // another file while it is written, the note closes and its words wait as a draft, as Escape leaves them, and the
+  // keyboard goes back to the review.
+  const seenWith = useRef<{ editor: Session['editor']; file: string | null }>({ editor: null, file: null })
   useLayoutEffect(() => {
+    const before = seenWith.current
+    seenWith.current = { editor, file }
     if (!editor) return
-    aim.current = 'cursor'
+    keepInSight.current = true
+
     const { target } = editor
     const part = target.kind === 'node' ? review.nodes.find((node) => node.id === target.node) : undefined
-    const where = target.kind === 'lines' ? { fileId: target.fileId, at: target } : part ? placeOfPart(part, review.files) : null
-    if (where && where.fileId !== fileNow.current && files.some((each) => each.id === where.fileId)) {
-      store.getState().showFile(where.fileId, target.kind === 'lines' ? { side: target.side, startLine: target.startLine, endLine: target.endLine } : null)
+    const noteFile = target.kind === 'lines' ? target.fileId : part ? placeOfPart(part, review.files)?.fileId : undefined
+    if (!noteFile || noteFile === file || !files.some((each) => each.id === noteFile)) return
+    if (before.editor !== editor) {
+      const at = target.kind === 'lines' ? { side: target.side, startLine: target.startLine, endLine: target.endLine } : null
+      store.getState().showFile(noteFile, at)
+    } else if (before.file !== file) {
+      store.getState().closeEditor()
+      section.current?.closest<HTMLElement>('[data-rv-root]')?.focus({ preventScroll: true })
     }
-  }, [editor, files, review, store])
+  }, [editor, file, files, review, store])
+
   // Its lines are drawn, so the input can open under them.
   useLayoutEffect(() => {
     const target = editor?.target
@@ -217,38 +282,36 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
   // After a move, the diff keeps the cursor in sight, or the input while a note is written.
   useLayoutEffect(() => {
     const handle = diffView.current
-    if (!aim.current || !handle) return
-    aim.current = null
+    if (!keepInSight.current || !handle) return
+    keepInSight.current = false
     if (insert) handle.keepInView('insert')
     else if (cursor) handle.keepInView(cursor)
   })
 
   useEffect(() => {
-    openViewKey = (press) => {
+    const pressKey = (press: KeyPress): boolean => {
       const session = store.getState()
-      const lines = diffView.current?.pageLines() ?? 20
-      const height = list.current?.clientHeight ?? 0
-      const state = keyState(session, code, { lines, files: Math.max(1, Math.floor(height / FILE_ROW) - 1) })
+      const pages = {
+        lines: diffView.current?.pageLines() ?? 20,
+        files: Math.max(1, Math.floor((list.current?.clientHeight ?? 0) / FILE_ROW) - 1),
+      }
+      const state = keyState(session, code, pages)
       const change = codeKey(press, state)
       if (!change) return false
-      if (change.pane) code.setState({ pane: change.pane })
-      if (state.file && (change.cursor || change.view)) code.place(state.file, { ...(change.cursor ? { cursor: change.cursor } : {}), ...(change.view ? { view: change.view } : {}) })
-      if (change.file) session.showFile(change.file)
-      if (change.split != null) reviewMemory.getState().setSplitDiff(change.split)
-      if (change.seen && !session.toggleFileSeen(change.seen)) session.say('This file has no part to mark seen.')
-      if (change.say) session.say(change.say)
-      if (change.scroll === 'keep' || change.view || change.split != null) aim.current = 'cursor'
+
+      applyChange(change, session, code, state.file)
+      if (change.scroll === 'keep' || change.view || change.split != null) keepInSight.current = true
       if (typeof change.scroll === 'number') {
         // A page: the view scrolls as far as the cursor moved, and once it has, the cursor is kept in sight.
         diffView.current?.scrollBy(change.scroll)
-        const shownNow = state.file
         requestAnimationFrame(() => {
-          const kept = placeOf(code.getState().places, shownNow).cursor
-          if (kept && fileNow.current === shownNow) diffView.current?.keepInView(kept)
+          const kept = placeOf(code.getState().places, fileNow(store.getState())).cursor
+          if (kept) diffView.current?.keepInView(kept)
         })
       }
       return true
     }
+    openViewKey = pressKey
     return () => {
       openViewKey = null
     }
@@ -257,21 +320,9 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
   const left = useTransform(() => rig.side.get())
   const right = useTransform(() => rig.proof.get())
 
-  const glyphs = useMemo<LineGlyph[]>(() => {
-    const ranges = new Map<string, LineGlyph>()
-    for (const note of notes) {
-      const { target: on } = note
-      if (on.kind !== 'lines' || on.fileId !== file) continue
-      const key = `${on.side}:${on.startLine}:${on.endLine}`
-      const glyph = ranges.get(key) ?? { side: on.side, startLine: on.startLine, endLine: on.endLine, comments: 0, questions: 0 }
-      if (note.intent === 'question') glyph.questions += 1
-      else glyph.comments += 1
-      ranges.set(key, glyph)
-    }
-    return [...ranges.values()]
-  }, [file, notes])
-  const barred = useMemo<LineCursor | null>(() => (cursor ? { side: cursor.side, line: cursor.line, column: cursor.column, quiet: pane !== 'diff' } : null), [cursor, pane])
-  const selected = useMemo(() => (pane === 'diff' && cursor ? rangeOf(cursor) : null), [cursor, pane])
+  const glyphs = useMemo(() => glyphsOf(notes, file), [file, notes])
+  const cursorBar = useMemo<LineCursor | null>(() => (cursor ? { side: cursor.side, line: cursor.line, column: cursor.column, quiet: pane !== 'diff' } : null), [cursor, pane])
+  const selectedLines = useMemo(() => (pane === 'diff' && cursor ? rangeOf(cursor) : null), [cursor, pane])
 
   const show = (fileId: string) => {
     code.setState({ pane: 'files' })
@@ -280,26 +331,24 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
   const toDiff = () => {
     if (code.getState().pane !== 'diff') code.setState({ pane: 'diff' })
   }
-  const seenNow = shown ? fileSeen(review.nodes, shown, seen) : false
 
   const body = (() => {
-    if (!shown) return <Notes>This change has no changed files to show.</Notes>
-    if (!read || 'failed' in read || !diff || !view) {
-      return (
-        <Notes insert={insert?.node}>{read && 'failed' in read ? read.failed : 'Reading the file…'}</Notes>
-      )
+    if (!shown) return <DiffMessage>This change has no changed files to show.</DiffMessage>
+    if (!contents || !diff || !view) {
+      const failed = read && 'failed' in read ? read.failed : null
+      return <DiffMessage insert={insert?.node}>{failed ?? 'Reading the file…'}</DiffMessage>
     }
     return (
       <DiffView
         key={shown.id}
         ref={diffView}
-        file={read}
+        file={contents}
         diff={diff}
         view={view}
         onView={(next) => code.place(shown.id, { view: next })}
         split={split}
-        selection={selected}
-        cursor={barred}
+        selection={selectedLines}
+        cursor={cursorBar}
         glyphs={glyphs}
         insert={insert}
         onLine={(line, column, extend) => {
@@ -312,7 +361,7 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
   })()
 
   return (
-    <motion.section aria-label="Code" className="cv absolute bottom-0 z-20 flex flex-col bg-code-bg text-code-text" style={{ top: MENU.bottom, left, right }}>
+    <motion.section ref={section} aria-label="Code" className="cv absolute bottom-0 z-20 flex flex-col bg-code-bg text-code-text" style={{ top: MENU.bottom, left, right }}>
       <div className="grid min-h-0 flex-1 grid-cols-[clamp(220px,26%,340px)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)]">
         <FileList rows={rows} active={file} focused={pane === 'files'} onPick={show} list={list} />
         <div className="flex min-h-0 min-w-0 flex-col" onPointerDown={toDiff}>
@@ -323,8 +372,8 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
             kind={drawn && cursor ? lineAt(drawn, cursor)?.kind : undefined}
             focused={pane === 'diff'}
             split={split}
-            seen={seenNow}
-            onSeen={() => shown && !store.getState().toggleFileSeen(shown.id) && store.getState().say('This file has no part to mark seen.')}
+            seen={shown ? fileSeen(review.nodes, shown, seen) : false}
+            onSeen={() => shown && toggleSeen(store.getState(), shown.id)}
             onSplit={() => reviewMemory.getState().setSplitDiff(!split)}
             onWhole={() => diffView.current?.showWholeFile()}
           />
@@ -336,8 +385,8 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
   )
 }
 
-/** A line said in place of the diff, and the input of a note under it while one is written. */
-function Notes({ children, insert }: { children: ReactNode; insert?: ReactNode }) {
+/** A line said in place of the diff, with the input of a note under it while one is written. */
+function DiffMessage({ children, insert }: { children: ReactNode; insert?: ReactNode }) {
   return (
     <div className="dv">
       <p className="dv-note">{children}</p>
@@ -351,7 +400,17 @@ function selectedWords(cursor: Cursor | null, kind: string | undefined, focused:
   if (!focused || !cursor) return 'a note is about the file'
   const { side, startLine, endLine } = rangeOf(cursor)
   if (startLine !== endLine) return `${side === 'deleted' ? 'old lines' : 'lines'} ${startLine} to ${endLine}`
-  return kind === 'added' ? `added line ${startLine}` : kind === 'removed' ? `removed line ${startLine}` : side === 'deleted' ? `old line ${startLine}` : `line ${startLine}`
+  if (kind === 'added') return `added line ${startLine}`
+  if (kind === 'removed') return `removed line ${startLine}`
+  return side === 'deleted' ? `old line ${startLine}` : `line ${startLine}`
+}
+
+/** Which group of changes the cursor is in, in words: "Change 2 of 5", or where it is between them. */
+function changeWords(at: ReturnType<typeof changeAt> | null): string {
+  if (!at || at.total === 0) return 'No change'
+  if (at.inside) return `Change ${at.index + 1} of ${at.total}`
+  if (at.index < 0) return `Before change 1 of ${at.total}`
+  return `After change ${at.index + 1} of ${at.total}`
 }
 
 /**
@@ -372,15 +431,7 @@ function DiffHead({ file, diff, cursor, kind, focused, split, seen, onSeen, onSp
   onWhole: () => void
 }) {
   const path = file?.oldPath && file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file?.path
-  const at = diff && cursor ? changeAt(diff, cursor) : null
-  const where =
-    !at || at.total === 0
-      ? 'No change'
-      : at.inside
-        ? `Change ${at.index + 1} of ${at.total}`
-        : at.index < 0
-          ? `Before change 1 of ${at.total}`
-          : `After change ${at.index + 1} of ${at.total}`
+  const where = changeWords(diff && cursor ? changeAt(diff, cursor) : null)
   return (
     <header className="flex h-[54px] shrink-0 items-center gap-1 pr-2 pl-4 shadow-[inset_0_-1px_0_var(--cv-line)]">
       <div className="min-w-0 flex-1">

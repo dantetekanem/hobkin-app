@@ -147,7 +147,10 @@ export function DiffView({
   const controlled = kept != null
   const [own, setOwn] = useState(() => startView(diff, emphasis))
   const view = kept ?? own
-  const setView = (next: (now: ShownView) => ShownView) => (kept ? onView?.(next(kept)) : setOwn(next))
+  const setView = (next: (now: ShownView) => ShownView) => {
+    if (kept) onView?.(next(kept))
+    else setOwn(next)
+  }
   // A new file, or new lines to point at, starts from the changes again.
   useLayoutEffect(() => {
     started.current = performance.now()
@@ -162,8 +165,13 @@ export function DiffView({
   const pointing = (emphasis?.length ?? 0) > 0
 
   // The inserted row sits under the row of its line, else over the first. Rows after it are one further down the list.
-  const insertAt = insert ? (insert.after ? rowOfLine(items, insert.after.side, insert.after.line) + 1 : 0) : -1
-  const itemAt = (index: number): DiffItem | SplitItem | null => (insertAt < 0 || index < insertAt ? items[index]! : index === insertAt ? null : items[index - 1]!)
+  const insertAt = !insert ? -1 : insert.after ? rowOfLine(items, insert.after.side, insert.after.line) + 1 : 0
+  /** The row at a place in the list: null is the inserted row. */
+  const itemAt = (index: number): DiffItem | SplitItem | null => {
+    if (insertAt < 0 || index < insertAt) return items[index]!
+    if (index === insertAt) return null
+    return items[index - 1]!
+  }
   const indexOf = (at: LinePlace | 'insert') => {
     if (at === 'insert') return insertAt
     const index = rowOfLine(items, at.side, at.line)
@@ -179,7 +187,11 @@ export function DiffView({
     overscan: 24,
     getItemKey: (index) => itemAt(index)?.key ?? `insert:${insert?.key ?? ''}`,
     // The inserted row is drawn wherever the view is, so what it holds, such as a field that takes the keyboard, is there.
-    rangeExtractor: (range: Range) => (insertAt < 0 ? defaultRangeExtractor(range) : [...new Set([...defaultRangeExtractor(range), insertAt])].sort((a, b) => a - b)),
+    rangeExtractor: (range: Range) => {
+      const drawn = defaultRangeExtractor(range)
+      if (insertAt < 0 || drawn.includes(insertAt)) return drawn
+      return [...drawn, insertAt].sort((a, b) => a - b)
+    },
   })
 
   // Open on the lines pointed at: the first of them that changed, or the first of them. A caller that keeps the view scrolls it.
@@ -345,8 +357,10 @@ const Line = memo(function Line({ line, numbers, base, head, dim, selection, mar
   const noted = glyphs?.filter(starts)
   const comments = noted?.reduce((sum, range) => sum + range.comments, 0) ?? 0
   const questions = noted?.reduce((sum, range) => sum + range.questions, 0) ?? 0
-  const column = numbers === 'old' ? 'old' : numbers === 'new' ? 'new' : line.kind === 'removed' ? 'old' : 'new'
+  // In one column a removed line is in the old side's column, any other in the new side's.
+  const column = numbers !== 'both' ? numbers : line.kind === 'removed' ? 'old' : 'new'
   const onCursor = cursor != null && lineNumberOn(line, cursor.side) === cursor.line && (numbers === 'both' || cursor.column === column)
+  const cursorBar = !onCursor ? undefined : cursor.quiet ? 'quiet' : 'true'
   const pickable = onPick ? { role: 'button', title: 'Select this line for a note', onClick: (event: React.MouseEvent) => onPick(line, event.shiftKey, column) } : {}
 
   return (
@@ -357,7 +371,7 @@ const Line = memo(function Line({ line, numbers, base, head, dim, selection, mar
       data-dim={dim && line.kind !== 'context' && !line.emphasis}
       data-selected={selection != null && within(selection)}
       data-noted={(marks?.some(within) || glyphs?.some(within)) ?? false}
-      data-cursor={onCursor ? (cursor.quiet ? 'quiet' : 'true') : undefined}
+      data-cursor={cursorBar}
     >
       {mark ? <i className="dv-count" aria-label={`${mark.count} ${mark.count === 1 ? 'note' : 'notes'}`}>{mark.count}</i> : null}
       {glyphs ? (

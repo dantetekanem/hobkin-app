@@ -310,7 +310,9 @@ export function revealLines(diff: Diff, view: DiffView, side: Emphasis['side'], 
   if (diff.partial) return view
   const blocks = blocksOf(diff, view)
   if (!blocks) return view
-  let [first, last] = [-1, -1]
+  // The rows that hold the lines.
+  let first = -1
+  let last = -1
   diff.rows.forEach((row, index) => {
     const line = side === 'added' ? (row.kind === 'delete' ? undefined : row.newLine) : row.kind === 'insert' ? undefined : row.oldLine
     if (line == null || line < startLine || line > endLine) return
@@ -323,8 +325,10 @@ export function revealLines(diff: Diff, view: DiffView, side: Emphasis['side'], 
   for (const gap of gapsOf(diff, view, blocks)) {
     if (!gap) continue
     // What is still held back in it, and of that, what is wanted.
-    const [top, bottom] = [gap.from + gap.below, gap.to - gap.above]
-    const [from, to] = [Math.max(first, top), Math.min(last, bottom)]
+    const top = gap.from + gap.below
+    const bottom = gap.to - gap.above
+    const from = Math.max(first, top)
+    const to = Math.min(last, bottom)
     if (from > to) continue
     const fromTop = to - top + 1
     const fromBottom = bottom - from + 1

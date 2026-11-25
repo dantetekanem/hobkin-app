@@ -40,16 +40,18 @@ const stores = new WeakMap<object, CodeViewStore>()
 
 /** The code view's state for a review's session, made the first time the code view opens in it. */
 export function codeViewStore(session: object): CodeViewStore {
-  let kept = stores.get(session)
+  const kept = stores.get(session)
   if (kept) return kept
+
   const store = createStore<CodeViewState>()(() => ({ pane: 'files', handled: 0, places: {}, files: {} }))
-  kept = Object.assign(store, {
-    reading: new Set<string>(),
-    place: (fileId: string, change: Partial<FilePlace>) =>
-      store.setState((state) => ({ places: { ...state.places, [fileId]: { ...(state.places[fileId] ?? NO_PLACE), ...change } } })),
-  })
-  stores.set(session, kept)
-  return kept
+  const place = (fileId: string, change: Partial<FilePlace>) =>
+    store.setState((state) => {
+      const before = state.places[fileId] ?? NO_PLACE
+      return { places: { ...state.places, [fileId]: { ...before, ...change } } }
+    })
+  const made = Object.assign(store, { reading: new Set<string>(), place })
+  stores.set(session, made)
+  return made
 }
 
 /** What is kept of a file, nothing yet for one never shown. */
@@ -58,16 +60,20 @@ export const placeOf = (places: CodeViewState['places'], fileId: string | null):
 const diffs = new WeakMap<ReviewFileContents, Diff>()
 /** A file's diff, worked out once for each copy of it read. */
 export function diffFor(file: ReviewFileContents): Diff {
-  let diff = diffs.get(file)
-  if (!diff) diffs.set(file, (diff = diffOf(file.base, file.head)))
+  const known = diffs.get(file)
+  if (known) return known
+  const diff = diffOf(file.base, file.head)
+  diffs.set(file, diff)
   return diff
 }
 
 const starts = new WeakMap<Diff, DiffView>()
 /** What a file's diff draws before anything is opened in it: one view for each diff, so the screen and the keys agree on it. */
 export function startOf(diff: Diff): DiffView {
-  let view = starts.get(diff)
-  if (!view) starts.set(diff, (view = startView(diff)))
+  const known = starts.get(diff)
+  if (known) return known
+  const view = startView(diff)
+  starts.set(diff, view)
   return view
 }
 

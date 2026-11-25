@@ -22,21 +22,31 @@ export function storyOrder(
   const changed = files.filter(listed)
   const byId = new Map(changed.map((file) => [file.id, file]))
   const byPath = new Map(changed.map((file) => [file.path, file]))
+  const filesOf = (node: ReviewNode) => {
+    if (node.anchors.length === 0 && node.subtitle != null) return [byPath.get(node.subtitle)]
+    return node.anchors.map((anchor) => byId.get(anchor.fileId))
+  }
+
   const told = new Map<string, ReviewFile>()
   for (const step of steps) {
     for (const node of step.focus.flatMap(expand).map(partOf)) {
       if (!node) continue
-      const named = node.anchors.length === 0 && node.subtitle != null ? [byPath.get(node.subtitle)] : node.anchors.map((anchor) => byId.get(anchor.fileId))
-      for (const file of named) if (file && !told.has(file.id)) told.set(file.id, file)
+      for (const file of filesOf(node)) {
+        if (file && !told.has(file.id)) told.set(file.id, file)
+      }
     }
   }
-  const rest = changed.filter((file) => !told.has(file.id)).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+
+  const rest = changed.filter((file) => !told.has(file.id)).sort(byPathName)
   return [...told.values(), ...rest]
 }
 
+const byPathName = (a: ReviewFile, b: ReviewFile) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+
 export type StatusLetter = 'A' | 'M' | 'D' | 'R'
 
-const LETTER: Record<Exclude<FileStatus, 'unchanged'>, StatusLetter> = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' }
+/** An unchanged file is never listed; one would read as modified. */
+const LETTER: Record<FileStatus, StatusLetter> = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R', unchanged: 'M' }
 
 /** What a row of the list says of its file. */
 export interface FileRow {
@@ -54,14 +64,20 @@ export interface FileRow {
 }
 
 /** The rows of the list, one for each file, in the order given. */
-export function fileRows(files: readonly ReviewFile[], { nodes, notes, seen }: { nodes: readonly ReviewNode[]; notes: readonly Note[]; seen: ReadonlySet<string> }): FileRow[] {
+export function fileRows(
+  files: readonly ReviewFile[],
+  { nodes, notes, seen }: { nodes: readonly ReviewNode[]; notes: readonly Note[]; seen: ReadonlySet<string> },
+): FileRow[] {
   return files.map((file) => {
     const parts = partsInFile(nodes, file)
     const ids = new Set(parts.map((node) => node.id))
-    const carried = notes.filter(({ target }) => (target.kind === 'lines' ? target.fileId === file.id : target.kind === 'node' && ids.has(target.node)))
+    const carried = notes.filter(({ target }) => {
+      if (target.kind === 'lines') return target.fileId === file.id
+      return target.kind === 'node' && ids.has(target.node)
+    })
     return {
       file,
-      letter: file.status === 'unchanged' ? 'M' : LETTER[file.status],
+      letter: LETTER[file.status],
       additions: file.additions,
       deletions: file.deletions,
       comments: carried.filter((note) => note.intent === 'comment').length,
@@ -74,7 +90,11 @@ export function fileRows(files: readonly ReviewFile[], { nodes, notes, seen }: {
 
 /** The list's top line: how many files and lines changed. */
 export function totalsOf(rows: readonly Pick<FileRow, 'additions' | 'deletions'>[]): { files: number; additions: number; deletions: number } {
-  return { files: rows.length, additions: rows.reduce((sum, row) => sum + row.additions, 0), deletions: rows.reduce((sum, row) => sum + row.deletions, 0) }
+  return {
+    files: rows.length,
+    additions: rows.reduce((sum, row) => sum + row.additions, 0),
+    deletions: rows.reduce((sum, row) => sum + row.deletions, 0),
+  }
 }
 
 /** A name too long for its room keeps both its ends, so `review-look.test.ts` and `review-look.ts` stay apart. */

@@ -36,8 +36,10 @@ test('the changed files are listed in the order the story tells them, and the re
 
   // A part with no lines, as a binary file's, puts the file it names where its step is.
   const logo: ReviewFile = { id: 'logo', path: 'assets/logo.png', status: 'added', binary: true, additions: 0, deletions: 0, summarized: false }
-  const part = { id: 'f1', kind: 'file', title: 'logo.png', subtitle: 'assets/logo.png', change: 'added', summary: '', anchors: [], position: { x: 0, y: 0 } } satisfies ReviewNode
-  const order = storyOrder([...sample.files, logo], [{ focus: ['u4'] }, { focus: ['f1'] }], (id) => [id], (id) => (id === 'f1' ? part : sample.nodes.find((node) => node.id === id)))
+  const part: ReviewNode = { id: 'f1', kind: 'file', title: 'logo.png', subtitle: 'assets/logo.png', change: 'added', summary: '', anchors: [], position: { x: 0, y: 0 } }
+  const steps = [{ focus: ['u4'] }, { focus: ['f1'] }]
+  const partOf = (id: string) => (id === part.id ? part : sample.nodes.find((node) => node.id === id))
+  const order = storyOrder([...sample.files, logo], steps, (id) => [id], partOf)
   assert.deepEqual(order.map((file) => file.path).slice(0, 2), ['src/cli/doing.mjs', 'assets/logo.png'])
 })
 
@@ -49,10 +51,13 @@ test('a file row says its status, its size, its notes, whether a part of it need
     note('n3', { kind: 'node', node: 'u2' }, 'comment'),
     note('n4', { kind: 'step' }, 'comment'),
   ]
-  const nodes = sample.nodes.map((node) =>
-    node.id === 'u8' ? { ...node, attention: { tier: 'needs-you' as const, rank: 1, reasons: [] } } : node.id === 'u17' ? { ...node, level: 'high' as const } : node,
-  )
-  const rows = fileRows(ordered(sample), { nodes, notes, seen: new Set(['u5', 'u6', 'u2']) })
+  // The host ranks a part of ui.mjs as needing the reviewer, and the change review rates the test of the screen high.
+  const rated = (node: ReviewNode): ReviewNode => {
+    if (node.id === 'u8') return { ...node, attention: { tier: 'needs-you', rank: 1, reasons: [] } }
+    if (node.id === 'u17') return { ...node, level: 'high' }
+    return node
+  }
+  const rows = fileRows(ordered(sample), { nodes: sample.nodes.map(rated), notes, seen: new Set(['u5', 'u6', 'u2']) })
   const row = (path: string) => rows.find((each) => each.file.path === path)!
 
   assert.deepEqual([row('src/cli/doing.mjs').letter, row('src/cli/ui.mjs').letter], ['A', 'M'])

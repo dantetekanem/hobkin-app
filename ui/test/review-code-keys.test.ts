@@ -7,7 +7,16 @@ import type { Cursor } from '../src/features/review/diff/cursor.ts'
 
 // Forty lines with three groups of changes far apart, as in review-code-cursor.test.ts.
 const base = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`)
-const head = [...base.slice(0, 4), 'changed 5', ...base.slice(7, 20), 'new A', 'new B', ...base.slice(20, 34), 'changed 35', ...base.slice(35)]
+const head = [
+  ...base.slice(0, 4),
+  'changed 5',
+  ...base.slice(7, 20),
+  'new A',
+  'new B',
+  ...base.slice(20, 34),
+  'changed 35',
+  ...base.slice(35),
+]
 const diff = diffOf(`${base.join('\n')}\n`, `${head.join('\n')}\n`)
 const view = startView(diff)
 
@@ -18,20 +27,32 @@ const files = [
   { id: 'c', seen: true },
   { id: 'd', seen: false },
 ]
-const state = (more: Partial<CodeKeyState> = {}): CodeKeyState => ({ pane: 'diff', files, file: 'b', diff, view, cursor: single('deleted', 5), split: false, page: 4, filesPage: 2, ...more })
+/** File b shown in one column, the keyboard in its diff, the cursor on its first changed line. */
+const state = (more: Partial<CodeKeyState> = {}): CodeKeyState => ({
+  pane: 'diff',
+  files,
+  file: 'b',
+  diff,
+  view,
+  cursor: single('deleted', 5),
+  split: false,
+  page: 4,
+  filesPage: 2,
+  ...more,
+})
 const press = (key: string, more: Partial<KeyPress> = {}): KeyPress => ({ key, shift: false, alt: false, ...more })
 
 test('with the files focused, Up and Down change the file, and Enter or Right goes to its diff', () => {
-  const files = state({ pane: 'files' })
-  assert.deepEqual(codeKey(press('ArrowDown'), files), { file: 'c' })
-  assert.deepEqual(codeKey(press('ArrowUp'), files), { file: 'a' })
+  const inList = state({ pane: 'files' })
+  assert.deepEqual(codeKey(press('ArrowDown'), inList), { file: 'c' })
+  assert.deepEqual(codeKey(press('ArrowUp'), inList), { file: 'a' })
   assert.deepEqual(codeKey(press('ArrowUp'), state({ pane: 'files', file: 'a' })), {}, 'the first file is as far as it goes')
-  assert.deepEqual(codeKey(press('End'), files), { file: 'd' })
-  assert.deepEqual(codeKey(press('PageDown'), files), { file: 'd' })
-  assert.deepEqual(codeKey(press('Enter'), files), { pane: 'diff', scroll: 'keep' })
-  assert.deepEqual(codeKey(press('ArrowRight'), files), { pane: 'diff', scroll: 'keep' })
+  assert.deepEqual(codeKey(press('End'), inList), { file: 'd' })
+  assert.deepEqual(codeKey(press('PageDown'), inList), { file: 'd' })
+  assert.deepEqual(codeKey(press('Enter'), inList), { pane: 'diff', scroll: 'keep' })
+  assert.deepEqual(codeKey(press('ArrowRight'), inList), { pane: 'diff', scroll: 'keep' })
   // With the files focused, a note is about the file, so Escape has no selection to take back: it is the review's.
-  assert.equal(codeKey(press('Escape'), files), null)
+  assert.equal(codeKey(press('Escape'), inList), null)
 })
 
 test('] and [ go to the next and previous file, round the ends, and U and Shift+U to the next and previous not seen', () => {
@@ -49,8 +70,10 @@ test('Z and R mark the file seen, V gives two columns, E shows more and F the wh
   assert.deepEqual(codeKey(press('z'), state()), { seen: 'b' })
   assert.deepEqual(codeKey(press('R'), state({ pane: 'files' })), { seen: 'b' })
   assert.deepEqual(codeKey(press('v'), state()), { split: true })
-  const more = codeKey(press('e'), state())
-  assert.ok(more?.view && unifiedRows(diff, more.view).filter((item) => item.type === 'gap').length === 0, 'twenty more lines close every gap of this file')
+  const more = codeKey(press('e'), state())?.view
+  assert.ok(more)
+  const gaps = unifiedRows(diff, more).filter((item) => item.type === 'gap')
+  assert.equal(gaps.length, 0, 'twenty more lines close every gap of this file')
   assert.equal(codeKey(press('f'), state())?.view?.whole, true)
   assert.deepEqual(codeKey(press('e'), state({ diff: null, view: null, cursor: null })), {}, 'nothing to show more of while the file is read')
 })
