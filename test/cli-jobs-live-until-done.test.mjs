@@ -10,6 +10,9 @@ import { BRIDGE } from '../src/cli/bridge.mjs';
 import { createDoneTool, doneExtension } from '../src/cli/done-extension.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { HobkinApplication } from '../src/cli/application.mjs';
+import { startSession } from '../src/cli/session.mjs';
+import { recordSessionStart, sessionsToWake } from '../src/cli/session-log.mjs';
+import { readReport } from '../src/cli/reports.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
@@ -249,4 +252,56 @@ test('a card choice the main agent could not be sent is sent on the next try, on
   const woken = sent.mock.calls.map(({ arguments: [text] }) => text);
   assert.equal(woken.length, 1);
   assert.match(woken[0], /^<hobkin-wake>\n\{"handOff":\[[\s\S]*Browse older payment installments/);
+});
+
+/** A harness start that takes messages, keeping each in `heard`, and ends interrupted when it is stopped, saying `said`. */
+function heldCall(calls, request, options, said = '') {
+  const call = { request, options, heard: [], end: Promise.withResolvers() };
+  request.signal?.addEventListener('abort', () => call.end.resolve({ status: 'interrupted', text: said, error: 'Harness cancelled.', cost: null }), { once: true });
+  options?.onReady?.(async message => {
+    call.heard.push(message);
+    return { disposition: 'started' };
+  });
+  calls.push(call);
+  return call.end.promise;
+}
+const CUT_OFF = /^This job was cut off when hobkin closed or restarted, before its agent said it was done\./;
+
+test('a job hobkin closes on ends its session with a report that says it was cut off, and the chat is woken', async t => {
+  const h = home(t);
+  const calls = [];
+  const app = await h.open({ runHarness: async (request, options) => (request.purpose ? notHere : heldCall(calls, request, options, 'Which branch should the fix go on?')) });
+  const started = await startSession({ root: h.root, title: 'Fix totals', brief: 'Fix the totals.', cwd: h.root, approved: true, wake: true, tier: 'mid' });
+  void app.tickSessions();
+  await until(() => calls.length === 1);
+  await app.close();
+
+  const report = readFileSync(started.report, 'utf8');
+  assert.match(report, CUT_OFF);
+  assert.match(report, /Which branch should the fix go on\?/, 'with what it last said');
+  const [woken] = sessionsToWake(h.root);
+  assert.equal(woken.name, started.name);
+  assert.match(woken.said, CUT_OFF);
+});
+
+test('after a crash, a job that was cut off ends its session with a report that says so, and the chat is woken', async t => {
+  const h = home(t);
+  const name = 'hobkin-fix-totals-a1b2';
+  const report = join(h.root, 'runtime', 'handoffs', `${name}.report.md`);
+  const session = { name, title: 'Fix totals', cwd: h.root, brief: join(h.root, 'runtime', 'handoffs', `${name}.md`), report, wake: true };
+  recordSessionStart(h.root, { name, title: session.title, report, wake: true });
+  const first = await h.open({ runHarness: async () => notHere });
+  // The run as hobkin left it when its process died: admitted and never finished.
+  await first.runtime.admit({ id: `session:${name}`, kind: 'background', scheduleId: `session.${name}`, title: 'Fix totals', harness: 'pi', cwd: h.root, harnessId: 'b0c4f2a1-0d3e-4c55-9a8e-1f2a3b4c5d6e', session });
+  await first.close();
+
+  const app = await h.open({ runHarness: async () => notHere });
+  const run = (await app.runtime.state()).runs[`session:${name}`];
+  assert.equal(run.status, 'interrupted');
+  assert.match(run.result.text, CUT_OFF);
+  assert.match(readReport(h.root, run.id, ''), CUT_OFF, 'its own report says so too');
+  assert.match(readFileSync(report, 'utf8'), CUT_OFF);
+  const [woken] = sessionsToWake(h.root);
+  assert.equal(woken.name, name);
+  assert.match(woken.said, CUT_OFF);
 });

@@ -4,7 +4,7 @@ import { isAbsolute, join } from 'node:path';
 import { readDirections } from './directions.mjs';
 import { MESSAGE_MAX, TITLE_MAX } from './hobkins.mjs';
 import { MAX_MESSAGE_BYTES } from './runtime.mjs';
-import { markPosted, recordSessionEnd } from './session-log.mjs';
+import { cutOffReport, endSessionJob, recordSessionEnd } from './session-log.mjs';
 import { tierNames } from './tiers.mjs';
 import { resumeNote, WAITING } from './run-waits.mjs';
 import { SCHEDULES_GONE } from './agent-schedules.mjs';
@@ -62,16 +62,6 @@ export async function startKeptSession({ root, hobkins, tier }, session) {
   }
 }
 
-/** What a session's end leaves: its last reply as the report when it wrote none, and its end in the session log. */
-export function endSessionJob(root, session, run) {
-  if (!existsSync(session.report) && run?.result?.text) writeFileSync(session.report, run.result.text, { mode: 0o600 });
-  const userStop = run?.userStop && run.status === 'interrupted'
-    ? { runId: run.id, reason: run.userStop.reason } : undefined;
-  recordSessionEnd({ ...session, userStop });
-  // The run posts its own notice and report, so the session log's would say it twice.
-  markPosted(root, [session]);
-}
-
 /**
  * One start of a session's run, the first or one after a wait: its Pi on the run's own session file, with its messages
  * and activity. `prompt` is read as the start is admitted. A run that ends waiting has not ended, so its end is left to
@@ -85,7 +75,7 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
   let admitted = false;
   const { work } = runner.startTracked(request, async signal => {
     mkdirSync(join(root, 'jobs'), { recursive: true, mode: 0o700 });
-    return runner.runHarness({
+    const run = await runner.runHarness({
       id: request.harnessId,
       harness: 'pi',
       cwd: request.cwd,
@@ -100,6 +90,8 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
       ...(keepsMemories(root) ? { memories: 'run' } : {}),
       signal,
     }, { onEvent: event => runner.onActivity(request.id, event), onReady: send => inbox.resolve(send) });
+    // hobkin closing stops every job, and one it stopped says so in its report (072-jobs-live-until-done).
+    return runner.stopped && run?.status === 'interrupted' ? { ...run, text: cutOffReport(run.text) } : run;
   }, () => { admitted = true; }, { resume });
 
   return work.then(run => {

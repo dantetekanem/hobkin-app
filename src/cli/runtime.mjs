@@ -15,6 +15,7 @@ import { assertRuntimeAdmission } from './migration/admission.mjs';
 import { lockHome } from './home-lock.mjs';
 import { MAX_SESSION_BYTES } from './migration/ownership.mjs';
 import { isQuietRun, runReport, saveReport } from './reports.mjs';
+import { cutOffReport, endSessionJob } from './session-log.mjs';
 import { logRun } from './checks.mjs';
 import { readDirections } from './directions.mjs';
 import { runIndex } from './memories.mjs';
@@ -163,6 +164,8 @@ export class HobkinRuntime {
       for (const run of abandoned) {
         logRun(root, run);
         recordRunFinished(root, run);
+        // A job of a session ends that session, so the chat hears of it as of any end (072-jobs-live-until-done).
+        if (run.session) endSessionJob(root, run.session, run);
       }
       const actions = allCardActions(root);
       for (const run of Object.values((await runtime.state()).runs)) {
@@ -202,6 +205,11 @@ export class HobkinRuntime {
           error: 'The previous owner stopped without a completion receipt. Not replayed.',
           finishedAt: new Date().toISOString(),
         });
+        // A session's job reports that it was cut off, where the session's report and the chat read it.
+        if (run.session) {
+          run.result = { status: 'interrupted', text: cutOffReport(), error: run.error, cost: null };
+          saveReport(this.directory, run.id, runReport(run.result));
+        }
       }
       return copy(stopped);
     });

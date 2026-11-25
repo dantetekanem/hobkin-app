@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { readReport, saveReport } from './reports.mjs';
 
@@ -22,6 +22,25 @@ export const recordSessionStart = (root, { name, title, report, wake }, now = Da
 
 /** Written when a session's job ends (`session-jobs.mjs`). A session's report sits beside this log. */
 export const recordSessionEnd = ({ name, report, userStop }, now = Date.now()) => append(dirname(report), { name, report, ...(userStop ? { userStop } : {}), endedAt: new Date(now).toISOString() });
+
+/**
+ * What a job's report says when hobkin closed or died while the job lived (072-jobs-live-until-done): that it was cut
+ * off and not started again, then what its agent last said, if anything.
+ */
+export const cutOffReport = said => ['This job was cut off when hobkin closed or restarted, before its agent said it was done. Nothing started it again.',
+  ...(said?.trim() ? [`What it said last:\n\n${said.trim()}`] : [])].join('\n\n');
+
+/**
+ * What a session's end leaves: its last reply as the report when it wrote none, and its end in the session log. The run
+ * posts its own notice and report, so the session log's would say it twice.
+ */
+export function endSessionJob(root, session, run) {
+  if (!existsSync(session.report) && run?.result?.text) writeFileSync(session.report, run.result.text, { mode: 0o600 });
+  const userStop = run?.userStop && run.status === 'interrupted'
+    ? { runId: run.id, reason: run.userStop.reason } : undefined;
+  recordSessionEnd({ ...session, userStop });
+  markPosted(root, [session]);
+}
 
 function readLog(root) {
   const file = join(folderOf(root), LOG);
