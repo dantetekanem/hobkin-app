@@ -53,6 +53,7 @@ function readTeamsSettings(file, slots) {
   } catch (error) {
     return { problem: `cannot be read (${error.code ?? error.message})` };
   }
+
   let settings;
   try {
     settings = JSON.parse(text);
@@ -60,10 +61,12 @@ function readTeamsSettings(file, slots) {
     return { problem: 'is not valid JSON' };
   }
   if (!isObject(settings)) return { problem: 'does not hold a settings object' };
+
   const favorites = settings.favoriteModels ?? {};
   if (!isObject(favorites)) return { problem: 'has favoriteModels that is not an object' };
-  const odd = slots.find(slot => favorites[slot] != null && !isObject(favorites[slot]));
-  if (odd) return { problem: `has a ${odd} tier that is not an object` };
+  const oddSlot = slots.find(slot => favorites[slot] != null && !isObject(favorites[slot]));
+  if (oddSlot) return { problem: `has a ${oddSlot} tier that is not an object` };
+
   return { target, settings };
 }
 
@@ -73,9 +76,10 @@ function readTeamsSettings(file, slots) {
  * are. Nothing is written when they already match. Answers `{ changed }`, or `{ problem }` for a file left alone.
  */
 export function writeTeamsTiers(file, wanted) {
-  const read = readTeamsSettings(file, Object.keys(wanted));
-  if (read.problem) return read;
-  const { target, settings } = read;
+  const current = readTeamsSettings(file, Object.keys(wanted));
+  if (current.problem) return current;
+
+  const { target, settings } = current;
   const favoriteModels = { ...settings.favoriteModels };
   let changed = false;
   for (const [slot, { model, thinking }] of Object.entries(wanted)) {
@@ -85,6 +89,7 @@ export function writeTeamsTiers(file, wanted) {
     changed = true;
   }
   if (!changed) return { changed };
+
   try {
     atomicJson(target, { ...settings, favoriteModels });
   } catch (error) {
@@ -94,7 +99,7 @@ export function writeTeamsTiers(file, wanted) {
 }
 
 /** The file as the user knows it, from their home. */
-const shown = file => (file.startsWith(`${homedir()}${sep}`) ? `~${file.slice(homedir().length)}` : file);
+const pathAsShown = file => (file.startsWith(`${homedir()}${sep}`) ? `~${file.slice(homedir().length)}` : file);
 
 /**
  * Keeps pi-extended-teams' tiers equal to hobkin's while hobkin runs: on its first tick, and on any tick after
@@ -106,13 +111,19 @@ export class TeamsTiers {
     this.root = root;
     this.config = join(resolveDataRoot(root), 'config.json');
     this.file = teamsSettingsFile(home);
+    // Not looked at yet: no version a file can have.
+    this.configVersion = undefined;
+    this.keptTiers = null;
+    // The version of the teams file left alone, while one is.
+    this.blocked = null;
   }
 
   tick() {
-    const seen = fileVersion(this.config);
-    const blocked = this.blocked === undefined ? undefined : fileVersion(this.file);
-    if (seen === this.seen && blocked === this.blocked) return;
-    this.seen = seen;
+    const configVersion = fileVersion(this.config);
+    const blockedFileUnchanged = !this.blocked || fileVersion(this.file) === this.blocked.fileVersion;
+    if (configVersion === this.configVersion && blockedFileUnchanged) return;
+    this.configVersion = configVersion;
+
     let wanted;
     try {
       wanted = teamsTiers(loadConfig(this.root));
@@ -120,18 +131,25 @@ export class TeamsTiers {
       // A configuration that cannot be read just now leaves teams' tiers as hobkin last wrote them.
       return;
     }
-    const kept = JSON.stringify(wanted);
-    if (kept === this.kept && this.blocked === undefined) return;
+    const wantedTiers = JSON.stringify(wanted);
+    if (!this.blocked && wantedTiers === this.keptTiers) return;
+
     const { problem } = writeTeamsTiers(this.file, wanted);
-    if (!problem) {
-      this.blocked = undefined;
-      this.kept = kept;
+    if (problem) {
+      this.block(problem);
       return;
     }
-    this.blocked = fileVersion(this.file);
+    this.blocked = null;
+    this.keptTiers = wantedTiers;
+  }
+
+  /** Leaves the teams file alone until it changes, and tells the user once for each version of it. */
+  block(problem) {
+    const blockedVersion = fileVersion(this.file);
+    this.blocked = { fileVersion: blockedVersion };
     postClientNotice(this.root, {
-      key: `teams-tiers:${this.blocked ?? 'none'}`,
-      line: `hobkin cannot keep pi-extended-teams' tiers equal to its own: ${shown(this.file)} ${problem}, so it was left as it is.`,
+      key: `teams-tiers:${blockedVersion ?? 'none'}`,
+      line: `hobkin cannot keep pi-extended-teams' tiers equal to its own: ${pathAsShown(this.file)} ${problem}, so it was left as it is.`,
       tone: 'blocked',
     });
   }

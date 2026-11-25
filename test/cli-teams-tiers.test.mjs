@@ -69,7 +69,13 @@ test('only the model and thinking of hobkin\'s tiers change; every other key and
     externalHarnesses: { opus: { command: 'claude' } },
   };
   writeFileSync(file, JSON.stringify(saved));
-  assert.deepEqual(writeTeamsTiers(file, { 'write-critical': { model: 'openai/max', thinking: 'max' }, 'read-review': { model: 'openai/mid', thinking: 'medium' } }), { changed: true });
+
+  const result = writeTeamsTiers(file, {
+    'write-critical': { model: 'openai/max', thinking: 'max' },
+    'read-review': { model: 'openai/mid', thinking: 'medium' },
+  });
+
+  assert.deepEqual(result, { changed: true });
   assert.deepEqual(read(file), {
     watchdog: { bufferSeconds: 45 },
     favoriteModels: {
@@ -86,6 +92,7 @@ test('nothing is written when the tiers are already the same', () => {
   const file = teamsSettingsFile(place());
   writeTeamsTiers(file, teamsTiers(config));
   const before = fileVersion(file);
+
   assert.deepEqual(writeTeamsTiers(file, teamsTiers(config)), { changed: false });
   assert.equal(fileVersion(file), before);
   assert.deepEqual(writeTeamsTiers(teamsSettingsFile(place()), {}), { changed: false }, 'no tiers to give, no file made');
@@ -106,6 +113,7 @@ test('a file hobkin cannot make sense of is left alone and its problem told in p
     assert.deepEqual(writeTeamsTiers(file, teamsTiers(config)), { problem });
     assert.equal(readFileSync(file, 'utf8'), text);
   }
+
   const folder = teamsSettingsFile(place());
   mkdirSync(folder, { recursive: true });
   assert.deepEqual(writeTeamsTiers(folder, teamsTiers(config)), { problem: 'cannot be read (EISDIR)' });
@@ -118,22 +126,35 @@ test('a settings file that is a link is written where it points, and stays a lin
   const real = join(home, 'dotfiles-settings.json');
   writeFileSync(real, '{}');
   symlinkSync(real, file);
+
   assert.deepEqual(writeTeamsTiers(file, teamsTiers(config)), { changed: true });
   assert.equal(readlinkSync(file), real);
   assert.deepEqual(read(real).favoriteModels, teamsTiers(config));
 });
 
-function running() {
+/** A hobkin home with a chat and a checks model, and a user's home of its own for teams' settings. */
+function runningHobkin() {
   const root = place();
   const home = place();
   initialize(root, { cwd: root });
   const save = change => atomicJson(join(root, 'config.json'), { ...loadConfig(root), ...change });
-  save({ main: { cwd: root, model: 'anthropic/chat', effort: 'high' }, background: { harness: 'pi', model: 'anthropic/checks', effort: 'low' } });
-  return { root, file: teamsSettingsFile(home), keeper: new TeamsTiers({ root, home }), save };
+  save({
+    main: { cwd: root, model: 'anthropic/chat', effort: 'high' },
+    background: { harness: 'pi', model: 'anthropic/checks', effort: 'low' },
+  });
+  return { root, home, file: teamsSettingsFile(home), keeper: new TeamsTiers({ root, home }), save };
+}
+
+async function until(done, what) {
+  const end = Date.now() + 5000;
+  while (!done()) {
+    if (Date.now() > end) throw Error(`${what} never happened.`);
+    await wait(20);
+  }
 }
 
 test('while hobkin runs, its first tick writes the tiers, and each change to them writes again', () => {
-  const { file, keeper, save } = running();
+  const { file, keeper, save } = runningHobkin();
   keeper.tick();
   assert.deepEqual(read(file).favoriteModels['read-collect'], { model: 'anthropic/checks', thinking: 'low' });
 
@@ -148,23 +169,27 @@ test('while hobkin runs, its first tick writes the tiers, and each change to the
 });
 
 test('a tier changed in teams stays until hobkin\'s own tiers change, and nothing else of hobkin\'s settings rewrites it', () => {
-  const { file, keeper, save } = running();
+  const { file, keeper, save } = runningHobkin();
   keeper.tick();
-  const changed = read(file);
-  changed.favoriteModels['read-review'] = { model: 'picked/in-pi', thinking: 'low' };
-  writeFileSync(file, JSON.stringify(changed));
+  const pickedInPi = read(file);
+  pickedInPi.favoriteModels['read-review'] = { model: 'picked/in-pi', thinking: 'low' };
+  writeFileSync(file, JSON.stringify(pickedInPi));
+
   keeper.tick();
   save({ learning: { enabled: true } });
   keeper.tick();
+
   assert.deepEqual(read(file).favoriteModels['read-review'], { model: 'picked/in-pi', thinking: 'low' });
 });
 
 test('a bad file is told once in Chat, left alone, and kept again once it is fixed', () => {
-  const { root, file, keeper } = running();
+  const { root, file, keeper } = runningHobkin();
   mkdirSync(join(file, '..'), { recursive: true });
   writeFileSync(file, '{ broken');
+
   keeper.tick();
   keeper.tick();
+
   const told = clientNoticesToPost(root);
   assert.equal(told.length, 1);
   assert.match(told[0].line, /^hobkin cannot keep pi-extended-teams' tiers equal to its own: .*settings\.json is not valid JSON, so it was left as it is\.$/);
@@ -176,10 +201,13 @@ test('a bad file is told once in Chat, left alone, and kept again once it is fix
 });
 
 test('hobkin keeps the tiers of the home it is given from the moment it opens', async t => {
-  const { root, file, save } = running();
-  // The chat runs on the fixture's own model, as the fake Pi does.
-  save({ main: { cwd: root, model: 'fixture/local', effort: 'medium' }, tiers: { max: { model: 'openai/max', effort: 'max' } } });
-  const home = join(file, '..', '..', '..', '..');
+  const { root, home, file, save } = runningHobkin();
+  save({
+    // The chat runs on the fixture's own model, as the fake Pi does.
+    main: { cwd: root, model: 'fixture/local', effort: 'medium' },
+    tiers: { max: { model: 'openai/max', effort: 'max' } },
+  });
+
   const app = await HobkinApplication.open(root, {
     createMain: fakePi(root).createMain,
     runHarness: async () => { throw Error('No agent runs in this test.'); },
@@ -188,6 +216,7 @@ test('hobkin keeps the tiers of the home it is given from the moment it opens', 
     teamsHome: home,
   });
   t.after(() => app.close());
-  for (const end = Date.now() + 5000; !fileVersion(file); await wait(20)) if (Date.now() > end) throw Error('The tiers were never written.');
+
+  await until(() => fileVersion(file), 'Writing the tiers');
   assert.deepEqual(read(file).favoriteModels['read-critical'], { model: 'openai/max', thinking: 'max' });
 });
