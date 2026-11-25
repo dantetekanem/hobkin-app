@@ -90,3 +90,36 @@ test('Home builds the same model from the parts of work mode it keeps as from th
   const parts = Object.fromEntries(HOME_WORK.map((key) => [key, state.work![key]])) as unknown as WorkState
   assert.deepEqual(gather({ ...state, work: parts }), gather(state))
 })
+
+test("a part's own change, such as a pull request the user ignored on this machine, draws Home again at once", async () => {
+  const { setWindowParts } = await import('../src/integration/registry.ts')
+  let ignored = false
+  const heard = new Set<() => void>()
+  const target = { to: 'url', url: 'https://code.example.invalid/acme/app/pull/1' } as const
+  setWindowParts([{
+    manifest: { id: 'forge', name: 'Forge', line: '', commands: {}, screens: [] },
+    unknown: null,
+    sample: () => null,
+    home: () => ({ cards: ignored ? [] : [{ id: 'forge:1', label: 'Checks failing · app', reason: 'Checks failing', tone: 'bad', title: 'PR 1', detail: null, primary: { label: 'Open', target } }] }),
+    subscribe(onChange) {
+      heard.add(onChange)
+      return () => heard.delete(onChange)
+    },
+  }])
+  let model: ReturnType<typeof useHomeModel> | undefined
+  const Home = () => {
+    model = useHomeModel()
+    return null
+  }
+  const mounted = await mountCounting(() => createElement(Home))
+  assert.ok(model!.stack.some(({ id }) => id === 'forge:1'))
+  await mounted.change(() => {
+    ignored = true
+    for (const onChange of heard) onChange()
+  })
+  assert.ok(!model!.stack.some(({ id }) => id === 'forge:1'), 'Home reads the part again without waiting for the next visit')
+  await mounted.unmount()
+  assert.equal(heard.size, 0, 'Home stops hearing the part once it is gone')
+  setWindowParts([])
+})
+

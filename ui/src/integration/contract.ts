@@ -37,4 +37,10 @@ export interface WindowPart<State = unknown> {
   home?(state: State, now: number): HomeContribution
   /** What the spotlight finds of it: its pull requests and issues, each saying where Enter goes. */
   spotlight?(state: State): readonly SpotlightTarget[]
+  /**
+   * Hears a change of what `home` and `spotlight` read besides `state`, such as what the user chose on this machine, so
+   * Home and the spotlight read the part again at once. Gives back the call that stops hearing. A zustand store's own
+   * `subscribe` fits as it is.
+   */
+  subscribe?(onChange: () => void): () => void
 }

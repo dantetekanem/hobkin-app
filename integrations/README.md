@@ -185,6 +185,7 @@ export default part
 | `pulls(state)` | The pull requests in your state. Work's rows and the trail read their review and checks from here. |
 | `home(state, now)` | What you add to Home: `needs` (rows waiting on the user, each with its stack card), `cards` (things that went wrong), a `tile` among Connections, `known`, `lift` (how many need the user), `more`. Type: `HomeContribution` in `ui/src/features/home/types.ts`. GitHub's is `integrations/github/window/home.ts`. |
 | `spotlight(state)` | Entries the spotlight finds, each with where Enter goes. GitHub's is `integrations/github/window/spotlight.ts`. |
+| `subscribe(onChange)` | Only when `home` or `spotlight` read something besides `state`, such as a choice the user made on this machine: call `onChange` when it changes, and Home and the spotlight read your part again at once. Give back the call that stops it. A zustand store's `subscribe` fits as it is: `subscribe: useIgnored.subscribe`. |
 
 A screen and a card, the smallest that fit the app (`NotesState` is your own state type):
 

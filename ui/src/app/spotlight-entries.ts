@@ -18,6 +18,7 @@ import { windowPart, windowParts } from '@/integration/registry.ts'
 import { runWorkflow, useWorkflows } from '@/integration/use-workflows.ts'
 import { pressable, type WorkflowRow } from '@/integration/workflows.ts'
 import { useSlice } from '@/integration/use-slice.ts'
+import { usePartChanges } from '@/integration/use-part-changes.ts'
 import type { WorkProject } from '@/lib/host/index.ts'
 import { activeCanvasScreen, requestCanvasFocus } from './focus.ts'
 import { useRunningAgents, type RunningAgent } from './running-agents.ts'
@@ -310,12 +311,16 @@ export function workflowTarget(workflow: WorkflowRow): SpotlightTarget {
   }
 }
 
-/** What each integration's part says the spotlight can find of it, from its own state. The parts are fixed once the window has started. */
+/**
+ * What each integration's part says the spotlight can find of it, from its slice and what it keeps of its own, read
+ * again as either changes. The parts are fixed once the window has started.
+ */
 function usePartTargets(): SpotlightTarget[] {
   const parts = windowParts()
   const states = parts.map((part) => useSlice<unknown>(part.manifest.id))
+  const changed = usePartChanges()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => parts.flatMap((part, at) => part.spotlight?.(states[at] as never) ?? []), states)
+  return useMemo(() => parts.flatMap((part, at) => part.spotlight?.(states[at] as never) ?? []), [...states, changed])
 }
 
 /** Everything the spotlight can find right now. It follows the stores, so a new report or agent is found at once. */

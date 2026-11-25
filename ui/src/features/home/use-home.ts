@@ -5,6 +5,7 @@ import { useActionItems } from '@/features/actions/store.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { useReports } from '@/features/reports/store.ts'
 import { useRoutines } from '@/features/routines/store.ts'
+import { usePartChanges } from '@/integration/use-part-changes.ts'
 import { useAgents, useHostKept } from '@/lib/host/hooks.ts'
 import { keepSame } from '@/lib/host/keep-same.ts'
 import { initialHostState, type HostState } from '@/lib/host/state.ts'
@@ -77,9 +78,12 @@ export function useHomeModel(): HomeModel {
   const actions = useActionItems()
   const routines = useRoutines()
   const dismissed = useDismissals((state) => state.ids)
+  // What an integration's part keeps of its own, such as a pull request the user ignored, read again as it changes.
+  const partsChanged = usePartChanges()
   const parts = useMemo(
     () => homeParts(gatherHomeInput(now, homeHost(fields), reports, actions, routines, dismissed, NO_AGENTS)),
-    [now, fields, reports, actions, routines, dismissed],
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the parts read their own state; the count says it changed.
+    [now, fields, reports, actions, routines, dismissed, partsChanged],
   )
   const held = useRef<HomeModel | null>(null)
   return useMemo(() => {
