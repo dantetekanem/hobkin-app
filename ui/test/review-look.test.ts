@@ -9,7 +9,7 @@ import { createSession } from '../src/features/review/state/session.ts'
 import { partsInFile, readLook, stepShowing } from '../src/features/review/state/look.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
-const effects: KeyEffects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
+const effects: KeyEffects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {}, codeKey: () => false }
 const press = (session: ReturnType<typeof createSession>, key: string, shift = false, more: Partial<KeyEffects> = {}) =>
   pressKey(session.getState(), { key, shift, alt: false }, { ...effects, ...more })
 /** A session in the code view, following its memory as the open review does. */
@@ -214,4 +214,11 @@ test('Escape in the code view closes the note, the finder, the proof, then the c
   assert.deepEqual([selected, closed], [false, 0], 'a selection of several lines goes back to the cursor')
   escape()
   assert.equal(closed, 1)
+})
+
+test('I opens the code view only where one takes its keys', () => {
+  const session = createSession(sample, createReviewMemory(memoryStorage()))
+  const { codeKey: _, ...noCodeView } = effects
+  assert.equal(pressKey(session.getState(), { key: 'i', shift: false, alt: false }, noCodeView), false)
+  assert.equal(session.getState().look, 'graph')
 })

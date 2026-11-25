@@ -214,10 +214,11 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
   if (shift && key === 'S' && effects.focusStack) return effects.focusStack(), true
   if (shift) return false
 
-  // O and P choose the mode, and start it from the beginning, wherever the reviewer is. I opens the code view (spec 071).
+  // O and P choose the mode, and start it from the beginning, wherever the reviewer is. I opens the code view (spec 071),
+  // where there is one to take its keys.
   const mode = modeOfKey(key)
   if (mode) return session.setMode(mode), true
-  if (key.toUpperCase() === LOOK_KEY) return session.setLook('code'), true
+  if (key.toUpperCase() === LOOK_KEY && effects.codeKey) return session.setLook('code'), true
   // In Free Roam no step leads: the keys that walk the story are still the review's, and move nothing.
   if (roam && (/^[0-9]$/.test(key) || [' ', 'Home', 'End', 'b', 'B'].includes(key))) return true
 
