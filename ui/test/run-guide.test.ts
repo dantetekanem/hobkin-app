@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { RunGuide, RunGuideRun } from '#shared/protocol/work.ts'
-import { projectPage, type ProjectInput } from '../src/features/project/model.ts'
+import { projectPage, type ProjectInput, type TakenPage } from '../src/features/project/model.ts'
 import { askForGuide, guideButton, guideRunLine, sourcesLine, type GuideRead } from '../src/features/project/run-guide.ts'
 import { sampleRunGuide } from '../src/features/project/sample.ts'
 import { sampleWork } from '../src/features/work/sample.ts'
@@ -83,20 +83,22 @@ test('a press passes hobkin\'s line on, and its refusal in its own words', async
   )
 })
 
-const input = (over: Partial<ProjectInput>): ProjectInput => ({ slug: 'storefront', work: sampleWork(NOW), yolo: null, metrics: null, metricsState: 'loading', reviews: null, live: false, now: NOW, ...over })
+/** The page of a project work mode has taken, from the sample's work. */
+function taken(over: Partial<ProjectInput>): TakenPage {
+  const page = projectPage({ slug: 'storefront', work: sampleWork(NOW), yolo: null, metrics: null, metricsState: 'loading', reviews: null, live: false, now: NOW, ...over })
+  assert.equal(page.kind, 'taken')
+  return page as TakenPage
+}
 
 test('a code project\'s page has a Run guide section with what was read, and one not read yet is being read', () => {
-  const page = projectPage(input({ runGuide: read() }))
-  assert.equal(page.kind, 'taken')
-  assert.deepEqual(page.kind === 'taken' && page.runGuide, read())
-  const unread = projectPage(input({}))
-  assert.deepEqual(unread.kind === 'taken' && unread.runGuide, { state: 'reading' })
+  assert.deepEqual(taken({ runGuide: read() }).runGuide, read())
+  assert.deepEqual(taken({}).runGuide, { state: 'reading' })
 })
 
 test('a goal\'s page has no Run guide section', () => {
-  const page = projectPage(input({ slug: 'marathon-plan', runGuide: read() }))
-  assert.equal(page.kind, 'taken')
-  assert.equal(page.kind === 'taken' && page.runGuide, null)
+  const page = taken({ slug: 'marathon-plan', runGuide: read() })
+
+  assert.equal(page.runGuide, null)
 })
 
 test('the sample has a guide that worked, one that stopped, a project with none and a goal hobkin refuses', () => {

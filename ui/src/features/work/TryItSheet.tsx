@@ -36,14 +36,26 @@ export function TryItItem({ change, onTry }: { change: FinishedChange; onTry: ()
 /** The keyboard goes back to the change's row once the sheet closes. */
 const rowOf = (key: string) => document.querySelector<HTMLElement>(`[data-change="${CSS.escape(key)}"]`)
 
-export function TryItSheet({ open, change, live, onClose }: { open: boolean; change: FinishedChange; live: boolean; onClose: () => void }) {
+interface TryItSheetProps {
+  open: boolean
+  change: FinishedChange
+  live: boolean
+  onClose: () => void
+}
+
+export function TryItSheet({ open, change, live, onClose }: TryItSheetProps) {
   const still = useStill()
   const fade = still
     ? 'transition-opacity duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0'
     : 'transition-[translate,scale,opacity] duration-[320ms] ease-[var(--ease-drawer)] data-[starting-style]:-translate-y-3 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[ending-style]:duration-[160ms]'
 
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-scrim backdrop-blur-sm transition-opacity duration-[240ms] data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
         <Dialog.Popup
@@ -70,8 +82,9 @@ const STEP_LINE: Record<FirstStep['kind'], (project: string) => string> = {
 export function TryIt({ change, live }: { change: FinishedChange; live: boolean }) {
   const { read, control } = useRunGuide(live, change.slug, true)
   const step = firstStepOf(change)
+  const stepLine = STEP_LINE[step.kind](change.project)
   const text = read.state === 'read' ? read.guide.text : null
-  // With a guide, the sheet only shows it. Without one, it offers to write it, in the same place the line is read from.
+  // With a guide the sheet shows it. With none it offers Write the run guide, beside the step's name.
   const offersWrite = read.state !== 'reading' && !text
 
   return (
@@ -89,7 +102,7 @@ export function TryIt({ change, live }: { change: FinishedChange; live: boolean 
       </header>
 
       <Step label="Bring the change in">
-        <Dialog.Description className="px-1 text-[13px] leading-snug text-muted-foreground">{STEP_LINE[step.kind](change.project)}</Dialog.Description>
+        <Dialog.Description className="px-1 text-[13px] leading-snug text-muted-foreground">{stepLine}</Dialog.Description>
         {step.commands.length ? (
           <div className="mt-2 flex flex-col gap-1.5">
             {step.commands.map((command) => (

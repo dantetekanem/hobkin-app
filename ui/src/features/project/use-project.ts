@@ -72,6 +72,22 @@ export interface GuideControl {
   press: () => void
 }
 
+/** A guide as read for one host and project, with its JSON, so a read that says the same draws nothing again. */
+interface HeldGuide {
+  home: string | null
+  slug: string
+  json: string
+  read: GuideRead
+}
+
+/** The last press of the button, for one host and project: on its way, or what hobkin answered. */
+interface GuidePress {
+  home: string | null
+  slug: string
+  pressing: boolean
+  said: GuideSaid | null
+}
+
 const READING: GuideRead = { state: 'reading' }
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
@@ -82,18 +98,22 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  */
 export function useRunGuide(live: boolean, slug: string, wanted: boolean): { read: GuideRead; control: GuideControl } {
   const home = useHost((state) => state.home)
-  const [held, setHeld] = useState<{ home: string | null; slug: string; said: string; read: GuideRead } | null>(null)
+  const [held, setHeld] = useState<HeldGuide | null>(null)
   const [turn, setTurn] = useState(0)
-  const [press, setPress] = useState<{ home: string | null; slug: string; pressing: boolean; said: GuideSaid | null } | null>(null)
+  const [press, setPress] = useState<GuidePress | null>(null)
   const [sampleQueued, setSampleQueued] = useState<string | null>(null)
 
   useEffect(() => {
     if (!live || !wanted) return
     let current = true
+
     const keep = (read: GuideRead) => {
       if (!current) return
-      const said = JSON.stringify(read)
-      setHeld((before) => (before?.home === home && before.slug === slug && before.said === said ? before : { home, slug, said, read }))
+      const json = JSON.stringify(read)
+      setHeld((before) => {
+        const sameAsBefore = before?.home === home && before.slug === slug && before.json === json
+        return sameAsBefore ? before : { home, slug, json, read }
+      })
     }
     runCommand('work.guide.read', { slug }).then(
       (guide) => keep({ state: 'read', guide }),
@@ -109,7 +129,9 @@ export function useRunGuide(live: boolean, slug: string, wanted: boolean): { rea
     const guide = sampleRunGuide(slug, Date.now())
     return { state: 'read', guide: sampleQueued === slug ? { ...guide, pending: 'queued' } : guide }
   }, [live, slug, sampleQueued])
-  const read = sample ?? (held && held.home === home && held.slug === slug ? held.read : READING)
+  // What was read for another host or another project is not this one's.
+  const heldHere = held && held.home === home && held.slug === slug ? held.read : null
+  const read = sample ?? heldHere ?? READING
 
   const waits = live && read.state === 'read' && read.guide.pending !== null
   useEffect(() => {
@@ -118,15 +140,16 @@ export function useRunGuide(live: boolean, slug: string, wanted: boolean): { rea
     return () => clearTimeout(timer)
   }, [waits, turn])
 
-  const ours = press && press.home === home && press.slug === slug ? press : null
-  const pressing = Boolean(ours?.pressing)
+  const pressHere = press && press.home === home && press.slug === slug ? press : null
+  const pressing = Boolean(pressHere?.pressing)
   const control = useMemo<GuideControl>(
     () => ({
       pressing,
-      said: ours?.said ?? null,
+      said: pressHere?.said ?? null,
       press: () => {
         if (pressing) return
         setPress({ home, slug, pressing: true, said: null })
+
         const write = live
           ? () => runCommand('work.guide.write', { slug })
           : async () => {
@@ -139,7 +162,7 @@ export function useRunGuide(live: boolean, slug: string, wanted: boolean): { rea
         })
       },
     }),
-    [pressing, ours?.said, home, slug, live],
+    [pressing, pressHere?.said, home, slug, live],
   )
   return { read, control }
 }

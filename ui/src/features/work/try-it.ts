@@ -13,8 +13,14 @@ export interface FirstStep {
   commands: string[]
 }
 
-/** A word the shell reads as it is, or the word in single quotes. */
-const shellWord = (word: string) => (/^[\w./@%+=:,-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`)
+/** Characters a shell reads as they are, so a word made of them needs no quotes. */
+const PLAIN_WORD = /^[\w./@%+=:,-]+$/
+
+/** A word as the shell must be given it: as it is, or in single quotes with each quote inside it closed and reopened. */
+function shellWord(word: string): string {
+  if (PLAIN_WORD.test(word)) return word
+  return `'${word.replaceAll("'", `'\\''`)}'`
+}
 
 /** The commands that bring the change in: `gh pr checkout <number>` for a pull request, else `git fetch` and `git switch <branch>`. */
 export function firstStepOf(change: Pick<FinishedChange, 'branch' | 'pr'>): FirstStep {
@@ -22,7 +28,9 @@ export function firstStepOf(change: Pick<FinishedChange, 'branch' | 'pr'>): Firs
     const number = /\/pull\/(\d+)/.exec(change.pr)?.[1]
     return { kind: 'pr', commands: [`gh pr checkout ${number ?? shellWord(change.pr)}`] }
   }
+
   if (change.branch) return { kind: 'branch', commands: ['git fetch', `git switch ${shellWord(change.branch)}`] }
+
   return { kind: 'none', commands: [] }
 }
 

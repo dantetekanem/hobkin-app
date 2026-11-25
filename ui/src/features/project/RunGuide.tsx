@@ -13,7 +13,12 @@ import type { GuideControl } from './use-project.ts'
  * in Try it on each of its finished changes. Every line keeps its height in every state, so nothing moves under the user.
  */
 
-const GUIDE_TONE: Record<GuideLine['tone'], string> = { ok: 'text-ok-fg', warn: 'text-warn-fg', bad: 'text-bad-fg', quiet: 'text-muted-foreground' }
+const GUIDE_TONE: Record<GuideLine['tone'], string> = {
+  ok: 'text-ok-fg',
+  warn: 'text-warn-fg',
+  bad: 'text-bad-fg',
+  quiet: 'text-muted-foreground',
+}
 
 /** The last run, worded as the clock moves: "Last run 3 days ago: it worked". One line of fixed height. */
 export function GuideRunLine({ read }: { read: GuideRead }) {
@@ -43,12 +48,23 @@ export function GuideSources({ read }: { read: GuideRead }) {
 export function GuideButton({ read, control }: { read: GuideRead; control: GuideControl }) {
   const button = guideButton(read, control.pressing)
   const { said } = control
+  const refused = said?.tone === 'refused'
+
   return (
     <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-3">
-      <p role={said?.tone === 'refused' ? 'alert' : 'status'} title={said?.text} className={cn('min-w-0 truncate text-[12.5px]', said?.tone === 'refused' ? 'text-bad-fg' : 'text-muted-foreground')}>
+      <p role={refused ? 'alert' : 'status'} title={said?.text} className={cn('min-w-0 truncate text-[12.5px]', refused ? 'text-bad-fg' : 'text-muted-foreground')}>
         {said?.text ?? ''}
       </p>
-      <Button variant="outline" size="sm" data-stop="" disabled={button.disabled} focusableWhenDisabled title={GUIDE_PRESS_TITLE} onClick={control.press} className="w-[148px] shrink-0">
+      <Button
+        variant="outline"
+        size="sm"
+        data-stop=""
+        disabled={button.disabled}
+        focusableWhenDisabled
+        title={GUIDE_PRESS_TITLE}
+        onClick={control.press}
+        className="w-[148px] shrink-0"
+      >
         {button.label}
       </Button>
     </div>
