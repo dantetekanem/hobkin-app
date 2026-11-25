@@ -1152,6 +1152,7 @@ export class HobkinRuntime {
           cwd: this.config.main.cwd, prompt: JSON.stringify({ task: text, directions: readDirections(this.directory), ...(memories ? { memories } : {}) }),
           model: `${session.model?.provider}/${session.model?.id}`, effort: session.thinkingLevel,
           role: 'read', parentRole: 'read', launcher: this.config.launcher,
+          ...(this.config.providerExtensions ? { providerExtensions: this.config.providerExtensions } : {}),
         } });
         signal.addEventListener('abort', cancelChildren, { once: true });
         await withPiCancellation(session, signal, () => session.prompt(text, {

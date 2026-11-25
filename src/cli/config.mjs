@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { cadences, routinesFolder, validateBinding } from './schedules.mjs';
 import { validateLauncher } from './launcher.mjs';
+import { validateProviderExtensions } from './provider-extensions.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 import { readVersioned } from './file-version.mjs';
 import { validatePersona } from './persona.mjs';
@@ -146,6 +147,7 @@ export function validateConfig(config, { allowLegacyHarness = false } = {}) {
   validateBinding({ harness: 'pi', ...config.main }, { allowLegacyHarness });
   validateBinding(config.background, { allowLegacyHarness });
   validateLauncher(config.launcher);
+  validateProviderExtensions(config.providerExtensions);
   validatePersona(config.persona);
   // A version 2 selection is checked as one; every other value is checked as before.
   if (config.resourceSelection?.version === 2) normalizeSelection(config.resourceSelection);
