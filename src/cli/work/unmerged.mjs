@@ -389,7 +389,7 @@ async function treesHeld(repo, trees) {
 }
 
 /** Read-only `git` and `gh`, and no model. A PR and its branch are one piece of work, and so is a worktree holding that branch. */
-async function surveyProject({ repo, trees, previous = {}, now, gh, grades, finished, settling }) {
+async function surveyProject({ repo, trees, previous = {}, now, gh, grades, finished, adoptedPulls, settling }) {
   // `gitOrNothing` hears a missing folder as an empty repository, which would pass for a project with nothing open.
   if (!await gitOrNothing(repo, 'rev-parse', '--git-dir')) throw Error(`Cannot read ${repo}.`);
   const base = await defaultBranch(repo);
@@ -399,8 +399,9 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   const samePatch = await patchLandings({ repo, tip, branches: listed, settling });
   const branches = listed.map(branch => (samePatch.has(branch.name) ? { ...branch, merged: true } : branch));
   const pulls = await pullRequests(repo, gh) ?? [];
-  // An item can name a PR on any head, but only a hobkin head is work to count.
-  const ownPulls = pulls.filter(pr => pr.headRefName?.startsWith(BRANCH_PREFIX));
+  // Count hobkin heads and explicitly adopted branches whose recorded PR matches the host's URL and head name.
+  const ownPulls = pulls.filter(pr => pr.headRefName?.startsWith(BRANCH_PREFIX)
+    || adoptedPulls.some(item => item.branch === pr.headRefName && item.pr === pr.url));
   // A closed PR leaves its branch as the record of the work, so only an open or merged one speaks for that branch.
   const withPull = new Set(ownPulls.filter(pr => pr.state !== 'CLOSED').map(pr => pr.headRefName));
   const bare = branches.filter(branch => !branch.merged && !withPull.has(branch.name) && !BACKUP_BRANCH.test(branch.name));
@@ -649,9 +650,11 @@ export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, r
     try {
       const items = readItems(root, slug);
       const finished = new Set(items.filter(item => item.state === 'branch' && item.branch).map(item => item.branch));
+      const adoptedPulls = items.filter(item => item.state === 'pr' && item.branch && item.pr
+        && item.key?.startsWith(`adopted:${item.branch}:`));
       // The branches whose landing would close an item, which are the only ones checked for a change landed by another commit.
       const settling = new Set(items.filter(item => closableStates.includes(item.state) && branchProvesMerge(item) && item.branch).map(item => item.branch));
-      const found = await surveyProject({ repo: path ?? clone, trees, previous: previous[slug], now, gh, grades, finished, settling });
+      const found = await surveyProject({ repo: path ?? clone, trees, previous: previous[slug], now, gh, grades, finished, adoptedPulls, settling });
       projects[slug] = found.survey;
       settled.push(...settleItems(root, slug, found, now));
       filed.push(...fileShipWork(root, slug, found, now));

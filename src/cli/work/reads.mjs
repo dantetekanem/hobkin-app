@@ -431,14 +431,15 @@ const landingRow = ({ project, slug, item, title, head, safety, size, pr }, why)
 /** Why a PR has no grade to show, when the survey could not read one. */
 function unreadPr({ branch }, open) {
   if (!branch) return 'it names no branch, so the survey cannot find its PR';
-  if (!branch.startsWith(BRANCH_PREFIX)) return `its PR is on ${branch}, which is not a hobkin branch, so the survey does not read it`;
+  if (!open && !branch.startsWith(BRANCH_PREFIX)) return `its PR is on ${branch}, which is not a hobkin branch, so the survey does not read it`;
   if (!open) return 'the last survey saw no open PR for it';
   return open.sha ? null : 'the last survey did not read its head, and hobkin work sync reads it';
 }
 
 /** An item recorded as a PR, read against the PR the survey found open on its branch. Without its head there is nothing to grade, whatever its branch holds. */
 function prRow(root, project, item, items, units) {
-  const open = units.find(unit => unit.kind === 'pr' && unit.branch === item.branch);
+  const open = units.find(unit => unit.kind === 'pr' && unit.branch === item.branch
+    && (item.branch?.startsWith(BRANCH_PREFIX) || unit.url === item.pr));
   const unread = unreadPr(item, open);
   if (!open) return { ...readyRow(root, project, item, items), pr: item.pr ?? null, unread };
   return { ...readyRow(root, project, item, items, units), pr: open.url, unread };

@@ -441,6 +441,26 @@ test('a PR the survey cannot grade says why instead of a grade', async t => {
   assert.match(why[unread.id], /did not read its head/);
 });
 
+test('a registered stack PR is surveyed at its hosted head without admitting unrelated PRs', async t => {
+  const h = workspace(t);
+  const branch = 'stack/turn/1';
+  branched(h.checkout, branch, 'turn.txt', 'turn\n');
+  const { id } = await agentSays(h, { title: 'Turn layer', branch, state: 'branch', summary: 'Remove an unused planner.', ...proved });
+  await agentSays(h, { id, state: 'pr', pr: pull(6).url });
+  const head = tipOf(h, branch);
+  reviewed(h, head);
+  const pulls = [
+    pull(6, { headRefName: branch, headRefOid: head }),
+    pull(7, { headRefName: 'feature/theirs', headRefOid: head }),
+    pull(8, { headRefName: branch, headRefOid: head }),
+  ];
+
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify(pulls), reviews: h.reviews });
+
+  assert.deepEqual(landingList(h.root).landable.map(({ item, head, grade, pr }) => [item, head, grade, pr]), [[id, head, 'safe A', pull(6).url]]);
+  assert.deepEqual(readUnmerged(h.root).projects.api.open.map(({ branch, url }) => [branch, url]), [[branch, pull(6).url]]);
+});
+
 test('an open PR waits in Action Items as one card with its PR, its head, what it did and its proof, and its branch row stays out', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/8-fix', 'eight.txt', 'eight\n');
