@@ -132,7 +132,11 @@ function ExchangeSteps({ agentId, hue, question, waiting, idle }: { agentId: str
   // What the user said to it while it worked comes back from hobkin, for a page a reload or a hot update took it from.
   // A host from before has no such read, and the page shows what it has.
   useEffect(() => {
-    if (live) runCommand('agent.notes', { run: agentId }).then(({ notes: kept }) => useAgentThreads.getState().recall(agentId, kept), () => {})
+    if (!live) return
+    runCommand('agent.notes', { run: agentId }).then(
+      ({ notes: kept }) => useAgentThreads.getState().recall(agentId, kept),
+      () => {},
+    )
   }, [agentId, live])
   // What waits for the run's turn shows above the box until the turn reads it (`QueuedRows`).
   const notes = useMemo(() => allNotes?.filter((note) => !waitsForTurn(note)), [allNotes])
