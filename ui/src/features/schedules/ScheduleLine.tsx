@@ -223,6 +223,7 @@ function LineButton({
   const line = scheduleLine(schedules, now)
   if (!line) return null
   const fit = lineFit(width, line, measure)
+  const live = schedulesGlow(schedules, now)
   return (
     <motion.button
       ref={ref}
@@ -232,7 +233,7 @@ function LineButton({
       aria-label={`Schedules: ${line.text}. ${open ? 'Hide' : 'Show'} every schedule.`}
       title={line.text}
       onClick={onToggle}
-      {...liveIf(schedulesGlow(schedules, now))}
+      {...liveIf(live)}
       initial={holdStill({ opacity: 0, transform: 'translateY(4px) scale(0.96)' }, still)}
       animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.rise, opacity: tween.enter } }, still)}
       exit={holdStill({ opacity: 0, transform: 'translateY(0px) scale(0.96)', transition: tween.exit }, still)}

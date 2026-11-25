@@ -51,8 +51,8 @@ function toggleList(root: HTMLElement | null, bar: HTMLButtonElement | null): vo
 /**
  * The agent's tasks (tasks.ts) in one short line, held in place while its steps scroll by: a position for every task
  * and how many are done of how many, "2 of 5 tasks". Its task tool calls are not drawn as steps (steps.ts,
- * `tasksOnLine`): this is where they show. A click on the line or Enter on it opens every task under it, in the order they run, with its state and
- * its description, and the same again closes it. Control+Option+T does the same from anywhere on the screen
+ * `tasksOnLine`): this is where they show. A click on the line or Enter on it opens every task under it, in the order
+ * they run, with its state and its description, and the same again closes it. Control+Option+T does the same from anywhere on the screen
  * (task-keys.ts), and Escape inside closes it. It opens over the transcript and leaves its bottom in view, so it takes
  * no room from it. Nothing shows for an agent that keeps no tasks.
  *
@@ -79,6 +79,8 @@ function TaskBar({ tasks, hue }: { tasks: readonly AgentTask[]; hue: number }) {
   const still = useStill()
   const progress = useMemo(() => progressOf(tasks), [tasks])
   const count = taskCount(progress)
+  // Its border breathes while a task is in progress (glow.ts), as the position of that task does.
+  const live = tasksGlow(tasks)
   const any = tasks.length > 0
   const open = useDrop((state) => state.open === 'tasks') && any
   const root = useRef<HTMLDivElement>(null)
@@ -124,8 +126,7 @@ function TaskBar({ tasks, hue }: { tasks: readonly AgentTask[]; hue: number }) {
         aria-controls={open ? panelId : undefined}
         aria-label={`${count}. ${open ? 'Hide' : 'Show'} every task.`}
         onClick={toggle}
-        // Its border breathes while a task is in progress (glow.ts), as the position of that task does.
-        {...liveIf(tasksGlow(tasks))}
+        {...liveIf(live)}
         style={glowIn(hue)}
         initial={arrivedLater.current ? holdStill({ opacity: 0, transform: 'translateY(8px) scale(0.96)' }, still) : false}
         animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.rise, opacity: tween.enter } }, still)}
@@ -172,7 +173,7 @@ const Track = memo(function Track({ tasks, still }: { tasks: readonly AgentTask[
 })
 
 /** Words that change by sliding: the old ones leave upward as the new ones rise in. They keep the width of `room`. */
-function Count({ value, room, still }: { value: number | string; room: string; still: boolean }) {
+function Count({ value, room, still }: { value: string; room: string; still: boolean }) {
   return (
     <span className="relative inline-grid overflow-hidden text-left tabular-nums">
       <span className="invisible col-start-1 row-start-1" aria-hidden="true">

@@ -451,7 +451,10 @@ export function sameTasks(left: readonly AgentTask[], right: readonly AgentTask[
 }
 
 export function progressOf(tasks: readonly AgentTask[]): TaskProgress {
-  return { done: tasks.filter((task) => task.state === 'done').length, total: tasks.length }
+  return {
+    done: tasks.filter((task) => task.state === 'done').length,
+    total: tasks.length,
+  }
 }
 
 /** A task's title, or its number while only that is known. */

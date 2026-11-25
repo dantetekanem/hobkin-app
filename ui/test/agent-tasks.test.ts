@@ -238,10 +238,12 @@ test('each task keeps the description it was given, and a later one replaces it'
 })
 
 test('the tasks line counts how many are done of how many, and one task is a task', () => {
+  const finishEach = ['1', '2', '3'].map((id) => call(`f${id}`, 'task_update', { taskId: id, status: 'completed' }, `Updated task #${id} status`))
+  const allDone = tasksOf([plan, ...finishEach])
+  const onlyOne = tasksOf([call('u1', 'task_update', { taskId: '7', status: 'in_progress' }, 'Updated task #7 status')])
+
   assert.equal(taskCount(progressOf(tasksOf(run))), '1 of 4 tasks')
   assert.equal(taskCount(progressOf(tasksOf([plan]))), '0 of 3 tasks')
-  const done = tasksOf([plan, ...['1', '2', '3'].map((id) => call(`f${id}`, 'task_update', { taskId: id, status: 'completed' }, `Updated task #${id} status`))])
-  assert.equal(taskCount(progressOf(done)), '3 of 3 tasks')
-  const one = call('u1', 'task_update', { taskId: '7', status: 'in_progress' }, 'Updated task #7 status')
-  assert.equal(taskCount(progressOf(tasksOf([one]))), '0 of 1 task')
+  assert.equal(taskCount(progressOf(allDone)), '3 of 3 tasks')
+  assert.equal(taskCount(progressOf(onlyOne)), '0 of 1 task')
 })
