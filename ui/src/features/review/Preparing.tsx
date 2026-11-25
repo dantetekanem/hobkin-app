@@ -37,7 +37,9 @@ export function Preparing({ loader, closeReview }: { loader: ReviewLoader; close
   const preparation = useStore(loader, (state) => state.preparation)
   const startedAt = useStore(loader, (state) => state.startedAt)
   const reduced = useReduced()
-  const awaiting = status === 'awaiting'
+  // A pull request waits for "Start AI review": opening it, or the graph look over one the code look opened (spec 071).
+  const awaitingStart = useStore(loader, (state) => state.awaitingStart)
+  const awaiting = status === 'awaiting' || awaitingStart
   // Read at this moment: the texts of the time read it again themselves as the clock moves (`Times`, `Timeline`).
   const run = preparingOf(preparation, startedAt, Date.now())
   useStops(root)
@@ -78,9 +80,12 @@ export function Preparing({ loader, closeReview }: { loader: ReviewLoader; close
 export function PreparingGraph({ loader, closeReview }: { loader: ReviewLoader; closeReview: () => void }) {
   const rig = useRig()
   return (
-    <motion.div className="absolute inset-y-0" style={{ left: rig.side, right: rig.proof }}>
-      <Preparing loader={loader} closeReview={closeReview} />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-3.5 pb-2">
+    <motion.div className="absolute inset-y-0 flex flex-col" style={{ left: rig.side, right: rig.proof }}>
+      <div className="min-h-0 flex-1">
+        <Preparing loader={loader} closeReview={closeReview} />
+      </div>
+      {/* The switch in a row of its own under the page, so it lies over none of it. */}
+      <div className="flex shrink-0 justify-center px-3.5 pt-2 pb-2">
         <ModeSwitch />
       </div>
     </motion.div>

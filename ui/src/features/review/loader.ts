@@ -40,6 +40,11 @@ export interface LoadState {
   early: boolean
   /** The window is asking the host to start the change review, and the host has not answered yet. */
   asking: boolean
+  /**
+   * The graph look over a pull request the code look opened waits for "Start AI review" (`start`): a pull request is
+   * reviewed only once the user asks, in the graph as when it opens there.
+   */
+  awaitingStart: boolean
 }
 interface Options {
   id: string
@@ -105,8 +110,9 @@ const unreviewed = (status: ReviewStatus): boolean => {
  * was ready, none is loaded yet, and one is being asked for, is queued or is running. Until it is ready or stops, the
  * graph look shows its progress in place of the bare graph, as a review that opens in the graph waits for it.
  */
-export function waitsForReview({ early, review, assessment, asking, preparation }: Pick<LoadState, 'early' | 'review' | 'assessment' | 'asking' | 'preparation'>): boolean {
+export function waitsForReview({ early, review, assessment, asking, preparation, awaitingStart }: Pick<LoadState, 'early' | 'review' | 'assessment' | 'asking' | 'preparation' | 'awaitingStart'>): boolean {
   if (!early || !review || assessment || preparation?.landing) return false
+  if (awaitingStart) return true
   const run = preparation?.assessment?.state
   return asking || run === 'queued' || run === 'running'
 }
@@ -115,7 +121,7 @@ export function waitsForReview({ early, review, assessment, asking, preparation 
 const refusesArgument = (error: unknown): boolean => error instanceof Error && 'code' in error && error.code === 'invalid-arguments'
 
 export function createReviewLoader({ id, scope, memory, command, sample, look: opensIn = 'graph', now = Date.now }: Options) {
-  const store = createStore<LoadState>(() => ({ status: 'loading', startedAt: null, review: null, preparation: null, assessment: null, error: null, notesError: null, saving: false, look: opensIn, early: false, asking: false }))
+  const store = createStore<LoadState>(() => ({ status: 'loading', startedAt: null, review: null, preparation: null, assessment: null, error: null, notesError: null, saving: false, look: opensIn, early: false, asking: false, awaitingStart: false }))
   let generation = 0
   /** Whether the host was asked how the review stands yet: only the first look asks for a change review nothing asked for. */
   let looked = false
@@ -340,6 +346,12 @@ export function createReviewLoader({ id, scope, memory, command, sample, look: o
   /** "Start AI review": asks the host to prepare this review, then follows it like any other. */
   const start = async (): Promise<void> => {
     if (!command || disposed) return
+    // Over a review open already, as the graph look over a pull request the code look opened: its change review is
+    // asked for, and the graph look shows its progress.
+    if (store.getState().review) {
+      patch({ awaitingStart: false })
+      return askForReview()
+    }
     const turn = ++generation
     try {
       const preparation = await command('review.prepare', { id })
@@ -434,7 +446,16 @@ export function createReviewLoader({ id, scope, memory, command, sample, look: o
     // Only a change review idle at the commit on screen: a review of an older commit is built again on the reviewer's word.
     const run = preparation?.assessment
     if (run?.state !== 'idle' || run.head !== review.change.head) return
-
+    // A pull request is reviewed only once the user asks: the graph look offers "Start AI review" instead.
+    if (!startsByItself(id)) {
+      patch({ early: true, awaitingStart: true })
+      return
+    }
+    await askForReview()
+  }
+  /** Asks the host for the change review of the review on screen, which the graph look then waits on. */
+  const askForReview = async (): Promise<void> => {
+    if (!command) return
     patch({ asking: true, early: true })
     try {
       const status = await command('review.prepare', { id })

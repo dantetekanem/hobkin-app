@@ -166,6 +166,25 @@ test('Code to Graph starts the change review the code look did not ask for, and 
   host.loader.dispose()
 })
 
+test('Code to Graph on a pull request starts nothing by itself: the graph look offers Start AI review, as opening it in the graph does', async () => {
+  const host = hostOf(PULL, 'code')
+  host.say(built(PULL, idle))
+  await host.loader.load()
+
+  await host.loader.setLook('graph')
+  assert.deepEqual(host.prepares(), [], 'a pull request is reviewed only once the user asks')
+  assert.equal(host.loader.getState().awaitingStart, true)
+  assert.equal(waitsForReview(host.loader.getState()), true, 'the graph look waits, on Start AI review')
+
+  host.answerPrepare(() => ({ ...built(PULL, queued), phase: 'queued' }))
+  await host.loader.start()
+  assert.deepEqual(host.prepares(), [{ id: PULL }])
+  assert.equal(host.loader.getState().awaitingStart, false)
+  assert.equal(waitsForReview(host.loader.getState()), true, 'and then shows its progress')
+  assert.equal(host.loader.getState().review?.id, PULL, 'the review stays open under it')
+  host.loader.dispose()
+})
+
 test('Code to Graph asks nothing when the change review is under way, ready or stopped, or the review is of an older commit', async () => {
   const cases: [string, ReviewStatus, boolean][] = [
     ['under way', built(CHANGE, running), true],

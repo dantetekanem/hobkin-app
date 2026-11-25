@@ -50,10 +50,12 @@ import { memoryKey } from './state/memory.ts'
 import { followCursor, shownPlaces } from './state/cursor.ts'
 import { leaveReview } from './state/leave.ts'
 import { placeOf, resumedCamera } from './state/place.ts'
+import { LOOK_KEY } from './state/look.ts'
 import { createSession } from './state/session.ts'
 import type { Size } from './story/camera.ts'
 import { Outline, OUTLINE_ROOM } from './outline/Outline.tsx'
 import { proofFrom, ProofBeside, type ProofKeys } from './proof/ProofBeside.tsx'
+import { MODE_KEYS } from './story/mode.ts'
 import { StoryLayer } from './story/StoryLayer.tsx'
 import { useCamera } from './story/useCamera.ts'
 import { afterVerdict, verdictKind, type VerdictCommands } from './verdict.ts'
@@ -92,6 +94,9 @@ function commandsOnHost(home: string | null | undefined): typeof runCommand {
  * never holds a session made by code that is gone. Each run of the file has its own mark; a built app has none.
  */
 const CODE = import.meta.hot ? Math.random().toString(36).slice(2, 8) : ''
+
+/** The switch's keys, either case: Code, Free Roam and Story. */
+const SWITCH_KEYS = new Set([LOOK_KEY, MODE_KEYS.roam, MODE_KEYS.story].flatMap((key) => [key, key.toLowerCase()]))
 
 /**
  * Change Review's canvas screen. This file is the entry the frame mounts.
@@ -430,6 +435,9 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
       if (target.closest('input, textarea, select, [contenteditable="true"]')) return
       // A focused button is pressed by Enter and Space, as buttons are.
       if ((event.key === 'Enter' || event.key === ' ') && target.closest('button, a, [role="button"]')) return
+      // While the graph look waits for its change review there is no graph to walk, and no input to write in: only the
+      // switch's keys work (spec 071), so nothing happens out of sight.
+      if (session.getState().look === 'graph' && waitsForReview(loader.getState()) && !SWITCH_KEYS.has(event.key)) return
       // Inside the code, Up and Down scroll it.
       if (target.closest('[data-rv-code]') && ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(event.key) && !event.shiftKey) return
       const steps = element.querySelector<HTMLElement>('[data-rv-steps]')
@@ -482,7 +490,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
       releaseFocus()
       element.removeEventListener('keydown', onKeyDown)
     }
-  }, [placeKey, session])
+  }, [loader, placeKey, session])
 
   const stage = useMemo(() => ({ session, source, camera }), [camera, session, source])
   // What the review's panel and the outline leave of the canvas, at the right: the dock's room, and the proof's.
