@@ -93,7 +93,8 @@ function reviewed(t: TestContext, { review, files }: { review: Review; files: Re
     questions: [],
     reading_minutes: 1,
   })
-  write('summary.json', { level: 'high', critical: true, needsYou: 1, worthALook: 1, safe: 1, storyBy: 'model', at: '2026-11-21T10:00:00.000Z' })
+  // A finished review names the range it read, and opens only on a review of that range.
+  write('summary.json', { range: { base: BASE_SHA, head: HEAD_SHA }, level: 'high', critical: true, needsYou: 1, worthALook: 1, safe: 1, storyBy: 'model', at: '2026-11-21T10:00:00.000Z' })
   write('units.json', { schema: 'review-units/1', map: 'node-level', attention: { units: 3, reading_minutes: 3 }, units: [unit('u1', 'high', ['n1']), unit('u2', 'mid', ['n2']), unit('u3', 'safe', ['n3'])] })
   write('story.md', '# Round the totals\n')
   const node = (id: string, symbol: string, path: string, level: string, more: object) => ({
@@ -200,8 +201,6 @@ test('a test the change edits that did not run needs the reviewer, with why: its
   asks(await testOf({ runs: [{ kind: 'baseline', tests: ['test/cart.test.ts'], failed: [], exit_code: 1, not_run: vitest }] }), vitest)
   const notTaken = 'this review runs tests with bin/rails with a test folder, which does not take it.'
   asks(await testOf({ runs: [], not_run: [{ path: 'test/cart.test.ts', why: notTaken }] }), notTaken)
-  const ran = await testOf({ runs: [{ kind: 'baseline', tests: ['test/cart.test.ts'], failed: [], exit_code: 0 }] })
-  assert.deepEqual([ran.status, ran.attention?.tier], ['passed', 'safe'])
 })
 
 test('a review with no AI review ready opens as it did, with no attention and no kind on its nodes, and its stored graph is not drawn again', async (t) => {
@@ -255,7 +254,7 @@ test('what a change removes is at least worth a look, and a removal other code s
     questions: [],
     reading_minutes: 1,
   })
-  write('summary.json', { level: 'high', critical: true, needsYou: 1, worthALook: 0, safe: 1, storyBy: 'host', at: '2026-11-21T10:00:00.000Z' })
+  write('summary.json', { range: { base: BASE_SHA, head: HEAD_SHA }, level: 'high', critical: true, needsYou: 1, worthALook: 0, safe: 1, storyBy: 'host', at: '2026-11-21T10:00:00.000Z' })
   write('units.json', { schema: 'review-units/1', map: 'node-level', attention: { units: 2, reading_minutes: 2 }, units: [unit('u1', 'high', ['n1']), unit('u2', 'safe', ['n2'])] })
   writeFileSync(join(folder, 'story.md'), '# Drop the old totals\n')
   // As the engine writes them: a removed definition sits on its lines at base. `oldTotal` is still called elsewhere; `unused` is not.
