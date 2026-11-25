@@ -19,13 +19,19 @@ test("with a host, Add to queue sends github.issue.add by repository and number 
 
 test('Work on it again sends the same command with again: true, and with no host says in sample words what hobkin would do', async () => {
   const seen: unknown[] = []
-  const add = async (args: unknown) => (seen.push(args), { message: 'Added a follow-up.' })
+  const add = async (args: unknown) => {
+    seen.push(args)
+    return { message: 'Added a follow-up.' }
+  }
+  const issue = { repo: 'acme/web', number: 12 }
 
-  assert.equal(await addedWords({ repo: 'acme/web', number: 12 }, { live: true, again: true, add }), 'Added a follow-up.')
-  assert.deepEqual(seen, [{ repo: 'acme/web', number: 12, again: true }])
-  assert.equal(await addedWords({ repo: 'acme/web', number: 12 }, { live: false, again: true, add }), SAMPLE_AGAIN)
+  const live = await addedWords(issue, { live: true, again: true, add })
+  const sample = await addedWords(issue, { live: false, again: true, add })
+
+  assert.equal(live, 'Added a follow-up.')
+  assert.deepEqual(seen, [{ repo: 'acme/web', number: 12, again: true }], 'only the live press reaches the host')
+  assert.equal(sample, SAMPLE_AGAIN)
   assert.match(SAMPLE_AGAIN, /^This is sample data, so nothing reached hobkin\./)
-  assert.equal(seen.length, 1)
 })
 
 test("a refusal from hobkin rejects with its reason", async () => {

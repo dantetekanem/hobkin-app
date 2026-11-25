@@ -101,8 +101,8 @@ test('Work on it again hands hobkin the issue with again, and hobkin files a fol
   updateItem(root, slug, id!, { state: 'merged', pr: 'https://github.com/acme/web/pull/40' })
   const followUp = messageOf(await run(handlers, 'github.issue.add', { repo: 'acme/web', number: 12, again: true }))
 
-  assert.equal((calls[1]![2] as { again?: unknown }).again, true, 'the host passes again on to hobkin')
-  assert.equal((calls[0]![2] as { again?: unknown }).again, undefined, 'and only when the user asked for it')
+  const againHandedOn = calls.map(([, , value]) => (value as { again?: unknown }).again)
+  assert.deepEqual(againHandedOn, [undefined, true, true], 'the host passes again on to hobkin, only when the user asked for it')
   assert.match(whileOpen, /^acme\/web#12 is still in work on web as [0-9a-f]{6}, open\. Nothing changed\.$/)
   assert.match(followUp, /^Added a follow-up on acme\/web#12 to web as [0-9a-f]{6}\. It goes first in the queue/)
   const items = (await runWorkCommand(root, ['items', slug])) as { title: string }[]

@@ -146,7 +146,8 @@ export function agentCounts(agents: readonly RunningAgent[]): { working: number;
 
 /** The count over the agents that come and go: how many work, then how many are idle and how many wait for their time, each only when some do. */
 export function othersCount({ working, waiting, idle = 0 }: { working: number; waiting: number; idle?: number }): string {
-  return [`${working} working`, idle ? `${idle} idle` : null, waiting ? `${waiting} waiting` : null].filter(Boolean).join(' · ')
+  const parts = [`${working} working`, idle ? `${idle} idle` : null, waiting ? `${waiting} waiting` : null]
+  return parts.filter(Boolean).join(' · ')
 }
 
 /** An agent of a list whose face holds still: a durable hobkin between its turns, a living job idle between its own, or a run that waits for its time. */

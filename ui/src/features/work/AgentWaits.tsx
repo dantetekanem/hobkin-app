@@ -11,7 +11,8 @@ export function AgentWaits({ agentId }: { agentId: string }) {
   if (!agent?.waits && !agent?.idle) return null
 
   const when = agent.doing.charAt(0).toUpperCase() + agent.doing.slice(1)
-  const line = agent.idle ? `${when} · waiting for a message` : agent.waits?.note ? `${when} · ${agent.waits.note}` : when
+  const after = agent.idle ? 'waiting for a message' : agent.waits?.note
+  const line = after ? `${when} · ${after}` : when
   return (
     <li className="pl-2.5 text-[13px] text-muted-foreground tabular-nums">
       <Stamped line="note">

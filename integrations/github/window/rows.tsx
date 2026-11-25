@@ -38,7 +38,7 @@ import { waited } from '@/features/reports/time.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
 import { DeployWhy, ReviewBadge, ReviewProgress } from '@/features/work/parts.tsx'
-import { useWorkUi, useWorkView } from '@/features/work/store.ts'
+import { useWorkUi, useWorkView, type Said as HobkinSaid } from '@/features/work/store.ts'
 import { openOnWork } from '@/features/work/work-target.ts'
 import { runCommand } from '@/lib/host/index.ts'
 import { openAddress, openLink } from '@/lib/open-link.ts'
@@ -482,14 +482,16 @@ function IssueWorkStanding({ issue, live, close }: { issue: GitHubIssue; live: b
       return first
     },
   }
+  const labels = { ...MENU_LABELS, close: armed ? 'Click again to close' : MENU_LABELS.close }
+  const unavailable: Partial<Record<IssueMenuItem, boolean>> = { add: busy, again: filingAgain || offer === null }
   const menu = issueMenu(work, { added, onWork: Boolean(chip?.target), pr: Boolean(pr) }).map(
     (key): ReviewRowMenuItem => ({
       key,
-      label: key === 'close' && armed ? 'Click again to close' : MENU_LABELS[key],
+      label: labels[key],
       onSelect: actions[key],
       destructive: key === 'close',
       ruleBefore: key === 'close',
-      disabled: (key === 'add' && busy) || (key === 'again' && (filingAgain || !offer)),
+      disabled: unavailable[key] ?? false,
     }),
   )
 
@@ -526,21 +528,19 @@ function IssueWorkStanding({ issue, live, close }: { issue: GitHubIssue; live: b
           {filingAgain ? 'Filing…' : 'Work on it again'}
         </Button>
       ) : null}
-      {again ? (
-        <p
-          role={again.tone === 'refused' ? 'alert' : 'status'}
-          title={again.text}
-          className={cn('line-clamp-2 text-[13px] leading-snug', again.tone === 'refused' ? 'text-bad-fg' : 'text-muted-foreground')}
-        >
-          {again.text}
-        </p>
-      ) : null}
-      {said && !added ? (
-        <p role="alert" title={said.text} className="line-clamp-2 text-[13px] leading-snug text-bad-fg">
-          {said.text}
-        </p>
-      ) : null}
+      {again ? <SaidLine said={again} /> : null}
+      {said && !added ? <SaidLine said={said} /> : null}
     </div>
+  )
+}
+
+/** What hobkin said of a press on the row, in a line or two: its answer, or why it refused. */
+function SaidLine({ said }: { said: HobkinSaid }) {
+  const refused = said.tone === 'refused'
+  return (
+    <p role={refused ? 'alert' : 'status'} title={said.text} className={cn('line-clamp-2 text-[13px] leading-snug', refused ? 'text-bad-fg' : 'text-muted-foreground')}>
+      {said.text}
+    </p>
   )
 }
 
