@@ -37,7 +37,7 @@ import { useStill } from '@/features/reports/still.ts'
 import { waited } from '@/features/reports/time.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
-import { DeployWhy, ReviewBadge, ReviewProgress } from '@/features/work/parts.tsx'
+import { ReviewBadge, ReviewProgress } from '@/features/work/parts.tsx'
 import { useWorkUi, useWorkView, type Said as HobkinSaid } from '@/features/work/store.ts'
 import { openOnWork } from '@/features/work/work-target.ts'
 import { runCommand } from '@/lib/host/index.ts'
@@ -315,7 +315,6 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
           ) : (
             <span className="inline-flex h-7 items-center rounded-full bg-surface-2 px-3 font-heading text-[13px] font-medium text-muted-foreground">Review ready</span>
           )}
-          {ai.row.summary ? <DeployWhy summary={ai.row.summary} head={ai.row.item.head} /> : null}
           <Button variant="outline" data-stop="" onClick={() => openReview(ai.row.item.id)}>
             Open review
           </Button>
