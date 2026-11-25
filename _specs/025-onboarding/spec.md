@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["004-signin", "017-model-tiers", "020-settings", "031-home"],
-  "updated": "2026-11-14"
+  "updated": "2026-11-25"
 }
 ---
 # First-run setup
@@ -195,25 +195,25 @@ On 2026-11-14 the questions half moved to `044-goal-first-setup`, on the user's 
 
 ## Steps
 
-- [x] S1 (~~A3, A4,~~ A5). The step machine. Replaced by S8 on 2026-11-13.
-- [x] S2 (~~A6, A7, A8, A9~~). The setup's key map. Replaced by S8 on 2026-11-13.
+- [x] S1 (A3, A4, A5). The step machine. Replaced by S8 on 2026-11-13.
+- [x] S2 (A6, A7, A8, A9). The setup's key map. Replaced by S8 on 2026-11-13.
 - [x] S3 (A1, A2). The first-run mark and `?setup=1`.
-- [x] S4 (~~A12, A13, A14~~). Tiers proposed from Pi's default model. Out of the setup since 2026-11-13.
-- [x] S5 (A10, ~~A11, A16, A17,~~ A18, A20 ~~, A21~~). The setup layer and its five steps. Replaced by S11 on 2026-11-13.
+- [x] S4 (A12, A13, A14). Tiers proposed from Pi's default model. Out of the setup since 2026-11-13.
+- [x] S5 (A10, A11, A16, A17, A18, A20, A21). The setup layer and its five steps. Replaced by S11 on 2026-11-13.
 - [x] S6 (A19). Run setup again in Settings.
-- [x] S7 (A1, A10 ~~, A17~~). The frame mounts the setup and stays mounted behind it.
-- [x] S8 (A5, ~~A27,~~ A28, A29, A30, A32, A34, A36, A37, ~~A38, A39,~~ A40). The story's rules: its beats and their order, its keys, the questions and the message that hands them over.
+- [x] S7 (A1, A10, A17). The frame mounts the setup and stays mounted behind it.
+- [x] S8 (A5, A27, A28, A29, A30, A32, A34, A36, A37, A38, A39, A40). The story's rules: its beats and their order, its keys, the questions and the message that hands them over.
 - [x] S9 (A22, A23, A24, A20). The world and where hobkin hides, hops and stands.
 - [x] S10 (A33, A35, A45). The host keeps the profile and finds and installs Pi and its packages, with the setting a package needs.
 - [x] S11 (A25, A26, A31, A40). The story's layer: the opening, hobkin's hops, the bubbles, the choices, the field, the Pi and sign-in panels, the hand-off.
-- [x] S12 (~~A42,~~ A43, A44). The tour.
-- [x] S14 (A46, A47, A48, A49, A50, ~~A51,~~ A52, A53). After the user's first look, on 2026-11-13: the path along the ground, no skipping the hops, glass bubbles, the sound question, the questions as picks, and the host listing a folder's projects.
+- [x] S12 (A42, A43, A44). The tour.
+- [x] S14 (A46, A47, A48, A49, A50, A51, A52, A53). After the user's first look, on 2026-11-13: the path along the ground, no skipping the hops, glass bubbles, the sound question, the questions as picks, and the host listing a folder's projects.
 - [x] S15 (A54). The sounds, the Sound setting and its switch in Settings, the chime on a notification, and the sounds of the setup.
-- [x] S16 (~~A56,~~ A57, ~~A58, A59,~~ A60). Main hobkin's own questions after the fixed ones: the message that starts them, the beat that asks them, when they are over, the bubbles and the field, and the question sheet stepping aside while the setup or the tour is open. Built on 2026-11-13 with tests on fakes. Not seen with a live model: S13 holds those checks.
-- [x] S17 (~~A39,~~ A61, A62, A63, A64, A65 ~~, A66, A67~~). The first context: the answers saved after each one in the app's file and as hobkin's facts, read back when the setup runs again; the folder and the picked projects handed to work mode through hobkin's own functions, taken, proposed, left or skipped; the bubble that says what was done; and the projects' checks and the logs in the message to main hobkin. Built on 2026-11-13 with tests on temporary homes, through hobkin's own work and setup functions, and through a scripted host. Not seen in the window, and never run on a real home: S13 holds those checks.
+- [x] S16 (A56, A57, A58, A59, A60). Main hobkin's own questions after the fixed ones: the message that starts them, the beat that asks them, when they are over, the bubbles and the field, and the question sheet stepping aside while the setup or the tour is open. Built on 2026-11-13 with tests on fakes. Not seen with a live model: S13 holds those checks.
+- [x] S17 (A39, A61, A62, A63, A64, A65, A66, A67). The first context: the answers saved after each one in the app's file and as hobkin's facts, read back when the setup runs again; the folder and the picked projects handed to work mode through hobkin's own functions, taken, proposed, left or skipped; the bubble that says what was done; and the projects' checks and the logs in the message to main hobkin. Built on 2026-11-13 with tests on temporary homes, through hobkin's own work and setup functions, and through a scripted host. Not seen in the window, and never run on a real home: S13 holds those checks.
 - [x] S18 (A68, A69, A70, A71, A72). After the user hit a Mac without Node, on 2026-11-14: the host names the Node npm runs on and installs a Node of hobkin's own when npm is missing, Look again asks the login shell for its PATH again, and the panel offers a prompt for a coding agent. Built with tests on fakes: no real download, install, unpack or login shell. Not seen in the window, and never run on a real Mac: S13 holds those checks.
 - [ ] S19 (A34, A35, A45, A72). The package list holds `pi-agentic-search`, `pi-search-hub` and `pi-extended-teams` only, so Pi is brought up, installed and named in the agent prompt by those three. It lands once `038-resources` S4 ships with its kinds switch, so what a new Mac installs and what its runs load change together. Files: `shared/setup/pi-packages.ts`; tests `host/test/pi-install.test.ts`, `shared/test/setup-agent-prompt.test.ts`.
-- [ ] S13 (A10, A18, A19, A22, A26, A41, A55, ~~A56,~~ A57, ~~A59,~~ A60, A61, A62, A65 ~~, A67~~, A69, A70, A72). Each check seen in the window. Seen so far, in a browser tab on sample data: the opening, the hops, the bubbles, the choices and the project bubbles. Not seen: the Mac window, the Pi and sign-in panels, the hand-off, the tour, and main hobkin's own questions, which need a live model. The checks of the goals, the cards, the writing and the first run are `044-goal-first-setup` S10's.
+- [ ] S13 (A10, A18, A19, A22, A26, A41, A55, A57, A60, A61, A62, A65, A69, A70, A72). Each check seen in the window. Seen so far, in a browser tab on sample data: the opening, the hops, the bubbles, the choices and the project bubbles. Not seen: the Mac window, the Pi and sign-in panels, the hand-off, the tour, and main hobkin's own questions, which need a live model. The checks of the goals, the cards, the writing and the first run are `044-goal-first-setup` S10's.
 
 ## Open questions
 
