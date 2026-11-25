@@ -150,7 +150,7 @@ async function mainAgent(h, play) {
     agentDir,
     createSession: async sdkOptions => {
       const result = await createAgentSession({
-        ...sdkOptions, agentDir, modelRuntime: models, model, tools: ['ask_question', 'run_routine'],
+        ...sdkOptions, agentDir, modelRuntime: models, model,
         settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }),
       });
       result.session.agent.streamFunction = streamFrom(play);

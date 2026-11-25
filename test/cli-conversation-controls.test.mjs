@@ -11,7 +11,8 @@ import { isolatePiHome } from './helpers/pi-session.mjs';
 import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { UsageLedger } from '../src/cli/usage.mjs';
 
-// Real SDK, session storage and Durable; no authentication/network or executable external tools.
+// Real SDK, session storage and Durable; no authentication or network. The main has hobkin's own tools, which hobkin
+// checks, and the synthetic model calls none of them.
 async function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-controls-'));
   isolatePiHome(t, join(root, 'agent'));
@@ -34,7 +35,7 @@ async function fixture(t) {
     agentDir: join(root, 'agent'),
     createSession: async sdkOptions => {
       const result = await createAgentSession({
-        ...sdkOptions, agentDir: join(root, 'agent'), modelRuntime: models, model, tools: [],
+        ...sdkOptions, agentDir: join(root, 'agent'), modelRuntime: models, model,
         settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }),
       });
       result.session.agent.streamFunction = (selected, context, { signal }) => {
