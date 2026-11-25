@@ -30,7 +30,6 @@ function whereOf(target: Element): Where {
   return 'other'
 }
 
-const LINE_STEP = 56
 /** How long a smooth scroll counts as still on its way. */
 const SCROLL_GLIDE_MS = 350
 
@@ -209,7 +208,7 @@ export function ReportsScreen() {
     requestAnimationFrame(() => rowOf(next.id)?.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' }))
   }
 
-  const scrollReader = (by: 'line' | 'page' | 'all', delta: 1 | -1) => {
+  const scrollReader = (by: 'page' | 'all', delta: 1 | -1) => {
     if (!openId) return
     const page = root.current?.querySelector<HTMLElement>(`[data-reader-page="${CSS.escape(openId)}"]`)
     if (!page) return
@@ -217,7 +216,7 @@ export function ReportsScreen() {
     // A key held down, or pressed again while the page is still gliding, goes on from where the last one was headed.
     const goal = scrollGoal.current
     const from = goal && goal.page === page && performance.now() - goal.at < SCROLL_GLIDE_MS ? goal.top : page.scrollTop
-    const step = by === 'line' ? LINE_STEP : page.clientHeight * 0.85
+    const step = page.clientHeight * 0.85
     const top = by === 'all' ? (delta > 0 ? most : 0) : Math.max(0, Math.min(most, from + delta * step))
     scrollGoal.current = { page, top, at: performance.now() }
     page.scrollTo({ top, behavior: still ? 'auto' : 'smooth' })

@@ -35,13 +35,13 @@ test('the title field keeps its letters, and enter reads the first match', () =>
   assert.equal(reportsKey({ key: 'ArrowDown' }, at('title')), null, 'down walks on to the list')
 })
 
-test('in the reader, escape goes back, left and right step, and up and down scroll', () => {
+test('in the reader, escape goes back, left and right or up and down step, and the page keys scroll', () => {
   assert.deepEqual(reportsKey({ key: 'Escape' }, at('reader')), { do: 'close' })
   assert.deepEqual(reportsKey({ key: 'ArrowRight' }, at('reader')), { do: 'step', delta: 1 })
   assert.deepEqual(reportsKey({ key: 'ArrowLeft' }, at('reader')), { do: 'step', delta: -1 })
 
-  assert.deepEqual(reportsKey({ key: 'ArrowDown' }, at('reader')), { do: 'scroll', by: 'line', delta: 1 })
-  assert.deepEqual(reportsKey({ key: 'ArrowUp' }, at('reader')), { do: 'scroll', by: 'line', delta: -1 })
+  assert.deepEqual(reportsKey({ key: 'ArrowDown' }, at('reader')), { do: 'step', delta: 1 }, 'down is the next report, as in the list')
+  assert.deepEqual(reportsKey({ key: 'ArrowUp' }, at('reader')), { do: 'step', delta: -1 })
   assert.deepEqual(reportsKey({ key: 'PageDown' }, at('reader')), { do: 'scroll', by: 'page', delta: 1 })
   assert.deepEqual(reportsKey({ key: 'PageUp' }, at('reader')), { do: 'scroll', by: 'page', delta: -1 })
   assert.deepEqual(reportsKey({ key: ' ' }, at('reader')), { do: 'scroll', by: 'page', delta: 1 })

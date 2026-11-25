@@ -33,7 +33,7 @@ export type KeyAction =
   | { do: 'close' }
   /** To the next report (1) or the previous one (-1) without leaving the reader. */
   | { do: 'step'; delta: 1 | -1 }
-  | { do: 'scroll'; by: 'line' | 'page' | 'all'; delta: 1 | -1 }
+  | { do: 'scroll'; by: 'page' | 'all'; delta: 1 | -1 }
   | { do: 'kind'; delta: 1 | -1 }
   /** Puts the keyboard in the title field. */
   | { do: 'find' }
@@ -56,10 +56,9 @@ function readerKey({ key, shift }: KeyPress, context: KeyContext): KeyAction | n
   if (shift) return null
 
   if (key === 'Escape') return { do: 'close' }
-  if (key === 'ArrowRight') return { do: 'step', delta: 1 }
-  if (key === 'ArrowLeft') return { do: 'step', delta: -1 }
-  if (key === 'ArrowDown') return { do: 'scroll', by: 'line', delta: 1 }
-  if (key === 'ArrowUp') return { do: 'scroll', by: 'line', delta: -1 }
+  // Right and Down go to the next report, as the list runs, Left and Up to the one before. The page keys scroll it.
+  if (key === 'ArrowRight' || key === 'ArrowDown') return { do: 'step', delta: 1 }
+  if (key === 'ArrowLeft' || key === 'ArrowUp') return { do: 'step', delta: -1 }
   if (key === 'PageDown') return { do: 'scroll', by: 'page', delta: 1 }
   if (key === 'PageUp') return { do: 'scroll', by: 'page', delta: -1 }
   if (key === 'End') return { do: 'scroll', by: 'all', delta: 1 }
