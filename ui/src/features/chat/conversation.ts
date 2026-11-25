@@ -234,7 +234,7 @@ export function buildConversation({ messages, local = [], live = null, outbox = 
 
   const stored = withLocal(storedBesideLive(messages, live), local).map(entryOf)
   for (const row of withRuns(stored, runs, (each) => each.at)) {
-    const entry = row.kind === 'schedule' && !('text' in row) ? { ...row, text: runName(row.schedule) } : row
+    const entry = row.kind === 'schedule' ? { ...row, text: runName(row.schedule) } : row
     place(entry, entry.at)
   }
   for (const reply of live?.replies ?? []) {

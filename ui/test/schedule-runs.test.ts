@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AgentScheduleRunRecord, AgentScheduleRuns } from '#shared/protocol/schedules.ts'
-import { foldWords, placedRuns, runWords, runsKey, withRuns, type RunsRow } from '../src/features/schedules/runs.ts'
+import { foldWords, placedRuns, runWords, runsKey, withRuns, type RunSchedule, type RunsRow } from '../src/features/schedules/runs.ts'
 
 const T = Date.parse('2026-11-25T14:00:00Z')
 const MINUTE = 60000
@@ -54,14 +54,18 @@ test('a row with no time stays where it is, a row that is now stays last, and no
 })
 
 test('a run row says what ran in short, how it ended, how long it took and whether it woke the agent', () => {
-  const row = (fields: Partial<AgentScheduleRunRecord>, schedule: Partial<AgentScheduleRuns> = {}) => runWords({ ...WATCH, ...schedule, name: schedule.name ?? WATCH.name ?? '', does: schedule.does ?? 'shell' }, run(0, fields, 65))
-  assert.deepEqual(row({}), { name: 'Watch CI for #412', ran: 'gh pr checks 412 …', end: 'pending', tone: 'quiet', took: '1m 05s', wake: 'no wake' })
-  assert.deepEqual([row({ outcome: 'passed', exitCode: 0, woke: true }).end, row({ outcome: 'passed', woke: true }).wake], ['ok', 'woke it'])
-  assert.deepEqual([row({ outcome: 'failed', exitCode: 1 }).end, row({ outcome: 'failed', exitCode: 1 }).tone], ['exit 1', 'bad'])
-  assert.equal(row({ outcome: 'timed-out', exitCode: undefined }).end, 'timed out')
-  assert.equal(row({ outcome: 'error', exitCode: undefined, line: 'It was cut off before it finished.', startedAt: undefined }).end, 'cut off')
-  assert.equal(row({ outcome: 'error', exitCode: undefined, line: 'spawn bash ENOENT' }).end, 'could not start')
-  assert.equal(row({ startedAt: undefined }).took, null, 'a run with no start has no length')
+  const watch: RunSchedule = { id: 'sch-1', name: 'Watch CI for #412', does: 'shell', command: 'gh pr checks 412\n--watch' }
+  /** The words of a run of the watch that took 65 seconds. */
+  const words = (fields: Partial<AgentScheduleRunRecord>) => runWords(watch, run(0, fields, 65))
+
+  assert.deepEqual(words({}), { name: 'Watch CI for #412', ran: 'gh pr checks 412 …', end: 'pending', tone: 'quiet', took: '1m 05s', wake: 'no wake' })
+  assert.equal(words({ outcome: 'passed', exitCode: 0 }).end, 'ok')
+  assert.equal(words({ outcome: 'passed', woke: true }).wake, 'woke it')
+  assert.deepEqual([words({ outcome: 'failed', exitCode: 1 }).end, words({ outcome: 'failed', exitCode: 1 }).tone], ['exit 1', 'bad'])
+  assert.equal(words({ outcome: 'timed-out', exitCode: undefined }).end, 'timed out')
+  assert.equal(words({ outcome: 'error', exitCode: undefined, line: 'It was cut off before it finished.', startedAt: undefined }).end, 'cut off')
+  assert.equal(words({ outcome: 'error', exitCode: undefined, line: 'spawn bash ENOENT' }).end, 'could not start')
+  assert.equal(words({ startedAt: undefined }).took, null, 'a run with no start has no length')
 
   const wake = runWords({ id: 'sch-2', name: '', does: 'wake' }, { at: iso(T), outcome: 'passed', woke: true })
   assert.deepEqual(wake, { name: 'A schedule', ran: null, end: 'woke it', tone: 'quiet', took: null, wake: null }, 'a plain wake runs nothing: it woke its agent')

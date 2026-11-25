@@ -125,8 +125,9 @@ export function scheduleHandlers({ operations, schedules, runs }: ScheduleSeat):
     'schedule.runs': async ({ kind, id }) => {
       const read = runs?.()
       if (!read) return { schedules: [] }
-      const answer = await read(id === undefined ? { kind } : { kind, id })
-      return { schedules: readScheduleRuns((answer as { schedules?: unknown } | null | undefined)?.schedules) }
+      const answer: unknown = await read(id === undefined ? { kind } : { kind, id })
+      const schedules = typeof answer === 'object' && answer !== null && 'schedules' in answer ? answer.schedules : undefined
+      return { schedules: readScheduleRuns(schedules) }
     },
   }
 }

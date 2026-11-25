@@ -127,6 +127,12 @@ function QuestionBubble({ hue, question, waiting }: { hue: number; question: str
  */
 const Exchange = memo(ExchangeSteps)
 
+/** When a step or a message happened, for the schedules' runs to stand among them (`withRuns`). */
+function itemTime(item: ExchangeItem): number | null {
+  if (item.kind === 'note') return item.note.at
+  return atOf(item) ?? null
+}
+
 function ExchangeSteps({ agentId, hue, question, waiting, idle }: { agentId: string; hue: number; question?: string; waiting: boolean; idle: boolean }) {
   const activity = useAgentActivity(agentId)
   const still = useStill()
@@ -159,7 +165,7 @@ function ExchangeSteps({ agentId, hue, question, waiting, idle }: { agentId: str
   )
   // Each run of the run's schedules stands where it happened, from hobkin's record of them (056).
   const runs = useScheduleRuns({ kind: 'run', id: agentId })
-  const rows = useMemo(() => withRuns(items, runs, (item) => (item.kind === 'note' ? item.note.at : (atOf(item) ?? null))), [items, runs])
+  const rows = useMemo(() => withRuns(items, runs, itemTime), [items, runs])
   // A long run draws only its newest steps, with a row above them for the ones before (newest.ts). Once every step held
   // is drawn, the row reads older ones, and the step being read stays where it was when they come.
   const newest = useNewest(agentId, rows)

@@ -217,23 +217,35 @@ function tailOf(value: unknown, most: number): string | undefined {
 function runOf(value: unknown): AgentScheduleRunRecord | undefined {
   const run = lastOf(value)
   if (!run || !isRow(value)) return undefined
-  return present<AgentScheduleRunRecord>({ ...run, startedAt: timeOf(value.startedAt), tail: tailOf(value.tail, TAIL_MAX) })
+
+  return present<AgentScheduleRunRecord>({
+    ...run,
+    startedAt: timeOf(value.startedAt),
+    tail: tailOf(value.tail, TAIL_MAX),
+  })
+}
+
+/** A schedule's newest runs the window can place, oldest first. */
+function runsOf(value: unknown): AgentScheduleRunRecord[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .slice(-SCHEDULE_RUNS_MAX)
+    .map(runOf)
+    .filter((run) => run !== undefined)
 }
 
 function scheduleRunsOf(value: unknown): AgentScheduleRuns | undefined {
   if (!isRow(value)) return undefined
   const id = idOf(value.id)
   if (!id) return undefined
-  const runs = Array.isArray(value.runs) ? value.runs.slice(-SCHEDULE_RUNS_MAX).map(runOf).filter((run) => run !== undefined) : []
-  return {
-    ...present<Omit<AgentScheduleRuns, 'id' | 'runs'>>({
-      name: cut(value.name, WORDS_MAX.name),
-      does: oneOf(['shell', 'wake'] as const, value.does),
-      command: cut(value.command, WORDS_MAX.command),
-    }),
+
+  return present<AgentScheduleRuns>({
     id,
-    runs,
-  }
+    name: cut(value.name, WORDS_MAX.name),
+    does: oneOf(['shell', 'wake'] as const, value.does),
+    command: cut(value.command, WORDS_MAX.command),
+    runs: runsOf(value.runs),
+  })
 }
 
 /**

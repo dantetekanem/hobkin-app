@@ -31,7 +31,7 @@ export interface RunsRow {
   /** Its first run's, so it keeps its key as later runs join it. */
   key: string
   schedule: RunSchedule
-  runs: readonly AgentScheduleRunRecord[]
+  runs: readonly [AgentScheduleRunRecord, ...AgentScheduleRunRecord[]]
   /** When its newest run ended, in milliseconds. */
   at: number
 }
@@ -45,7 +45,12 @@ const timeOf = (iso: string | undefined): number | null => {
 export function placedRuns(list: readonly AgentScheduleRuns[]): PlacedRun[] {
   const placed: PlacedRun[] = []
   for (const schedule of list) {
-    const shown: RunSchedule = { id: schedule.id, name: schedule.name ?? '', does: schedule.does ?? (schedule.command ? 'shell' : 'wake'), ...(schedule.command ? { command: schedule.command } : {}) }
+    const shown: RunSchedule = {
+      id: schedule.id,
+      name: schedule.name ?? '',
+      does: schedule.does ?? (schedule.command ? 'shell' : 'wake'),
+      ...(schedule.command ? { command: schedule.command } : {}),
+    }
     for (const run of schedule.runs) {
       const at = timeOf(run.at)
       if (at !== null) placed.push({ schedule: shown, run, at })
@@ -56,7 +61,7 @@ export function placedRuns(list: readonly AgentScheduleRuns[]): PlacedRun[] {
 
 /** Runs fold together when they are of one schedule, ended the same way and woke their agent alike. */
 const foldsWith = (row: RunsRow, next: PlacedRun) => {
-  const last = row.runs.at(-1)!
+  const last = row.runs.at(-1) ?? row.runs[0]
   return row.schedule.id === next.schedule.id && last.outcome === next.run.outcome && last.woke === next.run.woke
 }
 
@@ -68,7 +73,9 @@ const foldsWith = (row: RunsRow, next: PlacedRun) => {
  */
 export function withRuns<Row>(rows: readonly Row[], runs: readonly PlacedRun[], timeOf: (row: Row) => number | null): readonly (Row | RunsRow)[] {
   if (!runs.length) return rows
+
   const shown: (Row | RunsRow)[] = []
+  // The row of runs just placed, while nothing else has come after it.
   let folding: RunsRow | null = null
   const place = (placed: PlacedRun) => {
     if (folding && foldsWith(folding, placed)) {
@@ -76,19 +83,31 @@ export function withRuns<Row>(rows: readonly Row[], runs: readonly PlacedRun[], 
       shown[shown.length - 1] = folding
       return
     }
-    folding = { kind: 'schedule', key: `schedule:${placed.schedule.id}:${placed.run.at}`, schedule: placed.schedule, runs: [placed.run], at: placed.at }
+    folding = {
+      kind: 'schedule',
+      key: `schedule:${placed.schedule.id}:${placed.run.at}`,
+      schedule: placed.schedule,
+      runs: [placed.run],
+      at: placed.at,
+    }
     shown.push(folding)
   }
 
+  // The runs not placed yet start at `next`. `reached` is the latest time the rows so far have: a row with no time of
+  // its own stands where the rows before it reached.
   let next = 0
   let reached = -Infinity
   for (const row of rows) {
     reached = Math.max(reached, timeOf(row) ?? reached)
-    while (next < runs.length && runs[next]!.at < reached) place(runs[next++]!)
+    for (; next < runs.length; next++) {
+      const placed = runs[next]
+      if (placed === undefined || placed.at >= reached) break
+      place(placed)
+    }
     shown.push(row)
     folding = null
   }
-  while (next < runs.length) place(runs[next++]!)
+  runs.slice(next).forEach(place)
   return shown
 }
 
@@ -148,8 +167,15 @@ export interface RunWords {
 
 /** What one run's row says. */
 export function runWords(schedule: RunSchedule, run: AgentScheduleRunRecord): RunWords {
-  const wake = schedule.does === 'wake' ? null : run.woke ? 'woke it' : 'no wake'
-  return { name: runName(schedule), ran: ranWords(schedule), end: endWords(schedule, run), tone: schedule.does === 'wake' ? 'quiet' : TONE[run.outcome], took: took(run), wake }
+  const wakes = schedule.does === 'wake'
+  return {
+    name: runName(schedule),
+    ran: ranWords(schedule),
+    end: endWords(schedule, run),
+    tone: wakes ? 'quiet' : TONE[run.outcome],
+    took: took(run),
+    wake: wakes ? null : run.woke ? 'woke it' : 'no wake',
+  }
 }
 
 export interface FoldWords {
@@ -167,7 +193,7 @@ export interface FoldWords {
 
 /** What a row of runs in a row says, at `now`. */
 export function foldWords(row: RunsRow, now: number): FoldWords {
-  const newest = runWords(row.schedule, row.runs.at(-1)!)
+  const newest = runWords(row.schedule, row.runs.at(-1) ?? row.runs[0])
   // Runs fold by how they ended, so their exit codes may differ: they all failed.
   const all = row.runs.every((run) => endWords(row.schedule, run) === newest.end) ? newest.end : 'failed'
   return {

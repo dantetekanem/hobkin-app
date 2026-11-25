@@ -7,7 +7,7 @@ import { Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { clockSeconds } from '@/features/reports/time.ts'
 import { cn } from '@/lib/utils.ts'
-import { foldWords, runWords, type RunSchedule, type RunsRow, type RunTone } from './runs.ts'
+import { foldWords, runName, runWords, type RunSchedule, type RunsRow, type RunTone, type RunWords } from './runs.ts'
 
 /**
  * A schedule's runs in its agent's conversation (`runs.ts`): one quiet row, not a message from anyone, at the moment
@@ -40,39 +40,50 @@ export function ScheduleRunsItem({ row }: { row: RunsRow }) {
 /** One run or a fold of them, and what it opens to. `aside` stands at the row's end, such as its time in the main chat. */
 export function ScheduleRuns({ row, aside }: { row: RunsRow; aside?: ReactNode }) {
   const [open, setOpen] = useState(false)
-  const [only] = row.runs
-  const one = row.runs.length === 1 ? only! : null
+  const one = row.runs.length === 1 ? row.runs[0] : null
   // A plain wake prints nothing, so it has nothing to open.
-  const opens = !one || hasOutput(row.schedule, one)
-  const words = (
-    <>
-      <span className="shrink-0 font-medium text-foreground/80">{one ? runWords(row.schedule, one).name : foldWords(row, Date.now()).name}</span>
-      {one ? <OneRun schedule={row.schedule} run={one} /> : <Folded row={row} />}
-    </>
-  )
+  const opens = one === null || hasOutput(row.schedule, one)
+
+  let opened: ReactNode = null
+  if (open && opens) opened = one ? <Output schedule={row.schedule} run={one} /> : <RunList schedule={row.schedule} runs={row.runs} />
+
   return (
     <div className="flex min-w-0 flex-col">
       <Line open={opens ? open : null} onToggle={() => setOpen(!open)} aside={aside}>
-        {words}
+        <span className="shrink-0 font-medium text-foreground/80">{runName(row.schedule)}</span>
+        {one ? <OneRun schedule={row.schedule} run={one} /> : <Folded row={row} />}
       </Line>
-      {open && opens ? one ? <Output schedule={row.schedule} run={one} /> : <RunList schedule={row.schedule} runs={row.runs} /> : null}
+      {opened}
     </div>
   )
 }
 
 const hasOutput = (schedule: RunSchedule, run: AgentScheduleRunRecord) => schedule.does === 'shell' || Boolean(run.tail || run.line)
 
-/** The row itself: a press when it opens, `open` null when there is nothing to open. A run in an opened list has no icon of its own. */
-function Line({ open, onToggle, aside, icon = true, children }: { open: boolean | null; onToggle: () => void; aside?: ReactNode; icon?: boolean; children: ReactNode }) {
+interface LineProps {
+  /** Whether it is open, or null when there is nothing to open and it is no press. */
+  open: boolean | null
+  onToggle: () => void
+  aside?: ReactNode
+  /** A run in an opened list has no icon of its own. */
+  icon?: boolean
+  children: ReactNode
+}
+
+/** The row itself: its icon, its words cut to one line, what stands at its end, and a chevron when it opens. */
+function Line({ open, onToggle, aside, icon = true, children }: LineProps) {
   const content = (
     <>
       {icon ? <CalendarClock className="size-3.5 shrink-0" aria-hidden="true" /> : null}
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5 truncate">{children}</span>
       {aside}
-      {open === null ? null : <ChevronRight className={cn('size-3.5 shrink-0 transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]', open && 'rotate-90')} aria-hidden="true" />}
+      {open === null ? null : (
+        <ChevronRight className={cn('size-3.5 shrink-0 transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]', open && 'rotate-90')} aria-hidden="true" />
+      )}
     </>
   )
   if (open === null) return <div className={ROW}>{content}</div>
+
   return (
     <button type="button" data-step-toggle aria-expanded={open} onClick={onToggle} className={cn(ROW, 'transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1')}>
       {content}
@@ -80,27 +91,34 @@ function Line({ open, onToggle, aside, icon = true, children }: { open: boolean 
   )
 }
 
-const Dot = () => <span aria-hidden="true">·</span>
+/** The next part of a row's words, after a dot. */
+function Then({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <>
+      <span aria-hidden="true">·</span>
+      <span className={cn('shrink-0', className)}>{children}</span>
+    </>
+  )
+}
 
-/** One run's words after its name: what ran, how it ended, how long, and whether it woke the agent. */
+/** How a run ended, how long it took and whether it woke the agent. */
+function Ending({ words }: { words: RunWords }) {
+  return (
+    <>
+      <span className={cn('shrink-0 tabular-nums', TONE[words.tone])}>{words.end}</span>
+      {words.took ? <Then className="tabular-nums">{words.took}</Then> : null}
+      {words.wake ? <Then>{words.wake}</Then> : null}
+    </>
+  )
+}
+
+/** One run's words after its name: what ran, then how it ended. */
 function OneRun({ schedule, run }: { schedule: RunSchedule; run: AgentScheduleRunRecord }) {
   const words = runWords(schedule, run)
   return (
     <>
       {words.ran ? <span className="min-w-0 truncate font-mono text-[12px]">{words.ran}</span> : null}
-      <span className={cn('shrink-0 tabular-nums', TONE[words.tone])}>{words.end}</span>
-      {words.took ? (
-        <>
-          <Dot />
-          <span className="shrink-0 tabular-nums">{words.took}</span>
-        </>
-      ) : null}
-      {words.wake ? (
-        <>
-          <Dot />
-          <span className="shrink-0">{words.wake}</span>
-        </>
-      ) : null}
+      <Ending words={words} />
     </>
   )
 }
@@ -112,16 +130,9 @@ function Folded({ row }: { row: RunsRow }) {
   return (
     <>
       <span className="shrink-0 tabular-nums">{words.count}</span>
-      <Dot />
-      <span className={cn('shrink-0', TONE[words.tone])}>{words.all}</span>
-      <Dot />
-      <span className="shrink-0 tabular-nums">{words.last}</span>
-      {words.wake ? (
-        <>
-          <Dot />
-          <span className="shrink-0">{words.wake}</span>
-        </>
-      ) : null}
+      <Then className={TONE[words.tone]}>{words.all}</Then>
+      <Then className="tabular-nums">{words.last}</Then>
+      {words.wake ? <Then>{words.wake}</Then> : null}
     </>
   )
 }
@@ -141,7 +152,6 @@ function RunList({ schedule, runs }: { schedule: RunSchedule; runs: readonly Age
 
 function ListedRun({ schedule, run }: { schedule: RunSchedule; run: AgentScheduleRunRecord }) {
   const [open, setOpen] = useState(false)
-  const words = runWords(schedule, run)
   const opens = hasOutput(schedule, run)
   const at = Date.parse(run.at)
   return (
@@ -150,19 +160,7 @@ function ListedRun({ schedule, run }: { schedule: RunSchedule; run: AgentSchedul
         <time dateTime={run.at} className="shrink-0 tabular-nums">
           {Number.isFinite(at) ? clockSeconds(at) : ''}
         </time>
-        <span className={cn('shrink-0 tabular-nums', TONE[words.tone])}>{words.end}</span>
-        {words.took ? (
-          <>
-            <Dot />
-            <span className="shrink-0 tabular-nums">{words.took}</span>
-          </>
-        ) : null}
-        {words.wake ? (
-          <>
-            <Dot />
-            <span className="shrink-0">{words.wake}</span>
-          </>
-        ) : null}
+        <Ending words={runWords(schedule, run)} />
       </Line>
       {open && opens ? <Output schedule={schedule} run={run} /> : null}
     </div>

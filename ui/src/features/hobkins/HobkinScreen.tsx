@@ -279,7 +279,11 @@ function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: Hobkin
 type ShownRow = PageRow | RunsRow | { kind: 'older'; key: 'older' }
 
 /** When a row happened, for the schedules' runs to stand among the rows (`withRuns`). Thinking is now, after every run. */
-const rowTime = (row: PageRow): number | null => (row.kind === 'thinking' ? Infinity : row.kind === 'step' ? (atOf(row.step) ?? null) : row.at)
+function rowTime(row: PageRow): number | null {
+  if (row.kind === 'thinking') return Infinity
+  if (row.kind === 'step') return atOf(row.step) ?? null
+  return row.at
+}
 const OLDER_ROW: ShownRow = { kind: 'older', key: 'older' }
 
 interface ConversationProps {

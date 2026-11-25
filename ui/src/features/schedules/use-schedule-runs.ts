@@ -18,12 +18,14 @@ export function useScheduleRuns(place: SchedulePlace): readonly PlacedRun[] {
   const connected = useHost((state) => hasHost(state) && state.link === 'open')
   const key = useHost((state) => (connected ? runsKey(state.snapshot.agentSchedules ?? NONE, place) : null))
   const where = placeKey(place)
+  const kind = place.kind
+  const id = place.kind === 'main' ? undefined : place.id
   const [read, setRead] = useState<{ where: string; runs: readonly PlacedRun[] } | null>(null)
 
   useEffect(() => {
     if (key === null) return
+
     let current = true
-    const [kind, id] = [place.kind, place.kind === 'main' ? undefined : place.id]
     runCommand('schedule.runs', id === undefined ? { kind } : { kind, id }).then(
       (answer) => {
         if (current) setRead({ where, runs: placedRuns(answer.schedules) })
@@ -34,9 +36,7 @@ export function useScheduleRuns(place: SchedulePlace): readonly PlacedRun[] {
     return () => {
       current = false
     }
-    // `where` names the place, so the place itself is not a dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, where])
+  }, [key, where, kind, id])
 
   return read?.where === where ? read.runs : NO_RUNS
 }
