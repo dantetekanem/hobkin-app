@@ -35,7 +35,8 @@ const risky: AssessmentStatus = {
 }
 const answered = () => new Promise((resolve) => setImmediate(resolve))
 
-test('a failed first status request for the new head does not keep the old review badge or merge styling', async (t) => {
+/** The hook with React and the host replaced, so its renders and effects run one by one in the test. */
+async function loadHook(t: { after(run: () => void): void }) {
   const hooks = registerHooks({ resolve(specifier, context, next) {
     if (context.parentURL?.endsWith('/use-change-review.ts')) {
       if (specifier === 'react') return next(hookRuntime, context)
@@ -48,6 +49,11 @@ test('a failed first status request for the new head does not keep the old revie
   const { commit, unmount } = await import(hookRuntime)
   const { setResponder } = await import(host)
   t.after(unmount)
+  return { useChangeReview, commit, setResponder }
+}
+
+test('a failed first status request for the new head does not keep the old review badge or merge styling', async (t) => {
+  const { useChangeReview, commit, setResponder } = await loadHook(t)
 
   const status = { ...IDLE_STATUS(ID), state: 'ready', head: A, assessment: risky }
   const respond = t.mock.fn(async () => status)
@@ -73,4 +79,19 @@ test('a failed first status request for the new head does not keep the old revie
   setResponder(async () => ({ ...status, head: B, assessment: { ...risky, head: B } }))
   await useChangeReview(ID, B).again()
   assert.equal(useChangeReview(ID, B).assessment?.head, B)
+})
+
+test('a card a commit behind its branch, as before hobkin looks at the branch again, shows the review the host runs at the newer commit', async (t) => {
+  const { useChangeReview, commit, setResponder } = await loadHook(t)
+  const other = 'change:storefront:5be1a0'
+  const C = 'c'.repeat(40)
+  // hobkin's card still names A. The host looked the branch up in git, found B, and reviews B.
+  const running: AssessmentStatus = { state: 'running', head: B, percent: 20, now: 'Running the checkout tests' }
+  setResponder(async () => ({ ...IDLE_STATUS(other), state: 'preparing', head: B, assessment: running }))
+  useChangeReview(other, A)
+  commit()
+  await answered()
+  assert.equal(reviewBadge(useChangeReview(other, A).assessment).label, 'Reviewing · 20%')
+
+  assert.equal(useChangeReview(other, C).assessment, undefined, 'once the card names another commit, the answer given for the old card is hidden until the host answers again')
 })

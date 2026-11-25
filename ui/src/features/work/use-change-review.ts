@@ -10,7 +10,8 @@ import { followChangeReview, type ChangeReviewFollow } from './review-follow.ts'
  */
 export function useChangeReview(id: string | null, head: string | null): { assessment: AssessmentStatus | undefined; again: () => Promise<void> } {
   const home = useHost((state) => state.home)
-  const [last, setLast] = useState<{ id: string; home: typeof home; status: AssessmentStatus }>()
+  // `card` is the commit the card named when the host answered, which can be older than the commit the answer is of.
+  const [last, setLast] = useState<{ id: string; home: typeof home; card: string | null; status: AssessmentStatus }>()
   const follow = useRef<ChangeReviewFollow | null>(null)
 
   useEffect(() => {
@@ -18,7 +19,7 @@ export function useChangeReview(id: string | null, head: string | null): { asses
     const following = followChangeReview({
       id,
       run: (name, args) => runCommand(name, args),
-      onStatus: (status) => setLast(status ? { id, home, status } : undefined),
+      onStatus: (status) => setLast(status ? { id, home, card: head, status } : undefined),
     })
     follow.current = following
     return () => {
@@ -28,9 +29,10 @@ export function useChangeReview(id: string | null, head: string | null): { asses
   }, [id, head, home])
 
   const again = useCallback(() => follow.current?.again() ?? Promise.reject(new Error('This change has no review to run again.')), [])
-  // Render against the current commit, even before the next effect starts or if its request fails. A card that knows
-  // no commit, such as a stack's layer hobkin did not list, takes the review as the host has it.
-  const matchesCard = last && last.id === id && last.home === home && (head === null || last.status.head === head)
+  // Render against the card's current commit, even before the next effect starts or if its request fails. The host
+  // answers at the commit its branch is at in git, which is newer than the card's while hobkin has not looked at the
+  // branch again, so the answer stands for the card it was asked for, whatever commit it is of.
+  const matchesCard = last && last.id === id && last.home === home && last.card === head
   const assessment = matchesCard ? last.status : undefined
   return { assessment, again }
 }
