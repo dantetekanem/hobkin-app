@@ -1481,6 +1481,13 @@ export const COMMANDS = {
     args: Type.Object({ id: Type.String({ pattern: '^[0-9a-f]{6}$' }), value: oneOf(['yes', 'later', 'no']) }, { additionalProperties: false }),
     hobkin: true,
   },
+  // The user's alone, as hobkin's own tool dismisses only at the user's request.
+  'action.dismiss': {
+    description:
+      "Dismiss Action Items by hobkin's ids for them (the ones its hobkin_action_items tool lists) with hobkin's own dismissal: each leaves Action Items and every count, unanswered, so whoever asked hears nothing. An id not listed now is passed over.",
+    runs: 'host',
+    args: Type.Object({ ids: Type.Array(words(512), { minItems: 1 }) }, { additionalProperties: false }),
+  },
   'conversation.image': {
     description: 'Read one raster image from a currently displayed main message. Bytes are returned only to this request.',
     runs: 'host',
@@ -1733,6 +1740,8 @@ export interface CommandResults {
   'reminder.resolve': { ok: true }
   'decision.answer': { message: string; handedOff: boolean }
   'learning.answer': { message: string }
+  /** How many it dismissed, and how many Action Items hobkin lists now. */
+  'action.dismiss': { dismissed: number; remaining: number }
   'conversation.image': StoredImage | null
   'history.image': StoredImage | null
   /** `titling`: how many of the listed conversations are having a title made for them now, so the window looks again. None from a host that makes no titles. */

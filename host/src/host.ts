@@ -74,6 +74,7 @@ import { recordEvent } from 'hobkin/src/cli/events.mjs'
 import { Canvases, canvasHandlers } from './canvases.ts'
 import { Nudges } from './nudge.ts'
 import { decisionHandlers } from './decisions.ts'
+import { actionDismissalHandlers } from './action-dismissals.ts'
 import { reportHandlers } from './reports.ts'
 import { ReminderReader, reminderHandlers } from './reminders.ts'
 import { proofHandlers, ProofsKeeper } from './proofs.ts'
@@ -810,6 +811,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     }),
     // Action Items answered from the window, each through hobkin's own decision or learning action (012).
     ...decisionHandlers({ app: hobkin }),
+    // And dismissed from it with hobkin's own dismissal.
+    ...actionDismissalHandlers({ root: () => hobkin().runtime.directory, refresh: () => hobkin().refresh() }),
     ...reportHandlers({ app: hobkin }),
     ...reminderHandlers({ root: () => hobkin().runtime.directory, changed: publish }),
     // A routine's switch, its times and Run now, each through hobkin's own runner (010-routines).
