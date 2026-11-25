@@ -155,7 +155,8 @@ function Intro({ first, onOn }: { first: RefObject<HTMLElement | null>; onOn: ()
           restart.
         </Point>
         <Point face={<AgentHood hue={WORKER_HUE} size={34} mood="idle" working={false} />} title="When it waits">
-          The main hobkin tells you in the chat when one has stopped and is waiting for you.
+          The agents list marks one that has stopped and is waiting for you. Its conversation stays with it: the main hobkin
+          does not see it.
         </Point>
       </ul>
       <div className="flex justify-end">

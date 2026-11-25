@@ -48,8 +48,8 @@ function useWindowShown(): boolean {
 }
 
 /**
- * While the page is on screen and the hobkin waits unseen, tells the host once for that wait, so the main hobkin does not
- * tell the user about a wait they saw.
+ * While the page is on screen and the hobkin waits unseen, tells the host once for that wait, so the agents list and the
+ * notifications stop marking a wait the user saw.
  */
 export function useMarkSeen(hobkin: HobkinSummary | undefined, onPage: boolean, connected: boolean): void {
   const shown = useWindowShown()
@@ -60,7 +60,7 @@ export function useMarkSeen(hobkin: HobkinSummary | undefined, onPage: boolean, 
   useEffect(() => {
     if (!wait || !id) return
     told.current = wait
-    // A refusal leaves the wait to the main hobkin, which tells the user in the chat.
+    // A refusal leaves the wait marked unseen.
     runCommand('hobkin.seen', { id }).catch(() => {})
   }, [wait, id])
 }

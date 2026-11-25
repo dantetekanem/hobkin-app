@@ -709,7 +709,7 @@ export const COMMANDS = {
     args: Type.Object({ id: hobkinId, title: words(HOBKIN_TITLE_MAX) }, { additionalProperties: false }),
   },
   'hobkin.seen': {
-    description: 'Say the user has looked at a durable hobkin that is waiting, so the main hobkin does not tell them about it.',
+    description: 'Say the user has looked at a durable hobkin that is waiting, so the window stops marking it unseen.',
     runs: 'host',
     args: Type.Object({ id: hobkinId }, { additionalProperties: false }),
   },
