@@ -817,7 +817,8 @@ export class HobkinRuntime {
 
   // Every check and work run passes here, whichever agent wrote its report, before anything saves or shows it. A durable hobkin's answer is not a report.
   edited(request, result, signal) {
-    if (request.kind !== 'background' || request.hobkin || !this.editReport) return result;
+    // Catch-up already summarizes reports; its failure section is assembled from execution receipts, not prose to rewrite.
+    if (request.kind !== 'background' || request.hobkin || request.scheduleId === 'catch-up' || !this.editReport) return result;
     return this.editReport(result, { root: this.directory, signal });
   }
 

@@ -20,7 +20,7 @@ if (process.env.HOBKIN_ACTIVITY_TEST_ONLY === '1') {
 }
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const { HobkinRuntime } = await import('../src/cli/runtime.mjs');
@@ -29,7 +29,7 @@ const { initialize } = await import('../src/cli/config.mjs');
 const { readReport } = await import('../src/cli/reports.mjs');
 
 function home(t) {
-  const root = mkdtempSync(join(tmpdir(), 'hobkin-runtime-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-runtime-')));
   const config = initialize(root, { cwd: root });
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return { root, config };
@@ -150,7 +150,8 @@ test('a background report is edited before it is saved, and a main turn never is
 function mainFactory(control = {}) {
   return async options => openPiSession(options, {
     agentDir: join(options.root, 'pi-agent'),
-    createSession: async ({ sessionManager, resourceLoader }) => {
+    resourceCandidates: control.resourceCandidates ?? [],
+    createSession: async ({ sessionManager, resourceLoader, tools }) => {
       control.resources = resourceLoader;
       const listeners = new Set();
       control.emit = event => { for (const callback of listeners) callback(event); };
@@ -194,6 +195,7 @@ function mainFactory(control = {}) {
           control.gate?.resolve();
         },
         async bindExtensions() {},
+        getActiveToolNames() { return [...tools]; },
         dispose() { control.disposed = true; },
       };
       return { session };
@@ -286,10 +288,12 @@ test('the main chat keeps its own recent activity like a job does, never its thi
   assert.deepEqual(runtime.mainActivity(), []);
 });
 
-test('main SDK receives Hobkin context and ordinary project resources without an initial model turn', async t => {
+test('main SDK receives Hobkin context and selected project resources without an initial model turn', async t => {
   const { root, config } = home(t);
-  const control = {};
-  writeFileSync(join(root, 'AGENTS.md'), 'Synthetic local context');
+  const path = join(root, 'AGENTS.md');
+  writeFileSync(path, 'Synthetic local context');
+  const control = { resourceCandidates: [{ id: 'context:folder', kind: 'instructions', path, installed: true }] };
+  config.resourceSelection = { version: 1, purposes: { main: { instructions: ['context:folder'] } } };
   const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory(control) });
   try {
     await runtime.connect();

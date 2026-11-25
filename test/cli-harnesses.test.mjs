@@ -743,6 +743,37 @@ test('the output byte bound applies to each LF-delimited record, not to a long h
   assert.match(rejected.error, /record exceeded its byte limit/);
 });
 
+test('settled Pi failures retain only a recognized safe quota wait', async t => {
+  const observed = 'Quota reached. Please wait 37m13s. (Enable AI credits fallback with /antigravity.credits on) Next: switch models or try again after reset.';
+  for (const [message, expected] of [
+    [{ role: 'assistant', stopReason: 'error', errorMessage: observed, content: [] }, 'Pi did not finish a response (error): Quota reached; provider reported a wait of 37m13s.'],
+    [{ role: 'assistant', stopReason: 'error', content: [] }, 'Pi did not finish a response (error).'],
+    [{ role: 'assistant', stopReason: 'error', errorMessage: 'Unknown provider failure', content: [] }, 'Pi did not finish a response (error).'],
+    [{ role: 'assistant', stopReason: 'error', errorMessage: '{"secret":"token","message":"Quota reached. Please wait 37m13s."}', content: [] }, 'Pi did not finish a response (error).'],
+    [{ role: 'assistant', stopReason: 'error', errorMessage: 'Quota reached. Please wait secret-token.', content: [] }, 'Pi did not finish a response (error).'],
+    [null, 'Pi did not finish a response (missing).'],
+  ]) {
+    const result = await runHarness(request(t), { spawnProcess: fake(rpc(`
+      ${message ? `send({ type: 'message_end', message: ${JSON.stringify(message)} });` : ''}
+      send({ type: 'agent_settled' });
+    `)) });
+    assert.equal(result.status, 'failed');
+    assert.equal(result.error.split('\n')[0], expected);
+  }
+});
+
+test('a successful Pi retry does not retain the earlier quota diagnostic', async t => {
+  const result = await runHarness(request(t), { spawnProcess: fake(rpc(`
+    send({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: 'Quota reached. Please wait 36m56s.', content: [] } });
+    send({ type: 'agent_end', messages: [] });
+    send({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Recovered' }] } });
+    send({ type: 'agent_settled' });
+  `)) });
+  assert.equal(result.status, 'completed');
+  assert.equal(result.text, 'Recovered');
+  assert.equal(result.error, undefined);
+});
+
 test('cancellation terminates the owned child and leaves unknown cost, without retry', async t => {
   const aborted = new AbortController();
   const calls = [];

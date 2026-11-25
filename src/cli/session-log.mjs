@@ -1,6 +1,6 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { readReport, saveReport } from './reports.mjs';
+import { readReport, runReport, saveReport } from './reports.mjs';
 
 const LOG = 'sessions.jsonl';
 const MOST_READ_BYTES = 1048576;
@@ -21,7 +21,9 @@ function append(folder, event) {
 export const recordSessionStart = (root, { name, title, report, wake }, now = Date.now()) => append(folderOf(root), { name, title, report, ...(wake ? { wake } : {}), startedAt: new Date(now).toISOString() });
 
 /** Written when a session's job ends (`session-jobs.mjs`). A session's report sits beside this log. */
-export const recordSessionEnd = ({ name, report, userStop }, now = Date.now()) => append(dirname(report), { name, report, ...(userStop ? { userStop } : {}), endedAt: new Date(now).toISOString() });
+export const recordSessionEnd = ({ name, report, userStop, outcome }, now = Date.now()) => append(dirname(report), {
+  name, report, ...(userStop ? { userStop } : {}), ...(outcome ? { outcome } : {}), endedAt: new Date(now).toISOString(),
+});
 
 /**
  * What a job's report says when hobkin closed or died while the job lived (072-jobs-live-until-done): that it was cut
@@ -34,14 +36,15 @@ export function cutOffReport(said) {
 }
 
 /**
- * What a session's end leaves: its last reply as the report when it wrote none, and its end in the session log. The run
+ * What a session's end leaves: its failed run report or last reply when it wrote none, and its end in the session log. The run
  * posts its own notice and report, so the session log's would say it twice.
  */
 export function endSessionJob(root, session, run) {
-  if (!existsSync(session.report) && run?.result?.text) writeFileSync(session.report, run.result.text, { mode: 0o600 });
+  const report = run?.result?.status === 'failed' ? runReport(run.result) : run?.result?.text;
+  if (!existsSync(session.report) && report) writeFileSync(session.report, report, { mode: 0o600 });
   const userStop = run?.userStop && run.status === 'interrupted'
     ? { runId: run.id, reason: run.userStop.reason } : undefined;
-  recordSessionEnd({ ...session, userStop });
+  recordSessionEnd({ ...session, userStop, outcome: run?.status });
   markPosted(root, [session]);
 }
 
@@ -109,14 +112,14 @@ export const sessionNotice = ({ name, title, said, endedAt }) => ({
 /** Marked only once the view holding the notice is saved, so a crash in between posts it again rather than never. Its id stops a second copy. */
 export const markPosted = (root, sessions) => sessions.forEach(({ name }) => append(folderOf(root), { name, posted: true }));
 
-const reportOf = ({ name, title, endedAt }, body) => ({
+const reportOf = ({ name, title, endedAt, outcome = 'completed' }, body) => ({
   id: reportId(name),
   title: title ?? name,
   // Read as work done, which is what the Reports tab sorts by.
   scheduleId: 'work.session',
   at: endedAt,
   body,
-  outcome: 'completed',
+  outcome,
 });
 
 /** Sessions join Reports like any other run. Only one that wrote a report has anything to open. */

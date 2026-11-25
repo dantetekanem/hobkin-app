@@ -28,9 +28,14 @@ const TITLE = 'Catch-up';
 const EXCERPT_CHARACTERS = 600;
 // A prompt this size still fits the model with room to spare. A pile too big for it is covered newest first, over several catch-ups.
 const MOST_MATERIAL_BYTES = 65536;
+// Current news and historical unread reports belong to separate catch-ups. Older reports stay in Reports.
+const RECENT_MS = 7 * 86400000;
+// Keep the deterministic failure section short; further failures wait for the next catch-up.
+const MOST_FAILURES = 3;
 // A catch-up nobody waits for still should not hold a model for long.
 const TIME_LIMIT_MS = 180000;
 const NOTHING = 'Nothing to catch up on: every report is read or already in a catch-up.';
+const NOTHING_RECENT = 'No recent unread reports. Older unread reports remain in Reports.';
 const ALREADY = 'hobkin is already writing a catch-up. Reports that came in since go in the next one.';
 const NO_MODEL = 'hobkin has no fast model to write a catch-up with. Choose one for the fast tier in Settings.';
 
@@ -130,8 +135,17 @@ const coveredEntry = report => ({
   at: report.at,
   outcome: report.outcome,
   triage: triageLine(report),
-  text: report.short ?? excerpt(report.body),
+  // A short version may have misinterpreted a failed worker's partial reply. Use its saved failure opening instead.
+  text: report.outcome === 'failed' ? failureOpening(report.body) : report.short ?? excerpt(report.body),
 });
+
+function failureOpening(body) {
+  const opening = reportText(body).split('\n', 1)[0];
+  return /^(?:The run failed:|Pi crashed in its code tool, and hobkin restarted it\. The restarted run failed:)/.test(opening)
+    ? opening : 'The worker did not complete.';
+}
+
+const recentReports = (reports, now) => reports.filter(report => Date.parse(report.at) >= now - RECENT_MS);
 
 /** How the user treats each routine's latest reports, as `report-attention.json` keeps it, leaving out the catch-ups' own. */
 function routineAttention(home) {
@@ -155,22 +169,59 @@ function routineAttention(home) {
 }
 
 /**
- * What one catch-up is given, as JSON: the newest uncovered reports whose entries fit the bound, at least one, and each
- * routine's attention numbers. Each entry costs its own bytes and the comma before the next.
+ * What one catch-up covers: the newest eligible reports whose entries fit the bound, with attention only for routines
+ * represented in those reports. Historical reports are a separate, manual catch-up, not current news.
  */
-function catchUpMaterial(home, uncovered) {
-  const routines = routineAttention(home);
+function catchUpMaterial(home, uncovered, now, trigger) {
+  const recent = recentReports(uncovered, now);
+  const historical = !recent.length && trigger === 'manual' && uncovered.length > 0;
+  const eligible = historical ? uncovered : recent;
+  const attention = new Map(routineAttention(home).map(stats => [stats.routine, stats]));
   const reports = [];
-  let bytes = Buffer.byteLength(JSON.stringify({ reports, routines }));
-  for (const report of uncovered) {
+  const routines = [];
+  let bytes = Buffer.byteLength(JSON.stringify({ reports, routines, historical }));
+  let failures = 0;
+  for (const report of eligible) {
     const entry = coveredEntry(report);
-    const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
+    const stats = entry.outcome === 'failed' ? undefined : attention.get(entry.routine);
+    const size = Buffer.byteLength(JSON.stringify(entry)) + 1 + (stats ? Buffer.byteLength(JSON.stringify(stats)) + 1 : 0);
     if (reports.length && bytes + size > MOST_MATERIAL_BYTES) break;
-
+    if (entry.outcome === 'failed') {
+      if (failures === MOST_FAILURES) break;
+      failures++;
+    }
     reports.push(entry);
+    if (stats) {
+      routines.push(stats);
+      attention.delete(entry.routine);
+    }
     bytes += size;
   }
-  return { reports, routines };
+  return { reports, routines, historical, olderUnread: historical ? 0 : uncovered.length - recent.length };
+}
+
+/** Execution failures are facts from the run receipt, never an inference about a project's tests. */
+function failedRunsText(failures, summary) {
+  const headline = `Blocked: ${plural(failures.length, 'worker run')} failed to finish.`;
+  const lines = failures.map(({ title, id, text, at }) => {
+    const label = title.replace(/[\\\[\]]/g, '\\$&');
+    return `- [${label}](hobkin-report:${id}) — ${at.slice(0, 10)}: ${text}`;
+  });
+  const section = `## Worker runs\n\n${lines.join('\n')}\n\nRun failure is not a project test result. Open the linked reports for any independent test evidence.`;
+  if (!summary) return `${headline}\n\n${section}`;
+  // A genuinely critical finding in another report takes precedence. Otherwise the worker failure leads.
+  const triage = reportTriage({ status: 'completed', result: { text: summary } });
+  if (triage?.level === 'critical') return `${summary}\n\n${section}`;
+  const firstLine = summary.split('\n', 1)[0];
+  const body = triage?.message ? triage.message + summary.slice(firstLine.length) : summary;
+  return `${headline}\n\n${section}\n\n${body}`;
+}
+
+function addBacklogNote(text, { historical, olderUnread }) {
+  if (historical) return `${text}\n\nThese are historical reports, not verified current issues.`;
+  if (!olderUnread) return text;
+  const verb = olderUnread === 1 ? 'remains' : 'remain';
+  return `${text}\n\n${plural(olderUnread, 'older unread report')} ${verb} in Reports, separate from current news.`;
 }
 
 /** The reports a finished catch-up covered count as caught up from now, and the window shows it. */
@@ -182,8 +233,8 @@ function coverReports(home, app, catchUpId, reports) {
 }
 
 /**
- * Runs one catch-up as hobkin's own background run, on the fast tier with low effort, so it is listed in Reports like
- * any other. Only once it has finished with a report does each report it was given count as caught up.
+ * Runs one catch-up as hobkin's own background run. The model summarizes completed reports; failed-run receipts are
+ * rendered separately, without a model. Only after a report is saved do the reports it covers count as caught up.
  */
 async function writeCatchUp(home, app, material, binding, trigger) {
   const id = `${CATCH_UP}:${randomUUID()}`;
@@ -191,6 +242,11 @@ async function writeCatchUp(home, app, material, binding, trigger) {
   const jobs = join(home, 'jobs');
   mkdirSync(jobs, { recursive: true, mode: 0o700 });
 
+  const failures = material.reports.filter(report => report.outcome === 'failed');
+  const reports = material.reports.filter(report => report.outcome !== 'failed');
+  const { routines } = material;
+  const workerText = failures.length ? failedRunsText(failures) : '';
+  const wordBudget = Math.max(40, 200 - (workerText.match(/\S+/g)?.length ?? 0));
   const { work } = app.runner.startTracked({
     id,
     kind: 'background',
@@ -198,22 +254,23 @@ async function writeCatchUp(home, app, material, binding, trigger) {
     title: TITLE,
     ...(trigger === 'manual' ? { trigger } : {}),
     requestedAt: new Date(app.now()).toISOString(),
-    harness: 'pi',
-    model: binding.model,
-    effort: 'low',
-    cwd: home,
-    harnessId,
-  }, signal => app.runner.runHarness({
-    id: harnessId,
-    harness: 'pi',
-    purpose: 'catch-up',
-    model: binding.model,
-    effort: 'low',
-    cwd: home,
-    prompt: JSON.stringify(material),
-    sessionFile: join(jobs, `${harnessId}.jsonl`),
-    signal: AbortSignal.any([signal, AbortSignal.timeout(TIME_LIMIT_MS)]),
-  }));
+    ...(reports.length ? { harness: 'pi', model: binding.model, effort: 'low', cwd: home, harnessId } : {}),
+  }, async signal => {
+    const answer = reports.length ? await app.runner.runHarness({
+      id: harnessId,
+      harness: 'pi',
+      purpose: 'catch-up',
+      model: binding.model,
+      effort: 'low',
+      cwd: home,
+      prompt: JSON.stringify({ reports, routines, historical: material.historical, wordBudget }),
+      sessionFile: join(jobs, `${harnessId}.jsonl`),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(TIME_LIMIT_MS)]),
+    }) : { status: 'completed', text: '', cost: null };
+    if (answer.status !== 'completed' || (reports.length && !answer.text?.trim())) return answer;
+    const text = failures.length ? failedRunsText(failures, answer.text?.trim()) : answer.text;
+    return { ...answer, text: addBacklogNote(text, material) };
+  });
 
   const ended = await work;
   const wroteReport = ended?.status === 'completed' && Boolean(ended.result?.text?.trim());
@@ -239,11 +296,12 @@ export function startCatchUp(root, app, { trigger = 'manual' } = {}) {
   if (writing.has(home)) return { message: ALREADY };
 
   const listed = app.snapshot?.reports ?? readLocalView(home).reports;
-  const material = catchUpMaterial(home, uncoveredReports(home, listed));
-  if (!material.reports.length) return { message: NOTHING };
+  const uncovered = uncoveredReports(home, listed);
+  const material = catchUpMaterial(home, uncovered, app.now(), trigger);
+  if (!material.reports.length) return { message: uncovered.length ? NOTHING_RECENT : NOTHING };
 
   const binding = fastModel(home);
-  if (!binding) return { message: NO_MODEL };
+  if (!binding && material.reports.some(report => report.outcome !== 'failed')) return { message: NO_MODEL };
 
   // A catch-up that fails covers nothing, and the next trigger tries again.
   const run = writeCatchUp(home, app, material, binding, trigger)
@@ -274,11 +332,12 @@ export function setCatchUp(root, { daily, pileUp } = {}) {
 /** An agent's or the user's ask from another process, for the running hobkin to start on its next tick. */
 export function requestCatchUp(root) {
   const home = resolveDataRoot(root);
-  const uncovered = uncoveredReports(home, readLocalView(home).reports).length;
-  if (!uncovered) return { message: NOTHING };
+  const uncovered = uncoveredReports(home, readLocalView(home).reports);
+  const material = catchUpMaterial(home, uncovered, Date.now(), 'manual');
+  if (!material.reports.length) return { message: NOTHING };
 
   atomicJson(askedPath(home), { version: 1, at: new Date().toISOString() });
-  const count = plural(uncovered, 'unread report');
+  const count = plural(material.reports.length, 'unread report');
   return { message: `Asked hobkin for a catch-up of ${count}. It starts within a second while hobkin runs, and shows in Reports when it is done.` };
 }
 
@@ -332,7 +391,7 @@ function tickPileUp(home, app, pileUp, seen) {
 
   const finished = reports.some(report => !before.has(report.id) && report.scheduleId !== CATCH_UP);
   if (!finished) return;
-  if (uncoveredReports(home, reports).length >= pileUp) startCatchUp(home, app, { trigger: 'scheduled' });
+  if (recentReports(uncoveredReports(home, reports), app.now()).length >= pileUp) startCatchUp(home, app, { trigger: 'scheduled' });
 }
 
 /**
