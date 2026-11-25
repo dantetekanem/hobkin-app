@@ -170,16 +170,20 @@ export function chosenFolder(offers: readonly FolderOffer[], last: string | null
 export interface StartForm {
   cwd: string
   engine: HobkinEngine | null
+  /** The prompt the sheet carries from the full prompt editor, if any. */
+  text?: string
 }
 
 /**
- * What `hobkin.start` sends for the form, or null until it has a folder and something to run on. It takes no first
- * message and no name: the hobkin waits for its first message on its page, and that message names it.
+ * What `hobkin.start` sends for the form, or null until it has a folder and something to run on. It takes no name, and
+ * no first message unless the sheet carries a prompt: then that prompt is its first message. Without one the hobkin waits
+ * for its first message on its page, and that message names it.
  */
-export function startArgs({ cwd, engine }: StartForm): CommandArgs<'hobkin.start'> | null {
+export function startArgs({ cwd, engine, text }: StartForm): CommandArgs<'hobkin.start'> | null {
   const folder = cwd.trim()
   if (!folder || !engine) return null
-  return { cwd: folder, engine }
+  const words = text?.trim()
+  return { cwd: folder, engine, ...(words ? { text: words } : {}) }
 }
 
 /** What a durable hobkin runs on, in a few words. */

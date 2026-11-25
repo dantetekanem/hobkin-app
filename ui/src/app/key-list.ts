@@ -48,6 +48,7 @@ export const KEY_LIST: readonly KeyEntry[] = [
   { keys: 'n', does: 'Add a new project', where: 'Work and YOLO mode, outside text fields' },
   { keys: 'space', does: 'Open or close a finished change', where: 'Work, on a finished change' },
   { keys: '⌃⌥P', does: 'Full prompt editor', where: 'anywhere' },
+  { keys: '⌃⇧↵', does: 'Send the prompt to a new durable agent', where: 'the full prompt editor' },
   { keys: '⌃⌥S', does: 'Nerd stats', where: 'anywhere' },
   { keys: '⌘U', does: 'Attach an image', where: 'the message input' },
   { keys: '⌘V', does: 'Paste an image', where: 'the message input' },

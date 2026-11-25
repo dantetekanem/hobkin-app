@@ -4,10 +4,12 @@ import { createPortal } from 'react-dom'
 import { focusInput } from '@/app/focus.ts'
 import { stillVariants, useStill } from '@/app/still.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { useNewHobkin } from '@/features/hobkins/store.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { AttachButton, AttachmentTray } from './AttachmentTray.tsx'
 import { canSendDraft, useChat } from './chat-store.ts'
+import { editorEnter, hobkinPrompt } from './draft.ts'
 import { DraftList } from './DraftList.tsx'
 import { LiveMarkdownField } from './LiveMarkdownField.tsx'
 
@@ -54,6 +56,9 @@ const newId = () => crypto.randomUUID()
  * as it is. Enter adds a line, Control+Enter sends, Escape asks whether to keep the draft for later or delete it,
  * and a second Escape keeps it. Shift+Tab reaches the drafts, where Up and Down move and Enter opens one.
  * On the way out the keyboard goes back to whatever had it before.
+ *
+ * Shift+Control+Enter, or Send to a durable agent, opens the New hobkin sheet with the prompt as its first message. The
+ * words leave the editor only once that hobkin has started; a sheet closed or refused leaves the draft as it was.
  */
 export function PromptEditor() {
   const open = useChat((chat) => chat.draft.place === 'editor')
@@ -70,6 +75,7 @@ function Editor() {
   const attach = useChat((chat) => chat.attach)
   const detach = useChat((chat) => chat.detach)
   const canSend = canSendDraft({ text, attachments })
+  const prompt = hobkinPrompt({ text, attachments })
   const still = useStill()
   const present = useIsPresent()
 
@@ -77,6 +83,8 @@ function Editor() {
   const box = useRef<HTMLDivElement | null>(null)
   const picker = useRef<HTMLInputElement | null>(null)
   const opener = useRef<Element | null>(null)
+  /** The prompt started a durable hobkin, whose sheet puts the keyboard in its talk box. */
+  const handedOff = useRef(false)
   const [choice, setChoice] = useState(0)
 
   const writeAtEnd = () => {
@@ -93,7 +101,8 @@ function Editor() {
   }, [])
   // As the editor starts to leave, the keyboard goes back there, or home when that is gone.
   useEffect(() => {
-    if (present) return
+    // After a hand-off the keyboard is the sheet's to place: the main input would take it and close the new hobkin's page.
+    if (present || handedOff.current) return
     const to = opener.current
     if (to instanceof HTMLElement && to.isConnected && to !== document.body && !box.current?.contains(to)) to.focus({ preventScroll: true })
     else focusInput()
@@ -108,6 +117,16 @@ function Editor() {
   const open = (id: string) => {
     change({ type: 'draft-opened', id, at: Date.now(), keepAs: newId() })
     requestAnimationFrame(writeAtEnd)
+  }
+  const toHobkin = () => {
+    if (!prompt) return
+    useNewHobkin.getState().openSheet({
+      ...prompt,
+      onStarted: () => {
+        handedOff.current = true
+        change({ type: 'handed-off', text: prompt.text })
+      },
+    })
   }
 
   // Tab goes round the editor's own controls: it is a dialog, and the window behind it waits.
@@ -143,11 +162,13 @@ function Editor() {
       else return
       return used()
     }
+    const enter = event.key === 'Enter' ? editorEnter({ ctrl: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey }) : null
     if (event.key === 'Escape') {
       escape()
       used()
-    } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-      if (canSend) send()
+    } else if (enter) {
+      if (enter === 'durable') toHobkin()
+      else if (canSend) send()
       used()
     } else if (event.key === 'u' && event.metaKey) {
       picker.current?.click()
@@ -189,6 +210,9 @@ function Editor() {
           <span className="ml-auto flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
             <span className="flex items-center gap-1">
               <Kbd>⌃↵</Kbd> send
+            </span>
+            <span className="flex items-center gap-1">
+              <Kbd>⌃⇧↵</Kbd> durable agent
             </span>
             <span className="flex items-center gap-1">
               <Kbd>↵</Kbd> new line
@@ -262,18 +286,30 @@ function Editor() {
                 ))}
               </motion.div>
             ) : (
-              <motion.button
+              <motion.div
                 key="send"
-                type="button"
-                disabled={!canSend}
-                onClick={send}
                 initial={{ opacity: 0, transform: 'translateY(8px)' }}
-                animate={{ opacity: canSend ? 1 : 0.4, transform: 'translateY(0px)', transition: tween.enter }}
+                animate={{ opacity: 1, transform: 'translateY(0px)', transition: tween.enter }}
                 exit={{ opacity: 0, transform: 'translateY(4px)', transition: tween.exit }}
-                className="h-8 rounded-full bg-primary px-4 font-heading text-[13px] font-medium text-primary-foreground outline-offset-2 transition-transform duration-[140ms] ease-out active:scale-[0.97]"
+                className="flex items-center gap-1"
               >
-                Send
-              </motion.button>
+                <button
+                  type="button"
+                  disabled={!prompt}
+                  onClick={toHobkin}
+                  className="h-8 rounded-full px-3.5 font-heading text-[13px] font-medium text-muted-foreground outline-offset-2 transition-[transform,background-color,color,opacity] duration-[140ms] ease-out enabled:hover:bg-surface-2 enabled:hover:text-foreground active:scale-[0.97] disabled:opacity-40"
+                >
+                  Send to a durable agent
+                </button>
+                <button
+                  type="button"
+                  disabled={!canSend}
+                  onClick={send}
+                  className="h-8 rounded-full bg-primary px-4 font-heading text-[13px] font-medium text-primary-foreground outline-offset-2 transition-[transform,opacity] duration-[140ms] ease-out active:scale-[0.97] disabled:opacity-40"
+                >
+                  Send
+                </button>
+              </motion.div>
             )}
           </AnimatePresence>
         </footer>

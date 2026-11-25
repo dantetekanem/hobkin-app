@@ -7,9 +7,20 @@ interface StartedHobkin {
   id: string
 }
 
+/** A prompt the sheet carries from the full prompt editor: its words become the new hobkin's first message. */
+export interface SheetPrompt {
+  text: string
+  /** How many images the draft holds. `hobkin.start` takes none, so they stay in the draft. */
+  images: number
+  /** The hobkin started with these words, so they leave the editor. Never called when the sheet closes or the start is refused. */
+  onStarted: () => void
+}
+
 interface NewHobkinState {
   /** The New hobkin sheet is open. */
   open: boolean
+  /** The prompt this opening of the sheet carries, or null for Command+N. Kept while the sheet leaves, so it keeps its size. */
+  prompt: SheetPrompt | null
   /**
    * The folder and what it ran on the last time one was started, so the next sheet starts there, and the model and effort
    * the last one on Claude Code used, so choosing Claude Code starts there. Kept from before Claude Code had them, `claude`
@@ -19,9 +30,10 @@ interface NewHobkinState {
   /** The hobkin this window started last. Its page waits for it rather than saying it ended. */
   started: StartedHobkin | null
 
-  openSheet: () => void
+  /** Opens the sheet, carrying a prompt from the editor, or none. */
+  openSheet: (prompt?: SheetPrompt) => void
   closeSheet: () => void
-  /** A hobkin was started with these choices. */
+  /** A hobkin was started with these choices, and the prompt the sheet carried went with it. */
   remember: (started: StartedHobkin, cwd: string, engine: EngineChoice) => void
 }
 
@@ -31,17 +43,20 @@ interface NewHobkinState {
  */
 export const useNewHobkin = create<NewHobkinState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       open: false,
+      prompt: null,
       last: { cwd: null, engine: null },
       started: null,
-      openSheet: () => set({ open: true }),
+      openSheet: (prompt) => set({ open: true, prompt: prompt ?? null }),
       closeSheet: () => set({ open: false }),
-      remember: (started, cwd, engine) =>
+      remember: (started, cwd, engine) => {
+        get().prompt?.onStarted()
         set(({ last }) => ({
           started,
           last: { cwd, engine, claude: engine.kind === 'claude' && engine.model && engine.effort ? { model: engine.model, effort: engine.effort } : last.claude },
-        })),
+        }))
+      },
     }),
     {
       name: 'hobkin-client-new-hobkin',

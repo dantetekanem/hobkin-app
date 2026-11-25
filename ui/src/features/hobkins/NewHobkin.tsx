@@ -41,7 +41,8 @@ const WORKER_HUE = 200
  * The New hobkin sheet, opened by Command+N from any screen (`034-durable-hobkins`). The first time it explains how a
  * durable hobkin differs from the main one, and one button goes on to the form. Afterwards it opens on the form: the folder
  * and what it runs on, the last ones chosen at first, with the keyboard on Start, so Command+N and Enter start one. Start
- * runs `hobkin.start` and opens the new hobkin's page with the keyboard in its talk box, where its first message goes. It
+ * runs `hobkin.start` and opens the new hobkin's page with the keyboard in its talk box, where its first message goes. From
+ * the full prompt editor (Shift+Control+Enter) the sheet carries the prompt, and Start sends it as that first message. It
  * is a dialog, so it owns the keys while it is open, and Tab walks its fields as in any dialog.
  */
 export function NewHobkin() {
@@ -197,6 +198,7 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
   const connected = useHost((state) => hasHost(state) && state.link === 'open')
   const last = useNewHobkin((state) => state.last)
   const remember = useNewHobkin((state) => state.remember)
+  const prompt = useNewHobkin((state) => state.prompt)
 
   const offers = useMemo(
     () =>
@@ -218,7 +220,7 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
 
   const choice = shownChoice(wanted, offers, claudeStart(last.claude, claude?.settings))
   const engine = engineOf(choice, models)
-  const args = startArgs({ cwd, engine })
+  const args = startArgs({ cwd, engine, text: prompt?.text })
   const canStart = connected && !busy && args !== null
   const customModels = offers.find((offer) => offer.kind === 'pi')?.models ?? []
 
@@ -271,6 +273,15 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
       </header>
 
       <div className="scroll-quiet flex min-h-0 flex-col gap-5 overflow-y-auto px-7 py-5">
+        {prompt ? (
+          <Field label="First message">
+            {/* One line, whatever the prompt's length, so the sheet keeps its size. */}
+            <p className="flex min-w-0 items-baseline gap-3 text-[14px]">
+              <span className="min-w-0 flex-1 truncate">{prompt.text.trim()}</span>
+              {prompt.images ? <span className="shrink-0 text-[12px] text-muted-foreground">{prompt.images === 1 ? 'Its image stays in the draft' : 'Its images stay in the draft'}</span> : null}
+            </p>
+          </Field>
+        ) : null}
         <Field label="Folder">
           <Select items={folders.map(({ cwd: value, label }) => ({ value, label }))} value={cwd} onValueChange={(value) => value && setCwd(String(value))}>
             <SelectTrigger aria-label="Folder" className={cn('w-full', FIELD_SELECT)}>

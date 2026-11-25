@@ -61,6 +61,8 @@ export type DraftAction =
   | { type: 'draft-opened'; id: string; at: number; keepAs: string }
   /** The draft went out. */
   | { type: 'sent' }
+  /** A durable hobkin started with `text` as its first message. Its images could not go with it. */
+  | { type: 'handed-off'; text: string }
   /** A send that failed gives the draft back, unless something new was already written. */
   | { type: 'restored'; text: string; attachments: readonly Attachment[] }
   /** A stop returned what hobkin had not read. */
@@ -111,6 +113,17 @@ function returnWords(state: DraftState, words: readonly { id: string; text: stri
   if (!fresh.length) return state
   const returned = [...(state.returned ?? []), ...fresh.map(({ id }) => id)].slice(-MOST_RETURNED)
   return { ...state, text: draftAfterStop(fresh.map(({ text }) => text), state.text), recalled: null, returned }
+}
+
+/** What a modified Enter does in the full prompt editor: Shift+Control starts a durable hobkin with it, and any other Control or Command sends it to hobkin. */
+export function editorEnter({ ctrl, meta, shift }: { ctrl: boolean; meta: boolean; shift: boolean }): 'send' | 'durable' | null {
+  if (ctrl && shift && !meta) return 'durable'
+  return ctrl || meta ? 'send' : null
+}
+
+/** What the editor hands the New hobkin sheet: the words as written, and how many images stay behind. Images alone cannot start one. */
+export function hobkinPrompt({ text, attachments }: Pick<DraftState, 'text' | 'attachments'>): { text: string; images: number } | null {
+  return text.trim() ? { text, images: attachments.length } : null
 }
 
 const midnight = (at: number) => {
@@ -189,6 +202,10 @@ export function draftReducer(state: DraftState, action: DraftAction): DraftState
       const sent = text && state.sent.at(-1) !== text ? [...state.sent, text].slice(-MOST_REMEMBERED) : state.sent
       return { ...state, text: '', attachments: [], from: null, place: 'input', leaving: false, recalled: null, sent }
     }
+    case 'handed-off':
+      // The editor closes, as the hobkin's page opens. Words that came in while the sheet was open stay with the rest.
+      if (state.text !== action.text) return { ...state, place: 'input', leaving: false }
+      return { ...draftReducer(state, { type: 'sent' }), attachments: state.attachments }
     case 'restored':
       return hasDraft(state) ? state : { ...state, text: action.text, attachments: action.attachments }
     case 'stopped':
