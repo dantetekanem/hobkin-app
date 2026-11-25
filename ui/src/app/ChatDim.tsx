@@ -4,27 +4,32 @@ import { useSplit } from '@/features/canvas-panel/use-board.ts'
 import { useNeedsSignIn } from '@/features/signin/SignInGate.tsx'
 import { agentEntry } from '@/features/work/agent-entry.ts'
 import { holdLoops } from './away.ts'
+import { chatBack } from './chat-back.ts'
 import { useStill } from './still.ts'
 import { spring } from '@/lib/motion.ts'
 import { focusInput } from './keys.ts'
 import { canvasGrowth, covered, useView } from './view-store.ts'
 
 /**
- * While the canvas has grown over the chat (a review has the user's attention, or a durable hobkin's split has its page
- * where the chat was), the chat steps back: it darkens and blurs a little, in the same movement as the canvas growing.
- * A click on it gives the chat its room back. Once the canvas covers all of the chat, `side` is marked covered.
+ * While the canvas has grown over the chat, the chat steps back (`chatBack`). Over a review that has the user's attention
+ * it darkens and blurs a little, in the same movement as the canvas growing, and a click on it gives the chat its room
+ * back. Under a durable hobkin's split, whose page lies where the chat was, `side` is marked under the page and the chat
+ * fades out (globals.css). Once the canvas covers all of the chat, `side` is marked covered.
  */
 export function ChatDim({ side }: { side?: RefObject<HTMLElement | null> }) {
   const still = useStill()
   const reviewing = useView((view) => view.screen === 'review' && view.canvasEngaged)
   const split = useSplit() !== null
+  const needsModel = useNeedsSignIn()
+  const back = chatBack({ reviewing, split, needsModel })
   const disengageCanvas = useView((view) => view.disengageCanvas)
   const transition = still ? agentEntry(true) : spring.screen
-  useCoveredChat(side, still)
+  useCoveredChat(side, still, back === 'gone')
+  useUnderPage(side, back === 'gone')
 
   return (
     <AnimatePresence>
-      {reviewing || split ? (
+      {back === 'dim' ? (
         <motion.div key="dim" className="absolute inset-0 z-20" initial="clear" animate="dim" exit="clear" variants={{ clear: {}, dim: {} }}>
           {/* The blur and the darkening are two layers, each animating its own property, so neither pops in. */}
           <motion.div
@@ -48,6 +53,16 @@ export function ChatDim({ side }: { side?: RefObject<HTMLElement | null> }) {
   )
 }
 
+/** While `underPage`, `side` is marked `data-under-page`, and the chat fades out under the split's page (globals.css). */
+function useUnderPage(side: RefObject<HTMLElement | null> | undefined, underPage: boolean) {
+  useLayoutEffect(() => {
+    const element = side?.current
+    if (!element || !underPage) return
+    element.setAttribute('data-under-page', '')
+    return () => element.removeAttribute('data-under-page')
+  }, [side, underPage])
+}
+
 /** How long the canvas takes to grow over the chat, in milliseconds: the spring it grows on (Canvas.tsx). */
 const GROW_MS = spring.screen.duration * 1000
 
@@ -55,13 +70,10 @@ const GROW_MS = spring.screen.duration * 1000
  * While the canvas covers the whole chat (`covered` in view-store.ts), the chat's endless loops hold still (holdLoops in
  * away.ts) and `side` is marked `data-covered`, which takes the blur over it away (globals.css). Animations that run
  * once still run. It all comes once the canvas has grown, and goes in the same draw that starts it shrinking, or as soon
- * as the keyboard goes into the chat.
+ * as the keyboard goes into the chat. `splitShown`: a durable hobkin's split is drawn.
  */
-function useCoveredChat(side: RefObject<HTMLElement | null> | undefined, still: boolean) {
+function useCoveredChat(side: RefObject<HTMLElement | null> | undefined, still: boolean, splitShown: boolean) {
   // The canvas's own growth, with the same inputs Canvas.tsx gives it.
-  const split = useSplit()
-  const needsModel = useNeedsSignIn()
-  const splitShown = split !== null && !needsModel
   const growth = useView((view) =>
     canvasGrowth({
       screen: view.screen,

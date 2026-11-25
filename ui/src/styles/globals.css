@@ -249,6 +249,25 @@
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
+/*
+ * A durable hobkin's split lays its page over all of the chat (app/chat-back.ts). At a background opacity under 1 the
+ * chat would show through the page, so it fades out as the page comes over it and back as the page goes. Under Still,
+ * as the page, it goes and comes at once.
+ */
+[data-chat-side] > * {
+  transition: opacity 500ms var(--ease-out);
+}
+[data-chat-side][data-under-page] > * {
+  opacity: 0;
+}
+:root[data-motion='still'] [data-chat-side] > * {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion='lively']) [data-chat-side] > * {
+    transition: none;
+  }
+}
 /* Where the browser has no view transitions, every color eases to its new value instead. */
 :root[data-theme-fade] *,
 :root[data-theme-fade] *::before,
