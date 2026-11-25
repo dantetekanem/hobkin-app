@@ -302,7 +302,7 @@ function assertCanRun(root, { project, item }) {
 }
 
 function whenItStarts({ mode, pause, waitingOn, entries, free }, key, owner) {
-  if (!mode.enabled) return 'Work mode is off, so it waits for hobkin work start.';
+  if (!mode.enabled) return 'Work mode is off, so it waits until Work mode is on.';
   if (!owner) return NEEDS_AN_OWNER;
   if (pause) return pause.line;
   if (waitingOn) return waitingOn;
@@ -316,7 +316,7 @@ function whenItStarts({ mode, pause, waitingOn, entries, free }, key, owner) {
 
 /** A row started now goes at once, as one extra worker when none is free, and waits out no gap between starts. What still holds it is a stop, the budget or its own wait. */
 function whenItStartsNow({ mode, pause, entries, next, free }, key, owner) {
-  if (!mode.enabled) return 'Work mode is off, so it waits for hobkin work start.';
+  if (!mode.enabled) return 'Work mode is off, so it waits until Work mode is on.';
   if (!owner) return NEEDS_AN_OWNER;
 
   const asExtraWorker = free > 0 ? '' : ' as one extra worker';
