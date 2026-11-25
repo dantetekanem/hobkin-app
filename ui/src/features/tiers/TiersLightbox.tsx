@@ -250,7 +250,7 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
       <header className="px-8 pt-7 pb-5">
         <Dialog.Title className="text-[24px] leading-tight font-semibold tracking-tight">Models for delegated work</Dialog.Title>
         <Dialog.Description className="mt-1.5 max-w-[60ch] text-[14px] text-muted-foreground">
-          hobkin names a tier when it starts an agent, never a model. Each tier is a model and how hard it thinks.
+          hobkin names a tier when it starts an agent, never a model. Each tier is a model and how hard it thinks. pi-extended-teams uses these tiers too.
         </Dialog.Description>
       </header>
 

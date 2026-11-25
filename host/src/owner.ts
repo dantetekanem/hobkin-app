@@ -1,5 +1,6 @@
 import { existsSync, statSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { HobkinApplication, HobkinSnapshot, MainSession, MainSessionOptions, MainStartup, OpenOptions, PiSessionEvent } from 'hobkin/src/cli/application.mjs'
@@ -446,7 +447,9 @@ export class HomeOwner {
       // Runtime owns history recovery and launcher precedence; no parent SDK work precedes child capture.
       const client = tools.find(tool => tool.name === CLIENT_TOOL)
       const clientBridge = client ? { tool: client, extensionPath: fileURLToPath(new URL('./client-bridge-extension.ts', import.meta.url)) } : undefined
-      return { createMain: this.tapped(options => openPiSession(options, { isolatedMain: true, recoverScriptedHistory: true, clientBridge })), memoryIndex: {}, ...offline, ...(await this.agentHarness()) }
+      // pi-extended-teams reads its tiers from the user's own home, so only the real home keeps them equal to its own.
+      const teams = real ? { teamsHome: homedir() } : {}
+      return { createMain: this.tapped(options => openPiSession(options, { isolatedMain: true, recoverScriptedHistory: true, clientBridge })), memoryIndex: {}, ...offline, ...teams, ...(await this.agentHarness()) }
     }
     const model = await createScriptedModel(root, { ...scripted, tools: [...(scripted?.tools ?? []), ...tools] })
     return {

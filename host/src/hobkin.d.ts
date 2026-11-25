@@ -140,6 +140,8 @@ declare module 'hobkin/src/cli/application.mjs' {
     onChange?: (snapshot: HobkinSnapshot) => void
     /** What the host's integrations give agents: tools, hooks on tool calls, and workflow folders (065-integration-drops). A runtime from before ignores it. */
     integrations?: object
+    /** The home whose pi-extended-teams tiers hobkin keeps equal to its own while it runs (`teams-tiers.mjs`). None keeps nothing. A runtime from before ignores it. */
+    teamsHome?: string
     memoryIndex?: object | null
     fetch?: typeof globalThis.fetch
     signal?: AbortSignal
