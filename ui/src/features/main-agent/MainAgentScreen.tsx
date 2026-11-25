@@ -11,6 +11,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { sampleLength } from '@/features/agent-activity/sample.ts'
 import { stepsOf } from '@/features/agent-activity/steps.ts'
 import { Arrivals } from '@/features/agent-activity/arrive.ts'
+import { glowIn, helpersGlow, liveIf } from '@/features/agent-activity/glow.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
 import { Tasks } from '@/features/agent-activity/TaskList.tsx'
@@ -129,13 +130,18 @@ function Blank({ children }: { children: string }) {
   return <p className="mx-auto mt-[18vh] max-w-[46ch] px-6 text-center text-[15px] leading-relaxed text-muted-foreground">{children}</p>
 }
 
-/** The agents the main agent spawned: their faces, each with its story on hover, and the count. They run inside its Pi, so none of their steps are here. */
+/**
+ * The agents the main agent spawned, in a line at the left: their faces, each with its story on hover, and the count.
+ * They run inside its Pi, so none of their steps are here. Its border breathes while a helper runs (glow.ts).
+ */
 function Helpers({ helpers }: { helpers: readonly RunChild[] }) {
   const still = useStill()
   return (
-    <motion.div className="flex items-center gap-2 px-[10%] pb-2 text-[12px] text-muted-foreground" initial={holdStill({ opacity: 0 }, still)} animate={{ opacity: 1, transition: tween.enter }}>
-      <ChildFaces spawned={helpers} hue={HUE} />
-      <span className="truncate">{childrenSummary(helpers)}</span>
+    <motion.div className="flex px-[10%] pb-2" initial={holdStill({ opacity: 0 }, still)} animate={{ opacity: 1, transition: tween.enter }}>
+      <div {...liveIf(helpersGlow(helpers))} style={glowIn(HUE)} className="aa-glow flex h-7 min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-2.5 pl-1.5 text-[12px] text-muted-foreground">
+        <ChildFaces spawned={helpers} hue={HUE} />
+        <span className="truncate">{childrenSummary(helpers)}</span>
+      </div>
     </motion.div>
   )
 }

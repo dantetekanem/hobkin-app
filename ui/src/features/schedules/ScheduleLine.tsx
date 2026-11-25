@@ -7,8 +7,9 @@ import { inOverlay } from '@/app/key-page.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
-// The breathing dot of a running schedule is the tasks list's own (`aa-running`, on opacity).
+// The breathing dot of a running schedule is the tasks list's own (`aa-running`, on opacity), and so is its glow (`aa-glow`).
 import '@/features/agent-activity/agent-activity.css'
+import { liveIf } from '@/features/agent-activity/glow.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
@@ -28,6 +29,7 @@ import {
   ownerWords,
   placeKey,
   scheduleLine,
+  schedulesGlow,
   stateOf,
   whenWords,
   type ScheduleLineWords,
@@ -194,7 +196,8 @@ export function ScheduleLineView({
 
 /**
  * The pressable line. It alone counts the seconds, and only while one of its schedules waits for its time. A line that
- * comes after the page opened rises in; one there already is simply there.
+ * comes after the page opened rises in; one there already is simply there. Its border, in the color of its dot,
+ * breathes while a schedule runs or is due now (`schedulesGlow`).
  */
 function LineButton({
   ref,
@@ -229,14 +232,15 @@ function LineButton({
       aria-label={`Schedules: ${line.text}. ${open ? 'Hide' : 'Show'} every schedule.`}
       title={line.text}
       onClick={onToggle}
+      {...liveIf(schedulesGlow(schedules, now))}
       initial={holdStill({ opacity: 0, transform: 'translateY(4px) scale(0.96)' }, still)}
       animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.rise, opacity: tween.enter } }, still)}
       exit={holdStill({ opacity: 0, transform: 'translateY(0px) scale(0.96)', transition: tween.exit }, still)}
       whileTap={holdStill({ transform: 'translateY(0px) scale(0.97)', transition: { duration: 0.14 } }, still)}
-      style={{ transformOrigin: '100% 50%' }}
+      style={{ transformOrigin: '100% 50%', '--aa-glow': 'var(--hb-code)' } as CSSProperties}
       className={cn(
         // Its paddings, gaps, dot and arrow are the ones line-fit.ts counts.
-        'pressable flex h-6 w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-full bg-surface-2 px-2 text-[12px] outline-none focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
+        'pressable aa-glow flex h-6 w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-full bg-surface-2 px-2 text-[12px] outline-none focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
         // At its narrowest only the dot is left, in the middle of a round button.
         fit.form === 'dot' && 'justify-center px-0',
       )}

@@ -5,6 +5,10 @@
  * opacity of an HTML box on the compositor; anything else restyles, lays out and paints on the main thread every frame.
  * It also fails any endless animation under ui/src/avatar: a face and its crab play their motion for about two seconds
  * when the mood changes, then rest (2026-11-23), because every face loop that runs makes WebKit draw every frame.
+ * And it fails an endless animation on a line's glow (`aa-glow`, agent-activity.css) that does not wait for the line to
+ * be live (`[data-live]`). The user asked on 2026-11-24 for "a glow animated border, giving life like the dots and
+ * rectangles are" on an agent's tasks, helpers and schedules lines; it may loop only while something on the line is live,
+ * so nothing loops while the agent is idle.
  * Run from the repository root:
  *
  *   node scripts/perf/motion.ts [path ...]
@@ -31,6 +35,8 @@ const SVG_ELEMENTS = new Set(['g', 'path', 'circle', 'ellipse', 'rect', 'line', 
 const FACE_PART = /^hob-/
 const HTML_BOXES = new Set(['hob', 'hob-layer'])
 const SVG_PARTS = new Set<string>()
+const GLOW = /\.aa-glow(?![\w-])/
+const LIVE = /\[data-live\]/
 // Words of the `animation` shorthand that are never a keyframes name.
 const KEYWORDS = new Set([
   'none', 'infinite', 'normal', 'reverse', 'alternate', 'alternate-reverse', 'forwards', 'backwards', 'both',
@@ -222,6 +228,7 @@ function problemsOf(file: string, selector: string, name: string, changes: Set<s
 
   if (isSvgPart(selector)) problems.push('set on a part of an SVG')
   if (file.startsWith(`${FACES}/`)) problems.push('a face plays its mood once, for about two seconds, and never loops')
+  if (GLOW.test(selector) && !LIVE.test(selector)) problems.push('a line glows only while something on it is live: set it under [data-live]')
   return problems
 }
 

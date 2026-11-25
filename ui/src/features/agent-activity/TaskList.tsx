@@ -9,6 +9,7 @@ import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import './agent-activity.css'
 import { useDrop } from './drop.ts'
+import { glowIn, liveIf, tasksGlow } from './glow.ts'
 import { taskListKey, type TaskKeyPress } from './task-keys.ts'
 import { progressOf, sameTasks, taskCount, tasksOf, titleOf, type AgentTask, type TaskProgress, type TaskState } from './tasks.ts'
 import { useAgentTasks } from './use-agent-activity.ts'
@@ -123,10 +124,13 @@ function TaskBar({ tasks, hue }: { tasks: readonly AgentTask[]; hue: number }) {
         aria-controls={open ? panelId : undefined}
         aria-label={`${count}. ${open ? 'Hide' : 'Show'} every task.`}
         onClick={toggle}
+        // Its border breathes while a task is in progress (glow.ts), as the position of that task does.
+        {...liveIf(tasksGlow(tasks))}
+        style={glowIn(hue)}
         initial={arrivedLater.current ? holdStill({ opacity: 0, transform: 'translateY(8px) scale(0.96)' }, still) : false}
         animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.rise, opacity: tween.enter } }, still)}
         whileTap={holdStill({ transform: 'translateY(0px) scale(0.97)', transition: { duration: 0.14 } }, still)}
-        className="flex h-7 min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-1.5 pl-2.5 text-[12px] outline-none transition-colors duration-[160ms] ease-[ease] hover:bg-secondary focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
+        className="aa-glow flex h-7 min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-1.5 pl-2.5 text-[12px] outline-none transition-colors duration-[160ms] ease-[ease] hover:bg-secondary focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
       >
         <Track tasks={tasks} still={still} />
         <span className="shrink-0 text-muted-foreground tabular-nums">

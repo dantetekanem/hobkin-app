@@ -12,6 +12,7 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { exchangeOf, pauseOf, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
 import { Arrivals, useArrival } from '@/features/agent-activity/arrive.ts'
+import { glowIn, helpersGlow, liveIf } from '@/features/agent-activity/glow.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { earlierRow, useNewest } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
@@ -500,13 +501,16 @@ function HelpersGlance({ runId, hue }: { runId: string; hue: number }) {
   )
 }
 
-/** While the run is read, its helpers sit under the shrunken header: their small faces, each with its story on hover, and the count. */
+/**
+ * While the run is read, its helpers sit under the shrunken header in a line of their own: their small faces, each with
+ * its story on hover, and the count. Its border breathes while a helper runs (glow.ts).
+ */
 function HelpersStrip({ runId, hue }: { runId: string; hue: number }) {
   const children = useRunChildren(runId)
   const id = useId()
   if (children.length === 0) return null
   return (
-    <div className="flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
+    <div {...liveIf(helpersGlow(children))} style={glowIn(hue)} className="aa-glow flex h-7 min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-2.5 pl-1.5 text-[12px] text-muted-foreground">
       <ChildCluster runId={runId} hue={hue} summaryId={id} />
       <span className="truncate" title={childrenSummary(children)}>
         {childrenSummary(children)}

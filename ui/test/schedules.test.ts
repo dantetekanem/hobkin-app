@@ -11,6 +11,7 @@ import {
   orderSchedules,
   ownerWords,
   scheduleLine,
+  schedulesGlow,
   schedulesIn,
   whenWords,
 } from '../src/features/schedules/schedules.ts'
@@ -82,6 +83,16 @@ test('the line says a running schedule is running, and when every live one is pa
   assert.equal(scheduleLine([paused, { ...paused, id: 's4' }], NOW)?.text, '2 paused')
   assert.equal(scheduleLine([paused, { ...watch, id: 's5', name: 'Check the deploy' }], NOW)?.text, '2 · Check the deploy in 1:42', 'a waiting one leads a paused one')
   assert.equal(scheduleLine([{ ...watch, nextAt: at(-SECOND) }], NOW)?.text, 'Watch CI due now')
+})
+
+test('the line glows while a schedule runs or is due now, and is still while they wait, are paused or have ended', () => {
+  assert.equal(schedulesGlow([watch, { ...watch, id: 's3', state: 'running' }], NOW), true)
+  assert.equal(schedulesGlow([{ ...watch, nextAt: at(-SECOND) }], NOW), true, 'due now')
+
+  assert.equal(schedulesGlow([watch], NOW), false, 'a countdown with time left')
+  assert.equal(schedulesGlow([{ ...watch, state: 'paused', nextAt: undefined }], NOW), false)
+  assert.equal(schedulesGlow([{ ...watch, state: 'done', nextAt: at(-SECOND) }, { ...watch, id: 's6', state: 'failed' }], NOW), false)
+  assert.equal(schedulesGlow([], NOW), false)
 })
 
 test('with only ended schedules the line says they ended, and counts none as live', () => {

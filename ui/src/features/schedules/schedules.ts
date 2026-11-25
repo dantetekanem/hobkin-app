@@ -136,6 +136,10 @@ export function scheduleLine(list: readonly AgentSchedule[], now: number): Sched
   return { count, lead, name, when, text: `${counted}${name} ${when}`, short: `${counted}${clock}` }
 }
 
+/** The line glows while a schedule runs its command or is due now (`glow.ts` in agent-activity holds the other lines' rules). */
+export const schedulesGlow = (list: readonly AgentSchedule[], now: number): boolean =>
+  list.some((schedule) => stateOf(schedule) === 'running' || whenWords(schedule, now) === 'due now')
+
 /** The line when every schedule has ended: the one that ended last by name, or how many ended. Null with none at all. */
 function endedLine(ended: readonly AgentSchedule[]): ScheduleLineWords | null {
   const [newest] = ended

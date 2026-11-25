@@ -67,6 +67,51 @@
 }
 
 /*
+ * A line under an agent's header: its tasks, its helpers, its schedules (glow.ts says when each is live). Its border is
+ * a faint, still ring in the line's own color (`--aa-glow`). While something on the line is live, a brighter ring with
+ * a soft light inside it breathes the way the line's dots do, on the same keyframes and rhythm as `aa-running`, and
+ * when nothing is, it fades back to the still ring. The user, 2026-11-24: "a glow animated border, giving life like the
+ * dots and rectangles are". Only the glow layer's opacity moves, and only while live, so nothing loops while the agent
+ * is idle (spec 052; scripts/perf/motion.ts checks it). The light stays inside the line, so a line that clips what it
+ * holds (the schedules line) shows all of it, and none falls on what sits beside it. Under Still the ring is lit while
+ * live and holds still.
+ *
+ * The still ring is the line's own shadow, in the components layer, so a focus ring set by a utility takes its place.
+ * The glow is `::before`, since a pressable line keeps `::after` for its hover layer (globals.css).
+ */
+@layer components {
+  .aa-glow {
+    position: relative;
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--aa-glow, var(--hb-border-strong)) 30%, transparent);
+  }
+}
+.aa-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--aa-glow, var(--hb-border-strong)) 85%, transparent),
+    inset 0 0 8px color-mix(in oklab, var(--aa-glow, var(--hb-border-strong)) 45%, transparent);
+  opacity: 0;
+  transition: opacity 400ms var(--ease-out);
+}
+.aa-glow[data-live]::before {
+  opacity: 1;
+  transition-duration: var(--dur-fast);
+  animation: aa-breathe 1.4s ease-in-out infinite;
+}
+:root[data-motion='still'] .aa-glow[data-live]::before {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion='lively']) .aa-glow[data-live]::before {
+    animation: none;
+  }
+}
+
+/*
  * A step, a message, a command or the thinking row that comes after the transcript was drawn (arrive.ts): it fades in
  * while it moves up from just below, by translate alone, and nothing changes size. The keyframes have only a start and
  * no fill, so once it has arrived the row carries no transform and no opacity of its own and is no layer of its own.
