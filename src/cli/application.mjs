@@ -68,7 +68,7 @@ import { fileDecision, findDecision, findOpenDecision, markShown, QUESTION_WAIT_
 import { isPresent } from './pending.mjs';
 import { readActionDecisions, readPending, readWaiting } from './pending-read.mjs';
 import { arrivedCount, arrivedSince, asksForBrief, BRIEF_BAR, briefMaterial, briefNote, briefSince, offerLine, readBriefState, returnedSince, seenMoved, withoutBriefNote, writeBriefState } from './brief.mjs';
-import { readReportIds } from './telemetry.mjs';
+import { readReportIds, reportReadStates } from './telemetry.mjs';
 import { carryOutAnswer } from './answer.mjs';
 import {
   answerAllowance, chooseProject, dropProject, pickNext, putBackInQueue, readMode, retryItem, setProjectIssues, setProjectPrMode, setProjectPriority, skipInQueue, skipProject, startWork, updateItem,
@@ -791,12 +791,13 @@ export class HobkinApplication {
         return left.time - right.time || left.index - right.index;
       })
       .map(({ message }) => message)).slice(-100);
-    const readReports = readReportIds(this.runtime.directory);
+    // `read` once the user opened it, `caught-up` once a catch-up covered it, and nothing while unread (069-report-catch-up).
+    const readStates = reportReadStates(this.runtime.directory);
     const listedReports = [...reports, ...this.snapshot.history.reports.filter(report => {
       if (deleted.has(report.id) || reportIds.has(report.id)) return false;
       reportIds.add(report.id);
       return true;
-    })].map(report => readReports.has(report.id) ? { ...report, readState: 'read' } : report);
+    })].map(report => readStates.has(report.id) ? { ...report, readState: readStates.get(report.id) } : report);
     const currentAndRecentRuns = runs.filter((run, index) => run.status === 'running' || run.status === WAITING || index < 100);
     const visible = {
       version: 1,

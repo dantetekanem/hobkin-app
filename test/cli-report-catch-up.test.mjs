@@ -3,10 +3,12 @@ import { test } from 'node:test';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { HobkinApplication } from '../src/cli/application.mjs';
 import { readCatchUp, setCatchUp } from '../src/cli/catch-up.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { main } from '../src/cli/main.mjs';
 import { reportReadStates, Telemetry } from '../src/cli/telemetry.mjs';
+import { fakePi } from './helpers/pi-session.mjs';
 
 const MINUTE = 60000;
 const STARTED = Date.parse('2026-11-01T00:00:00Z');
@@ -34,6 +36,31 @@ function savedView(root, reports) {
 const listed = (id, minutes, body = `Useful: ${id} found something.`, patch = {}) => ({
   id, title: `Routine ${id}`, scheduleId: `routine-${id}`, at: iso(STARTED + minutes * MINUTE), body, outcome: 'completed', ...patch,
 });
+
+/**
+ * hobkin itself on a home whose reads were watched from the start, with no model: each catch-up's model run gets
+ * `answer(request)`, and any other model run fails, as one with no model would.
+ */
+async function openHobkin(t, root, answer = () => ({ status: 'completed', text: CATCH_UP_TEXT, cost: null })) {
+  Telemetry.open(root, STARTED);
+  const asked = [];
+  const runHarness = async request => {
+    if (request.purpose !== 'catch-up') throw Error(`Unexpected ${request.purpose} job.`);
+    asked.push(request);
+    return answer(request);
+  };
+  const app = await HobkinApplication.open(root, { createMain: fakePi(root).createMain, runHarness, intervalMs: 60000 });
+  t.after(() => app.close());
+  return { app, asked };
+}
+
+/** A routine's run that finished with `text` as its report, listed once hobkin refreshes. */
+async function finishRun(app, id, text, { scheduleId = 'digest', title = 'Digest', status = 'completed', trigger } = {}) {
+  await app.runtime.admit({ id, kind: 'background', scheduleId, title, ...(trigger ? { trigger } : {}) });
+  await app.runtime.finish(id, { status, text, ...(status === 'failed' ? { error: text } : {}) });
+}
+
+const CATCH_UP_TEXT = 'Useful: Two invoices came in, and the mail check found nothing that needs you.\n\n## What happened\n\nThe digest found two invoices.';
 
 test('a report is read once opened for 3 seconds or asked about, caught up once a catch-up covered it, and read wins', t => {
   const root = home(t);
@@ -81,6 +108,20 @@ test('hobkin reports gives each report its read state: read, caught-up or unread
   assert.deepEqual(reports.map(({ id, read }) => [id, read]), [['c', 'unread'], ['b', 'caught-up'], ['a', 'read']]);
   assert.equal(reports.some(report => 'readState' in report), false, 'one field says it, from the reads themselves');
   assert.equal(reports[0].routineId, 'routine-c');
+});
+
+test('hobkin\'s snapshot marks a report read or caught-up, and an unread one with nothing', { timeout: 20000 }, async t => {
+  const root = home(t);
+  const { app } = await openHobkin(t, root);
+  for (const id of ['opened', 'covered', 'unread']) await finishRun(app, id, `Useful: ${id}.`);
+
+  app.recordReportRead({ id: 'opened', dwellMs: 5000 });
+  app.telemetry.recordCaughtUp(['covered', 'opened'], 'catch-up:1');
+  const { reports } = await app.refresh();
+
+  assert.deepEqual(Object.fromEntries(reports.map(({ id, readState }) => [id, readState])), {
+    opened: 'read', covered: 'caught-up', unread: undefined,
+  });
 });
 
 test('a new home catches up daily at 08:00 and at 8 reports, and counts only the unread reports from runs since tracking began', t => {
