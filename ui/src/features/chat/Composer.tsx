@@ -14,7 +14,7 @@ import { AttachButton, AttachmentTray } from './AttachmentTray.tsx'
 import { availabilityOf } from './availability.ts'
 import { canSendDraft, useChat } from './chat-store.ts'
 import { ChatAvatar } from './ChatAvatar.tsx'
-import { composerKey } from './composer-keys.ts'
+import { composerKey, type ComposerKeyAction } from './composer-keys.ts'
 import type { OutboxEntry } from './outbox.ts'
 import { PromptEditor } from './PromptEditor.tsx'
 import { useReportReply } from '@/features/reports/reply.ts'
@@ -144,6 +144,22 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
     }
   }, [attach])
 
+  const runSendKey = (action: ComposerKeyAction['do']) => {
+    switch (action) {
+      case 'send':
+        return void send()
+      case 'follow-up':
+      case 'interrupt':
+        return void sendDuring(action)
+      case 'continue':
+        return continueTurn()
+      case 'dequeue':
+        return dequeue()
+      case 'nothing':
+        return
+    }
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing || event.defaultPrevented) return
     const element = event.currentTarget
@@ -159,13 +175,12 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
     // The frame leaves Tab to an open list, so with nothing to complete it must not walk the keyboard out of the input.
     if (list && event.key === 'Tab') return used()
 
-    const press = { key: event.key, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }
-    const sending = composerKey(press, { turnRunning, canSend, empty: !text.trim() && attachments.length === 0, stopped, queued: queued.length > 0 })
+    const sending = composerKey(
+      { key: event.key, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey },
+      { turnRunning, canSend, empty: !text.trim() && attachments.length === 0, stopped, queued: queued.length > 0 },
+    )
     if (sending) {
-      if (sending.do === 'send') void send()
-      else if (sending.do === 'follow-up' || sending.do === 'interrupt') void sendDuring(sending.do)
-      else if (sending.do === 'continue') continueTurn()
-      else if (sending.do === 'dequeue') dequeue()
+      runSendKey(sending.do)
       used()
     } else if (event.key === 'Escape' && turnRunning) {
       // One Escape never stops hobkin: the first asks, a second soon after stops.
@@ -341,7 +356,7 @@ function QueuedRows({ entries }: { entries: readonly OutboxEntry[] }) {
             className="flex min-w-0 items-center gap-2 pb-1 text-[12.5px] leading-5"
           >
             <span className="eyebrow shrink-0">{entry.queue === 'follow-up' ? 'Follow-up' : 'Steer'}</span>
-            <span className="min-w-0 flex-1 truncate text-muted-foreground">{entry.text || (entry.images === 1 ? '1 image' : `${entry.images ?? 0} images`)}</span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">{entry.text || imagesLine(entry.images ?? 0)}</span>
             {index === entries.length - 1 ? (
               <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-muted-foreground">
                 <Kbd>⌥↑</Kbd> edit
@@ -353,6 +368,8 @@ function QueuedRows({ entries }: { entries: readonly OutboxEntry[] }) {
     </ul>
   )
 }
+
+const imagesLine = (count: number) => (count === 1 ? '1 image' : `${count} images`)
 
 /** The report the next message is about. It goes with that message, once, and Escape or the button drops it. */
 function ReportChip({ title, onDrop }: { title: string; onDrop: () => void }) {

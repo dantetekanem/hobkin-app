@@ -303,7 +303,11 @@ function Notice({ entry }: { entry: NoticeEntry }) {
  * so hobkin sends the word Continue as the user's message. Enter in an empty message does the same.
  */
 function ContinueStopped({ line }: { line: string }) {
-  const offered = useHost((state) => hobkinLive(state) && typeof state.snapshot.mainStopped === 'string' && stopLineId(state.snapshot.mainStopped) === line && shownTurn(state) === null)
+  const offered = useHost((state) => {
+    const stopped = state.snapshot.mainStopped
+    if (!hobkinLive(state) || typeof stopped !== 'string') return false
+    return stopLineId(stopped) === line && shownTurn(state) === null
+  })
   if (!offered) return null
   return (
     <button

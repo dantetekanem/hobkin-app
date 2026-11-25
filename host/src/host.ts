@@ -553,9 +553,14 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       if (!words) throw Error('A message needs words or an image.')
       // Pi's force submit: the running turn stops first, as a stop stops it, and the message starts a turn of its own.
       const unsent = during === 'interrupt' ? await interruptMain(app) : null
-      // When the user sent it goes to hobkin as it came, for its timing of the turn, and only when the window sent it.
-      const timing = { ...(sentAt === undefined ? {} : { sentAt }), ...(during === 'follow-up' ? { queue: 'follow-up' as const } : {}) }
-      const accepted = await (Object.keys(timing).length ? app.send(words, about, pictures, timing) : app.send(words, about, pictures))
+      // When the user sent it goes to hobkin as it came, for its timing of the turn, and only when the window sent it. A
+      // follow-up says so, and a message that says neither goes as it always has.
+      const timing = {
+        ...(sentAt === undefined ? {} : { sentAt }),
+        ...(during === 'follow-up' ? { queue: 'follow-up' as const } : {}),
+      }
+      const timed = Object.keys(timing).length > 0
+      const accepted = await (timed ? app.send(words, about, pictures, timing) : app.send(words, about, pictures))
       attachments.sent(images)
       return { id: accepted.id, queued: accepted.queued === true, ...(unsent?.length ? { unsent } : {}) }
     },

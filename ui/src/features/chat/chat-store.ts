@@ -117,9 +117,18 @@ async function sendWith(message: string | undefined, during: SendDuring | undefi
   const item = report?.kind === 'item' ? { id: report.id, title: report.title, body: report.body ?? '' } : null
   const about = item ? `Action item: ${item.title}` : report && !routine ? report.title : null
   // Sent during a turn, it waits for that turn from the moment it is sent, unless it interrupts the turn to start its own.
-  const queue = (taken: boolean) => (!taken || during === 'interrupt' ? {} : { queue: during === 'follow-up' ? ('follow-up' as const) : ('steer' as const) })
-  const entry: OutboxEntry = { id: ++sends, text: sentText, images: images.length, at: Date.now(), accepted: false, ...(about ? { about } : {}), ...queue(shownTurn(hostStore.getState()) !== null) }
-  const before = useChat.getState().outbox.entries.filter((sent) => sent.queue).map((sent) => sent.id)
+  const waitsAs = during === 'interrupt' ? undefined : (during ?? 'steer')
+  const queueFor = (turnRunning: boolean) => (turnRunning ? waitsAs : undefined)
+  const entry: OutboxEntry = {
+    id: ++sends,
+    text: sentText,
+    images: images.length,
+    at: Date.now(),
+    accepted: false,
+    ...(about ? { about } : {}),
+    queue: queueFor(shownTurn(hostStore.getState()) !== null),
+  }
+  const waitedBefore = useChat.getState().outbox.entries.filter((sent) => sent.queue).map((sent) => sent.id)
   useChat.setState(({ draft, outbox }) => ({ draft: plain ? draft : draftReducer(draft, { type: 'sent' }), outbox: { ...outbox, entries: [...outbox.entries, entry] }, problem: null, said: null }))
   const attached = item ? { item } : report && !routine ? { report: report.id } : {}
   // When the user sent it goes along, to a host that takes it, and the reply's first words are timed from then.
@@ -132,11 +141,11 @@ async function sendWith(message: string | undefined, during: SendDuring | undefi
       // hobkin took it. It stays on screen, without the queued mark, until the stored conversation shows it. The
       // screen may still show hobkin idle from before it took it, so only a stored copy takes the row away here.
       // Whether it waits for a turn is now hobkin's word: one that started its own turn joins the conversation.
-      const { queue: _, ...rest } = entry
-      const taken = (outbox: Outbox) => ({ ...outbox, entries: outbox.entries.map((sent) => (sent.id === entry.id ? { ...rest, accepted: true, ...queue(said.queued) } : sent)) })
+      const accepted: OutboxEntry = { ...entry, accepted: true, queue: queueFor(said.queued) }
+      const taken = (outbox: Outbox) => ({ ...outbox, entries: outbox.entries.map((sent) => (sent.id === entry.id ? accepted : sent)) })
       useChat.setState(({ outbox }) => ({ outbox: settleStored(taken(outbox), screenStore.getState().messages) }))
       // What the turn it interrupted never read goes back into the input, as a stop gives it back.
-      if (said.unsent?.length) returnUnsent(said.unsent, before)
+      if (said.unsent?.length) returnUnsent(said.unsent, waitedBefore)
       return true
     },
     (error) => {

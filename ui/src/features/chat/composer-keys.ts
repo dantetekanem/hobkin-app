@@ -34,15 +34,38 @@ export type ComposerKeyAction = { do: 'send' | 'follow-up' | 'interrupt' | 'cont
 
 export function composerKey(press: ComposerKeyPress, context: ComposerKeyContext): ComposerKeyAction | null {
   if (press.meta || press.shift) return null
-  const only = (modifier: 'ctrl' | 'alt' | null) => Boolean(press.ctrl) === (modifier === 'ctrl') && Boolean(press.alt) === (modifier === 'alt')
+  const modifier = modifierOf(press)
 
-  if (press.key === 'ArrowUp') return only('alt') && context.queued ? { do: 'dequeue' } : null
+  if (press.key === 'ArrowUp') return modifier === 'alt' && context.queued ? { do: 'dequeue' } : null
   if (press.key !== 'Enter') return null
-  if (only(null)) {
-    if (context.canSend) return { do: 'send' }
-    return context.empty && context.stopped && !context.turnRunning ? { do: 'continue' } : { do: 'nothing' }
+
+  switch (modifier) {
+    case 'none':
+      return enter(context)
+    case 'alt':
+      return sendDuringTurn(context, 'follow-up')
+    case 'ctrl':
+      return sendDuringTurn(context, 'interrupt')
+    case 'both':
+      return null
   }
-  if (only('alt')) return { do: !context.canSend ? 'nothing' : context.turnRunning ? 'follow-up' : 'send' }
-  if (only('ctrl')) return { do: !context.canSend ? 'nothing' : context.turnRunning ? 'interrupt' : 'send' }
-  return null
+}
+
+function modifierOf(press: ComposerKeyPress): 'none' | 'ctrl' | 'alt' | 'both' {
+  if (press.ctrl && press.alt) return 'both'
+  if (press.ctrl) return 'ctrl'
+  if (press.alt) return 'alt'
+  return 'none'
+}
+
+function enter(context: ComposerKeyContext): ComposerKeyAction {
+  if (context.canSend) return { do: 'send' }
+  const continues = context.empty && context.stopped && !context.turnRunning
+  return { do: continues ? 'continue' : 'nothing' }
+}
+
+/** Alt+Enter and Control+Enter: what they do to a running turn, and with no turn running they send as Enter does. */
+function sendDuringTurn(context: ComposerKeyContext, during: 'follow-up' | 'interrupt'): ComposerKeyAction {
+  if (!context.canSend) return { do: 'nothing' }
+  return { do: context.turnRunning ? during : 'send' }
 }
