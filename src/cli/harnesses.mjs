@@ -18,6 +18,7 @@ import { AGENTS_ENVIRONMENT } from './agent-directions-extension.mjs';
 import { codeToolGuardExtension } from './code-tool-crash.mjs';
 import { askedWait, MOST_WAITS, PI_WAIT_TOOLS, piWaitNote, stoppedMidStep, WAITING } from './run-waits.mjs';
 import { waitExtension } from './wait-extension.mjs';
+import { doneExtension } from './done-extension.mjs';
 import { scheduleExtension } from './schedule-extension.mjs';
 import { agentScheduleTools, SCHEDULE_TOOLS } from './schedule-tools.mjs';
 import { memoryExtension } from './memory-extension.mjs';
@@ -62,15 +63,20 @@ const agentsStarted = ({ toolName, isError, result }) => {
   const names = (details.spawned ?? []).map(agent => agent.name);
   return details.completionGroup && names.length ? [completionGroup] : names;
 };
-/** A `hobkin_wait` call that reached the host over the run's bridge (`wait-extension.mjs`), or null for any other request. */
-const waitCall = placeholder => {
+/**
+ * A call that reached the host over the run's bridge for one of hobkin's own `op`s, `hobkin_wait`'s (`wait-extension.mjs`)
+ * or `hobkin_done`'s (`done-extension.mjs`), or null for any other request.
+ */
+const bridgeCall = (placeholder, op) => {
   try {
     const asked = JSON.parse(placeholder);
-    return asked?.op === 'wait' ? asked : null;
+    return asked?.op === op ? asked : null;
   } catch {
     return null;
   }
 };
+/** A job that lives until its agent says it is done (072-jobs-live-until-done): one asked to, that was given `hobkin_done`. */
+const livesUntilDone = request => request.untilDone === true && request.extensions?.includes(doneExtension) === true;
 /** A call of `hobkin_schedule` or `hobkin_schedules` that reached the host over the run's bridge (`schedule-extension.mjs`). */
 const isScheduleCall = placeholder => {
   try {
@@ -149,8 +155,9 @@ export function buildInvocation(request) {
 
 /**
  * A job that loads tools gets its extensions named up front, so Pi leaves out what Hobkin does not use. Its Pi also
- * loads hobkin's guard against the code tool crash (`code-tool-crash.mjs`), a run that can wait (`waits` on its
- * request) gets `hobkin_wait` (`wait-extension.mjs`), and one that keeps schedules (`schedules` on its request) gets
+ * loads hobkin's guard against the code tool crash (`code-tool-crash.mjs`), a job that lives until its agent says it is
+ * done (`untilDone` on its request) gets `hobkin_done` (`done-extension.mjs`, 072-jobs-live-until-done), and one that
+ * keeps schedules (`schedules` on its request) gets
  * `hobkin_schedule` and `hobkin_schedules` (`schedule-extension.mjs`) in place of the Pi scheduler, whose timers would
  * live only in this process (056-agent-schedules). One that reads hobkin's memories (`memories` on its request: `run`
  * or `keeper`) gets their tools (057-shared-memory). One that integrations offer tools to (`options.integrations.offer`)
@@ -164,7 +171,7 @@ export const namingExtensions = run => async (request, options) => {
   const offer = options?.integrations?.offer;
   const leaveOut = [...(schedules ? ['pi-scheduler'] : []), ...(memories ? LEFT_OUT_WITH_MEMORIES : [])];
   const extensions = [...await extensionPaths(request.cwd, { leaveOut }), codeToolGuardExtension,
-    ...(schedules ? [scheduleExtension] : []), ...(memories ? [memories] : []),
+    ...(request.untilDone === true ? [doneExtension] : []), ...(schedules ? [scheduleExtension] : []), ...(memories ? [memories] : []),
     ...(offer ? [integrationExtension] : [])];
   // Naming them comes before the process starts, so the turn's stages show how long it took.
   const turn = { since: asked, origin: 'run', ...options?.turn, marks: { ...options?.turn?.marks, resolved: Date.now() } };
@@ -419,7 +426,7 @@ async function startAndKeep(request, { invocation, env, key, result, startProces
 }
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, schedules, memories, integrations, turn, keepIdleMs = KEPT_IDLE_MS, teamsDir = defaultTeamsDir(), teamsCheckMs = TEAMS_CHECK_MS, now = Date.now } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onIdle = () => {}, onWoken = () => {}, onControl = () => {}, metricsRoot, ownedScope, schedules, memories, integrations, turn, keepIdleMs = KEPT_IDLE_MS, teamsDir = defaultTeamsDir(), teamsCheckMs = TEAMS_CHECK_MS, now = Date.now } = {}) {
   // Before anything else, so a turn nobody timed still counts its process start.
   const entered = Date.now();
   const invocation = buildInvocation(request);
@@ -490,6 +497,22 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     waitAsked = wait;
     return { ok: true, result: { text, ...wait } };
   };
+  // A job that lives until its agent says it is done (072-jobs-live-until-done): a turn that ends well leaves its process
+  // up, idle and taking messages (`idle`), and only `hobkin_done` or a stop ends it. `done` is the report that call gave.
+  const untilDone = livesUntilDone(request);
+  let done, idle = false;
+  const answerDone = ({ report }) => {
+    if (!untilDone) return { ok: false, error: 'This run ends when its turn ends, so end it with your report.' };
+    if (typeof report !== 'string' || !report.trim()) return { ok: false, error: 'Give your report: what you did, what you found and what is left.' };
+    if (agents.size) {
+      return { ok: false, error: "Your agents are still working, and they live in this job's process, so ending it now would stop them. Their reports come to you here: call hobkin_done once they have reported." };
+    }
+    done = clean(report).trim();
+    return { ok: true, result: { text: 'hobkin ends this job with your report as soon as this turn ends. End your turn now.' } };
+  };
+  // Pi's own waits wake it inside its process, which a living job keeps.
+  const calledPiWait = () => assistant?.stopReason === 'toolUse' && [...calledLast].some(name => PI_WAIT_TOOLS.includes(name));
+  const livesOn = () => untilDone && done === undefined && (assistant?.stopReason === 'stop' || calledPiWait());
   const tools = { owned_agent: createOwnedAgentSessionTool((params, signal) => ownedScope.request(params, signal)) };
   // The run's own schedules (056-agent-schedules), which hobkin hands it as `{ make, manage, liveUntil }` when it keeps
   // them for this run's agent. Without them a call is refused in plain words.
@@ -505,8 +528,9 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     if (joining) return;
     joining = true;
     try {
-      // Pi's own waits need its process to stay up, which a run here does not, so the agent is told so once and goes on.
-      const stoppedOnCall = assistant?.stopReason === 'toolUse';
+      // Pi's own waits need its process to stay up, which a run here does not unless it lives until done, so the agent
+      // is told so once and goes on.
+      const stoppedOnCall = assistant?.stopReason === 'toolUse' && !untilDone;
       const piWaits = stoppedOnCall && !toldPiWait ? [...calledLast].filter(name => PI_WAIT_TOOLS.includes(name)) : [];
       if (piWaits.length) {
         request.signal?.throwIfAborted();
@@ -519,6 +543,7 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       const facts = assistant?.stopReason === 'stop' ? await ownedScope?.join() : undefined;
       request.signal?.throwIfAborted();
       if (facts) { assistant = undefined; joining = false; await child.request('prompt', { message: facts }); }
+      else if (livesOn()) { idle = true; onIdle(result.text); }
       else { takesMessages = false; settled.resolve(); }
     } catch (error) { settled.reject(error); }
     finally { joining = false; }
@@ -545,8 +570,10 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     // Nobody is watching a job, so a dialog from any extension is declined.
     if (record.type === 'extension_ui_request' && dialogMethods.has(record.method)) {
       const bridged = record.method === 'input' && record.title === BRIDGE;
-      const wait = bridged ? waitCall(record.placeholder) : null;
+      const wait = bridged ? bridgeCall(record.placeholder, 'wait') : null;
+      const finished = bridged ? bridgeCall(record.placeholder, 'done') : null;
       if (wait) child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(answerWait(wait)) });
+      else if (finished) child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(answerDone(finished)) });
       else if (bridged && isScheduleCall(record.placeholder)) {
         void serveBridge(record.placeholder, { tools: scheduleTools }, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
       } else if (bridged && isMemoryCall(record.placeholder)) {
@@ -573,6 +600,10 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     }
     // A wait belongs to the turn that asked for it.
     if (record.type === 'agent_start') waitAsked = undefined;
+    if (record.type === 'agent_start' && idle) {
+      idle = false;
+      onWoken();
+    }
     if (record.type === 'message_end' && record.message?.customType === 'pi-extended-teams-report') {
       agents.delete(record.message.details?.name);
     }
@@ -636,15 +667,18 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       return child.request('prompt', { message, ...(images?.length ? { images } : {}), streamingBehavior: 'steer' });
     });
     await settled.promise;
-    result.text = clean(assistant?.content?.filter(part => part.type === 'text').map(part => part.text).join('\n'));
+    // A job its agent said is done reports what it said then.
+    result.text = done ?? clean(assistant?.content?.filter(part => part.type === 'text').map(part => part.text).join('\n'));
     // A turn that asked to wait and then ended as a turn ends leaves the run waiting, whatever its last words.
     const asked = waitAsked !== undefined && assistant?.stopReason === 'stop';
-    // A run that can wait and keeps a live schedule waits for it to wake it, as one that asked to wait does.
-    const scheduledUntil = !asked && assistant?.stopReason === 'stop' && Number.isInteger(request.waits) && request.waits < MOST_WAITS ? schedulesUntil() : null;
+    // A run that can wait and keeps a live schedule waits for it to wake it, as one that asked to wait does. A living
+    // job never waits: its schedules start a turn on its own process.
+    const scheduledUntil = !untilDone && !asked && assistant?.stopReason === 'stop' && Number.isInteger(request.waits) && request.waits < MOST_WAITS ? schedulesUntil() : null;
     // A schedule with no end keeps it waiting with no time to start again: only a wake, or the schedule's end, starts it.
     const waiting = asked || typeof scheduledUntil === 'number';
-    if (!waiting && assistant?.stopReason === 'toolUse') throw Error(stoppedMidStep([...calledLast]));
-    if (!waiting && (assistant?.stopReason !== 'stop' || !result.text.trim())) {
+    const ended = waiting || done !== undefined;
+    if (!ended && assistant?.stopReason === 'toolUse') throw Error(stoppedMidStep([...calledLast]));
+    if (!ended && (assistant?.stopReason !== 'stop' || !result.text.trim())) {
       throw Error(`Pi did not finish a response (${assistant?.stopReason ?? 'missing'}).`);
     }
     if (extensionErrors.size) {
