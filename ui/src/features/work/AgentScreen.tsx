@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp } from 'lucide-react'
+import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
@@ -29,7 +29,10 @@ import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { agentsFrom, sameFields } from '@/lib/host/frame.ts'
 import { runCommand, useHasHost, useHost, useHostEqual } from '@/lib/host/index.ts'
-import { useAgentThreads, type AgentNote } from './agent-threads.ts'
+import { useAgentThreads, waitsForTurn, type AgentNote } from './agent-threads.ts'
+import { imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
+import { waitingRows, withoutTakenBack, type TalkAgent, type TalkQueue } from './talk.ts'
+import { useTalkControls } from './use-talk-controls.ts'
 import { AgentWaits } from './AgentWaits.tsx'
 import { DeliveryMark } from './DeliveryMark.tsx'
 import { HelpersLine } from './ChildAgents.tsx'
@@ -235,8 +238,9 @@ function Passing({ side, children }: { side: Side; children: ReactNode }) {
 }
 
 /**
- * Stop Agent and Force Stop, each asking first. `forceKey`: Control+X presses Force Stop on this page (`force-stop.ts`), so
- * the control shows it. Not on a durable hobkin's page, where the key is End.
+ * Force Stop, asking first, and what the last stop or force of this run did. Stop is the message box's own (`useTalkControls`);
+ * a stop asked from the agents list still asks here first. `forceKey`: Control+X presses Force Stop on this page
+ * (`force-stop.ts`), so the control shows it. Not on a durable hobkin's page, where the key is End.
  */
 export function AgentStopControl({ agentId, forceKey = false }: { agentId: string | null; forceKey?: boolean }) {
   const { target, result } = useAgentControl()
@@ -270,19 +274,12 @@ export function AgentStopControl({ agentId, forceKey = false }: { agentId: strin
   }, [target, agentId])
   return (
     <div className="absolute right-6 top-6 z-10 text-sm">
-      <button
-        type="button"
-        disabled={!control?.canStop || pending('stop')}
-        onClick={() => agentId && agentControls.request(agentId)}
-        className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
-      >
-        Stop Agent
-      </button>
+      {/* Stop is the message box's own button, and its keys (`useTalkControls`). Force Stop asks first. */}
       <button
         type="button"
         disabled={!control?.canForce || pending('force')}
         onClick={() => agentId && agentControls.request(agentId, 'force')}
-        className="ml-2 rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
+        className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
       >
         Force Stop
         {forceKey ? <Kbd className="ml-1.5">⌃X</Kbd> : null}
@@ -559,7 +556,9 @@ function ExchangeSteps({ agentId, hue, question, waiting, idle = false }: { agen
   const activity = useAgentActivity(agentId)
   const still = useStill()
   const live = useHasHost()
-  const notes = useAgentThreads((threads) => threads.notes[agentId])
+  const allNotes = useAgentThreads((threads) => threads.notes[agentId])
+  // What waits for the agent's turn shows above the box until the turn reads it (`QueuedRows`).
+  const notes = useMemo(() => allNotes?.filter((note) => !waitsForTurn(note)), [allNotes])
   const scroll = useFollow()
   // The run's feed keeps its newest steps. The ones it let go are read from the run's saved session, a page at a time,
   // and come before them.
@@ -706,6 +705,19 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
   /** What a /model or /effort line did, under the box. */
   const [said, setSaid] = useState<string | null>(null)
   const canSend = (draft.trim().length > 0 || images.attachments.length > 0) && images.ready && !finished
+  const notes = useAgentThreads((threads) => threads.notes[agentId])
+  const rows = useMemo(
+    () => waitingRows((notes ?? []).map((note) => ({ ...note, text: note.text || imagesLine(note.images?.length ?? 0), waiting: waitsForTurn(note) }))),
+    [notes],
+  )
+  const agent = useMemo<TalkAgent>(() => ({ kind: 'run', run: agentId }), [agentId])
+  const controls = useTalkControls(agent, {
+    canSend,
+    empty: !draft.trim() && images.attachments.length === 0,
+    queued: rows.length > 0,
+    send: (words, queue) => void send(words, queue),
+    takeBack: () => void takeBack(),
+  })
   const box = useRef<HTMLFormElement | null>(null)
   const input = useRef<HTMLTextAreaElement | null>(null)
   // A message that starts with a slash lists what Pi offers this agent's own session, and /model its tier or model.
@@ -720,9 +732,25 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
     onSent: (words) => useAgentThreads.getState().say(agentId, words),
   })
 
-  const send = async () => {
+  /** What waits for the turn comes back into the box, ahead of what is being typed, and its notes leave the page. */
+  const giveBack = (unsent: Parameters<typeof withoutTakenBack>[1]) => {
+    if (!unsent.length) return
+    setDraft((now) => withoutTakenBack(now, unsent).draft)
+    useAgentThreads.getState().drop(agentId, withoutTakenBack('', unsent).noteIds)
+  }
+
+  const takeBack = async () => {
+    try {
+      giveBack(await controls.talk.takeBack())
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  // `queue` is how the words wait for the turn in flight. An interrupting message starts a turn of its own, so it waits for none.
+  const send = async (words?: string, queue?: TalkQueue) => {
     if (!canSend) return
-    const text = draft.trim()
+    const text = (words ?? draft).trim()
     setProblem(null)
     setSaid(null)
     useAgentImages.getState().clearProblem(agentId)
@@ -746,7 +774,9 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
     setDraft('')
     const attached = useAgentImages.getState().take(agentId)
     const handles = attached.flatMap(({ handle }) => (handle ? [handle] : []))
-    const result = await sendNote(agentId, text, (noteId) => sayToAgent(agentId, text, { live, noteId, images: handles }), attached)
+    const waits = controls.working && queue !== 'interrupt' ? (queue ?? 'steer') : undefined
+    const result = await sendNote(agentId, text, (noteId) => sayToAgent(agentId, text, { live, noteId, images: handles, ...(queue ? { queue } : {}) }), attached, waits)
+    if (result.sent && result.unsent) giveBack(result.unsent)
     if (!result.sent) {
       // hobkin lets go of images that did not reach the agent. The note still shows them.
       releaseImages(attached)
@@ -761,6 +791,7 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
 
   return (
     <div className="pointer-events-auto mt-auto shrink-0 px-[10%] pt-2 pb-2">
+      <QueuedRows rows={rows} className="pl-4" />
       <form
         ref={box}
         className={cn(
@@ -791,15 +822,13 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
             onChange={(event) => setDraft(event.target.value)}
             onPaste={images.onPaste}
             onKeyDown={(event) => {
-              // While the list of commands is open its keys come first.
+              // While the list of commands is open its keys come first, then the keys every message box shares.
               if (slash.onKeyDown(event) || images.removeLast(event)) return
+              if (controls.onKeyDown(event)) return event.preventDefault()
               if (event.key === 'Escape') {
                 // Back onto the same agent in the list. One the list no longer holds leaves the key to the frame,
                 // which leaves the canvas.
                 if (!finished && focusAgentsDock()) event.preventDefault()
-              } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                void send()
               } else if (event.key === 'ArrowUp' && !draft && !event.defaultPrevented) {
                 // Up from an empty input walks the agent's steps, newest first, or else goes to the agents list.
                 if (focusNewestStep(event.currentTarget) || (!finished && focusAgentsDock())) event.preventDefault()
@@ -810,17 +839,15 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
             aria-label={label}
             className="field-sizing-content max-h-40 min-h-9 flex-1 resize-none self-center bg-transparent py-1.5 text-[15px] leading-snug outline-none placeholder:text-muted-foreground"
           />
-          <button
-            type="submit"
-            disabled={!canSend}
-            aria-label={answering ? 'Send the answer' : 'Send to this agent'}
-            className={cn(
-              'grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground',
-              'transition-[transform,opacity] duration-[140ms] ease-out active:scale-[0.97] disabled:opacity-40',
-            )}
-          >
-            <ArrowUp className="size-4" aria-hidden="true" />
-          </button>
+          <SendButton
+            turnRunning={controls.working}
+            canSend={canSend}
+            stopping={controls.stopping}
+            onStop={controls.stop}
+            sendLabel={answering ? 'Send the answer' : 'Send to this agent'}
+            stopLabel="Stop this agent"
+            className="size-9"
+          />
         </div>
       </form>
       {/* Always there, so the box does not move when words or a schedule come and go: the words at the left, the
@@ -830,6 +857,10 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
           {problem || images.problem ? (
             <p role="alert" className="text-bad-fg">
               {problem ?? images.problem}
+            </p>
+          ) : controls.stopArmed ? (
+            <p role="status" className="text-muted-foreground">
+              <Kbd>esc</Kbd> again to stop, or <Kbd>⌃C</Kbd>
             </p>
           ) : said ? (
             <p role="status" className="text-muted-foreground">

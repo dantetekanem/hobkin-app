@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp } from 'lucide-react'
+import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { HOBKIN_MESSAGE_MAX, HOBKIN_TITLE_MAX, hobkinAgentId, hobkinOfAgent, type HobkinConversation, type HobkinSummary } from '#shared/protocol/hobkins.ts'
@@ -35,7 +35,10 @@ import { hostStore, runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
 import { sentAtArg } from '@/lib/host/state.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, withReceipts, type Delivery, type PageRow, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
+import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, waitsForTurn, withReceipts, type Delivery, type PageRow, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
+import { ContinueButton, imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
+import { CONTINUE_WORDS, waitingRows, withoutTakenBack, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
+import { useTalkControls } from '@/features/work/use-talk-controls.ts'
 import { endingOf, pressEndOf, takeBackEnd, useEnding } from './end.ts'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
@@ -80,7 +83,18 @@ export function HobkinScreen() {
           {id ? <Part key={id} id={id} split={split} sent={notes.sent[id] ?? NO_NOTES} sending={notes.sending[id] ?? null} /> : null}
         </AnimatePresence>
       </div>
-      {id ? <Talk key={id} id={id} split={split} onSending={(note) => notes.sendingTo(id, note)} onSent={(note) => notes.add(id, note)} /> : null}
+      {id ? (
+        <Talk
+          key={id}
+          id={id}
+          split={split}
+          sent={notes.sent[id] ?? NO_NOTES}
+          sending={notes.sending[id] ?? null}
+          onSending={(note) => notes.sendingTo(id, note)}
+          onSent={(note) => notes.add(id, note)}
+          onTakenBack={(noteIds) => notes.drop(id, noteIds)}
+        />
+      ) : null}
     </div>
   )
 }
@@ -114,7 +128,13 @@ function useSentNotes() {
     setSending((all) => ({ ...all, [id]: note }))
   }, [])
 
-  return { sent, sending, add, sendingTo }
+  // Notes the user took back into the box leave the page.
+  const drop = useCallback((id: string, noteIds: readonly string[]) => {
+    if (!noteIds.length) return
+    setSent((all) => ({ ...all, [id]: (all[id] ?? []).filter((note) => !note.noteId || !noteIds.includes(note.noteId)) }))
+  }, [])
+
+  return { sent, sending, add, sendingTo, drop }
 }
 
 /**
@@ -175,7 +195,10 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
 
   // Before the first read answers, a turn in flight still shows, with the message that began it.
   const read = useMemo<HobkinConversation | null>(() => conversation ?? (hobkin?.run ? { hobkin, turns: [] } : null), [conversation, hobkin])
-  const turns = useMemo(() => pageTurns(read, hobkin, sent), [read, hobkin, sent])
+  // What waits for the turn in flight shows above the box until the turn reads it (`QueuedRows`).
+  const shownSent = useMemo(() => sent.filter((note) => !waitsForTurn(note, hobkin)), [sent, hobkin])
+  const shownSending = sending && waitsForTurn(sending, hobkin) ? null : sending
+  const turns = useMemo(() => pageTurns(read, hobkin, shownSent), [read, hobkin, shownSent])
   // The live turn's steps: the one in flight, or the one just over until a read has its answer. The host keeps them.
   const liveRun = turns.find((turn) => turn.live)?.run ?? null
   // The face reads only the mood the live turn's steps give it. The tasks line and the conversation read the steps themselves.
@@ -198,7 +221,7 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
         id={id}
         turns={turns}
         cwd={hobkin?.cwd}
-        sending={sending}
+        sending={shownSending}
         problem={problem}
         // A hobkin with no turn yet has no conversation to read: the page waits for its first message.
         loading={state === 'live' && read === null && !problem && !fresh}
@@ -577,7 +600,19 @@ function Working({ run }: { run: string | null }) {
  * one included; while it works the message reaches the turn in flight. It takes the keyboard when clicked, or when the
  * page is entered for it. Under it is only what the user cannot see otherwise: a refusal, or that nothing can be sent.
  */
-function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; onSending: (note: SendingNote | null) => void; onSent: (note: SentNote) => void }) {
+interface TalkProps {
+  id: string
+  split: boolean
+  /** What the user sent from the page, and the message on its way now: what waits for the turn in flight shows above the box. */
+  sent: readonly SentNote[]
+  sending: SendingNote | null
+  onSending: (note: SendingNote | null) => void
+  onSent: (note: SentNote) => void
+  /** Notes the user took back into the box, by their ids. */
+  onTakenBack: (noteIds: readonly string[]) => void
+}
+
+function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: TalkProps) {
   const { hobkin, state, connected, fresh } = useHobkin(id)
   // Images pasted or dropped on the box go with the words, as in the main input.
   const agent = hobkinAgentId(id)
@@ -604,13 +639,44 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
     setSaid,
     onSent: (words, sent) => onSent({ text: words, at: Date.now(), ...sent }),
   })
+  // The keys and the button every message box shares, with this hobkin's own commands behind them.
+  const talkAgent = useMemo<TalkAgent>(() => ({ kind: 'hobkin', id }), [id])
+  const rows = useMemo(() => {
+    const notes = sending ? [...sent, sending] : sent
+    return waitingRows(notes.map((note) => ({ ...note, id: String(note.at), text: note.text || imagesLine(note.images?.length ?? 0), waiting: waitsForTurn(note, hobkin) })))
+  }, [sent, sending, hobkin])
+  const controls = useTalkControls(talkAgent, {
+    canSend,
+    empty: !text && images.attachments.length === 0,
+    queued: rows.length > 0,
+    send: (words, queue) => void send(words, queue),
+    takeBack: () => void takeBack(),
+  })
 
   if (!talkOpen(state)) {
     return <p className="shrink-0 px-[10%] pt-2 pb-6 text-center text-[13px] text-muted-foreground">This hobkin has ended. Its conversation stays on disk.</p>
   }
 
-  const send = async () => {
-    if (!canSend) return
+  /** What waits for the turn comes back into the box, ahead of what is being typed, and its notes leave the page. */
+  const giveBack = (unsent: Parameters<typeof withoutTakenBack>[1]) => {
+    if (!unsent.length) return
+    setDraft((now) => withoutTakenBack(now, unsent).draft)
+    onTakenBack(withoutTakenBack('', unsent).noteIds)
+  }
+
+  const takeBack = async () => {
+    try {
+      giveBack(await controls.talk.takeBack())
+    } catch (error) {
+      setProblem(message(error))
+    }
+  }
+
+  // `words` are sent in place of the draft, which stays: Continue. `queue` is how they wait for the turn in flight; an
+  // interrupting message starts a turn of its own, so it waits for none.
+  const send = async (words?: string, queue?: TalkQueue) => {
+    if (words === undefined ? !canSend : !connected || busy) return
+    const text = (words ?? draft).trim()
     setSaid(null)
     useAgentImages.getState().clearProblem(agent)
     // A command its session offers runs there, and a bare /model opens the choice of tier or model.
@@ -635,21 +701,23 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
     // hobkin's receipt names once the turn in flight reads them in.
     const at = Date.now()
     const noteId = crypto.randomUUID()
-    const attached = useAgentImages.getState().take(agent)
+    const attached = words === undefined ? useAgentImages.getState().take(agent) : []
     const pictures = attached.length ? { images: attached } : {}
+    const waits = working && queue !== 'interrupt' ? (queue ?? 'steer') : undefined
     setBusy(true)
     setProblem(null)
-    setDraft('')
-    onSending({ text, at, ...pictures })
+    if (words === undefined) setDraft('')
+    onSending({ text, at, ...pictures, ...(waits ? { queue: waits } : {}) })
     try {
       // When Enter was pressed goes with the words, for the timing of the turn, to a host that takes it.
       const handles = attached.flatMap(({ handle }) => (handle ? [handle] : []))
-      const said = await runCommand('hobkin.say', { id, noteId, ...(text ? { text } : {}), ...(handles.length ? { images: handles } : {}), ...sentAtArg(hostStore.getState(), at) })
-      onSent({ text, at, run: said.run, started: said.started, noteId, ...pictures })
+      const said = await controls.talk.say({ text, noteId, images: handles, ...sentAtArg(hostStore.getState(), at), ...(queue ? { queue } : {}) })
+      onSent({ text, at, run: said.run, started: said.started, noteId, ...pictures, ...(waits && !said.started ? { queue: waits } : {}) })
+      giveBack(said.unsent)
     } catch (error) {
       setProblem(message(error))
       // Nothing was sent: the words and images come back to the box, unless the user has written or attached again.
-      setDraft((now) => now || text)
+      if (words === undefined) setDraft((now) => now || text)
       useAgentImages.getState().restore(agent, attached)
     } finally {
       onSending(null)
@@ -662,6 +730,7 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
 
   return (
     <div className="shrink-0 px-[10%] pt-2 pb-2">
+      <QueuedRows rows={rows} className="pl-4" />
       <form
         ref={box}
         className={cn(
@@ -691,14 +760,12 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
             onChange={(event) => setDraft(event.target.value)}
             onPaste={images.onPaste}
             onKeyDown={(event) => {
-              // While the list of commands is open its keys come first.
+              // While the list of commands is open its keys come first, then the keys every message box shares.
               if (slash.onKeyDown(event) || images.removeLast(event)) return
+              if (controls.onKeyDown(event)) return event.preventDefault()
               if (event.key === 'Escape') {
                 // Back onto the hobkin in the list. Without the list, or with the split over it, the frame leaves the page.
                 if (!split && focusAgentsDock()) event.preventDefault()
-              } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                void send()
               } else if (event.key === 'ArrowUp' && !draft && !event.defaultPrevented) {
                 if (focusNewestStep(event.currentTarget) || (!split && focusAgentsDock())) event.preventDefault()
               }
@@ -713,17 +780,15 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
               split && 'placeholder:truncate',
             )}
           />
-          <button
-            type="submit"
-            disabled={!canSend}
-            aria-label={working ? 'Send to the turn in flight' : 'Send'}
-            className={cn(
-              'grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground',
-              'transition-[transform,opacity] duration-[140ms] ease-out active:scale-[0.97] disabled:opacity-40',
-            )}
-          >
-            <ArrowUp className="size-4" aria-hidden="true" />
-          </button>
+          <SendButton
+            turnRunning={controls.working}
+            canSend={canSend}
+            stopping={controls.stopping}
+            onStop={controls.stop}
+            sendLabel={working ? 'Send to the turn in flight' : 'Send'}
+            stopLabel="Stop this turn"
+            className="size-9"
+          />
         </div>
       </form>
       {/* Always there, so the box does not move when words or a schedule come and go: the words at the left, the
@@ -734,10 +799,17 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
             <p role="alert" className="text-bad-fg">
               {problem ?? images.problem}
             </p>
+          ) : controls.stopArmed ? (
+            <p role="status" className="text-muted-foreground">
+              <Kbd>esc</Kbd> again to stop, or <Kbd>⌃C</Kbd>
+            </p>
           ) : said ? (
             <p role="status" className="text-muted-foreground">
               {said}
             </p>
+          ) : controls.stopped && connected ? (
+            // The turn the user stopped is the last thing above the box, so it goes on from here.
+            <ContinueButton className="-my-1" onContinue={() => void send(CONTINUE_WORDS)} />
           ) : connected ? null : (
             <p className="text-muted-foreground">hobkin is not connected, so nothing can be sent.</p>
           )}

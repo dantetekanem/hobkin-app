@@ -24,7 +24,13 @@ export interface SentNote {
   noteId?: string
   /** When that turn read it in, by hobkin's receipt. Kept once seen, so a receipt hobkin lets go never takes it back. */
   receivedAt?: number
+  /** Sent into the turn in flight, it waits for that turn as this says, and shows above the box until the turn reads it. */
+  queue?: 'steer' | 'follow-up'
 }
+
+/** A note that waits for the hobkin's turn in flight to read it: sent into that turn to wait, and not read yet. */
+export const waitsForTurn = (note: SendingNote & Partial<SentNote>, hobkin: HobkinSummary | undefined): boolean =>
+  note.queue !== undefined && note.receivedAt === undefined && hobkin?.state === 'working' && (note.run === undefined || note.run === hobkin.run)
 
 /**
  * How far a message the user sent has got, as a chat app marks it: on its way to the host, with hobkin, taken in by
@@ -37,6 +43,8 @@ export interface SendingNote {
   text: string
   at: number
   images?: readonly Attachment[]
+  /** Sent while the hobkin works, how it will wait for the turn in flight. */
+  queue?: 'steer' | 'follow-up'
 }
 
 export interface ShownTurn extends HobkinTurn {

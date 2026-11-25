@@ -1,10 +1,9 @@
-import { ArrowUp, FileText, Square, X } from 'lucide-react'
+import { FileText, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { useHost } from '@/lib/host/index.ts'
 import { executionKey, executionTargets } from '../work/actions.ts'
 import { useExecution } from '../work/store.ts'
@@ -15,12 +14,12 @@ import { availabilityOf } from './availability.ts'
 import { canSendDraft, useChat } from './chat-store.ts'
 import { ChatAvatar } from './ChatAvatar.tsx'
 import { composerKey, type ComposerKeyAction } from './composer-keys.ts'
-import type { OutboxEntry } from './outbox.ts'
 import { PromptEditor } from './PromptEditor.tsx'
 import { useReportReply } from '@/features/reports/reply.ts'
 import { slashList, type SlashKey } from './slash.ts'
 import { SlashPanel, slashRowId } from './SlashPanel.tsx'
 import { StatusLine } from './StatusLine.tsx'
+import { imagesLine, QueuedRows, SendButton } from './TalkControls.tsx'
 import { STOP_ARMED_MS, stopKey } from './stop-key.ts'
 import { armedAt, shownTurn, type ArmedStop } from './stop-turn.ts'
 import type { PinnedScroll } from './use-pinned-scroll.ts'
@@ -85,7 +84,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   const stopping = main !== undefined && execution.pending[executionKey(main, 'stop')] === true
   const canSend = ready && canSendDraft({ text, attachments })
   // What the user sent that waits for the running turn, shown above the input until the model reads it.
-  const queued = useMemo(() => sent.filter((entry) => entry.queue), [sent])
+  const queued = useMemo(() => sent.flatMap((entry) => (entry.queue ? [{ key: String(entry.id), queue: entry.queue, text: entry.text || imagesLine(entry.images ?? 0) }] : [])), [sent])
   // The last turn is one the user stopped and nothing has started since, so Enter in an empty message continues it.
   const stoppedTurn = useHost((state) => state.snapshot.mainStopped ?? null)
   const stopped = ready && !turnRunning && stoppedTurn !== null
@@ -238,7 +237,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
           <ChatAvatar followWithin={followWithin} typing={text.length > 0} />
           <div className="relative min-w-0 flex-1">
             <SlashPanel list={list} id={listId} onReach={reachCommand} onChoose={(index) => (reachCommand(index), slashKey('Enter'))} />
-            <QueuedRows entries={queued} />
+            <QueuedRows rows={queued} />
             <form
               className={cn(
                 'rounded-[24px] border-[1.5px] bg-card py-1.5 pr-1.5 pl-1.5 transition-colors duration-[160ms] ease-[ease] focus-within:border-ring',
@@ -291,85 +290,6 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
     </div>
   )
 }
-
-/**
- * The one button beside the input: Send, and Stop while a turn runs, in the same place and size so nothing moves when it
- * swaps. Its hover lists the keys for each.
- */
-function SendButton({ turnRunning, canSend, stopping, onStop }: { turnRunning: boolean; canSend: boolean; stopping: boolean; onStop: () => void }) {
-  const icon = 'col-start-1 row-start-1 transition-[opacity,transform] duration-[140ms] ease-out'
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type={turnRunning ? 'button' : 'submit'}
-            onClick={turnRunning ? onStop : undefined}
-            disabled={turnRunning ? stopping : !canSend}
-            aria-label={turnRunning ? 'Stop hobkin' : 'Send'}
-            className={cn(
-              'grid size-8 shrink-0 place-items-center rounded-full border outline-offset-2 transition-[transform,opacity,background-color,border-color,color] duration-[140ms] ease-out active:scale-[0.97] disabled:opacity-40',
-              turnRunning ? 'border-border-strong bg-transparent text-foreground hover:bg-surface-2' : 'border-transparent bg-primary text-primary-foreground',
-            )}
-          />
-        }
-      >
-        <ArrowUp className={cn(icon, 'size-4', turnRunning && 'scale-75 opacity-0')} aria-hidden="true" />
-        <Square className={cn(icon, 'size-3 fill-current', !turnRunning && 'scale-75 opacity-0')} aria-hidden="true" />
-      </TooltipTrigger>
-      <TooltipContent>
-        {turnRunning ? (
-          <span className="grid grid-cols-[auto_auto] items-center gap-x-3 gap-y-1">
-            <span>Stop</span>
-            <span className="flex gap-1"><Kbd>esc</Kbd><Kbd>esc</Kbd><Kbd>⌃C</Kbd></span>
-            <span>Steer</span>
-            <Kbd>↵</Kbd>
-            <span>Send after the turn</span>
-            <Kbd>⌥↵</Kbd>
-            <span>Stop and send now</span>
-            <Kbd>⌃↵</Kbd>
-          </span>
-        ) : (
-          <>
-            Send <Kbd>↵</Kbd>
-          </>
-        )}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
-/**
- * What the user sent that waits for the running turn, a quiet line each with how it waits, newest last, until the model
- * reads it. Alt+Up brings them back into the input, as Pi's does.
- */
-function QueuedRows({ entries }: { entries: readonly OutboxEntry[] }) {
-  return (
-    <ul aria-label="Waiting for this turn" className="flex flex-col px-3">
-      <AnimatePresence initial={false}>
-        {entries.map((entry, index) => (
-          <motion.li
-            key={entry.id}
-            initial={{ opacity: 0, transform: 'translateY(4px)' }}
-            animate={{ opacity: 1, transform: 'translateY(0px)', transition: spring.alive }}
-            exit={{ opacity: 0, transition: tween.exit }}
-            className="flex min-w-0 items-center gap-2 pb-1 text-[12.5px] leading-5"
-          >
-            <span className="eyebrow shrink-0">{entry.queue === 'follow-up' ? 'Follow-up' : 'Steer'}</span>
-            <span className="min-w-0 flex-1 truncate text-muted-foreground">{entry.text || imagesLine(entry.images ?? 0)}</span>
-            {index === entries.length - 1 ? (
-              <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-muted-foreground">
-                <Kbd>⌥↑</Kbd> edit
-              </span>
-            ) : null}
-          </motion.li>
-        ))}
-      </AnimatePresence>
-    </ul>
-  )
-}
-
-const imagesLine = (count: number) => (count === 1 ? '1 image' : `${count} images`)
 
 /** The report the next message is about. It goes with that message, once, and Escape or the button drops it. */
 function ReportChip({ title, onDrop }: { title: string; onDrop: () => void }) {

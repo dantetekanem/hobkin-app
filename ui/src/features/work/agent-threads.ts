@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
+import type { TakenBack } from '#shared/commands/registry.ts'
 import type { Attachment } from '@/features/chat/draft.ts'
 import { hostStore } from '../../lib/host/client.ts'
 
@@ -12,15 +13,23 @@ export interface AgentNote {
   why?: string
   /** The images that went with the words. The note keeps their previews. */
   images?: readonly Attachment[]
+  /** Sent while the agent worked, it waits for its turn as this says. While it waits it shows above the box, not among the steps. */
+  queue?: 'steer' | 'follow-up'
 }
 
-export type AgentSendResult = { sent: true; local?: boolean } | { sent: false; why: string; uncertain?: boolean }
+/** A note that waits for the agent's turn to read it: sent into a turn, and neither read nor refused yet. */
+export const waitsForTurn = (note: AgentNote): boolean => note.queue !== undefined && (note.delivery === 'sending' || note.delivery === 'waiting')
+
+/** `unsent`: what a turn the note interrupted never read, for the box. */
+export type AgentSendResult = { sent: true; local?: boolean; unsent?: readonly TakenBack[] } | { sent: false; why: string; uncertain?: boolean }
 
 interface AgentThreads {
   /** What the user has said to each agent, by agent id. */
   notes: Record<string, AgentNote[]>
   say: (agentId: string, text: string) => void
-  send: (agentId: string, text: string, deliver: (noteId: string) => Promise<AgentSendResult>, images?: readonly Attachment[]) => Promise<AgentSendResult>
+  send: (agentId: string, text: string, deliver: (noteId: string) => Promise<AgentSendResult>, images?: readonly Attachment[], queue?: AgentNote['queue']) => Promise<AgentSendResult>
+  /** Notes the user took back into the box: they leave the page. */
+  drop: (agentId: string, noteIds: readonly string[]) => void
   sync: (snapshot: WireSnapshot) => void
 }
 
@@ -34,8 +43,8 @@ export const useAgentThreads = create<AgentThreads>()((set, get) => ({
     const note = { id: crypto.randomUUID(), text, at: Date.now() }
     set({ notes: { ...get().notes, [agentId]: [...(get().notes[agentId] ?? []), note] } })
   },
-  send: async (agentId, text, deliver, images) => {
-    const note: AgentNote = { id: crypto.randomUUID(), text, at: Date.now(), delivery: 'sending', ...(images?.length ? { images } : {}) }
+  send: async (agentId, text, deliver, images, queue) => {
+    const note: AgentNote = { id: crypto.randomUUID(), text, at: Date.now(), delivery: 'sending', ...(images?.length ? { images } : {}), ...(queue ? { queue } : {}) }
     set({ notes: { ...get().notes, [agentId]: [...(get().notes[agentId] ?? []), note] } })
     let result: AgentSendResult
     try {
@@ -52,6 +61,11 @@ export const useAgentThreads = create<AgentThreads>()((set, get) => ({
     }) } })
     get().sync(hostStore.getState().snapshot)
     return get().notes[agentId]?.some((entry) => entry.id === note.id && entry.delivery === 'received') ? { sent: true } : result
+  },
+  drop: (agentId, noteIds) => {
+    const notes = get().notes[agentId]
+    if (!notes || !noteIds.length) return
+    set({ notes: { ...get().notes, [agentId]: notes.filter((note) => !noteIds.includes(note.id)) } })
   },
   sync: (snapshot) => {
     let changed = false

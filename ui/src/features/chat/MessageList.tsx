@@ -16,6 +16,7 @@ import type { DayGroup, Entry, MessageEntry, NoticeEntry } from './conversation.
 import { heldBy, type Holder } from './doing.ts'
 import { MessageText, risen, StreamingMarkdown, sunk } from './markdown.ts'
 import { shownTurn, stopLineId } from './stop-turn.ts'
+import { ContinueButton } from './TalkControls.tsx'
 import { nextReveal } from './stream-buffer.ts'
 import { usePaced } from './use-paced.ts'
 import type { PinnedScroll } from './use-pinned-scroll.ts'
@@ -309,14 +310,5 @@ function ContinueStopped({ line }: { line: string }) {
     return stopLineId(stopped) === line && shownTurn(state) === null
   })
   if (!offered) return null
-  return (
-    <button
-      type="button"
-      className="ml-2 inline-flex h-6 items-center gap-1 rounded-full bg-surface-2 pr-1 pl-2 align-middle text-[12px] font-medium text-foreground outline-offset-1 transition-[transform,background-color] duration-[140ms] ease-out hover:bg-secondary active:scale-[0.97]"
-      onClick={() => useChat.getState().continueTurn()}
-    >
-      Continue
-      <Kbd>↵</Kbd>
-    </button>
-  )
+  return <ContinueButton className="ml-2" onContinue={() => useChat.getState().continueTurn()} />
 }
