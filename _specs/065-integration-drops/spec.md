@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["002-host", "023-integrations", "024-github"],
-  "updated": "2026-11-24"
+  "updated": "2026-11-25"
 }
 ---
 # An integration is a folder the core never imports
@@ -78,15 +78,15 @@ Today only hobkin's main conversation gets a tool from the host (`client`, throu
 
 ## Steps
 
-- [x] S1. Contract: the manifest, the host part, the window part, the parts registry, GitHub's manifest (lead). ab3ba1f, 0e934b1.
-- [x] S2. Host core: loading, commands, slices, hooks, pulls, `#host/*`, packaging (lane H1). f812bd6, 923e020, 96721dc, e26fc01, 1c6662a, 6637866. `stage.ts` itself was not run (it installs packages); its rules are tested.
-- [x] S3. GitHub's host part (lane H2). fa1535f, dccec19, 96ac41c.
-- [x] S4. Window core: loading, pages in the shell, the menu setting, remembered page state; GitHub's page and card into the folder (lane W1). 062e9d3 to 1085e60. Not seen in a browser.
-- [x] S5. Home, spotlight, Work and the trail through the parts (lane W2). 0fc3f53 to 0454b7d, a0baad4.
-- [x] S6. The catalog gone (lane C). 1018f58, e0999ba, and on the user's word ("yes commit everything") 126f647, the host and shared removal the auto-mode check had refused. 38 integrations tests pass. Not seen in a window.
-- [x] S7. The switch: the host and window run GitHub from the folder only, the old files gone (lead with H1 and W1). c1b8fb3, 6dae90a, e43d414, acdb26f. A1 checked on a `git archive` of a0baad4 without `integrations/github/`: typecheck and `vite build` pass, 303 of 304 tests in the 42 files around integrations, Home, the shell and reviews pass (the one failure is S6's add test above), and a scripted host on a scratch home starts and logs nothing of integrations. Not done: the window drawn without the folder.
-- [x] S8. `integrations/README.md`, A1 and A7 (lead). fd8e0af, 22604d8, 23504f5, 2058ea8. A7: two fresh agents, each given only the guide in a scratch copy, built working integrations (notes: 7 tests; stand-up: 8 tests; typecheck clean in their folders). The first listed nine places it had to read code, all answered; the second listed smaller ones, all answered, and none of the first nine came back.
-- [x] S9. hobkin's runtime: the `integrations` option, host tools bridged into every Pi agent, the tool-call hook extension, workflow folders as a read-only source of routines, `startWorkflow` (lane R, in `~/Poetry/hobkin`). hobkin main f41477b, d798acd, 84201be, 60dd4aa, 89f6f8a (a new workflow never runs a slot from before it appeared). Not in the live checkout yet, which is on another session's branch; inert without the host's option. Helpers and Claude Code agents get no tools or hooks.
-- [x] S10. The host: `tools`, `toolHooks` and workflows in the contract, served to the runtime, `context.startWorkflow`, `after:<command>` starts, a command to press a workflow. 2b7c9ea, 268d95b. End to end on archives of client HEAD and hobkin main: the echo fixture's workflow listed and started by `workflow.run`. Not run end to end: an agent calling an integration's tool through the host.
-- [x] S11. The window: workflows in Routines under each integration, Run now and a switch, `useWorkflows`, "Run <title>" in the spotlight. 43c81b1, e5c3e2d. Seen in still renders only.
-- [x] S12. The README covers tools, hooks and workflows, with an example of each. 22604d8 and the A7 rounds.
+- [x] S1 (A1, A3). Contract: the manifest, the host part, the window part, the parts registry, GitHub's manifest (lead). ab3ba1f, 0e934b1.
+- [x] S2 (A3, A4, A8). Host core: loading, commands, slices, hooks, pulls, `#host/*`, packaging (lane H1). f812bd6, 923e020, 96721dc, e26fc01, 1c6662a, 6637866. `stage.ts` itself was not run (it installs packages); its rules are tested.
+- [x] S3 (A2). GitHub's host part (lane H2). fa1535f, dccec19, 96ac41c.
+- [x] S4 (A2, A3, A5). Window core: loading, pages in the shell, the menu setting, remembered page state; GitHub's page and card into the folder (lane W1). 062e9d3 to 1085e60. Not seen in a browser.
+- [x] S5 (A1, A2). Home, spotlight, Work and the trail through the parts (lane W2). 0fc3f53 to 0454b7d, a0baad4.
+- [x] S6 (A6). The catalog gone (lane C). 1018f58, e0999ba, and on the user's word ("yes commit everything") 126f647, the host and shared removal the auto-mode check had refused. 38 integrations tests pass. Not seen in a window.
+- [x] S7 (A1, A2). The switch: the host and window run GitHub from the folder only, the old files gone (lead with H1 and W1). c1b8fb3, 6dae90a, e43d414, acdb26f. A1 checked on a `git archive` of a0baad4 without `integrations/github/`: typecheck and `vite build` pass, 303 of 304 tests in the 42 files around integrations, Home, the shell and reviews pass (the one failure is S6's add test above), and a scripted host on a scratch home starts and logs nothing of integrations. Not done: the window drawn without the folder.
+- [x] S8 (A1, A7). `integrations/README.md`, A1 and A7 (lead). fd8e0af, 22604d8, 23504f5, 2058ea8. A7: two fresh agents, each given only the guide in a scratch copy, built working integrations (notes: 7 tests; stand-up: 8 tests; typecheck clean in their folders). The first listed nine places it had to read code, all answered; the second listed smaller ones, all answered, and none of the first nine came back.
+- [x] S9 (A9, A10, A11). hobkin's runtime: the `integrations` option, host tools bridged into every Pi agent, the tool-call hook extension, workflow folders as a read-only source of routines, `startWorkflow` (lane R, in `~/Poetry/hobkin`). hobkin main f41477b, d798acd, 84201be, 60dd4aa, 89f6f8a (a new workflow never runs a slot from before it appeared). Not in the live checkout yet, which is on another session's branch; inert without the host's option. Helpers and Claude Code agents get no tools or hooks.
+- [x] S10 (A9, A10, A11). The host: `tools`, `toolHooks` and workflows in the contract, served to the runtime, `context.startWorkflow`, `after:<command>` starts, a command to press a workflow. 2b7c9ea, 268d95b. End to end on archives of client HEAD and hobkin main: the echo fixture's workflow listed and started by `workflow.run`. Not run end to end: an agent calling an integration's tool through the host.
+- [x] S11 (A11). The window: workflows in Routines under each integration, Run now and a switch, `useWorkflows`, "Run <title>" in the spotlight. 43c81b1, e5c3e2d. Seen in still renders only.
+- [x] S12 (A7). The README covers tools, hooks and workflows, with an example of each. 22604d8 and the A7 rounds.

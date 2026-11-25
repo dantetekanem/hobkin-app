@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["011-work", "053-work-control-room", "060-make-it-a-stack"],
-  "updated": "2026-11-24"
+  "updated": "2026-11-25"
 }
 ---
 # Finished changes as rows that open
@@ -93,7 +93,7 @@ The user, 2026-11-24, with a picture of two "Left for you" cards filling a scree
 - [x] S1 (A1, A2). The row's model: its facts, its sentence and its action by group. 484e089.
 - [x] S2 (A1, A3, A4, A5, A6). The row and the open row in place of the card. 9935994, and a line height of whole pixels for the sentence after it. Seen in still renders only: no press, key or motion was run.
 - [x] S3 (A7). Stacks and groups with rows. 9935994. A layer's line opens to the open row without its closed lines repeated.
-- [ ] S4. In the app's window, with the user's own fourteen.
+- [ ] S4 (A1, A2, A3, A4, A5, A6, A7). In the app's window, with the user's own fourteen.
 
 ## Open questions
 

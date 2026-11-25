@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["032-change-review", "060-make-it-a-stack", "061-finished-changes-rows"],
-  "updated": "2026-11-24"
+  "updated": "2026-11-25"
 }
 ---
 # Go through the reviews one by one, like a story
@@ -71,4 +71,4 @@ Decided once, when Start is pressed, and kept until the story ends. A review tha
 - [x] S1 (A1, A2, A3). The order, the offer's count and the story's state, with their tests. 9c8997d.
 - [x] S2 (A3). A verdict says whether it closed the review. 930a8bd.
 - [x] S3 (A1, A3, A4, A5). The offer on the list, the story store, the place on the panel, and the next review after a verdict. f47f2b4. Seen in still renders only: no press, key or story run in the window.
-- [ ] S4. In the app's window, with the user's own list.
+- [ ] S4 (A1, A2, A3, A4, A5). In the app's window, with the user's own list.
