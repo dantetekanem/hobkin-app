@@ -10,7 +10,7 @@ import { listedAgents, wordsOf, type ListedAgent } from '@/features/hobkins/list
 import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import { hasHost, keepEachEqual, sameAgentsQuietly, sameFields } from '@/lib/host/frame.ts'
-import { hostStore, useHasHost, useHostEqual, useListHost, useListHostKept } from '@/lib/host/index.ts'
+import { hostStore, runCommand, useHasHost, useHostEqual, useListHost, useListHostKept } from '@/lib/host/index.ts'
 import { agentQuestionId, answeredAgents, nextAsking, waitingFirst } from './asking.ts'
 import { useView } from './view-store.ts'
 
@@ -184,7 +184,8 @@ export const agentControls = createAgentControls({
       }
     }
 
-    if (!hasHost(host) && agent) {
+    // A run that waits holds no process, so hobkin lists no live control for it: the host stops it from its record.
+    if ((!hasHost(host) || agent?.waits !== undefined) && agent) {
       return { ...agent, source: `${host.home}:${host.epoch}` }
     }
 
@@ -192,9 +193,12 @@ export const agentControls = createAgentControls({
   },
   send: async (id, mode = 'stop') => {
     const target = executionTargets(hostStore.getState()).find(target => target.kind === 'run' && target.runId === id)
-    if (!target) throw new Error('No live control for this run. Nothing was stopped.')
-    const receipt = await runExecution(target, mode, 'for-now')
-    return receipt ? receiptText(receipt) : 'Current execution result unknown.'
+    if (target) {
+      const receipt = await runExecution(target, mode, 'for-now')
+      return receipt ? receiptText(receipt) : 'Current execution result unknown.'
+    }
+    if (findAgent(id)?.waits !== undefined) return (await runCommand('agent.stop', { run: id, how: 'for-now' })).message
+    throw new Error('No live control for this run. Nothing was stopped.')
   },
   changed: (state) => useAgentControl.setState(state),
 })
