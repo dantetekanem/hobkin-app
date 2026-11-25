@@ -8,20 +8,17 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { agentGroups } from '@/features/hobkins/list.ts'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
-import { useTiers } from '@/features/tiers/store.ts'
 import { ChildCluster, ChildFaces } from '@/features/work/ChildAgents.tsx'
 import { agentEntry } from '@/features/work/agent-entry.ts'
 import { childrenSummary, helpersNow, HOBKIN_HUE } from '@/features/work/child-summary.ts'
 import { useMainChildren } from '@/features/work/children.ts'
 import { cn } from '@/lib/utils.ts'
 import { centeredOn, dockHeight, followedAgent, headsOf, listHeight, ROW, rowsInView, rowTop, stepped, type DockShape } from './dock-rows.ts'
+import { AgentModelPill } from './AgentModelChoice.tsx'
 import { requestCanvasFocus } from './focus.ts'
 import { agentControls, agentCounts, askAgent, atRest, othersCount, useAgentControl, useAgentWords, useRunningAgents, waitingRowWords, type RunningAgent } from './running-agents.ts'
-import { type Tier } from './sample.ts'
 import { holdStill, useStill } from './still.ts'
 import { useView } from './view-store.ts'
-
-const TIER_LABEL: Record<Tier, string> = { fast: 'fast', mid: 'mid', high: 'high', max: 'max' }
 
 /**
  * The agents working right now, at the bottom of the chat, under the input.
@@ -36,7 +33,7 @@ const TIER_LABEL: Record<Tier, string> = { fast: 'fast', mid: 'mid', high: 'high
  * asked for) comes first, wears a question mark, and says what it is waiting on. Enter on it, or Command+G
  * from anywhere, opens its question in the same sheet Action Items uses.
  *
- * An agent that spawned helpers shows their small faces beside its tier, each showing how it stands. They are not
+ * An agent that spawned helpers shows their small faces beside its model, each showing how it stands. They are not
  * rows of their own: hobkin cannot open, stop or message them. The helpers hobkin's own chat spawned stand on one
  * line of their own above the agents while any is out, and the list is drawn for them alone too. Walking passes
  * them by: they are not agents to open.
@@ -59,7 +56,6 @@ export function AgentsDock() {
   const openAgentCanvas = useView((view) => view.openAgentCanvas)
   const openAgent = useView((view) => view.openAgent)
   const onAgent = useView((view) => view.screen === 'agent')
-  const openTiers = useTiers((state) => state.openTiers)
   const list = useRef<HTMLDivElement | null>(null)
   /** Whether the list goes on above and below what is in view. */
   const [more, setMore] = useState({ above: false, below: false })
@@ -199,8 +195,9 @@ export function AgentsDock() {
                   if (view.openAgent) view.openAgentCanvas(view.openAgent)
                   return
                 }
-                // The Stop confirmation takes the keyboard for a moment. The list keeps its place for the way back.
+                // The Stop confirmation, or an agent's model choice, takes the keyboard for a moment. The list keeps its place for the way back.
                 if (useAgentControl.getState().target) return
+                if (next instanceof Element && next.closest('[data-agent-model]')) return
                 // Leaving the list by any other road ends the preview, and the list drifts back to its top.
                 endAgentPreview()
                 list.current?.scrollTo({ top: 0, behavior: document.documentElement.dataset.motion === 'still' ? 'auto' : 'smooth' })
@@ -239,7 +236,6 @@ export function AgentsDock() {
                         listId={id}
                         list={list}
                         openAgentCanvas={openAgentCanvas}
-                        openTiers={openTiers}
                       />
                     )
                   })}
@@ -264,14 +260,13 @@ interface AgentRowProps {
   listId: string
   list: RefObject<HTMLDivElement | null>
   openAgentCanvas: (id: string) => void
-  openTiers: (tier: Tier) => void
 }
 
 /**
  * One agent's row. It draws again only when its own agent, or whether it is selected, changes: every row with a
  * layout prop reads the page's layout for each draw, and the list draws for every agent's latest words.
  */
-const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, listId: id, list, openAgentCanvas, openTiers }: AgentRowProps) {
+const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, listId: id, list, openAgentCanvas }: AgentRowProps) {
   const asks = agent.asks
   // A durable hobkin between turns, or a run waiting for its time: its face holds still and its label says it waits.
   const waits = atRest(agent)
@@ -325,25 +320,8 @@ const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, li
       </span>
       {/* Its helpers by the agent's own id, as its screen finds them: a durable hobkin's turn has an id of its own that holds none. */}
       <ChildCluster runId={agent.id} hue={agent.hue} summaryId={`${id}-${agent.id}-children`} />
-      {agent.durable && agent.durable.engine.kind !== 'tier' ? (
-        <span className="rounded-full border border-border px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">
-          {agent.durable.engine.kind === 'claude' ? 'claude' : 'custom'}
-        </span>
-      ) : (
-        <button
-          type="button"
-          // Reached with the mouse here, and through Settings from the keyboard.
-          tabIndex={-1}
-          title="Models for this tier"
-          onClick={(event) => {
-            event.stopPropagation()
-            openTiers(agent.tier)
-          }}
-          className="rounded-full border border-border px-1.5 text-[10px] leading-4 font-medium text-muted-foreground transition-colors duration-[160ms] ease-[ease] hover:border-border-strong hover:text-foreground"
-        >
-          {TIER_LABEL[agent.tier]}
-        </button>
-      )}
+      {/* The model it works on now, which opens a choice of another (AgentModelChoice.tsx). */}
+      <AgentModelPill agent={agent} />
     </motion.div>
   )
 })
