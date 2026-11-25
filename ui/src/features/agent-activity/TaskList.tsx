@@ -170,7 +170,7 @@ const Track = memo(function Track({ tasks, still }: { tasks: readonly AgentTask[
 /** Words that change by sliding: the old ones leave upward as the new ones rise in. They keep the width of `room`. */
 function Count({ value, room, still }: { value: number | string; room: string; still: boolean }) {
   return (
-    <span className="relative inline-grid overflow-hidden tabular-nums">
+    <span className="relative inline-grid overflow-hidden text-left tabular-nums">
       <span className="invisible col-start-1 row-start-1" aria-hidden="true">
         {room}
       </span>
