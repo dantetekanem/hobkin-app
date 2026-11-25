@@ -1,5 +1,8 @@
 import type { FinishedChange } from '#shared/protocol/work.ts'
 import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
+import { readOutdated, type ReviewListItem } from '#shared/review/status.ts'
+import { reviewBadge, type BadgeTone } from '../work/review-badge.ts'
+import { assessmentOf } from '../work/review-follow.ts'
 
 /**
  * The stack a review is a layer of (_specs/060-make-it-a-stack, "A stack once it exists"), read from the finished
@@ -33,6 +36,22 @@ export interface StackStrip {
   over: StripLayer | null
   /** What this review shows, in one line. */
   line: string
+}
+
+export interface LayerState {
+  tone: BadgeTone
+  label: string
+  reviewing: boolean
+}
+
+/** A layer's review as the rest of the window shows it (`assessmentOf`): its answer, being reviewed, not reviewed, or outdated. */
+export function layerStateOf(item: ReviewListItem | undefined): LayerState {
+  const assessment = item ? assessmentOf(item) : undefined
+  const reviewing = assessment?.state === 'running' || assessment?.state === 'queued'
+  if (readOutdated(item?.outdated)) return { tone: 'warn', label: 'Outdated', reviewing }
+
+  const { tone, label } = reviewBadge(assessment)
+  return { tone, label, reviewing }
 }
 
 /** The review a finished change opens: its own id, or the sample's one review when there is no host. */

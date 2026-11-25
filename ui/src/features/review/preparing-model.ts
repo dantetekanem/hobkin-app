@@ -1,6 +1,7 @@
 import type { AssessmentLogLine, AssessmentStatus } from '#shared/review/assessment.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { PreparePhase, ReviewStatus } from '#shared/review/status.ts'
+import { assessmentOf } from '../work/review-follow.ts'
 
 /**
  * What the preparing view and the card over an open review say, as plain data, so it is tested without a window: what
@@ -192,11 +193,14 @@ const isRun = (assessment: AssessmentStatus | undefined): assessment is Assessme
 
 /**
  * The view of a run, from the review's status, when it started (ms, as the loader keeps it) and the time now. A change
- * review under way says everything. A preparation without one, such as a graph being built again, says only its phase.
+ * review under way says everything. A preparation without one, such as a graph being built again, says only its phase,
+ * and so does one whose change review waits behind the graph being drawn: its state is read as the window reads it
+ * everywhere (`assessmentOf`), and its log still shows.
  */
 export function preparingOf(status: ReviewStatus | null, startedAt: number | null, now: number): Preparing {
   const assessment = status?.assessment
   const run = isRun(assessment) ? assessment : null
+  const shown = status ? assessmentOf(status) : undefined
   const going = run?.state === 'running'
   const steps = run?.steps ?? []
   const log = run?.log ?? []
@@ -215,10 +219,10 @@ export function preparingOf(status: ReviewStatus | null, startedAt: number | nul
       note: step.note ?? null,
     }
   })
-  const state: Preparing['state'] = run ? run.state : status?.phase === 'queued' ? 'queued' : 'running'
+  const state: Preparing['state'] = isRun(shown) ? shown.state : status?.phase === 'queued' ? 'queued' : 'running'
   // The host words each thing the run does for its log, so the newest line says best what it does now.
   const said = going ? sentenceOf(log.at(-1)?.text || run.now || '', steps) : ''
-  const fallback = run?.state === 'queued' ? QUEUED : run?.state === 'failed' ? STOPPED : status?.phase ? PHASE_WORDS[status.phase] : 'Starting'
+  const fallback = run?.state === 'queued' && state === 'queued' ? QUEUED : state === 'failed' ? STOPPED : status?.phase ? PHASE_WORDS[status.phase] : 'Starting'
   return {
     state,
     now: said || fallback,
@@ -229,7 +233,7 @@ export function preparingOf(status: ReviewStatus | null, startedAt: number | nul
     steps: lines,
     subject: status ? subjectOf(status) : null,
     log: logOf(log, startedAt),
-    error: run?.state === 'failed' ? (run.error ?? null) : null,
+    error: state === 'failed' ? (run?.error ?? null) : null,
   }
 }
 

@@ -27,12 +27,13 @@ export function underWay(status: AssessmentStatus | undefined): boolean {
 const PREPARING: Record<Exclude<PreparePhase, 'queued'>, string> = { reading: 'Reading the change', arranging: 'Arranging the story', checking: 'Checking the result' }
 
 /**
- * How a card's change review stands, from its review's status. While the host prepares the review itself, as it does
- * when a review is opened or asked for again, the card says it is reviewing, with what it is doing; while that waits
- * its turn, that it is queued. The change review the host puts behind the graph it draws says queued until that graph
- * is drawn, which is no wait. A host that runs no change review says nothing of one, and neither does this.
+ * How a review's change review stands as the window shows it, on a card, a stack's step or the review itself, from its
+ * status or its row in the list. While the host prepares the review itself, as it does when a review is opened or
+ * asked for again, it is reviewing, with what it is doing; while that waits its turn, it is queued. The change review
+ * the host puts behind the graph it draws says queued until that graph is drawn, which is no wait. A host that runs no
+ * change review says nothing of one, and neither does this.
  */
-export function assessmentOf(status: ReviewStatus): AssessmentStatus | undefined {
+export function assessmentOf(status: Pick<ReviewStatus, 'assessment' | 'phase' | 'head'>): AssessmentStatus | undefined {
   const { assessment, phase } = status
   if (!assessment || !phase || assessment.state === 'running') return assessment
   if (phase === 'queued') return underWay(assessment) ? assessment : { state: 'queued', head: status.head }

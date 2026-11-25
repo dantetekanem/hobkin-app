@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { FinishedChange, StackPlace } from '#shared/protocol/work.ts'
-import { layerPlaceOf, openKeyOf, stackStrip } from '../src/features/review/stack-strip.ts'
+import type { ReviewListItem } from '#shared/review/status.ts'
+import { layerPlaceOf, layerStateOf, openKeyOf, stackStrip } from '../src/features/review/stack-strip.ts'
 
 function change(item: string, layer: number | null, over: Partial<StackPlace> = {}): FinishedChange {
   const stack = layer === null ? {} : { stack: { id: 'aaa111', of: 5, name: null, below: null, base: null, layer, ...over } }
@@ -75,4 +76,13 @@ test('a row in the AI Reviews list is told its layer as "2 of 5", and a change i
   assert.equal(layerPlaceOf(five, 'pr:acme/shop/12'), null)
   assert.equal(layerPlaceOf(pulled, 'pr:acme/shop/12'), '1 of 5', 'a layer that became a pull request is still a layer')
   assert.equal(layerPlaceOf(pulled, 'pr:acme/shop/13', HEAD), '2 of 5')
+})
+
+test("each layer's step says its review as the rest of the window does: reviewing while it is built again, queued only while it waits", () => {
+  const review = (over: Partial<ReviewListItem>): ReviewListItem => ({ id: 'change:rpg:l2', kind: 'change', title: 'Title l2', project: 'rpsleague', head: 'h', state: 'ready', phase: null, error: null, updatedAt: '2026-11-24T12:00:00Z', ...over })
+  const behindGraph = { state: 'queued' as const, head: 'h' }
+
+  assert.deepEqual(layerStateOf(review({ phase: 'reading', assessment: behindGraph })), { tone: 'quiet', label: 'Reviewing', reviewing: true })
+  assert.deepEqual(layerStateOf(review({ assessment: behindGraph })), { tone: 'quiet', label: 'Review queued', reviewing: true })
+  assert.deepEqual(layerStateOf(undefined), { tone: 'quiet', label: 'Not reviewed yet', reviewing: false })
 })

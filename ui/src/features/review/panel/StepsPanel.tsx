@@ -8,6 +8,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { useDragEdge } from '@/app/drag-edge.ts'
 import { spring } from '@/lib/motion.ts'
+import { assessmentOf } from '@/features/work/review-follow.ts'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
 import type { Size } from '../story/camera.ts'
 import type { VerdictCommands } from '../verdict.ts'
@@ -185,7 +186,7 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
 
           {/* What the verdict rests on, last in the middle, right above the foot (spec 053). */}
           <div className="flex flex-col gap-2.5 border-t border-border px-4 pt-3 pb-3">
-            <Evidence assessment={chrome.assessment} status={chrome.preparation?.assessment} parts={matters.units} heading={HEADING} />
+            <Evidence assessment={chrome.assessment} status={chrome.preparation ? assessmentOf(chrome.preparation) : undefined} parts={matters.units} heading={HEADING} />
           </div>
 
           {looks > 0 ? (

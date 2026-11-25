@@ -121,3 +121,17 @@ test('a run is under way while the graph is built again or its change review wai
   assert.ok(failureOf({ ...ready, assessment: { state: 'failed', head: 'h' } }), 'a stop without a reason is still said')
   assert.equal(failureOf({ ...ready, error: 'This pull request is not open any more.' }), 'This pull request is not open any more.')
 })
+
+test('a review built again says it is being prepared, with what it does and its log, though the change review behind its graph says queued', () => {
+  const log = [{ at: iso(1), text: 'Asking GitHub where #198 is.' }]
+  const builtAgain = (phase: ReviewStatus['phase'], assessment: AssessmentStatus): ReviewStatus => ({ ...IDLE_STATUS('pr:hobkin-sample/api/198'), state: 'ready', head: 'h', phase, assessment })
+  const behindGraph: AssessmentStatus = { state: 'queued', head: 'h', percent: 0, log, steps: [step('triage', 'pending')] }
+
+  const reading = preparingOf(builtAgain('reading', behindGraph), T0, T0)
+  const waiting = preparingOf(builtAgain('queued', behindGraph), T0, T0)
+  const afterStop = preparingOf(builtAgain('checking', { state: 'failed', head: 'h', error: 'The tests did not finish.' }), T0, T0)
+
+  assert.deepEqual([reading.state, reading.now, reading.percent, reading.log.map((line) => line.text)], ['running', 'Reading the change', null, ['Asking GitHub where #198 is.']])
+  assert.deepEqual([waiting.state, waiting.now], ['queued', 'Waiting its turn. One review runs at a time.'])
+  assert.deepEqual([afterStop.state, afterStop.now, afterStop.error], ['running', 'Checking the result', null], 'built again after it stopped, the old reason is not said')
+})

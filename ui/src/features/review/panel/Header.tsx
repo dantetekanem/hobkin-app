@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { openTarget } from '@/features/home/navigate.ts'
+import { assessmentOf } from '@/features/work/review-follow.ts'
 import { cn } from '@/lib/utils.ts'
 import { usePullPeople } from '../use-people.ts'
 import { ByLineNames } from './ByLine.tsx'
@@ -88,7 +89,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
       <h2 className="mt-1 font-heading text-[17px] leading-[1.28] font-semibold tracking-[-0.02em] text-pretty [overflow-wrap:anywhere]">{title}</h2>
       {pullRequest && live ? <ByLine id={review.id} /> : null}
       {/* A change that lands is never reviewed again, so its review offers no "Try again". */}
-      <Risk badge={headerBadge(assessment, preparation?.assessment)} live={live && !preparation?.landing} merged={preparation?.landing?.state === 'merged'} rebuild={rebuild} />
+      <Risk badge={headerBadge(assessment, preparation ? assessmentOf(preparation) : undefined)} live={live && !preparation?.landing} merged={preparation?.landing?.state === 'merged'} rebuild={rebuild} />
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] text-muted-foreground">
         <span>
           {files} {files === 1 ? 'file' : 'files'}

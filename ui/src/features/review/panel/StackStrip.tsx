@@ -1,15 +1,14 @@
 import { ChevronLeft, ChevronRight, Layers } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { FinishedChange } from '#shared/protocol/work.ts'
-import { readOutdated, type ReviewListItem } from '#shared/review/status.ts'
 import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
-import { reviewBadge, type BadgeTone } from '@/features/work/review-badge.ts'
+import type { BadgeTone } from '@/features/work/review-badge.ts'
 import { useWorkView } from '@/features/work/store.ts'
 import { useReviewList } from '@/features/work/use-review-list.ts'
 import { cn } from '@/lib/utils.ts'
-import { layerPlaceOf, openKeyOf, stackStrip, type StackStrip as Strip, type StripLayer } from '../stack-strip.ts'
+import { layerPlaceOf, layerStateOf, openKeyOf, stackStrip, type LayerState, type StackStrip as Strip, type StripLayer } from '../stack-strip.ts'
 
 /** The event the review's key listener sends the strip for `{` and `}`: -1 goes to the layer under, 1 to the layer over. */
 export const LAYER_EVENT = 'rv-layer'
@@ -19,14 +18,6 @@ const TONE: Record<BadgeTone, string> = {
   bad: 'bg-bad/15 text-bad-fg',
   warn: 'bg-warn/15 text-warn-fg',
   quiet: 'bg-background text-muted-foreground',
-}
-
-/** A layer's review as the rest of the app shows it: its answer, being reviewed, not reviewed, or outdated. */
-function stateOf(item: ReviewListItem | undefined): { tone: BadgeTone; label: string; reviewing: boolean } {
-  const badge = reviewBadge(item?.assessment)
-  const reviewing = item?.assessment?.state === 'running' || item?.assessment?.state === 'queued'
-  if (readOutdated(item?.outdated)) return { tone: 'warn', label: 'Outdated', reviewing }
-  return { tone: badge.tone, label: badge.label, reviewing }
 }
 
 /** The sample's review is every layer's review at once, so with no host the strip starts on layer 3 and a press moves its mark only. */
@@ -83,7 +74,7 @@ function StripRow({ strip, live, onSample }: { strip: Strip; live: boolean; onSa
         </Arrow>
         <ol aria-label="The layers of this stack, bottom first" className="rv-scroll flex min-w-0 items-center gap-1 overflow-x-auto -my-[3px] px-[3px] py-[3px]">
           {strip.slots.map((layer, index) =>
-            layer ? <Step key={layer.key} layer={layer} state={stateOf(itemOf(layer))} onGo={go} /> : <Gap key={index} number={index + 1} />,
+            layer ? <Step key={layer.key} layer={layer} state={layerStateOf(itemOf(layer))} onGo={go} /> : <Gap key={index} number={index + 1} />,
           )}
         </ol>
         <Arrow label="The layer over" keys="}" layer={strip.over} onGo={go}>
@@ -97,7 +88,7 @@ function StripRow({ strip, live, onSample }: { strip: Strip; live: boolean; onSa
   )
 }
 
-function Step({ layer, state, onGo }: { layer: StripLayer; state: ReturnType<typeof stateOf>; onGo: (layer: StripLayer) => void }) {
+function Step({ layer, state, onGo }: { layer: StripLayer; state: LayerState; onGo: (layer: StripLayer) => void }) {
   return (
     <li className="shrink-0">
       <Tooltip>
