@@ -5,7 +5,8 @@ import type { Review } from '#shared/review/types.ts'
 import { escapeReview } from '../src/features/review/entry.ts'
 import { pressKey, type KeyEffects, type KeyPress } from '../src/features/review/keys.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
-import { createSession } from '../src/features/review/state/session.ts'
+import { createSession, reviewNodesOf } from '../src/features/review/state/session.ts'
+import { storyOrder } from '../src/features/review/diff/files.ts'
 import { partsInFile, readLook, stepShowing } from '../src/features/review/state/look.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
@@ -114,6 +115,18 @@ test('a note in the code view is about the selected lines, or the file, on the f
   session.getState().selectLines(null)
   session.getState().startNote('question')
   assert.deepEqual(session.getState().editor, { step: 's6', target: { kind: 'node', node: 'u5' } })
+})
+
+test('a note in a code view that has not moved yet is about the file it shows first, not the step', () => {
+  const { session } = codeSession()
+  assert.equal(session.getState().diff.file, null, 'the code view shows its first file')
+  const { view } = session.getState()
+  const nodes = new Map(sample.nodes.map((node) => [node.id, node]))
+  const first = storyOrder(sample.files, view.story, (id) => reviewNodesOf(view, id), (id) => nodes.get(id))[0]!
+
+  session.getState().startNote('question')
+
+  assert.deepEqual(session.getState().editor?.target, { kind: 'node', node: partsInFile(sample.nodes, first)[0]!.id })
 })
 
 test('the parts of a file and the step that shows a note, as the code view reads them', () => {

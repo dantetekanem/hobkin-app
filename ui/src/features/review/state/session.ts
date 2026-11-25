@@ -5,6 +5,7 @@
  */
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { Review, ReviewNode } from '#shared/review/types.ts'
+import { storyOrder } from '../diff/files.ts'
 import { FOCUS_BUDGET, isFoldGroup, NO_FOCUS, type FocusState } from '../graph/focus.ts'
 import { focusLevels, hoverLevels, type HoverLevel, type Levels, type NodeLevel, type WireLevel } from '../graph/levels.ts'
 import { countNotes, noteTarget, type Note, type NoteCounts, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
@@ -680,7 +681,9 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
           const held = selection ? noteHolding(get().notes, intent, selection) : undefined
           if (held) return get().editNote(held.id)
           // The lines selected, or with none, as with the files focused, the file, through its first part.
-          const file = review.files.find((each) => each.id === (selection?.fileId ?? get().diff.file))
+          // A code view that has not moved yet shows its first file, in the story's order.
+          const shown = get().diff.file ?? storyOrder(review.files, view.story, (id) => reviewNodesOf(view, id), partOf)[0]?.id
+          const file = review.files.find((each) => each.id === (selection?.fileId ?? shown))
           const part = file ? partsInFile(review.nodes, file)[0] : undefined
           const fileTarget: NoteTarget = part ? { kind: 'node', node: part.id } : { kind: 'step' }
           const target = selection ?? fileTarget
