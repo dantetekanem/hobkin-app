@@ -84,7 +84,7 @@ export function MainAgentScreen() {
       {children.length ? <Helpers helpers={children} /> : null}
       {/* Outside the steps' scroller, so it stays in sight as they scroll. Its list opens over them from this row. */}
       {head?.any ? (
-        <div className="relative z-10 flex justify-center px-[10%] pb-2 empty:hidden">
+        <div className="relative z-10 mx-[10%] flex pb-2 empty:hidden">
           <MainTasks />
         </div>
       ) : null}

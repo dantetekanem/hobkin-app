@@ -55,7 +55,8 @@ function toggleList(root: HTMLElement | null, bar: HTMLButtonElement | null): vo
  * (task-keys.ts), and Escape inside closes it. It opens over the transcript and leaves its bottom in view, so it takes
  * no room from it. Nothing shows for an agent that keeps no tasks.
  *
- * Mount it outside the steps' scroller, in a positioned row: the open list hangs from that row and spans it.
+ * Mount it outside the steps' scroller, first in a positioned row: the open list hangs from that row's left end, under
+ * the line, at a width its words read well at.
  */
 export function TaskList({ entries, hue }: { entries?: readonly ActivityEntry[]; hue: number }) {
   const read = useMemo(() => (entries ? tasksOf(entries) : NO_TASKS), [entries])
@@ -234,8 +235,8 @@ const Panel = memo(function Panel({ id, tasks, progress, still }: { id: string; 
     rows.push(rowOf(task, index, task.state === 'now' ? `${tint}:now:${working++}` : undefined, still))
   })
   return (
-    // Spans the row the line sits in, so the list stands under it.
-    <div ref={outer} className="pointer-events-none absolute inset-x-0 top-full z-20 mt-2 flex justify-center">
+    // Spans the row the line sits in, and stands under the line at its left end.
+    <div ref={outer} className="pointer-events-none absolute inset-x-0 top-full z-20 mt-2 flex">
       <motion.div
         id={id}
         data-task-panel
@@ -245,7 +246,7 @@ const Panel = memo(function Panel({ id, tasks, progress, still }: { id: string; 
         initial={holdStill({ opacity: 0, transform: 'translateY(-6px) scale(0.96)' }, still)}
         animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.sheet, opacity: tween.enter } }, still)}
         exit={holdStill({ opacity: 0, transform: 'translateY(-4px) scale(0.96)', transition: tween.exit }, still)}
-        className="pointer-events-auto flex w-full max-w-[34rem] origin-top flex-col overflow-hidden rounded-[18px] border border-border bg-popover text-popover-foreground shadow-panel"
+        className="pointer-events-auto flex w-full max-w-[28rem] origin-top-left flex-col overflow-hidden rounded-[18px] border border-border bg-popover text-popover-foreground shadow-panel"
       >
         <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
           <span className="text-[13px] font-medium">Tasks</span>

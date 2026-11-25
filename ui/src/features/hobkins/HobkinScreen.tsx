@@ -180,7 +180,7 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
         <TeamsStrip runs={[...turns.map((turn) => turn.run), hobkin?.run]} hue={hueOf(id)} runName={hobkin?.title ?? 'This hobkin'} variant="rows" className="pb-2" />
       </div>
       {/* The tasks of the turn in flight, as one line that stays in sight above the conversation and opens over it. */}
-      <div className="relative z-10 flex shrink-0 justify-center px-[10%]">
+      <div className="relative z-10 mx-[10%] flex shrink-0">
         <AgentTaskList agentId={liveRun} hue={hueOf(id)} />
       </div>
       <Conversation
