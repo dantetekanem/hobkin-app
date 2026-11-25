@@ -71,8 +71,12 @@ test('a face whose mood changes plays its motion from the start, also a play it 
   assert.deepEqual(said, ['hob-part-sway from the start', 'hob-ear-flick from the start'])
 })
 
-/** A face's box with one animation that has been running a while: it counts the face's plays and rests. */
-function countingFace() {
+/**
+ * A face's box with one animation that has been running a while: it counts the face's plays and rests. `motion` is
+ * Settings' Movement as the page's root carries it (`data-motion`); a face with none is drawn in a page Settings has not
+ * marked.
+ */
+function countingFace(motion?: string) {
   const counts = { plays: 0, rests: 0 }
   const running: Play = {
     animationName: 'hob-mood',
@@ -87,7 +91,9 @@ function countingFace() {
       counts.rests += 1
     },
   }
-  const root = { current: { getAnimations: () => [running] } as unknown as HTMLElement }
+  const page = { documentElement: { getAttribute: (name: string) => (name === 'data-motion' ? (motion ?? null) : null) } }
+  const face = motion === undefined ? { getAnimations: () => [running] } : { getAnimations: () => [running], ownerDocument: page }
+  const root = { current: face as unknown as HTMLElement }
   return { counts, root }
 }
 
@@ -131,5 +137,25 @@ test('a face plays once as it starts working and once as it finishes', async () 
 
   assert.equal(playsOnStarting, 1, 'idle to working')
   assert.equal(counts.plays - playsOnStarting, 1, 'working to happy')
+  await face.unmount()
+})
+
+test('under Lively a face leaves its loops running: it neither rests as it mounts nor plays again as its mood changes', async () => {
+  const { counts, root } = countingFace('lively')
+  const face = await mountFace(root, 'idle')
+
+  for (const mood of ['thinking', 'working', 'searching', 'happy']) await face.show(mood)
+
+  assert.deepEqual(counts, { plays: 0, rests: 0 })
+  await face.unmount()
+})
+
+test('following the Mac a face rests as it mounts and plays as it starts working, as it does in a page Settings has not marked', async () => {
+  const { counts, root } = countingFace('system')
+  const face = await mountFace(root, 'idle')
+
+  await face.show('working')
+
+  assert.deepEqual(counts, { plays: 1, rests: 1 })
   await face.unmount()
 })
