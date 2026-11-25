@@ -1,5 +1,6 @@
 import { sameEntry, type ActivityEntry } from '#shared/protocol/activity.ts'
 import { proofCheckOf } from '../proofs/proof-match.ts'
+import { isSkillLoad } from './skills.ts'
 import { isTaskTool } from './tasks.ts'
 
 /**
@@ -104,7 +105,10 @@ export interface ReadOptions {
   ended?: boolean
   /** The agent's folder. Paths inside it are shown from there. */
   cwd?: string
-  /** The page shows the agent's tasks in their own line (TaskList.tsx), so a task call is a step only when it failed. */
+  /**
+   * The page shows the agent's tasks and the skills it loaded in lines of their own (TaskList.tsx, SkillsLine.tsx), so a
+   * task call or a skill load is a step only when it failed.
+   */
   tasksOnLine?: boolean
 }
 
@@ -313,6 +317,8 @@ function groupsOf(entries: readonly ActivityEntry[], options: ReadOptions): Grou
       continue
     }
     if (options.tasksOnLine && isTaskTool(entry.name) && entry.state !== 'failed') continue
+    // A failed load is no skill (skills.ts), so it stays a step. A SKILL.md read leaves its group of reads.
+    if (options.tasksOnLine && isSkillLoad(entry)) continue
 
     const kind = STEP_OF[familyOf(entry.name)]
     const path = kind === 'change' ? pathOf(entry, options.cwd) : undefined

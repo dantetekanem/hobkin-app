@@ -11,7 +11,8 @@ const NO_SKILLS: readonly string[] = []
 /**
  * The skills the agent loaded (skills.ts) in one line beside its tasks, "3 loaded skills" (_specs/070-load-skill). Hover
  * or keyboard focus lists their names in the order it loaded them, and nothing opens on a click. It is the tasks line's
- * pill with its still ring and never glows: a load is over at once. Nothing shows before the agent loads a skill.
+ * pill with its still ring and never glows: a load is over at once. Its loads are not drawn as steps (steps.ts,
+ * `tasksOnLine`): this is where they show. Nothing shows before the agent loads a skill.
  *
  * Mount it last in its row, so it only adds at the row's end and nothing beside it moves as it appears or grows. With
  * too little room it gives way first, and its words are cut.

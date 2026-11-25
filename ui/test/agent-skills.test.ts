@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { skillsOf } from '../src/features/agent-activity/skills.ts'
+import { stepsOf, type Step } from '../src/features/agent-activity/steps.ts'
 
 // Entries as hobkin keeps them (src/cli/job-activity.mjs): the arguments as indented JSON, the result's text only. A run on
 // Claude Code reaches them with Claude Code's own tool names and inputs (host/src/claude-code/stream.ts).
@@ -65,4 +66,30 @@ test('only a file named SKILL.md is a skill, named by its folder', () => {
     { id: 'message:1:0', kind: 'assistant', text: 'I will read humanizer/SKILL.md.' },
   ] satisfies ActivityEntry[]
   assert.deepEqual(skillsOf(entries), ['ticket-writer'])
+})
+
+const kinds = (steps: readonly Step[]) => steps.map((step) => step.kind)
+
+test('where the page shows the loaded skills in their own line, the loads are not steps, and one that failed still is', () => {
+  const work = [
+    piRead('1', '/repo/src/app.ts'),
+    piRead('2', `${SKILLS}/humanizer/SKILL.md`),
+    piRead('3', '/repo/src/app.test.ts'),
+    loadSkill('4', 'agentic-search'),
+    bash('5', 'git status'),
+    claudeSkill('6', 'anthropic-skills:pdf'),
+    bash('7', 'pnpm test'),
+    // A group of reads that held only skills is not drawn: the commands on either side are one group.
+    piRead('8', `${SKILLS}/react-engineer/SKILL.md`),
+    bash('9', 'git diff'),
+    loadSkill('10', 'no-such-skill', 'failed'),
+  ]
+  const steps = stepsOf(work, { tasksOnLine: true })
+  assert.deepEqual(kinds(steps), ['looks', 'shell', 'tool'])
+  // The SKILL.md read left its group of reads: the files on either side of it are one group, as if it were not there.
+  assert.deepEqual(steps[0]!.kind === 'looks' && steps[0]!.looks.map((look) => look.what), ['/repo/src/app.ts', '/repo/src/app.test.ts'])
+  assert.equal(steps[1]!.kind === 'shell' && steps[1]!.commands.length, 3)
+  assert.deepEqual(steps[2]!.kind === 'tool' && [steps[2]!.name, steps[2]!.state], ['load_skill', 'failed'])
+  // A page without the line still draws every call.
+  assert.deepEqual(kinds(stepsOf(work)), ['looks', 'tool', 'shell', 'tool', 'shell', 'looks', 'shell', 'tool'])
 })
