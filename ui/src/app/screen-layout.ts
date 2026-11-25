@@ -15,6 +15,13 @@
  */
 export const PAGE_TOP = 82
 
+/**
+ * Where an agent's page starts its own header: the same rule as `PAGE_TOP`, under the menu's second row too, the
+ * agents, which adds its 4px of air and its 32px pills (`ScreenMenu.tsx` `Born`). The trail then sits under the whole
+ * menu and never covers the agent's name.
+ */
+export const AGENT_PAGE_TOP = PAGE_TOP + 36
+
 /** The scroller that fills the canvas. Each screen adds its own bottom padding. */
 export const SCREEN_SCROLLER = 'scroll-quiet h-full overflow-y-auto px-6 pt-(--page-top)'
 

@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { HOBKIN_MESSAGE_MAX, HOBKIN_TITLE_MAX, hobkinAgentId, hobkinOfAgent, type HobkinConversation, type HobkinSummary } from '#shared/protocol/hobkins.ts'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
+import { AGENT_PAGE_TOP } from '@/app/screen-layout.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Pals } from '@/avatar/Pals.tsx'
@@ -241,7 +242,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
  */
 function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: HobkinSummary | undefined; state: PageState; mood: ReturnType<typeof doingOf>['mood']; split: boolean }) {
   const still = useStill()
-  const top = split ? 56 : 76
+  const top = split ? 56 : AGENT_PAGE_TOP
   const models = useModelChoices()
   const [naming, setNaming] = useState<string | null>(null)
   const [renamed, setRenamed] = useState<string | null>(null)
