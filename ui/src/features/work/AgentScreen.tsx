@@ -16,9 +16,8 @@ import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { earlierRow, useNewest } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
-import { AgentSkillsLine } from '@/features/agent-activity/SkillsLine.tsx'
+import { AgentLines } from '@/features/agent-activity/AgentLines.tsx'
 import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
-import { AgentTaskList } from '@/features/agent-activity/TaskList.tsx'
 import { lastStepTime, useActivityPresence, useAgentActivity, useAgentGlance, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
@@ -26,7 +25,6 @@ import { releaseImages } from '@/features/chat/image-uploads.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
 import { PAGE_ROOM, ScheduleLine } from '@/features/schedules/ScheduleLine.tsx'
-import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { agentsFrom, sameFields } from '@/lib/host/frame.ts'
@@ -129,21 +127,16 @@ export function AgentScreen() {
             {reading && agent && agentId ? (
               <motion.div
                 key="helpers"
-                // In a row of their own, so helpers and tasks arriving never move the exchange below. The row starts at the
-                // exchange's left edge, with the tasks first, where what comes and goes beside them never moves them.
-                className="absolute inset-x-[10%] flex gap-3"
+                // In a row of their own, so lines arriving never move the exchange below. The row starts at the exchange's
+                // left edge, with the tasks first, where what comes and goes beside them never moves them. Every agent's
+                // page has the same lines.
+                className="absolute inset-x-[10%]"
                 style={{ top: HELPERS_TOP }}
                 initial={holdStill({ opacity: 0 }, still)}
                 animate={holdStill({ opacity: 1, transition: agentEntry(still) }, still)}
                 exit={holdStill({ opacity: 0, transition: tween.exit }, still)}
               >
-                <AgentTaskList agentId={agentId} hue={agent.hue} />
-                {/* The agents its own Pi started with pi-extended-teams: shown, never controlled (046-teams-layer). A spawn
-                    call is a step, so a run that has any is always read here. */}
-                <TeamsStrip runs={[agentId]} hue={agent.hue} runName={agent.title} />
-                <HelpersStrip runId={agentId} hue={agent.hue} />
-                {/* Last, so it only adds at the row's end. */}
-                <AgentSkillsLine agentId={agentId} hue={agent.hue} />
+                <AgentLines agentId={agentId} hue={agent.hue} name={agent.title} />
               </motion.div>
             ) : null}
           </AnimatePresence>
@@ -492,11 +485,6 @@ function HelpersGlance({ runId, hue, hidden }: { runId: string; hue: number; hid
       <HelpersLine helpers={children} hue={hue} />
     </div>
   )
-}
-
-/** While the run is read, its helpers sit under the shrunken header, folded into one line beside its teams agents. */
-function HelpersStrip({ runId, hue }: { runId: string; hue: number }) {
-  return <HelpersLine helpers={useRunChildren(runId)} hue={hue} />
 }
 
 /** The steps and messages of the exchange, top to bottom, for the keyboard. */

@@ -133,7 +133,8 @@ export function lastStepTime(entries: readonly ActivityEntry[], timeOf: (id: str
 /** When each sample agent's canvas first opened, so its sample plays from there. */
 const sampleStarts = new Map<string, number>()
 
-function sampleStart(agentId: string): number {
+/** When a sample agent's sample first played, the main agent's under MAIN_ACTIVITY, so every part of its page plays it from there. */
+export function sampleStart(agentId: string): number {
   let start = sampleStarts.get(agentId)
   if (start === undefined) sampleStarts.set(agentId, (start = Date.now()))
   return start

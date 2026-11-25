@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
-import type { ActivityEntry } from '#shared/protocol/activity.ts'
+import { MAIN_ACTIVITY, type ActivityEntry } from '#shared/protocol/activity.ts'
 import type { Mood } from '@/avatar/moods.tsx'
 import { sampleAt, sampleLength } from '@/features/agent-activity/sample.ts'
 import { familyOf, pauseOf, stepCount } from '@/features/agent-activity/steps.ts'
 import { sameTasks, tasksOf, type AgentTask } from '@/features/agent-activity/tasks.ts'
-import type { EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
+import { sampleStart, type EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { useHasHost, useHost } from '@/lib/host/index.ts'
 import { mainActivityOf } from './mind.ts'
@@ -15,12 +15,9 @@ import { SAMPLE_MAIN } from './sample.ts'
  * connected, the sample's before. A part draws again only when what it shows changes, not for every step.
  */
 
-/** When the sample first played, so it plays on from there. */
-let sampleStart: number | undefined
-
-/** When the sample first played, read once by each part. */
+/** When the sample first played, read once by each part. The mind's lines play it from the same moment (`agent-jobs.ts`). */
 export function useSampleStart(): number {
-  const [start] = useState(() => (sampleStart ??= Date.now()))
+  const [start] = useState(() => sampleStart(MAIN_ACTIVITY))
   return start
 }
 

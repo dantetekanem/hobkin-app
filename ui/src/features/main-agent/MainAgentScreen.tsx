@@ -2,7 +2,6 @@ import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo } from 'react'
 import { MAIN_ACTIVITY, type ActivityEntry } from '#shared/protocol/activity.ts'
-import type { RunChild } from '#shared/protocol/snapshot.ts'
 import { handOffCanvasFocus } from '@/app/focus.ts'
 import { Rise } from '@/app/Reveal.tsx'
 import { holdStill, useStill } from '@/app/still.ts'
@@ -12,18 +11,15 @@ import { sampleLength } from '@/features/agent-activity/sample.ts'
 import { stepsOf } from '@/features/agent-activity/steps.ts'
 import { Arrivals } from '@/features/agent-activity/arrive.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
-import { SkillsLine } from '@/features/agent-activity/SkillsLine.tsx'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
-import { Tasks } from '@/features/agent-activity/TaskList.tsx'
+import { AgentLines } from '@/features/agent-activity/AgentLines.tsx'
 import { lastStepTime, mainTimeOf, type EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { turnStartedAt, doingNow as turnWord } from '@/features/chat/doing.ts'
 import { useNow } from '@/features/chat/use-now.ts'
-import { HelpersLine } from '@/features/work/ChildAgents.tsx'
-import { useMainChildren } from '@/features/work/children.ts'
 import { useHasHost, useHost, useWatchJob } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
-import { sampleTimeOf, useMainHead, useMainSteps, useMainTasks, useSampleStart } from './main-steps.ts'
+import { sampleTimeOf, useMainHead, useMainSteps, useSampleStart } from './main-steps.ts'
 import { quietLine, quietSince } from './mind.ts'
 import { SAMPLE_MAIN } from './sample.ts'
 
@@ -32,7 +28,7 @@ const HUE = 42
 
 const capital = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
 
-/** The main agent's helpers and turn: the host's while one is connected, the sample's before. Its steps are read by the parts that show them. */
+/** The main agent's turn: the host's while one is connected, the sample's before. Its steps, helpers and lines are read by the parts that show them. */
 function useMain() {
   // While the mind is open, the host sends the main agent's steps whole. Otherwise they come as their tail.
   useWatchJob(MAIN_ACTIVITY)
@@ -47,7 +43,6 @@ function useMain() {
     live,
     timeOf: live ? mainTimeOf : sampleTimeOf,
     turnStart: live ? turnStart : null,
-    children: useMainChildren(),
     busy: live ? hostedBusy : playing,
     word: live ? hostedWord : playing ? 'thinking' : null,
     cwd: live ? undefined : SAMPLE_MAIN.cwd,
@@ -61,7 +56,7 @@ function useMain() {
  */
 export function MainAgentScreen() {
   const still = useStill()
-  const { live, timeOf, turnStart, children, busy, word, cwd } = useMain()
+  const { live, timeOf, turnStart, busy, word, cwd } = useMain()
   const head = useMainHead()
   const steps = head?.steps ?? 0
   const status = busy ? `${capital(word ?? 'thinking')}${steps ? ` · ${steps === 1 ? '1 step' : `${steps} steps`}` : ''}` : 'Waiting for your next message'
@@ -81,14 +76,9 @@ export function MainAgentScreen() {
           </span>
         ) : null}
       </Rise>
-      {children.length ? <Helpers helpers={children} /> : null}
-      {/* Outside the steps' scroller, so it stays in sight as they scroll. Its list opens over them from this row. */}
-      {head?.any ? (
-        <div className="relative z-10 mx-[10%] flex gap-3 pb-2 empty:hidden">
-          <MainTasks />
-          <MainSkills />
-        </div>
-      ) : null}
+      {/* Outside the steps' scroller, so they stay in sight as the steps scroll, and their lists open over them. Every
+          agent's page has the same lines. */}
+      <AgentLines agentId={MAIN_ACTIVITY} hue={HUE} name="hobkin" className="mx-[10%]" />
       {head === null ? (
         <Blank>Hobkin's mind needs hobkin to restart once: the running hobkin is older than this view and does not send its main agent's steps.</Blank>
       ) : !head.any ? (
@@ -98,16 +88,6 @@ export function MainAgentScreen() {
       )}
     </div>
   )
-}
-
-/** The main agent's tasks line, which draws again only when a task changes. */
-function MainTasks() {
-  return <Tasks tasks={useMainTasks()} hue={HUE} />
-}
-
-/** The skills the main agent loaded, after its tasks. It reads every step, and its line draws again only for a new skill. */
-function MainSkills() {
-  return <SkillsLine entries={useMainSteps()} hue={HUE} />
 }
 
 /**
@@ -133,19 +113,6 @@ function Quiet({ word, entries, timeOf, turnStart }: { word: string; entries: re
 
 function Blank({ children }: { children: string }) {
   return <p className="mx-auto mt-[18vh] max-w-[46ch] px-6 text-center text-[15px] leading-relaxed text-muted-foreground">{children}</p>
-}
-
-/**
- * The agents the main agent spawned, folded into one line at the left that opens their list. They run inside its Pi,
- * so none of their steps are here. Over the tasks row under it, so the list it opens hangs over that row.
- */
-function Helpers({ helpers }: { helpers: readonly RunChild[] }) {
-  const still = useStill()
-  return (
-    <motion.div className="relative z-20 flex px-[10%] pb-2" initial={holdStill({ opacity: 0 }, still)} animate={{ opacity: 1, transition: tween.enter }}>
-      <HelpersLine helpers={helpers} hue={HUE} />
-    </motion.div>
-  )
 }
 
 const NO_ENTRIES: readonly ActivityEntry[] = []

@@ -12,8 +12,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { useSplit, useSplitSizes } from '@/features/canvas-panel/use-board.ts'
 import { Arrivals, useArrival } from '@/features/agent-activity/arrive.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
-import { AgentSkillsLine } from '@/features/agent-activity/SkillsLine.tsx'
-import { AgentTaskList } from '@/features/agent-activity/TaskList.tsx'
+import { AgentLines } from '@/features/agent-activity/AgentLines.tsx'
 import { earlierRow, useNewest, withEarlier } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
@@ -25,7 +24,6 @@ import type { Attachment } from '@/features/chat/draft.ts'
 import { MessageText } from '@/features/chat/markdown.ts'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
 import { PAGE_ROOM, ScheduleLine } from '@/features/schedules/ScheduleLine.tsx'
-import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { AgentStopControl, upToAgents, walkSteps } from '@/features/work/AgentScreen.tsx'
 import { useAgentImages } from '@/features/work/agent-images.ts'
@@ -193,14 +191,9 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
       exit={{ opacity: 0, transition: tween.exit }}
     >
       <Header id={id} hobkin={hobkin} state={state} mood={mood} split={split} />
-      {/* The tasks of the turn in flight, as one line that stays in sight above the conversation and opens over it; the
-          agents its turns started with pi-extended-teams, folded into a line the same way, as long as hobkin holds those
-          turns (shown, never controlled: 046-teams-layer); and the skills it loaded. */}
-      <div className="relative z-10 mx-[10%] flex shrink-0 gap-3">
-        <AgentTaskList agentId={liveRun} hue={hueOf(id)} />
-        <TeamsStrip runs={[...turns.map((turn) => turn.run), hobkin?.run]} hue={hueOf(id)} runName={hobkin?.title ?? 'This hobkin'} />
-        <AgentSkillsLine agentId={liveRun} hue={hueOf(id)} />
-      </div>
+      {/* Its tasks, teams agents, helpers and loaded skills from all the turns hobkin holds, in sight above the
+          conversation, each opening over it: every agent's page has the same lines. */}
+      <AgentLines agentId={hobkinAgentId(id)} hue={hueOf(id)} name={hobkin?.title ?? 'This hobkin'} className="mx-[10%]" />
       <Conversation
         id={id}
         turns={turns}

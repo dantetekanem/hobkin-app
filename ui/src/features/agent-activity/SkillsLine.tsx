@@ -29,7 +29,8 @@ export function SkillsLine({ entries, hue }: { entries: readonly ActivityEntry[]
   return <Skills skills={held.current} hue={hue} />
 }
 
-const Skills = memo(function Skills({ skills, hue }: { skills: readonly string[]; hue: number }) {
+/** The line for given skills: what every agent's page draws (`AgentLines.tsx`), and what a still render draws. */
+export const Skills = memo(function Skills({ skills, hue }: { skills: readonly string[]; hue: number }) {
   if (skills.length === 0) return null
   return (
     <Tooltip>
