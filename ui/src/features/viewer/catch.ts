@@ -15,13 +15,19 @@ export interface LinkTarget {
   href: string | null
   /** The file the anchor stands for (`data-file`), when it is a local path. */
   file: string | null
+  /** ⌘ was held: a file opens in its own app. */
+  meta?: boolean
 }
 
-/** `file`: open the viewer. `system`: the host opens it in the system's app. `default`: the link works as a link does. */
-export type LinkDecision = 'file' | 'system' | 'default'
+/**
+ * `file`: open the viewer. `app`: the host opens the file in its default app. `system`: the host opens the address in
+ * the system's app. `default`: the link works as a link does.
+ */
+export type LinkDecision = 'file' | 'app' | 'system' | 'default'
 
-export function decideLink({ href, file }: LinkTarget, { inMacWindow, hasHost }: LinkEnvironment): LinkDecision {
-  if (file) return 'file'
+export function decideLink({ href, file, meta = false }: LinkTarget, { inMacWindow, hasHost }: LinkEnvironment): LinkDecision {
+  // With no host to open it, the viewer says why it cannot.
+  if (file) return meta && hasHost ? 'app' : 'file'
   if (inMacWindow && hasHost && href && /^(https?:\/\/|mailto:)/i.test(href)) return 'system'
   return 'default'
 }
@@ -29,6 +35,7 @@ export function decideLink({ href, file }: LinkTarget, { inMacWindow, hasHost }:
 export interface LinkActions {
   environment(): LinkEnvironment
   openFile(path: string): void
+  openInApp(path: string): void
   openAddress(href: string): void
 }
 
@@ -43,10 +50,11 @@ export function catchLinks(page: Document, actions: LinkActions): () => void {
     if (!anchor) return
     const href = anchor.getAttribute('href')
     const file = anchor.getAttribute('data-file')
-    const decision = decideLink({ href, file }, actions.environment())
+    const decision = decideLink({ href, file, meta: event.metaKey }, actions.environment())
     if (decision === 'default') return
     event.preventDefault()
     if (decision === 'file') actions.openFile(file!)
+    else if (decision === 'app') actions.openInApp(file!)
     else actions.openAddress(href!)
   }
   page.addEventListener('click', onClick)

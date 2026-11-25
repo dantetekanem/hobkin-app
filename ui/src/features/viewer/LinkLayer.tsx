@@ -11,7 +11,7 @@ const inMacWindow = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__'
 /**
  * Where link clicks are caught for the whole app, and where a clicked file opens (_specs/027-links-and-files).
  * In the Mac window with a host a web or mail address opens through the host (`system.open`); in a browser tab it
- * is left to work as a link. A local file opens the viewer.
+ * is left to work as a link. A local file opens the viewer, or with ⌘ held its default app.
  */
 export function LinkLayer() {
   useEffect(
@@ -19,6 +19,8 @@ export function LinkLayer() {
       catchLinks(document, {
         environment: () => ({ inMacWindow: inMacWindow(), hasHost: hasHost(hostStore.getState()) }),
         openFile: (path) => useViewer.getState().openFile(path),
+        // A file the host cannot open, such as one that is not there, opens the viewer, which says why.
+        openInApp: (path) => void runCommand('file.open', { path }).catch(() => useViewer.getState().openFile(path)),
         openAddress: (url) => void runCommand('system.open', { url }).catch(() => {}),
       }),
     [],

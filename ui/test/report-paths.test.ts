@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { decideLink } from '../src/features/viewer/catch.ts'
 
 // The reader's Markdown is TSX, which Node reads once Vite's own transformer has turned it into JavaScript.
 const { transformSync } = (await import(createRequire(import.meta.resolve('vite')).resolve('rolldown/experimental'))) as {
@@ -69,4 +70,15 @@ test('a report keeps web links, report links and words that only look like paths
 test("a fold's label and inside link paths the same way", () => {
   const html = render(['<details><summary>Logs in `/tmp/run.log`</summary>', '', 'Kept at ~/logs/run.md', '</details>'].join('\n'))
   assert.deepEqual(files(html), ['/tmp/run.log', '~/logs/run.md'])
+})
+
+test('⌘-click on a file opens it in its app when a host can, and a plain click opens the sheet', () => {
+  const mac = { inMacWindow: true, hasHost: true }
+  assert.equal(decideLink({ href: '#', file: '/Users/x/a.md', meta: true }, mac), 'app')
+  assert.equal(decideLink({ href: '#', file: '/Users/x/a.md', meta: true }, { inMacWindow: false, hasHost: true }), 'app')
+  assert.equal(decideLink({ href: '#', file: '/Users/x/a.md', meta: false }, mac), 'file')
+  // With no host to open it, the sheet says why it cannot be shown.
+  assert.equal(decideLink({ href: '#', file: '/Users/x/a.md', meta: true }, { inMacWindow: true, hasHost: false }), 'file')
+  // A web link is the same with ⌘ as without.
+  assert.equal(decideLink({ href: 'https://hobkin.invalid', file: null, meta: true }, mac), 'system')
 })
