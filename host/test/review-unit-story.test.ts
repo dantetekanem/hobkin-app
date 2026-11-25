@@ -102,19 +102,26 @@ test('the story’s words name the change and its units, and a long title is kep
   assert.ok(story[1]!.title.length <= 80 && story[1]!.title.endsWith('…'))
 })
 
-test('a test says how the change review ran it: failing at the change’s commit, proving the change, passing, or not run and why', async () => {
+test('file-only receipts cannot prove or pass a named case', async () => {
+  const graph = await review()
+  const file = 'test/models/cart_test.rb'
+  const nodes = unitWords(graph, { units: [], places, words: null, runs: [{ kind: 'baseline', tests: [file], failed: [] }, { kind: 'probe', node: 'n1', tests: [file], failed: [file] }] })
+  assert.equal(nodes.find((node) => node.kind === 'test')?.status, 'not-run')
+})
+
+test('local failures identify failed or proving cases, while file success leaves a case unknown', async () => {
   const graph = await review()
   const test = graph.nodes.find((node) => node.kind === 'test')!
   const words = (runs: Parameters<typeof unitWords>[1]['runs'], notRun?: string) =>
     unitWords(graph, { units: [], places, words: null, runs, ...(notRun ? { notRun } : {}) }).find((node) => node.id === test.id)!
   const file = 'test/models/cart_test.rb'
-  assert.deepEqual([words([{ kind: 'baseline', tests: [file], failed: [file] }]).status, words([{ kind: 'baseline', tests: [file], failed: [file] }]).summary], ['failed', `${words([]).summary.split('. ')[0]}. It fails at the change's commit.`])
-  assert.equal(words([{ kind: 'baseline', tests: [file], failed: [] }, { kind: 'probe', node: 'n1', tests: [file], failed: [file] }]).status, 'proves-change')
-  assert.equal(words([{ kind: 'baseline', tests: [file], failed: [] }, { kind: 'revert', node: 'n1', tests: [file], failed: [] }]).status, 'passed')
+  assert.deepEqual([words([{ kind: 'baseline', tests: [file], failed: [file], failed_at: [{ path: file, line: 3 }] }]).status, words([{ kind: 'baseline', tests: [file], failed: [file], failed_at: [{ path: file, line: 3 }] }]).summary], ['failed', `${words([]).summary.split('. ')[0]}. It fails at the change's commit.`])
+  assert.equal(words([{ kind: 'baseline', tests: [file], failed: [] }, { kind: 'probe', node: 'n1', tests: [file], failed: [file], failed_at: [{ path: file, line: 3 }] }]).status, 'proves-change')
+  assert.equal(words([{ kind: 'baseline', tests: [file], failed: [] }, { kind: 'revert', node: 'n1', tests: [file], failed: [] }]).status, 'not-run')
   assert.match(words([], 'no way to run this repository’s tests was found.').summary, /Not run: no way to run this repository’s tests was found\.$/)
 })
 
-test('a test passes only where a run that held it ran tests and failed none: one that could not start, was stopped or ran none says why it did not run', async () => {
+test('a case without a local receipt preserves startup, stopped and skipped explanations', async () => {
   const graph = await review()
   const test = graph.nodes.find((node) => node.kind === 'test')!
   const file = 'test/models/cart_test.rb'
@@ -133,10 +140,10 @@ test('a test passes only where a run that held it ran tests and failed none: one
   notRun(words([{ kind: 'baseline', tests: [file, other], failed: [other] }, { kind: 'baseline', tests: [file], failed: [], not_run: none }, { kind: 'baseline', tests: [other], failed: [other] }]), none)
   const notTaken = 'this review runs tests with bin/rails with a test folder, which does not take it.'
   notRun(words([{ kind: 'baseline', tests: [other], failed: [] }], [{ path: file, why: notTaken }]), notTaken)
-  assert.equal(words([{ kind: 'baseline', tests: [file, other], failed: [other] }, { kind: 'baseline', tests: [file], failed: [] }]).status, 'passed', 'run alone, it ran and passed')
+  assert.equal(words([{ kind: 'baseline', tests: [file, other], failed: [other] }, { kind: 'baseline', tests: [file], failed: [] }]).status, 'not-run', 'running the file alone is still not a case receipt')
 })
 
-test('only a test the run failed in proves the change: another test of the same file passed both ways', async () => {
+test('only a test the run failed in proves the change: a sibling remains unknown', async () => {
   const graph = await review()
   const test = graph.nodes.find((node) => node.kind === 'test')!
   const file = 'test/models/cart_test.rb'
@@ -145,12 +152,12 @@ test('only a test the run failed in proves the change: another test of the same 
   // The test is lines 2 to 4 of its file.
   assert.equal(reverted([{ path: file, line: 3 }]).status, 'proves-change')
   const other = reverted([{ path: file, line: 40 }])
-  assert.equal(other.status, 'passed')
-  assert.match(other.summary, /It passes at the change's commit, and no change put back made it fail\.$/)
-  assert.equal(reverted([{ path: 'test/models/order_test.rb', line: 3 }]).status, 'passed', 'a failure in another file is not this test’s')
+  assert.equal(other.status, 'not-run')
+  assert.match(other.summary, /No individual result/)
+  assert.equal(reverted([{ path: 'test/models/order_test.rb', line: 3 }]).status, 'not-run', 'a failure in another file is not this test’s')
 })
 
-test('a request test that still passes with the change undone, and fails when the definition is made to fail, goes through it', async () => {
+test('a file-level reach result does not establish a named case passed', async () => {
   const graph = await review()
   const test = graph.nodes.find((node) => node.kind === 'test')!
   const file = 'test/models/cart_test.rb'
@@ -160,8 +167,34 @@ test('a request test that still passes with the change undone, and fails when th
     words: null,
     runs: [{ kind: 'baseline', tests: [file], failed: [] }, { kind: 'revert', node: 'n1', tests: [file], failed: [] }, { kind: 'reach', node: 'n1', tests: [file], failed: [file] }],
   }).find((node) => node.id === test.id)!
-  assert.equal(told.status, 'passed')
-  assert.match(told.summary, /It runs through Cart#total and passes, with the change and with it put back: it does not check the change itself\.$/)
+  assert.equal(told.status, 'not-run')
+  assert.match(told.summary, /No individual result/)
+})
+
+test('the named case result wins over a stack frame from a sibling and a trailing context line', async () => {
+  const graph = await review()
+  const file = 'test/models/cart_test.rb'
+  const parts = { units: [], words: null, places: places.map((place) => place.kind === 'test' ? { ...place, symbol: 'describe "cart".rounds', lines: [2, 3] as [number, number] } : place) }
+  const nodes = unitWords(graph, { ...parts, runs: [
+    { kind: 'baseline', tests: [file], failed: [], cases: [{ path: file, name: 'cart > rounds', status: 'passed' }] },
+    { kind: 'probe', node: 'n1', tests: [file], failed: [file], failed_at: [{ path: file, line: 3 }], cases: [{ path: file, name: 'cart > rounds', status: 'passed' }, { path: file, name: 'other > rounds', status: 'failed' }] },
+  ] })
+  assert.equal(nodes.find((node) => node.kind === 'test')?.status, 'passed')
+})
+
+test('a case whose file was never selected does not claim its file ran', async () => {
+  const node = unitWords(await review(), { units: [], places, words: null, runs: [] }).find((node) => node.kind === 'test')
+  assert.match(node!.summary, /file was not run/)
+})
+
+test('native exact case receipts establish success, not a sibling name', async () => {
+  const graph = await review()
+  const file = 'test/models/cart_test.rb'
+  const own = graph.nodes.find((node) => node.kind === 'test')!
+  const parts = {units: [], words: null, places: places.map((place) => place.kind === 'test' ? {...place, symbol: 'total is rounded'} : place)}
+  const told = (name: string) => unitWords(graph, {...parts, runs: [{kind: 'baseline', tests: [file], failed: [], cases: [{path: file, name, status: 'passed'}]}]}).find((node) => node.id === own.id)!
+  assert.equal(told('total is rounded').status, 'passed')
+  assert.equal(told('another case').status, 'not-run')
 })
 
 test('code of a unit says what the unit says of it: its member line, else what changed', async () => {

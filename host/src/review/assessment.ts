@@ -73,6 +73,7 @@ interface GraphRun {
   tests?: string[]
   failed?: string[]
   failed_at?: { path: string; line: number }[]
+  cases?: { path: string; name: string; status: 'passed' | 'failed' | 'skipped' }[]
   /** Why the run tells nothing of how its files did. */
   not_run?: unknown
 }
@@ -92,6 +93,7 @@ function unitRunOf(run: GraphRun): UnitRun {
     tests: run.tests ?? [],
     failed: run.failed ?? [],
     ...(run.failed_at ? { failed_at: run.failed_at } : {}),
+    ...(run.cases ? { cases: run.cases } : {}),
     ...(typeof run.not_run === 'string' && run.not_run ? { not_run: run.not_run } : {}),
   }
 }
@@ -628,8 +630,8 @@ export class Assessments {
   private readonly buckets = new Map<string, Map<string, NodeBucket>>()
   /** Files read at a reviewed commit for the tests the change review found, each once, null when git had none. */
   private readonly heads = new Map<string, string | null>()
-  /** Each finished review's ratings, read once for each time its graph was written. */
-  private readonly ratings = new Map<string, { at: number; needs: ReviewNeeds | null; notRated: { tries: number; why: string } | null }>()
+  /** A finished graph's range and ratings are read together. */
+  private readonly ratings = new Map<string, { at: number; summaryAt: number; base?: string; head?: string; needs: ReviewNeeds | null; notRated: { tries: number; why: string } | null }>()
   /** The last one waiting for each review tree, so a tree has one user at a time. */
   private readonly turns = new Map<string, Promise<void>>()
   private readonly controller = new AbortController()
@@ -661,15 +663,15 @@ export class Assessments {
   }
 
   /** How the review of this commit stands: from this host's memory, else from what an earlier run left in the home. */
-  status(target: ReviewTarget, head: string | null): AssessmentStatus {
+  status(target: ReviewTarget, head: string | null, base?: string): AssessmentStatus {
     if (!head) return { state: 'idle', head: null }
     const record = this.records.get(this.key(target, head))
     const kept = record ? { ...(record.request ? { request: record.request } : {}), ...(record.log.length ? { log: [...record.log] } : {}) } : {}
     const known = this.live.get(this.key(target, head))
-    if (known) return { ...known, ...kept }
+    if (known && known.state !== 'ready') return { ...known, ...kept }
     const folder = assessmentFolder(this.options.root, target, head)
-    const summary = readJson<AssessmentSummary>(join(folder, 'summary.json'))
-    if (summary) return { state: 'ready', head, summary }
+    const summary = known?.summary ?? readJson<AssessmentSummary>(join(folder, 'summary.json'))
+    if (summary) return this.matches(target, head, base, summary) ? { state: 'ready', head, summary, ...kept } : { state: 'idle', head }
     const failed = readJson<{ error?: unknown }>(join(folder, FAILED_FILE))
     if (typeof failed?.error === 'string') return { state: 'failed', head, error: failed.error }
     if (existsSync(join(folder, 'progress.json'))) {
@@ -706,7 +708,7 @@ export class Assessments {
    * the same commit is never reviewed twice. `again` reviews it once more.
    */
   start(job: AssessJob, { again = false }: { again?: boolean } = {}): AssessmentStatus {
-    const now = this.status(job.target, job.head)
+    const now = this.status(job.target, job.head, job.base)
     if (now.state === 'queued' || now.state === 'running') return now
     if (now.state === 'ready' && !again) return now
     if (this.queue.some((entry) => this.key(entry.target, entry.head) === this.key(job.target, job.head))) return now
@@ -897,7 +899,7 @@ export class Assessments {
     )
     // A run stopped on the way has not finished, whatever it answered, so no summary says it has.
     if (signal.aborted) throw new Error(STOPPED)
-    const summary: AssessmentSummary = { ...summarize(result, this.clockIso()), ...(previous ? { before: previous } : {}) }
+    const summary: AssessmentSummary = { ...summarize(result, this.clockIso()), range: { base, head }, ...(previous ? { before: previous } : {}) }
     writeWhole(join(assessmentFolder(root, target, head), 'summary.json'), JSON.stringify(summary))
     say(`Finished: ${finishedWords(summary)}`)
     this.set(target, head, { state: 'ready', head, summary })
@@ -913,10 +915,10 @@ export class Assessments {
    * What a finished review wrote: the story and its units, for the Review screen. Null until one is ready. The units
    * carry the model's words where it wrote some, so the window shows them first.
    */
-  read(target: ReviewTarget, head: string): ChangeAssessment | null {
+  read(target: ReviewTarget, head: string, base?: string): ChangeAssessment | null {
     const folder = assessmentFolder(this.options.root, target, head)
     const summary = readJson<AssessmentSummary>(join(folder, 'summary.json'))
-    if (!summary) return null
+    if (!summary || !this.matches(target, head, base, summary)) return null
     let story: string
     try {
       story = readFileSync(join(folder, 'story.md'), 'utf8')
@@ -967,7 +969,7 @@ export class Assessments {
    * story walks, after an opening with the change's claim. Null until a change review is ready for the review's commit.
    */
   present(target: ReviewTarget, review: Review, files?: readonly ReviewFileContents[]): Review | null {
-    const assessment = this.read(target, review.change.head)
+    const assessment = this.read(target, review.change.head, review.change.base)
     if (!assessment?.units) return null
     const folder = assessmentFolder(this.options.root, target, review.change.head)
     const graph = readJson<GraphFile>(join(folder, 'graph.json'))
@@ -1027,30 +1029,45 @@ export class Assessments {
    * The user's five questions as a finished change review at this commit answered them (spec 058), with hobkin's rate
    * and floors and when it finished, or null when it is not finished or not rated. Read again only when its graph is.
    */
-  needsOf(target: ReviewTarget, head: string): ReviewNeeds | null {
-    return this.ratingsOf(target, head)?.needs ?? null
+  needsOf(target: ReviewTarget, head: string, base?: string): ReviewNeeds | null {
+    const read = this.ratingsOf(target, head)
+    return read && (!base || read.base === base) ? read.needs : null
+  }
+
+  private matches(target: ReviewTarget, head: string, base: string | undefined, summary: AssessmentSummary): boolean {
+    if (summary.range) return summary.range.head === head && (!base || summary.range.base === base)
+    if (!base) return true
+    const old = this.ratingsOf(target, head)
+    return old?.base === base && old.head === head
   }
 
   /** Why a finished review at this commit could not give all five ratings, with the tries made, or null when it did or is not finished (spec 063). */
-  notRatedOf(target: ReviewTarget, head: string): { tries: number; why: string } | null {
-    return this.ratingsOf(target, head)?.notRated ?? null
+  notRatedOf(target: ReviewTarget, head: string, base?: string): { tries: number; why: string } | null {
+    const read = this.ratingsOf(target, head)
+    return read && (!base || read.base === base) ? read.notRated : null
   }
 
-  private ratingsOf(target: ReviewTarget, head: string): { needs: ReviewNeeds | null; notRated: { tries: number; why: string } | null } | null {
+  private ratingsOf(target: ReviewTarget, head: string) {
     const folder = assessmentFolder(this.options.root, target, head)
     const file = join(folder, 'graph.json')
     const at = statSync(file, { throwIfNoEntry: false })?.mtimeMs
     if (at == null) return null
     const key = this.key(target, head)
+    const summaryFile = join(folder, 'summary.json')
+    const summaryAt = statSync(summaryFile, { throwIfNoEntry: false })?.mtimeMs
+    if (summaryAt == null) return null
     const kept = this.ratings.get(key)
-    if (kept?.at === at) return kept
-    const finished = readJson<AssessmentSummary>(join(folder, 'summary.json'))?.at
-    const graph = finished ? readJson<unknown>(file) : undefined
-    const rated = finished ? engineNeeds(graph) : undefined
-    const needs = rated ? { ...rated, at: finished! } : null
+    if (kept?.at === at && kept.summaryAt === summaryAt) return kept
+    const summary = readJson<AssessmentSummary>(summaryFile)
+    if (!summary?.at || (summary.range && summary.range.head !== head)) return null
+    const graph = readJson<{ head?: string; base?: string }>(file)
+    if (graph?.head && graph.head !== (summary.carried?.from ?? head)) return null
+    if (summary.range && graph?.base && !summary.carried && graph.base !== summary.range.base) return null
+    const rated = engineNeeds(graph)
+    const needs = rated ? { ...rated, at: summary.at } : null
     const sent = (graph as { notRated?: { tries?: unknown; why?: unknown } } | null | undefined)?.notRated
-    const notRated = finished && typeof sent?.why === 'string' && Number.isInteger(sent.tries) ? { tries: sent.tries as number, why: sent.why.slice(0, 300) } : null
-    const read = { at, needs, notRated }
+    const notRated = typeof sent?.why === 'string' && Number.isInteger(sent.tries) ? { tries: sent.tries as number, why: sent.why.slice(0, 300) } : null
+    const read = { at, summaryAt, base: summary.range?.base ?? graph?.base, head: summary.range?.head ?? graph?.head, needs, notRated }
     this.ratings.set(key, read)
     return read
   }

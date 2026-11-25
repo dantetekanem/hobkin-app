@@ -297,7 +297,8 @@ function referenceOf(value: unknown): Dangling['references'][number] | undefined
   const raw = record(value)
   const path = name(raw?.path)
   const at = line(raw?.line)
-  return path && at !== undefined ? { path, line: at, text: text(raw?.text) ?? '' } : undefined
+  const resolution = name(raw?.resolution)
+  return path && at !== undefined ? { path, line: at, text: text(raw?.text) ?? '', ...(resolution ? { resolution } : {}) } : undefined
 }
 
 /**
@@ -312,7 +313,8 @@ function danglingOf(value: unknown): Dangling | null | undefined {
   const path = name(raw.path) ?? name(raw.oldPath)
   const references = all(raw.references ?? raw.callers, referenceOf)
   if (!symbol || !path || !references) return undefined
-  return references.length ? { symbol, path, references } : null
+  const oldLine = line(raw.oldLine)
+  return references.length ? { symbol, path, ...(oldLine ? { oldLine } : {}), references } : null
 }
 
 function testGroupOf(value: unknown, tally: Tally): Scan['tests'][number] | undefined {

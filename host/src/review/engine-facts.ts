@@ -198,7 +198,14 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
   const shownTest = (test: EngineTest) => {
     const inFile = nodes.filter((node) => node.kind === 'test' && node.subtitle === test.path)
     const title = test.symbol ? cleanProse(testName(test.symbol), TITLE_LIMIT) : undefined
-    return inFile.find((node) => node.title === title) ?? inFile.find((node) => test.line != null && holdsLine(node, test.path, test.line, 'added'))
+    const named = title ? inFile.find((node) => node.title === title) : undefined
+    if (named) return named
+    if (test.symbol) {
+      return inFile.find((node) =>
+        node.anchors.some((anchor) => anchor.side === 'added' && anchor.startLine === test.line),
+      )
+    }
+    return inFile.find((node) => test.line != null && holdsLine(node, test.path, test.line, 'added'))
   }
   const results = new Map<string, NodeStatus>()
   const removed = new Set<string>()

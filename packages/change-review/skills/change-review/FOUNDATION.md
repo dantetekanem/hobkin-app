@@ -143,7 +143,7 @@ Deterministic, first match wins. The floor is computed from the four facts; no m
 | 2 | Effect is `text`; or a removal that nothing remaining refers to; or a bucket from section 6 whose checks all passed; or a test, which is proof for the code it runs and never a change rated on its own; or a type and nothing else | `safe` |
 | 3 | Undo is `none` and exposure is not `nobody-yet` | `high` |
 | 4 | Effect is `data` or `interface`, exposure is `everyone` or `at-load`, and it is not an additive schema change. While no test goes through a request to it | `high` |
-| 4 | The same, once a test goes through a request to it (`lifecycle`, `lifecycle-observed`) | `mid` |
+| 4 | The same, once a test goes through a request to it (`lifecycle`, `lifecycle-observed`), or an internal signature change where the complete list of exact callers supplies the required arguments. Matching call shapes do not prove what the method does. | `mid` |
 | 5 | Proof is `none`, `mocked` or `unknown`, for code that runs in a request, job or consumer. Add the finding "no test that ran shows the change" | `mid` |
 | 6 | Proof is `isolated`, for code that runs in a request, job or consumer. Add the finding "direct tests fail without the change; no request test goes through it" | `mid` |
 | 7 | Undo is `flag-with-residue` | `mid` |

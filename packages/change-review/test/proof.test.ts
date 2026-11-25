@@ -88,6 +88,19 @@ test('a repository has a test command for each kind of test file it holds, so a 
 
 // ───────────────────────── Candidates ─────────────────────────
 
+test('changed tests importing the source are bounded candidates even when they call only its public entry', async () => {
+  const files = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`test/turn-${i}.test.js`, "import { perform } from '../src/enemy.js'; perform()"]))
+  files['test/unrelated.test.js'] = "import { perform } from '../src/other.js'; perform()"
+  files['test/wrong-source.test.js'] = "import { perform } from '../other/enemy.js'; perform()"
+  const selected = await candidateTests({
+    node: { id: 'n1', symbol: 'retreatDestination', path: 'src/enemy.js' }, scan: { anchors: [] },
+    changedTestPaths: ['test/wrong-source.test.js', 'test/unrelated.test.js', ...Object.keys(files)], isLifecycleTest: () => false,
+    exists: (path) => path in files, read: (path) => files[path] ?? null,
+  })
+  assert.equal(selected.length, 8)
+  assert.ok(selected.every((item) => item.path.startsWith('test/turn-') && item.changed && !item.lifecycle))
+})
+
 test('candidate tests: what the scan links, changed tests that name the symbol, and files named after the source', async () => {
   const files: Record<string, string> = {
     'test/flow/checkout.test.ts': "checkout(['a'])",
@@ -509,7 +522,7 @@ test('a test that fails on revert proves the definition, one that still passes d
   )
   const first = result.runs[0]!
   assert.equal(first.command, `${process.execPath} --test test/flow/rounding.test.ts test/shop.test.ts test/flow/checkout.test.ts test/broken.test.ts`)
-  assert.ok(first.exit_code !== 0 && first.seconds > 0 && first.output_tail?.includes('was already broken'))
+  assert.ok(first.exit_code !== 0 && first.seconds > 0 && first.output_tail?.includes('test/broken.test.ts'))
   assert.ok(result.runs.every((run) => run.condition_state === 'default'))
   assert.match(result.runs.at(-1)!.output_tail ?? '', /\(stopped after 3 seconds, the time limit\)$/, 'the run that hung was stopped and says so')
   assert.deepEqual(heard, result.runs, 'every run is reported as it is recorded')
@@ -608,7 +621,7 @@ test('a test the runner never ran, or one that also fails at head, proves nothin
   // The passing first run named the left-out file too; run alone, it is seen not to run at all.
   assert.deepEqual(result.nodes.n1, {
     value: 'unknown',
-    evidence: 'the test runner found no test to run in test/flow/a.excluded.test.js when a is put back to base.',
+    evidence: 'the test runner found no test to run in test/flow/a.excluded.test.js.',
     observedBy: [],
     doubles: [],
     stillPass: [],
@@ -616,7 +629,7 @@ test('a test the runner never ran, or one that also fails at head, proves nothin
   })
   assert.deepEqual(result.nodes.n2, {
     value: 'unknown',
-    evidence: 'test/b.test.js fails when b is put back to base, and again at head with nothing changed: that failure does not show the change.',
+    evidence: 'its tests fail here with the change and with it put back, so they say nothing about it: test/b.test.js.',
     observedBy: [],
     doubles: [],
     stillPass: [],
@@ -624,14 +637,15 @@ test('a test the runner never ran, or one that also fails at head, proves nothin
   })
   assert.deepEqual(result.nodes.n3?.observedBy, ['test/c.test.js'])
   assert.equal(result.nodes.n3?.value, 'isolated')
-  assert.deepEqual(result.findings, [])
+  assert.deepEqual(result.findings, [{ rule: 'failing-test', text: 'test/b.test.js fails here with the change in place.', by: 'proof' }])
   assert.deepEqual(
     result.runs.map((run) => [run.kind, run.node ?? '', run.tests.join(' '), run.failed.join(' ')]),
     [
-      ['baseline', '', 'test/flow/a.excluded.test.js test/b.test.js test/c.test.js', ''],
-      ['revert', 'n1', 'test/flow/a.excluded.test.js', ''],
+      ['baseline', '', 'test/flow/a.excluded.test.js test/b.test.js test/c.test.js', 'test/b.test.js'],
+      ['baseline', '', 'test/flow/a.excluded.test.js', ''],
+      ['baseline', '', 'test/b.test.js', 'test/b.test.js'],
+      ['baseline', '', 'test/c.test.js', ''],
       ['revert', 'n2', 'test/b.test.js', 'test/b.test.js'],
-      ['baseline', 'n2', 'test/b.test.js', 'test/b.test.js'],
       ['revert', 'n3', 'test/c.test.js', 'test/c.test.js'],
       ['baseline', 'n3', 'test/c.test.js', ''],
     ],
@@ -685,6 +699,45 @@ test('a file that is not plain UTF-8 text is never rewritten', async (t) => {
   assert.ok(readFileSync(join(dir, 'src/latin.js')).equals(latin('2')))
 })
 
+test('indirect callees require measured failure, and an unavailable revert falls back to reach only', async (t) => {
+  const dir = tempDir(t, 'indirect-proof')
+  const git = gitIn(dir)
+  git('init', '--quiet', '--initial-branch=main')
+  const source = (n: number) => fileOf('export function perform() { return retreatDestination() }', 'function retreatDestination() {', `  return ${n}`, '}', 'export function unrelated() { return 7 }')
+  writeIn(dir, {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }),
+    'src/enemy.js': source(1),
+    'test/turn.test.js': `${TEST_HEADER}import { perform } from '../src/enemy.js'\ntest('turn', () => assert.equal(perform(), 2))\n`,
+    'test/unrelated.test.js': `${TEST_HEADER}import { unrelated } from '../src/enemy.js'\ntest('other entry', () => assert.equal(unrelated(), 7))\n`,
+  })
+  git('add', '-A'); git('commit', '--quiet', '-m', 'Base')
+  const base = git('rev-parse', 'HEAD')
+  writeIn(dir, { 'src/enemy.js': source(2) })
+  git('commit', '--quiet', '-am', 'Change')
+  const head = git('rev-parse', 'HEAD')
+  const node: ProofNode = { id: 'n1', symbol: 'retreatDestination', path: 'src/enemy.js', lines: [2, 4], kind: 'function', change: 'modified' }
+  const candidates = await candidateTests({ node, scan: { anchors: [] }, changedTestPaths: ['test/turn.test.js', 'test/unrelated.test.js'], isLifecycleTest: () => false, exists: (path) => existsSync(join(dir, path)), read: (path) => readFileSync(join(dir, path), 'utf8') })
+  const prove = (diffs: FileDiff[], parses?: Parameters<typeof runProof>[0]['parses']) => runProof({ cwd: dir, head, nodes: [node], candidates: { n1: candidates }, runbook: detectRunbook(dir), diffs, doublePatterns: DOUBLES, parses })
+  const measured = await prove(await gitRepo(dir).diffs(base, head))
+  assert.deepEqual(measured.nodes.n1?.observedBy, ['test/turn.test.js'])
+  assert.deepEqual(measured.nodes.n1?.stillPass, ['test/unrelated.test.js'])
+  assert.equal(measured.nodes.n1?.value, 'isolated')
+  const fallback = await prove([])
+  assert.equal(fallback.nodes.n1?.value, 'unknown')
+  assert.deepEqual(fallback.nodes.n1?.observedBy, [])
+  assert.deepEqual(fallback.nodes.n1?.reachedBy, ['test/turn.test.js'])
+  assert.deepEqual(fallback.nodes.n1?.stillPass, ['test/unrelated.test.js'])
+  assert.match(fallback.nodes.n1!.evidence, /reach only.*does not prove the change/)
+  assert.deepEqual(fallback.runs.filter((run) => run.kind !== 'baseline').map((run) => run.kind), ['reach', 'reach', 'reach'])
+  const invalid = await prove(await gitRepo(dir).diffs(base, head), (path, before, after, language) =>
+    after.includes('return 1') ? Promise.resolve('partial revert does not parse') : checkParses(path, before, after, language))
+  assert.equal(invalid.nodes.n1?.value, 'unknown')
+  assert.match(invalid.nodes.n1!.evidence, /partial revert does not parse; reach only/)
+  assert.deepEqual(invalid.nodes.n1?.reachedBy, ['test/turn.test.js'])
+  assert.equal(invalid.runs.some((run) => run.kind === 'revert'), false)
+  assert.equal(git('status', '--porcelain'), '')
+})
+
 test('a test that fails with the change is a break only when it passes with the change undone', async (t) => {
   const dir = tempDir(t, 'proof-breaks')
   const git = gitIn(dir)
@@ -729,7 +782,7 @@ test('a test that fails with the change is a break only when it passes with the 
   assert.equal(git('status', '--porcelain'), '', 'the checkout is the change again')
 })
 
-test('every test file the change adds or edits is run at its commit, picked for a definition or not, and only once', async (t) => {
+test('every test file the change adds or edits is verified alone at its commit, picked for a definition or not', async (t) => {
   const dir = tempDir(t, 'proof-changed-tests')
   const git = gitIn(dir)
   git('init', '--quiet', '--initial-branch=main')
@@ -766,10 +819,10 @@ test('every test file the change adds or edits is run at its commit, picked for 
 
   // A change of tests alone: nothing to prove, and its tests run at its commit.
   const alone = await prove([], {})
-  assert.deepEqual(byNode(alone.runs), [['baseline', '', 'test/price.test.ts test/limits.test.ts', '']])
+  assert.deepEqual(byNode(alone.runs), [['baseline', '', 'test/price.test.ts test/limits.test.ts', ''], ['baseline', '', 'test/price.test.ts', ''], ['baseline', '', 'test/limits.test.ts', '']])
   assert.deepEqual(alone.notRun, [{ path: 'test/models/cart_test.rb', why: notTaken }])
 
-  // A changed test a definition picked runs once, with the changed tests nobody picked beside it.
+  // A changed test a definition picked is checked alongside tests nobody picked, then alone.
   const node: ProofNode = { id: 'n1', symbol: 'price', kind: 'function', path: 'src/price.ts', lines: [1, 3], change: 'modified' }
   const picked = await prove([node], { n1: [candidate('test/price.test.ts', false, true)] })
   assert.deepEqual(byNode(picked.runs)[0], ['baseline', '', 'test/price.test.ts test/limits.test.ts', ''])
@@ -824,7 +877,7 @@ test('a run that could not start, was stopped or ran no test fails no file and s
   // Run alone, each file is seen to hold no test the runner runs.
   const none = 'the test runner found no test to run.'
   assert.deepEqual(told((await prove('none')).runs), [[all, '', none], ['test/a.test.js', '', none], ['test/b.test.js', '', none], ['test/c.test.js', '', none]])
-  assert.deepEqual(told((await prove('zero')).runs), [[all, '', none]])
+  assert.deepEqual(told((await prove('zero')).runs), [[all, '', none], ['test/a.test.js', '', none], ['test/b.test.js', '', none], ['test/c.test.js', '', none]])
 
   const stopWhenStarted = () => {
     const controller = new AbortController()

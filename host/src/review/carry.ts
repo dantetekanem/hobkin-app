@@ -339,7 +339,7 @@ export function copyCarried({ root, store, target, built, head, base, why, tests
   const review: Review = { ...built.review, change: { ...built.review.change, head, base } }
   store.write(target, review, built.files, { ...(built.meta ?? { storyBy: 'host' }), preparedAt: at })
   // Last, so a review is never carried without its words.
-  writeWhole(join(folder, 'summary.json'), JSON.stringify({ ...summary, at, carried: { from, why, tests } }))
+  writeWhole(join(folder, 'summary.json'), JSON.stringify({ ...summary, at, range: { base, head }, carried: { from: summary.carried?.from ?? from, why, tests } }))
 }
 
 /** What a carry did: carried, from which commit and why, or not, and why, so the review is built again in its turn. */

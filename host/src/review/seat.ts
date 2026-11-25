@@ -28,6 +28,7 @@ import { githubApi, namedApi, readCodeHosts, type CodeHosts, type HostApi } from
 import { reviewCode, reviewMap } from './guide.ts'
 import { mergePlan, movedSince } from './landing.ts'
 import { reviewModelChecks } from './model-checks.ts'
+import { pullChecks } from './pull-checks.ts'
 import { monitoringLines } from './ratings.ts'
 import { capOf, triesOf } from './rules.ts'
 import { GradesBridge } from './grades.ts'
@@ -250,7 +251,8 @@ export function hostReviews(seat: ReviewSeat): Reviews {
           // What hobkin's readiness record says of the project's monitoring and its way back, for the visibility rating (spec 058).
           const monitoring = request.target.kind === 'change' ? projectMonitoring(seat, request.target.slug) : undefined
           const tries = triesOf(seat.work()?.yolo?.rules)
-          const result = await reviewChange({ ...request, model, modelChecks, ...(monitoring ? { monitoring } : {}), ...(tries ? { ratingTries: tries } : {}) })
+          const hostedChecks = request.target.kind === 'pull' ? await pullChecks({ target: request.target, head: request.head, gh: seat.gh }) : undefined
+          const result = await reviewChange({ ...request, model, modelChecks, ...(hostedChecks ? { hostedChecks } : {}), ...(monitoring ? { monitoring } : {}), ...(tries ? { ratingTries: tries } : {}) })
           for (const problem of result.problems) seat.log?.(`Change review at ${request.head.slice(0, 7)}: ${problem}`)
           return { units: result.units, storyBy: result.storyBy, answer: result.answer }
         },

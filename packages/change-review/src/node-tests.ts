@@ -6,6 +6,7 @@
  * are read from the diff's test hunks, by text: the pack does not list them.
  */
 import type { NodeProof, TestCandidate } from './proof.ts'
+import { caseOutcome } from './test-case.ts'
 import { isTestPath } from './triage.ts'
 import type { FileDiff, FileStatus, Finding, NodeTest, RemovedTest, ReviewNode, TestDefinition, TestRun } from './types.ts'
 
@@ -148,7 +149,8 @@ export interface NodeTestsInput {
 /** How a test file did at the change's commit: its first run with nothing changed. */
 function atHeadOf(path: string, runs: readonly TestRun[], findings: readonly Finding[]): NonNullable<NodeTest['at_head']> {
   if (findings.some((finding) => finding.rule === 'test-timeout' && finding.text.startsWith(`${path} `))) return 'timed-out'
-  const ran = runs.find((run) => run.kind === 'baseline' && !run.node && run.tests.includes(path))
+  const baseline = runs.filter((run) => run.kind === 'baseline' && !run.node && run.tests.includes(path))
+  const ran = baseline.find((run) => run.tests.length === 1) ?? baseline[0]
   if (!ran || ran.not_run) return 'not-run'
   return ran.failed.includes(path) ? 'failed' : 'passed'
 }
@@ -207,8 +209,8 @@ interface Found {
 
 /**
  * The tests of one test file that cover the part: one for each test definition the scan says covers it, each with its
- * own relation to the change, or one for the file when the scan names none. How the file did and what it showed are
- * the file's, since the proof runs files.
+ * own relation to the change, plus the file's aggregate result. Named cases use only local failure receipts;
+ * a green file cannot establish that any particular case ran.
  */
 function fileTests(path: string, how: Found, definitions: readonly TestDefinition[], input: NodeTestsInput): NodeTest[] {
   const byFile = fileRelation(input.status(path))
@@ -226,13 +228,27 @@ function fileTests(path: string, how: Found, definitions: readonly TestDefinitio
     const why = byName ? conventionWhy(reasons, input.node.symbol) : how.why
     return [{ path, relation: byFile ?? 'edited', ...shared, ...(why ? { why } : {}) }]
   }
-  return definitions.map((definition) => {
+  const file: NodeTest = { path, relation: byFile ?? 'edited', ...shared, ...(how.why ? { why: how.why } : {}) }
+  return [file, ...definitions.map((definition): NodeTest => {
     const relation = byFile ?? definitionRelation(definition, input)
     // In a file the diff did not touch or that it added whole, the file's reasons are each test's.
     const why = byFile === undefined && reasons.length ? definitionWhy(reasons, relation) : how.why
     const weakened = relation === 'edited' && diff ? weakenedIn(diff, [[definition.startLine, definition.endLine]]) : undefined
-    return { path, symbol: definition.symbol, line: definition.startLine, relation, ...shared, ...(why ? { why } : {}), ...(weakened ? { weakened } : {}) }
-  })
+    const uniqueName = input.definitions.filter((item) => item.path === path && item.symbol === definition.symbol).length === 1
+    const receipt = (run: TestRun) => caseOutcome(run, path, uniqueName ? definition.symbol : undefined)
+    const failedHere = (run: TestRun) => {
+      const outcome = receipt(run)
+      if (outcome) return outcome === 'failed'
+      return !run.not_run && run.failed.includes(path) && run.failed_at?.some((at) => at.path === path && definition.startLine <= at.line && at.line <= definition.endLine)
+    }
+    const baselines = input.runs.filter((run) => run.kind === 'baseline' && !run.node && run.tests.includes(path))
+    const failed = baselines.some(failedHere)
+    const atHead = failed ? 'failed' : baselines.some((run) => receipt(run) === 'passed') ? 'passed' : 'not-run'
+    const mutation = how.picked && input.runs.some((run) => run.node === input.node.id && ['revert', 'probe'].includes(run.kind) && failedHere(run))
+    const reach = how.picked && input.runs.some((run) => run.node === input.node.id && run.kind === 'reach' && failedHere(run))
+    const caseShows = mutation && (shows === 'proves' || shows === 'mocks') ? shows : reach ? 'reaches' as const : undefined
+    return { path, symbol: definition.symbol, line: definition.startLine, relation, found: how.found, lifecycle: how.lifecycle, at_head: atHead, ...(caseShows ? { shows: caseShows } : {}), ...(why ? { why } : {}), ...(weakened ? { weakened } : {}) }
+  })]
 }
 
 /**

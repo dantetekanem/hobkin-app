@@ -64,11 +64,16 @@ describe('nodeLevelOf', () => {
 describe('applyRiskEvents', () => {
   it('keeps an exposed old failure separate from merge risk, but blocks a regression', () => {
     const old = event({ node: 'a', origin: 'pre-existing', comparison: 'The same input fails at base and head; the diff only adds validation.', critical: true })
-    const regression = event({ node: 'b', origin: 'introduced', comparison: 'The consumer passes at base and fails at head with the same input.', critical: true })
+    const regression = event({ node: 'b', origin: 'introduced', comparison: 'The consumer passes at base and fails at head with the same input.', critical: true, grounding: { kind: 'code-path', trigger: 'the first charge times out', trace: [
+      { role: 'consumer', path: 'app/caller.rb', line: 1, side: 'head', quote: 'b(order)' },
+      { role: 'change', path: 'app/b.rb', line: 1, side: 'base', quote: 'charge_once(order)' },
+      { role: 'change', path: 'app/b.rb', line: 1, side: 'head', quote: 'charge_twice(order)' },
+    ] } })
     const nodes = [node('a'), node('b')]
+    nodes[1]!.callSites = [{ id: 'caller', symbol: 'caller', path: 'app/caller.rb', line: 1, text: 'b(order)', resolution: 'exact', guards: [] }]
     const parsed = readReviewAnswer(JSON.stringify({ events: [old, regression] }), { nodes, units: [], claims: [] })
     assert.deepEqual(parsed.problems, [])
-    const result = apply(nodes, parsed.events)
+    const result = applyRiskEvents(nodes, parsed.events, (path, side) => path === 'app/caller.rb' ? 'b(order)' : side === 'base' ? 'charge_once(order)' : 'charge_twice(order)')
     assert.equal(result.rejected.length, 0)
     assert.equal(levelOf(result.nodes, 'a'), 'safe')
     assert.equal(result.nodes[0]?.critical, false)
@@ -164,7 +169,7 @@ describe('applyRiskEvents', () => {
 
   it('a level a failing test set is a floor: no later event lowers it, whatever evidence it names', () => {
     const failing = event({ node: 'a', level: 'high', aspect: 'failure', rule: 'failing-test', by: 'proof', evidence: 'test/flow/checkout.test.ts fails at head, before anything is changed.' })
-    const hung = event({ node: 'b', level: 'high', aspect: 'failure', rule: 'test-timeout', evidence: 'test/flow/cart.test.ts did not finish within 180 seconds at head.' })
+    const hung = event({ node: 'b', level: 'high', aspect: 'failure', rule: 'test-timeout', by: 'proof', evidence: 'test/flow/cart.test.ts did not finish within 180 seconds at head.' })
     const lower = (id: string) => event({ node: id, level: 'mid', direction: 'down', evidence_kind: 'equivalent', evidence: 'The existing request tests run the changed lines and pass.' })
     const { nodes, rejected } = apply([node('a'), node('b')], [failing, lower('a'), hung, lower('b')])
     assert.deepEqual([levelOf(nodes, 'a'), levelOf(nodes, 'b')], ['high', 'high'])

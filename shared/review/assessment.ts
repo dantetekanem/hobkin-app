@@ -9,6 +9,8 @@ export type { Level, Units, Unit, Triage, Progress, BlindCheck, StoryWords } fro
 
 /** The card's line: the worst level, whether anything is critical, and how many units sit at each level. */
 export interface AssessmentSummary {
+  /** The exact range the engine read. Older summaries have it in graph.json. */
+  range?: { base: string; head: string }
   level: Level
   critical: boolean
   /** Units at `high`. */

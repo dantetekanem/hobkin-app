@@ -531,7 +531,7 @@ export class Reviews {
   /** The last failed build of each target, as the home keeps it, read once. */
   private readonly failures = new Map<string, BuildFailed | null>()
   /** Where each change started when this host last looked, and the commit it was at then: a start holds for that commit alone. */
-  private readonly lookedStart = new Map<string, { head: string; start: string }>()
+  private readonly lookedStart = new Map<string, { head: string; start: string; stale: boolean }>()
   /** Who wrote each pull request a finished change opened, by the pull request's review name, once its host has been asked. */
   private readonly openedPullAuthorship = new Map<string, Promise<PullAuthorship>>()
   /** How many notes hobkin has written, so two in the same millisecond still have their own ids. */
@@ -621,7 +621,7 @@ export class Reviews {
   private assessmentOf(id: string, target: ReviewTarget, head: string | null): AssessmentStatus | undefined {
     const { assessments } = this.options
     if (!assessments) return undefined
-    const known = this.withFix(target, assessments.status(target, head))
+    const known = this.withFix(target, assessments.status(target, head, this.startFor(id, head)?.start))
     const run = this.runs.get(id)
     if (!run || known.state === 'queued' || known.state === 'running' || (head && run.head && run.head !== head)) return known
     const preparing = this.preparingReview(id)
@@ -684,7 +684,7 @@ export class Reviews {
     const work = this.ownWorkOf(target)
     const head = work?.head
     if (!work || !head) return 'later'
-    const known = assessments.status(target, head)
+    const known = assessments.status(target, head, this.startFor(id, head)?.start)
     if (known.state !== 'ready' || !known.summary || deployOf(known.summary) !== 'risky') return 'done'
 
     const record = store.riskFix(target)
@@ -754,14 +754,14 @@ export class Reviews {
     const assessment = this.assessmentOf(id, target, at)
     const landing = this.landingOf(target)
     // A branch being brought up to date on the user's word moves as it should: that is no newer change to review.
-    const stale = known.state === 'ready' && head != null && !this.options.store.has(target, head) && landing?.state !== 'refreshing'
+    const start = this.startFor(id, head)
+    const stale = known.state === 'ready' && head != null && (!this.options.store.has(target, head) || start?.stale === true) && landing?.state !== 'refreshing'
     const mergeAsked = this.mergeAskedOf(target, landing)
     const pr = target.kind === 'change' ? this.pullOfChange(target)?.pr : undefined
     const card = target.kind === 'change' ? this.options.card(target.slug, target.item) : null
     const scores = card?.scores
     const code = card?.code ?? known.code
-    const looked = this.lookedStart.get(id)
-    const startsAt = looked && looked.head === head ? looked.start : undefined
+    const startsAt = start?.start
     // A change not built at its commit says why it waits, and how many are ahead of it.
     const turn = !known.phase && (stale || head == null || !this.options.store.has(target, head)) ? this.turnOf(id, target, head) : undefined
     const carriedFrom = assessment?.state === 'ready' ? assessment.summary?.carried : undefined
@@ -786,6 +786,11 @@ export class Reviews {
     }
   }
 
+  private startFor(id: string, head: string | null) {
+    const known = this.lookedStart.get(id)
+    return known?.head === head ? known : undefined
+  }
+
   /** The commit a review's change is at: what this host last looked up, until `card` names another commit than it did then. */
   private headOf(id: string, card: string | null): string | null {
     const looked = this.statuses.get(id)?.head ?? this.lookedHead.get(id) ?? null
@@ -798,7 +803,7 @@ export class Reviews {
   private assessmentDue(target: ReviewTarget, head: string): boolean {
     const { assessments } = this.options
     if (!assessments) return false
-    return assessments.status(target, head).state === 'idle' || assessments.cutShort(target, head)
+    return assessments.status(target, head, this.startFor(reviewIdOf(target), head)?.start).state === 'idle' || assessments.cutShort(target, head)
   }
 
   /**
@@ -1008,7 +1013,8 @@ export class Reviews {
         this.lookedHead.set(id, head)
         this.options.onChange?.()
       }
-      if (source.start) this.keepStart(id, head, await source.start(target, head))
+      const start = await source.start?.(target, head)
+      if (start) this.keepStart(id, head, start)
     } catch (error) {
       this.options.log?.(`Review ${id} could not look up its commit: ${messageOf(error)}`)
     }
@@ -1016,10 +1022,12 @@ export class Reviews {
 
   /** Keeps where a change starts at the commit it was looked up at, and says so when that is news. */
   private keepStart(id: string, head: string, start: string) {
-    const kept = this.lookedStart.get(id)
-    if (kept?.head === head && kept.start === start) return
-
-    this.lookedStart.set(id, { head, start })
+    const kept = this.startFor(id, head)
+    if (kept?.start === start) return
+    const drawn = this.options.store.read(this.target(id), head)?.review.change.base
+    const stale = drawn != null && drawn !== start
+    this.lookedStart.set(id, { head, start, stale })
+    if (stale) this.watched.delete(id)
     this.options.onChange?.()
   }
 
@@ -1129,8 +1137,10 @@ export class Reviews {
 
     // One preparation for each commit: a review already made for it is used as it is, unless older rules drew its graph.
     const kept = refresh ? null : store.read(target, head)
-    const cached = kept?.meta?.graph === GRAPH_RULES ? kept : null
+    const base = kept && source.start ? await source.start(target, head) : kept?.review.change.base
+    const cached = kept?.review.change.head === head && kept.review.change.base === base && kept.meta?.graph === GRAPH_RULES ? kept : null
     if (cached) {
+      this.lookedStart.set(id, { head, start: cached.review.change.base, stale: false })
       say(`The graph of ${head.slice(0, 7)} is drawn already.`)
       // Ready already, so there is no news to tell.
       this.asked.delete(id)
@@ -1157,6 +1167,7 @@ export class Reviews {
     const files = filesOf(draft.input.capture.files, draft.headFiles, review)
     const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: 'host' as const, graph: GRAPH_RULES, producerVersion: CLIENT_PRODUCER_VERSION, ...(input.owner ? { owner: input.owner } : {}), ...(input.code ? { code: input.code } : {}) }
     store.write(target, review, files, meta)
+    this.lookedStart.set(id, { head, start: capture.base, stale: false })
     this.keepFailure(target, null)
     say(`Drew the graph: ${count(review.nodes.length, 'node')} and ${count(review.edges.length, 'wire')}.`)
     this.opened.set(id, { review, files, meta })
@@ -1299,8 +1310,8 @@ export class Reviews {
     return {
       review: this.shown(target, prepared),
       notes: this.options.store.notes(target),
-      status: { ...status, stale: status.head != null && status.head !== review.change.head && status.landing?.state !== 'refreshing', ...(assessment ? { assessment } : {}) },
-      ...(assessments ? { assessment: assessments.read(target, review.change.head) } : {}),
+      status: { ...status, stale: status.stale || (status.head != null && status.head !== review.change.head && status.landing?.state !== 'refreshing'), ...(assessment ? { assessment } : {}) },
+      ...(assessments ? { assessment: assessments.read(target, review.change.head, review.change.base) } : {}),
     }
   }
 
@@ -2314,7 +2325,7 @@ export class Reviews {
    */
   private needsOf(target: ReviewTarget, head: string | null, shownAt: string | null, carried?: { from: string }): ReviewNeeds[] {
     // A change review of an older host, or a stand-in, may not answer it: then the review is not rated by it.
-    const own = head ? (this.options.assessments?.needsOf?.(target, head) ?? null) : null
+    const own = head ? (this.options.assessments?.needsOf?.(target, head, this.startFor(reviewIdOf(target), head)?.start) ?? null) : null
     const hobkins = target.kind === 'change' ? (this.options.card(target.slug, target.item)?.hobkinNeeds ?? null) : null
     return [own, hobkins].filter((needs): needs is ReviewNeeds => needs != null).map((needs) => {
       // A rating always names the commit it was made at; one made at another than its row's says which (spec 058).
@@ -2332,7 +2343,7 @@ export class Reviews {
    * run's are no rating of this review and are left out.
    */
   private ratingFor(target: ReviewTarget, head: string | null, assessment: AssessmentStatus | undefined, turn: ReviewTurn | undefined, needs: readonly ReviewNeeds[]) {
-    const notRated = head ? (this.options.assessments?.notRatedOf?.(target, head) ?? undefined) : undefined
+    const notRated = head ? (this.options.assessments?.notRatedOf?.(target, head, this.startFor(reviewIdOf(target), head)?.start) ?? undefined) : undefined
     const running = assessment?.state === 'queued' || assessment?.state === 'running'
     const files = head ? this.options.store.read(target, head)?.review.files : undefined
     const nothingToRate = files != null && files.length > 0 && files.every((file) => MARKDOWN.test(file.path))
@@ -2347,7 +2358,10 @@ export class Reviews {
       const target = targetOfReviewId(entry.id)
       if (target?.kind !== 'change') continue
       const head = this.headOf(entry.id, entry.head ?? null)
-      const needs = head ? assessments.needsOf(target, head) : null
+      const range = this.startFor(entry.id, head)
+      // A stored score may predate a retarget at this same commit. Never publish it before checking its range.
+      if (this.options.sources.change.start && (!range || range.stale)) continue
+      const needs = head ? assessments.needsOf(target, head, range?.start) : null
       if (head && needs && needs.head === head) graded(target, head, needs)
     }
   }
@@ -2392,7 +2406,7 @@ export class Reviews {
     const { head } = status
     if (!assessments || !head || status.stale || status.phase || !store.has(target, head)) return false
     if (status.startsAt && store.read(target, head)?.review.change.base !== status.startsAt) return false
-    return assessments.status(target, head).state === 'ready'
+    return assessments.status(target, head, status.startsAt).state === 'ready'
   }
 
   /**
@@ -2459,8 +2473,10 @@ export class Reviews {
    */
   private reviewFinished(target: ReviewTarget, head: string | null): boolean {
     if (head == null || !this.options.store.has(target, head) || this.preparing(reviewIdOf(target))) return false
+    const start = this.startFor(reviewIdOf(target), head)
+    if (start?.stale) return false
     if (!this.reviewsChange(target)) return true
-    const state = this.options.assessments!.status(target, head).state
+    const state = this.options.assessments!.status(target, head, start?.start).state
     return state === 'ready' || state === 'failed'
   }
 
@@ -2539,8 +2555,9 @@ export class Reviews {
       this.watched.set(id, version)
       if (own) return
       const newest = store.newest(target)
-      const moved = head ? !store.has(target, head) : updatedAt ? Date.parse(updatedAt) > (newest?.at ?? 0) : false
-      if (newest && moved && head && target.kind === 'change' && this.options.carry) this.carryOrBuild(id, target, head)
+      const newBase = this.startFor(id, head)?.stale === true
+      const moved = head ? !store.has(target, head) || newBase : updatedAt ? Date.parse(updatedAt) > (newest?.at ?? 0) : false
+      if (newest && moved && !newBase && head && target.kind === 'change' && this.options.carry) this.carryOrBuild(id, target, head)
       else if (!newest || moved) {
         this.countBuilt(this.line.aged.has(id))
         this.prepare(id)

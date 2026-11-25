@@ -107,6 +107,7 @@ test('a change rebased with the same commits onto a main that changed nothing it
   assert.ok(project.store.has(TARGET, head))
   const summary = JSON.parse(readFileSync(join(assessmentFolder(project.root, TARGET, head), 'summary.json'), 'utf8')) as AssessmentSummary
   assert.deepEqual(summary.carried, { from: project.built, why: carried.why, tests: 1 })
+  assert.deepEqual(summary.range, { base: start, head }, 'the newly validated range, not the range that was graded')
   assert.deepEqual(JSON.parse(readFileSync(join(assessmentFolder(project.root, TARGET, head), 'units.json'), 'utf8')), { units: [] }, 'its units come along')
 })
 
