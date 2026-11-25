@@ -115,6 +115,7 @@ test("the main agent's tasks and skills are its own steps'", async () => {
 test("an agent's helpers are every one of its jobs' helpers, the main agent's its own, and they draw again only when one moves", async () => {
   let draws = 0
   let shown: readonly RunChild[] = []
+  let main: readonly RunChild[] = []
   const jobs = [turn(2), turn(1)]
   const Helpers = () => {
     draws += 1
@@ -125,7 +126,6 @@ test("an agent's helpers are every one of its jobs' helpers, the main agent's it
     main = useJobsHelpers([MAIN])
     return null
   }
-  let main: readonly RunChild[] = []
   const mounted = await mountCounting(() => [createElement(Helpers, { key: 'helpers' }), createElement(Main, { key: 'main' })])
   assert.deepEqual(shown.map(({ name }) => name), ['fixer', 'scout'], 'the turn in flight first')
   assert.deepEqual(main.map(({ name }) => name), ['main-scout'])

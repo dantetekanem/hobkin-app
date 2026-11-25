@@ -28,11 +28,8 @@ function turnOf(job: string, hobkin: string): number | null {
   return match?.[1] === hobkin ? Number(match[2]) : null
 }
 
-/** The jobs of an agent, by its id as the window names it: the turn in flight first, then the newest. */
-export function agentJobs(snapshot: WireSnapshot, agentId: string): readonly string[] {
-  const hobkin = hobkinOfAgent(agentId)
-  if (hobkin === null) return [agentId]
-
+/** This hobkin's turns the host holds steps, helpers or teams agents of, each with its number. */
+function heldTurns(snapshot: WireSnapshot, hobkin: string): Map<string, number> {
   const turns = new Map<string, number>()
   const held = [snapshot.jobActivity as JobActivity | undefined, snapshot.jobChildren, snapshot.teamsAgents]
   for (const jobs of held) {
@@ -41,9 +38,19 @@ export function agentJobs(snapshot: WireSnapshot, agentId: string): readonly str
       if (n !== null) turns.set(job, n)
     }
   }
+  return turns
+}
+
+/** The jobs of an agent, by its id as the window names it: the turn in flight first, then the newest. */
+export function agentJobs(snapshot: WireSnapshot, agentId: string): readonly string[] {
+  const hobkin = hobkinOfAgent(agentId)
+  if (hobkin === null) return [agentId]
+
+  const newest = [...heldTurns(snapshot, hobkin)].sort(([, a], [, b]) => b - a).map(([job]) => job)
   const live = snapshot.hobkins?.find((summary) => summary.id === hobkin)?.run
-  const newest = [...turns].sort(([, a], [, b]) => b - a).map(([job]) => job)
-  return live ? [live, ...newest.filter((job) => job !== live)] : newest
+  if (!live) return newest
+
+  return [live, ...newest.filter((job) => job !== live)]
 }
 
 const sameJobs = (held: readonly string[], next: readonly string[]) => keepEachEqual(held, next, Object.is)
@@ -59,7 +66,9 @@ function useWatchJobs(jobs: readonly string[]): void {
   useEffect(() => {
     if (!key) return
     const letGo = key.split('\n').map((job) => watchJob(job))
-    return () => letGo.forEach((stop) => stop())
+    return () => {
+      for (const stop of letGo) stop()
+    }
   }, [key])
 }
 
@@ -68,7 +77,8 @@ type Lists = readonly (readonly ActivityEntry[])[]
 
 /** A job's steps as the host holds them: the main agent's under `MAIN_ACTIVITY`, a run's under its id. */
 function heldSteps(state: HostState, job: string): readonly ActivityEntry[] | undefined {
-  const steps = job === MAIN_ACTIVITY ? state.snapshot.mainActivity : (state.snapshot.jobActivity as JobActivity | undefined)?.[job]
+  const jobs = state.snapshot.jobActivity as JobActivity | undefined
+  const steps = job === MAIN_ACTIVITY ? state.snapshot.mainActivity : jobs?.[job]
   return Array.isArray(steps) ? steps : undefined
 }
 
@@ -86,14 +96,28 @@ const sampleOf = (job: string): SampleActivity | undefined => (job === MAIN_ACTI
 
 const sameLists = (left: Lists, right: Lists) => left.length === right.length && left.every((steps, index) => steps === right[index])
 
-/** The sample's steps of each job, as far as each has played, for a window with no host. */
-function useSampledSteps(on: boolean, jobs: readonly string[]): Lists {
-  const samples = on ? jobs.flatMap((job) => {
+/** A job's sample and when it first played. */
+interface Played {
+  sample: SampleActivity
+  start: number
+}
+
+/** The samples of the jobs that have one, newest job first. */
+function samplesOf(jobs: readonly string[]): Played[] {
+  const played: Played[] = []
+  for (const job of jobs) {
     const sample = sampleOf(job)
-    return sample ? [{ sample, start: sampleStart(job) }] : []
-  }) : []
+    if (sample) played.push({ sample, start: sampleStart(job) })
+  }
+  return played
+}
+
+/** The sample's steps of each job, as far as each has played, for a window with no host. Oldest job first. */
+function useSampledSteps(on: boolean, jobs: readonly string[]): Lists {
+  const samples = on ? samplesOf(jobs) : []
   const playing = samples.some(({ sample, start }) => Date.now() - start <= sampleLength(sample))
   const now = useNow(playing, 500)
+
   return samples.map(({ sample, start }) => sampleAt(sample, now - start)).reverse()
 }
 
@@ -118,8 +142,12 @@ function useJobsOf<Shown>(jobs: readonly string[], select: (lists: Lists) => Sho
   })
 }
 
-/** Every job's steps as one list, oldest first, as the agent took them. */
-const together = (lists: Lists): readonly ActivityEntry[] => (lists.length === 1 ? lists[0]! : lists.flat())
+/** Every job's steps as one list, oldest first, as the agent took them. A single job's list is given as it is. */
+function together(lists: Lists): readonly ActivityEntry[] {
+  const [first, ...rest] = lists
+  if (first && rest.length === 0) return first
+  return lists.flat()
+}
 
 const tasksAcross = (lists: Lists): readonly AgentTask[] => tasksOf(together(lists))
 const skillsAcross = (lists: Lists): readonly string[] => skillsOf(together(lists))
@@ -140,14 +168,31 @@ export function useJobsSkills(jobs: readonly string[]): readonly string[] {
 const keepSame = (held: readonly RunChild[], next: readonly RunChild[]) => keepEachEqual(held, next, sameFields)
 const NO_HELPERS: readonly RunChild[] = []
 
+/** The helpers the host holds of each job: the main agent's own under `MAIN_ACTIVITY`, a run's under its id. */
+function heldHelpers(state: HostState, jobs: readonly string[]): readonly RunChild[] {
+  return jobs.flatMap((job) => {
+    if (job === MAIN_ACTIVITY) return mainChildrenFrom(state.snapshot, state)
+    return childrenFrom(state.snapshot, job, state)
+  })
+}
+
+/** The sample's helpers of each job, for a window with no host. */
+function sampleHelpers(jobs: readonly string[]): readonly RunChild[] {
+  return jobs.flatMap((job) => {
+    if (job === MAIN_ACTIVITY) return sampleMainChildren
+    return sampleChildren[job] ?? NO_HELPERS
+  })
+}
+
 /**
  * The helpers hobkin started for any of the agent's jobs, the newest job's first: the host's for a live window, the
  * sample's before a host has answered. Kept while they say the same, so a helper that moves draws only this.
  */
 export function useJobsHelpers(jobs: readonly string[]): readonly RunChild[] {
   const live = useHasHost()
-  const helpers = useHostKept((state) => jobs.flatMap((job) => (job === MAIN_ACTIVITY ? mainChildrenFrom(state.snapshot, state) : childrenFrom(state.snapshot, job, state))), keepSame)
+  const helpers = useHostKept((state) => heldHelpers(state, jobs), keepSame)
   const key = jobs.join('\n')
-  const sampled = useMemo(() => (live ? NO_HELPERS : key.split('\n').flatMap((job) => (job === MAIN_ACTIVITY ? sampleMainChildren : (sampleChildren[job] ?? NO_HELPERS)))), [live, key])
+  const sampled = useMemo(() => (live ? NO_HELPERS : sampleHelpers(key.split('\n'))), [live, key])
+
   return live ? helpers : sampled
 }
