@@ -37,7 +37,7 @@ import { hostStore, runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
 import { sentAtArg } from '@/lib/host/state.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, type PageRow, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
+import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, withReceipts, type Delivery, type PageRow, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
 import { endingOf, pressEndOf, takeBackEnd, useEnding } from './end.ts'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
@@ -45,6 +45,7 @@ import { useConversation, useMarkSeen, usePageShown } from './use-conversation.t
 import { useOnClaudeCode } from './use-pal.ts'
 import { usePageSlash } from '@/features/work/use-agent-slash.ts'
 import { AgentSlashOver } from '@/features/work/AgentSlashOver.tsx'
+import { DeliveryMark } from '@/features/work/DeliveryMark.tsx'
 
 /**
  * A durable hobkin's page: the agent screen for the agent id `hobkin:<id>` (`034-durable-hobkins`). Its name, folder,
@@ -88,14 +89,25 @@ export function HobkinScreen() {
 
 const NO_NOTES: readonly SentNote[] = []
 
-/** What the user sent from the page, by hobkin, and the message on its way now. Kept while the window is open. */
+/**
+ * What the user sent from the page, by hobkin, and the message on its way now. Kept while the window is open. hobkin's
+ * receipts mark what each turn read in as they come, and one that came before the say answered counts too.
+ */
 function useSentNotes() {
-  const [sent, setSent] = useState<Record<string, readonly SentNote[]>>({})
+  const [sent, setSent] = useState<Readonly<Record<string, readonly SentNote[]>>>({})
   const [sending, setSending] = useState<Record<string, SendingNote | null>>({})
 
   const add = useCallback((id: string, note: SentNote) => {
-    setSent((all) => ({ ...all, [id]: [...(all[id] ?? []), note] }))
+    setSent((all) => withReceipts({ ...all, [id]: [...(all[id] ?? []), note] }, hostStore.getState().snapshot.steeringReceipts))
   }, [])
+
+  useEffect(
+    () =>
+      hostStore.subscribe(({ snapshot }, { snapshot: before }) => {
+        if (snapshot.steeringReceipts !== before.steeringReceipts) setSent((all) => withReceipts(all, snapshot.steeringReceipts))
+      }),
+    [],
+  )
 
   const sendingTo = useCallback((id: string, note: SendingNote | null) => {
     setSending((all) => ({ ...all, [id]: note }))
@@ -443,7 +455,7 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
                 row.kind === 'older' ? (
                   saved ? <EarlierSteps key={row.key} row={saved} onMore={readOlder} /> : null
                 ) : row.kind === 'said' ? (
-                  <Said key={row.key} text={row.text} images={row.images} at={row.at} added={row.tag === 'added'} sending={row.tag === 'sending'} from={row.from} />
+                  <Said key={row.key} text={row.text} images={row.images} at={row.at} delivery={row.delivery} from={row.from} />
                 ) : row.kind === 'step' ? (
                   <StepItem key={row.key} step={row.step} timeOf={activity!.timeOf} ended={row.ended} />
                 ) : row.kind === 'answer' ? (
@@ -488,11 +500,12 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
 const STEP = 'rounded-[18px] outline-none [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]'
 
 /**
- * What began a turn, or what the user added while it worked. The user's own words sit on their side. Words another
- * hobkin sent (`from`) are an agent's, so they keep to the left, outlined, under who sent them. The row spans the
- * page, so its time stands in the column with the others, and the bubble takes the keyboard's ring.
+ * What began a turn, or what the user added while it worked. The user's own words sit on their side, marked as on an
+ * agent's page with how far they have got. Words another hobkin sent (`from`) are an agent's, so they keep to the left,
+ * outlined, under who sent them. The row spans the page, so its time stands in the column with the others, and the
+ * bubble takes the keyboard's ring.
  */
-function Said({ text, images, at, added = false, sending = false, from = null }: { text: string; images?: readonly Attachment[]; at: number | null; added?: boolean; sending?: boolean; from?: string | null }) {
+function Said({ text, images, at, delivery, from = null }: { text: string; images?: readonly Attachment[]; at: number | null; delivery: Delivery | null; from?: string | null }) {
   const arrival = useArrival()
   return (
     <li data-step="note" tabIndex={-1} className={cn('group w-full min-w-0 px-2.5 outline-none [contain-intrinsic-size:auto_48px] [content-visibility:auto]', arrival)}>
@@ -505,8 +518,11 @@ function Said({ text, images, at, added = false, sending = false, from = null }:
         >
           {from ? <p className="mb-1 text-[11px] leading-normal text-muted-foreground">From {from}</p> : null}
           {images ? <SentImages attachments={images} /> : null}
-          <MessageText text={text} role="user" />
-          {added || sending ? <p className="mt-1 text-[11px] leading-normal text-muted-foreground">{sending ? 'Sending' : 'Added while it worked'}</p> : null}
+          {/* Its own box, so the last paragraph keeps no space under it above the mark. */}
+          <div>
+            <MessageText text={text} role="user" />
+          </div>
+          <DeliveryMark delivery={delivery} why="The turn ended without a confirmed receipt." />
         </div>
       </Stamped>
     </li>
@@ -619,8 +635,10 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
       setBusy(false)
       return
     }
-    // When Enter was pressed keys the message's row, on its way and once sent. The images go with the words.
+    // When Enter was pressed keys the message's row, on its way and once sent. The images go with the words, and the id
+    // hobkin's receipt names once the turn in flight reads them in.
     const at = Date.now()
+    const noteId = crypto.randomUUID()
     const attached = useAgentImages.getState().take(agent)
     const pictures = attached.length ? { images: attached } : {}
     setBusy(true)
@@ -630,8 +648,8 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
     try {
       // When Enter was pressed goes with the words, for the timing of the turn, to a host that takes it.
       const handles = attached.flatMap(({ handle }) => (handle ? [handle] : []))
-      const said = await runCommand('hobkin.say', { id, ...(text ? { text } : {}), ...(handles.length ? { images: handles } : {}), ...sentAtArg(hostStore.getState(), at) })
-      onSent({ text, at, run: said.run, started: said.started, ...pictures })
+      const said = await runCommand('hobkin.say', { id, noteId, ...(text ? { text } : {}), ...(handles.length ? { images: handles } : {}), ...sentAtArg(hostStore.getState(), at) })
+      onSent({ text, at, run: said.run, started: said.started, noteId, ...pictures })
     } catch (error) {
       setProblem(message(error))
       // Nothing was sent: the words and images come back to the box, unless the user has written or attached again.

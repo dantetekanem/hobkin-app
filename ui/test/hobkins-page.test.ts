@@ -139,7 +139,7 @@ test('a stale answer never replaces a newer one', () => {
   assert.equal(reads.accept(fifth), true)
 })
 
-test('a turn another hobkin began says who sent it, and the user\'s own turns say nothing', () => {
+test('a turn another hobkin began says who sent it and has no checks, and the user\'s own turns name nobody', () => {
   const waiting: HobkinSummary = { ...summary, state: 'waiting', run: null, turns: 4 }
   const conversation: HobkinConversation = {
     hobkin: waiting,
@@ -151,6 +151,11 @@ test('a turn another hobkin began says who sent it, and the user\'s own turns sa
       { ...turn(4, 'completed', 'Yes.'), from: { kind: 'user' } },
     ],
   }
-  const said = pageRows(pageTurns(conversation, waiting, []), { sending: null, activity: null }).flatMap((row) => (row.kind === 'said' ? [[row.text, row.from]] : []))
-  assert.deepEqual(said, [['message 1', null], ['message 2', 'the main hobkin'], ['message 3', 'Check the build'], ['message 4', null]])
+  const said = pageRows(pageTurns(conversation, waiting, []), { sending: null, activity: null }).flatMap((row) => (row.kind === 'said' ? [[row.text, row.from, row.delivery]] : []))
+  assert.deepEqual(said, [
+    ['message 1', null, 'received'],
+    ['message 2', 'the main hobkin', null],
+    ['message 3', 'Check the build', null],
+    ['message 4', null, 'received'],
+  ])
 })

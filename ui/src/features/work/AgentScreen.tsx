@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Check, CheckCheck } from 'lucide-react'
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
@@ -33,6 +33,7 @@ import { agentsFrom, sameFields } from '@/lib/host/frame.ts'
 import { runCommand, useHasHost, useHost, useHostEqual } from '@/lib/host/index.ts'
 import { useAgentThreads, type AgentNote } from './agent-threads.ts'
 import { AgentWaits } from './AgentWaits.tsx'
+import { DeliveryMark } from './DeliveryMark.tsx'
 import { HelpersLine } from './ChildAgents.tsx'
 import { useRunChildren } from './children.ts'
 import { changeLine } from '@/features/chat/change-line.ts'
@@ -694,18 +695,7 @@ function Said({ note }: { note: AgentNote }) {
         <div className="ml-auto w-fit max-w-[72%] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-left text-[15px] leading-relaxed whitespace-pre-wrap group-focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
           {note.images ? <SentImages attachments={note.images} /> : null}
           {note.text}
-          {note.delivery === 'sending' || note.delivery === 'waiting' || note.delivery === 'received' ? (
-            // As a chat app marks a message: one check once it waits for the agent, two once the agent took it in, a faint
-            // one while it is still on its way to the host. One height for all three, so the bubble never jumps.
-            <p role="status" className="-mr-1 -mb-0.5 flex h-4 justify-end text-muted-foreground">
-              {note.delivery === 'received' ? <CheckCheck className="size-3.5" aria-hidden="true" /> : <Check className={cn('size-3.5', note.delivery === 'sending' && 'opacity-40')} aria-hidden="true" />}
-              <span className="sr-only">{note.delivery === 'received' ? 'Received' : note.delivery === 'waiting' ? 'Waiting' : 'Sending'}</span>
-            </p>
-          ) : note.delivery ? (
-            <p role="status" className={cn('mt-1 text-[11px] leading-normal', note.delivery === 'local' ? 'text-muted-foreground' : 'text-bad-fg')}>
-              {note.delivery === 'refused' ? `Not sent · ${note.why}` : note.delivery === 'unconfirmed' ? `Delivery not confirmed · ${note.why}` : 'Sample message · kept in this window only.'}
-            </p>
-          ) : null}
+          <DeliveryMark delivery={note.delivery} why={note.why} />
         </div>
       </Stamped>
     </li>

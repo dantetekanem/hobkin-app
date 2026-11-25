@@ -1,5 +1,6 @@
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import type { HobkinConversation, HobkinSender, HobkinSummary, HobkinTurn } from '#shared/protocol/hobkins.ts'
+import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import { exchangeOf, pauseOf, type Step } from '../agent-activity/steps.ts'
 import type { Attachment } from '../chat/draft.ts'
 import { timeOf } from '../reports/time.ts'
@@ -19,7 +20,17 @@ export interface SentNote {
   started: boolean
   /** The images that went with it. The window keeps their previews; hobkin keeps no copy apart from the turn. */
   images?: readonly Attachment[]
+  /** The id it was sent with, which hobkin's receipt names once the turn it reached read it in. */
+  noteId?: string
+  /** When that turn read it in, by hobkin's receipt. Kept once seen, so a receipt hobkin lets go never takes it back. */
+  receivedAt?: number
 }
+
+/**
+ * How far a message the user sent has got, as a chat app marks it: on its way to the host, with hobkin, taken in by
+ * the turn, or left unread by a turn that ended.
+ */
+export type Delivery = 'sending' | 'waiting' | 'received' | 'unconfirmed'
 
 /** A message on its way to the host: what the user typed, the images attached to it, and when they pressed Enter. */
 export interface SendingNote {
@@ -41,6 +52,8 @@ export interface ShownTurn extends HobkinTurn {
   askedImages: readonly Attachment[]
   /** What the user added to it while it worked, as this window sent it. hobkin keeps no copy apart from the turn. */
   notes: readonly SentNote[]
+  /** hobkin has begun it: a read has it, or the snapshot shows it in flight. Its message is taken in from then on. */
+  begun: boolean
 }
 
 /**
@@ -117,6 +130,7 @@ export function pageTurns(conversation: HobkinConversation | null, hobkin: Hobki
       askedWhen: timeOf(turn.askedAt) ?? opening?.at ?? null,
       askedImages: opening?.images ?? [],
       notes: notesOf(turn.run),
+      begun: known.has(turn.run) || turn.run === inFlight,
     }
   })
   const live = turns.find((turn) => turn.live)
@@ -137,15 +151,27 @@ export interface LiveActivity {
  * step's time is its own (`atOf`).
  */
 export type PageRow =
-  | { kind: 'said'; key: string; text: string; tag: 'added' | 'sending' | null; from: string | null; at: number | null; images?: readonly Attachment[] }
+  | { kind: 'said'; key: string; text: string; delivery: Delivery | null; from: string | null; at: number | null; images?: readonly Attachment[] }
   | { kind: 'step'; key: string; step: Step; ended: boolean }
   | { kind: 'answer'; key: string; turn: ShownTurn; at: number | null }
   | { kind: 'thinking'; key: 'working' }
 
 /**
+ * How far what the user added to a turn has got. The words hobkin answered for are with it until the turn's receipt says
+ * it read them in. Words sent with an id that the turn ended without reading say so; with no id there is no receipt to
+ * wait for, so they stay with hobkin.
+ */
+function addedDelivery(turn: ShownTurn, note: SendingNote & Partial<SentNote>): Delivery {
+  if (note.receivedAt !== undefined) return 'received'
+  const over = !turn.live && turn.status !== 'running'
+  return note.noteId && over ? 'unconfirmed' : 'waiting'
+}
+
+/**
  * The conversation's rows, oldest first. The live turn's steps come with what the user added while it worked, each
  * where it was sent, as on an agent's page. The message on its way shows where it lands: in the turn in flight, or else
- * as the next turn. Thinking is last while the turn in flight is between steps.
+ * as the next turn. Thinking is last while the turn in flight is between steps. Each of the user's messages is marked
+ * with how far it has got (`Delivery`); another hobkin's words have no mark.
  */
 export function pageRows(turns: readonly ShownTurn[], { sending, activity }: { sending: SendingNote | null; activity: LiveActivity | null }): PageRow[] {
   const live = turns.find((turn) => turn.live)
@@ -154,29 +180,55 @@ export function pageRows(turns: readonly ShownTurn[], { sending, activity }: { s
   const sent = (at: number) => turns.some((turn) => turn.askedKey === saidKey(at) || turn.notes.some((note) => note.at === at))
   const pending = sending && !sent(sending.at) ? sending : null
   // Whatever the page sends is the user's own.
-  const said = ({ text, at, images }: SendingNote): PageRow => ({ kind: 'said', key: saidKey(at), text, tag: at === pending?.at ? 'sending' : 'added', from: null, at, ...(images?.length ? { images } : {}) })
+  const said = (note: SendingNote, delivery: Delivery): PageRow => ({
+    kind: 'said',
+    key: saidKey(note.at),
+    text: note.text,
+    delivery,
+    from: null,
+    at: note.at,
+    ...(note.images?.length ? { images: note.images } : {}),
+  })
 
   const rows: PageRow[] = []
   for (const turn of turns) {
     const images = turn.askedImages.length ? { images: turn.askedImages } : {}
-    if (turn.asked || images.images) rows.push({ kind: 'said', key: turn.askedKey, text: turn.asked, tag: null, from: senderName(turn.from), at: turn.askedWhen, ...images })
-    const notes: readonly SendingNote[] = turn === into && pending ? [...turn.notes, pending] : turn.notes
+    const from = senderName(turn.from)
+    // The message that began a turn was taken in once the turn began.
+    const delivery = from ? null : turn.begun ? 'received' : 'waiting'
+    if (turn.asked || images.images) rows.push({ kind: 'said', key: turn.askedKey, text: turn.asked, delivery, from, at: turn.askedWhen, ...images })
+    const notes: readonly (SendingNote & Partial<SentNote>)[] = turn === into && pending ? [...turn.notes, pending] : turn.notes
+    const saidIn = (note: SendingNote & Partial<SentNote>) => said(note, note === pending ? 'sending' : addedDelivery(turn, note))
     if (!turn.live) {
-      rows.push(...notes.map(said), { kind: 'answer', key: `${turn.run}:answer`, turn, at: timeOf(turn.endedAt) })
+      rows.push(...notes.map(saidIn), { kind: 'answer', key: `${turn.run}:answer`, turn, at: timeOf(turn.endedAt) })
       continue
     }
     if (!activity) {
-      rows.push(...notes.map(said))
+      rows.push(...notes.map(saidIn))
       continue
     }
     const options = { seenAt: activity.seenAt, ended: turn.ending, cwd: activity.cwd, tasksOnLine: true }
     for (const item of exchangeOf(activity.entries, notes.map((note) => ({ ...note, id: saidKey(note.at) })), options)) {
-      rows.push(item.kind === 'note' ? said(item.note) : { kind: 'step', key: `${turn.run}:${item.key}`, step: item, ended: turn.ending })
+      rows.push(item.kind === 'note' ? saidIn(notes.find((note) => note.at === item.note.at)!) : { kind: 'step', key: `${turn.run}:${item.key}`, step: item, ended: turn.ending })
     }
   }
-  if (pending && !into) rows.push(said(pending))
+  if (pending && !into) rows.push(said(pending, 'sending'))
   if (into && (!activity || pauseOf(activity.entries) === 'thinking')) rows.push({ kind: 'thinking', key: 'working' })
   return rows
+}
+
+/**
+ * The notes the user sent, by hobkin, with each one hobkin's receipts now say its turn read in marked so. A receipt
+ * counts only under the run of the turn the note reached. The same notes when nothing is new.
+ */
+export function withReceipts(
+  sent: Readonly<Record<string, readonly SentNote[]>>,
+  receipts: WireSnapshot['steeringReceipts'],
+): Readonly<Record<string, readonly SentNote[]>> {
+  const receivedAt = (note: SentNote) => receipts?.[note.run]?.find((receipt) => receipt.noteId === note.noteId)?.at
+  const fresh = (note: SentNote) => note.noteId !== undefined && note.receivedAt === undefined && receivedAt(note) !== undefined
+  if (!Object.values(sent).some((notes) => notes.some(fresh))) return sent
+  return Object.fromEntries(Object.entries(sent).map(([id, notes]) => [id, notes.map((note) => (fresh(note) ? { ...note, receivedAt: receivedAt(note) } : note))]))
 }
 
 export type PageState = 'live' | 'starting' | 'ended'

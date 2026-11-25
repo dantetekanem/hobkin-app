@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import type { HobkinConversation, HobkinSummary, HobkinTurn } from '#shared/protocol/hobkins.ts'
 import { atOf } from '../src/features/agent-activity/steps.ts'
-import { pageRows, pageTurns, type PageRow, type SendingNote, type SentNote } from '../src/features/hobkins/conversation.ts'
+import { pageRows, pageTurns, withReceipts, type PageRow, type SendingNote, type SentNote } from '../src/features/hobkins/conversation.ts'
 
 // Every state a durable hobkin's page passes through from Enter until the host has caught up, in the order the host
 // sends them: the say's answer comes before the snapshot that shows the new turn, and the read comes after both.
@@ -168,4 +168,72 @@ test('a read that has a turn running while the hobkin already waited says so', (
   const rows = pageRows(pageTurns(odd, summary({ turns: 3 }), []), { sending: null, activity: null })
   assert.deepEqual(rows.slice(-2).map((row) => row.kind), ['said', 'answer'])
   assert.ok(rows.every((row) => row.kind !== 'thinking'))
+})
+
+/** Each message the user's page shows, with its mark: null for words another hobkin sent. */
+const marks = (rows: readonly PageRow[]) => rows.flatMap((row) => (row.kind === 'said' ? [[row.text, row.delivery]] : []))
+
+test('a message that starts a turn shows a faint check on its way, one once hobkin has it, and two once that turn began', () => {
+  const sending: SendingNote = { text: 'das', at: 1000 }
+  const sent: SentNote[] = [{ text: 'das', at: 1000, run: runOf(3), started: true, noteId: '00000000-0000-4000-8000-000000000003' }]
+  const read: HobkinConversation = { hobkin: working, turns: [...earlier, turn(3, 'das', 'running')] }
+  const last = (rows: readonly PageRow[]) => marks(rows).at(-1)
+
+  // What the user sent in turns hobkin has read back was taken in long ago.
+  assert.deepEqual(marks(pageRows(pageTurns(before, waiting, []), { sending: null, activity: null })), [
+    ['hey', 'received'],
+    ['tell the main hobkin that i love him', 'received'],
+  ])
+  assert.deepEqual(last(pageRows(pageTurns(before, waiting, []), { sending, activity: null })), ['das', 'sending'])
+  // The say answered, and the snapshot still says the hobkin waits: hobkin has it, and its turn has not begun.
+  assert.deepEqual(last(pageRows(pageTurns(before, waiting, sent), { sending: null, activity: null })), ['das', 'waiting'])
+  assert.deepEqual(last(pageRows(pageTurns(before, working, sent), { sending: null, activity: null })), ['das', 'received'])
+  assert.deepEqual(last(pageRows(pageTurns(read, working, sent), { sending: null, activity: null })), ['das', 'received'])
+})
+
+test('a message added while a turn works shows two checks once hobkin has its receipt, and keeps them', () => {
+  const read: HobkinConversation = { hobkin: working, turns: [...earlier, turn(3, 'das', 'running')] }
+  const opened: SentNote = { text: 'das', at: 1000, run: runOf(3), started: true }
+  const noteId = '00000000-0000-4000-8000-000000000001'
+  const added: SentNote = { text: 'also the README', at: 1200, run: runOf(3), started: false, noteId }
+  const rowsOf = (sent: readonly SentNote[], sending: SendingNote | null = null, conversation = read, hobkin = working) =>
+    marks(pageRows(pageTurns(conversation, hobkin, sent), { sending, activity: null })).at(-1)
+
+  assert.deepEqual(rowsOf([opened], { text: 'also the README', at: 1200 }), ['also the README', 'sending'])
+  assert.deepEqual(rowsOf([opened, added]), ['also the README', 'waiting'])
+
+  // A receipt for the same note under another run is not this one.
+  const elsewhere = { [runOf(2)]: [{ noteId, at: 1300 }] }
+  const notes = { [id]: [opened, added] }
+  assert.equal(withReceipts(notes, elsewhere), notes, 'nothing new, the same notes')
+  const receipts = { [runOf(3)]: [{ noteId, at: 1300 }] }
+  const received = withReceipts(notes, receipts)
+  assert.deepEqual(received[id]!.map((note) => note.receivedAt), [undefined, 1300])
+  assert.deepEqual(rowsOf(received[id]!), ['also the README', 'received'])
+  // Among the live turn's steps too.
+  const steps = activityOf([tool('a'), tool('b')], { 'tool:a': 1100, 'tool:b': 1400 })
+  assert.deepEqual(marks(pageRows(pageTurns(read, working, received[id]!), { sending: null, activity: steps })).at(-1), ['also the README', 'received'])
+
+  // Once seen, the receipt stays: hobkin may let it go, as it does on a restart.
+  assert.equal(withReceipts(received, {}), received)
+  assert.equal(withReceipts(received, undefined), received)
+  const ended = summary({ turns: 3 })
+  const done: HobkinConversation = { hobkin: ended, turns: [...earlier, turn(3, 'das', 'completed', 'Done.')] }
+  assert.deepEqual(rowsOf(received[id]!, null, done, ended), ['also the README', 'received'])
+})
+
+test('a message the turn ended without reading says so, and one sent with no id keeps one check', () => {
+  const opened: SentNote = { text: 'das', at: 1000, run: runOf(3), started: true }
+  const added: SentNote = { text: 'also the README', at: 1200, run: runOf(3), started: false, noteId: '00000000-0000-4000-8000-000000000001' }
+  // A command Pi took as a message has no note id, so hobkin can give no receipt for it.
+  const command: SentNote = { text: '/review', at: 1250, run: runOf(3), started: false }
+  const read: HobkinConversation = { hobkin: working, turns: [...earlier, turn(3, 'das', 'running')] }
+  const ended = summary({ turns: 3 })
+  const done: HobkinConversation = { hobkin: ended, turns: [...earlier, turn(3, 'das', 'interrupted')] }
+  const tail = (conversation: HobkinConversation, hobkin: HobkinSummary) => marks(pageRows(pageTurns(conversation, hobkin, [opened, added, command]), { sending: null, activity: null })).slice(-2)
+
+  assert.deepEqual(tail(read, working), [['also the README', 'waiting'], ['/review', 'waiting']])
+  // The snapshot says it waits again, and the read still has the turn running: its end is not known yet.
+  assert.deepEqual(tail(read, ended), [['also the README', 'waiting'], ['/review', 'waiting']])
+  assert.deepEqual(tail(done, ended), [['also the README', 'unconfirmed'], ['/review', 'waiting']])
 })
