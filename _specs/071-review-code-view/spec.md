@@ -112,17 +112,21 @@ The model is pi-coder 0.9.10's `/diff` (`src/ui/review-app.ts`, read on 2026-11-
 ## Proof
 
 - A1. `ui/test/settings-review-view.test.ts`; `ui/test/review-look.test.ts` › the session opens in the look it is given.
-- A2, A6, A7, A9. `ui/test/review-look.test.ts`.
+- A2. `ui/test/review-look.test.ts`.
 - A3. `ui/test/review-code-files.test.ts`; still renders at 1440 pixels, dark and light (lane C, `scratchpad/lane-c/page-*.png`).
 - A4. `ui/test/review-code-cursor.test.ts`, `ui/test/review-code-keys.test.ts`.
 - A5. `ui/test/review-look.test.ts` › a note's target and step in the code view; a still render of the input under the lines.
+- A6. `ui/test/review-look.test.ts`.
+- A7. `ui/test/review-look.test.ts`.
 - A8. `ui/test/review-width.test.ts`.
+- A9. `ui/test/review-look.test.ts`.
 - A10. `ui/test/review-look.test.ts` › Escape in a code view opened from the graph.
 - A11. `ui/test/review-ask.test.ts`, `ui/test/review-panel.test.ts`, `shared/test/review-verdict.test.ts`, `host/test/review-notes.test.ts`.
 - A12. `ui/test/review-foot.test.ts`, `ui/test/review-verdict-actions.test.ts`, `ui/test/review-panel.test.ts` › X; still renders of the code view's line for a change and for someone else's pull request at 1411 and 1040 pixels (`scratchpad/still-b/page-*.png`).
 - A13. `shared/test/review-grammar.test.ts`, `host/test/review-verdict.test.ts`, `ui/test/review-verdict-actions.test.ts`. The suggestion block is not seen in a still.
 - A14. `host/test/review-graph-only.test.ts`, `ui/test/review-look-load.test.ts`; a still of the graph's wait view at 1411 pixels (`scratchpad/lane-look/page2-1411-dark.html.png`).
-- All: check in the app's window, by the user: open a review in each look, switch with I, write a comment and a question on lines, mark a file seen, reload.
+
+All: check in the app's window, by the user: open a review in each look, switch with I, write a comment and a question on lines, mark a file seen, reload.
 
 ## Steps
 
@@ -130,7 +134,7 @@ The model is pi-coder 0.9.10's `/diff` (`src/ui/review-app.ts`, read on 2026-11-
 - [x] S2 (A1, A2, A6, A7, A9). The look in the review's session: its keys, its place kept, the setting it opens from, notes and seen marks in the code view. 809ebd1, 997c3d7, 6fd1006, d264207, 0aa5b1a.
 - [x] S3 (A3, A4, A5). The code view: the files, the diff with its cursor and selection, the gutter marks, the input under the lines, its keys. 16c73ca, 38f1da7, fa1bb34, 9c638e3, 904e33e.
 - [x] S4 (A1, A2). The switch with Code on it, the choice in Settings › Reviews, the keys in the review's shortcuts and the Keys page. e1bcc92, d87b4de.
-- [x] S5 (all). The code view on the review's stage. 2ee9f41. Still renders of the code view and of the Settings row; the stage as a whole is not seen.
-- [ ] S6 (all). The user's check in the app's window.
-- [x] S7 (A10 to A13). The user's notes of 2026-11-25: Escape back to the graph 44f7a22; D and H apart 177c8a5; Talk to agent and a pull request's choices f9b1661; no panel in the code view, the verdict on its line 7d414fd; a note on the first file 1fa9217; grammar suggestions with Use it 7e0ddc1; the input on Comment again be9f2f5.
+- [x] S5 (A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14). The code view on the review's stage. 2ee9f41. Still renders of the code view and of the Settings row; the stage as a whole is not seen.
+- [ ] S6 (A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14). The user's check in the app's window.
+- [x] S7 (A10, A11, A12, A13). The user's notes of 2026-11-25: Escape back to the graph 44f7a22; D and H apart 177c8a5; Talk to agent and a pull request's choices f9b1661; no panel in the code view, the verdict on its line 7d414fd; a note on the first file 1fa9217; grammar suggestions with Use it 7e0ddc1; the input on Comment again be9f2f5.
 - [x] S8 (A14). Code opens on the diff with no change review, and Graph starts one: the host's graph-only build 3a1de77, the loader by look e5d9629, the screen and the graph's wait view 6fcae03, post-processing 70a0773 (one lane); a pull request's Start AI review in the graph, the wait view's switch row and keys 97f2b6b. The live host restarted itself at 09:25 onto all of it.

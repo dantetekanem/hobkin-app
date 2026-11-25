@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["051-short-reports"],
-  "updated": "2026-11-24"
+  "updated": "2026-11-25"
 }
 ---
 # Read reports in the tool call, and a one-minute catch-up when they pile up
@@ -96,10 +96,10 @@ Commands, `shared/commands/registry.ts`, `runs: 'host'`:
 
 ## Steps
 
-- [x] S1. The spec (lead). c011600, 1a688ee (the commands and `CatchUpState`).
-- [x] S2 (A1 to A5). Runtime: hobkin 50b4c5d (read state, `read` in `hobkin reports`), de9ce9d, 116c83c, 58626ba, 9e7018f, 9f087d5, e6efa10 (the command's execute bit). `test/cli-report-catch-up.test.mjs` 13 of 13 on an export of main. Settings in `config.json` `catchUp: { daily, pileUp }`; state in `runtime/catch-up.json`. Imported history does not count in `uncovered`.
+- [x] S1 (A1, A2, A3, A4, A5, A6, A7). The spec (lead). c011600, 1a688ee (the commands and `CatchUpState`).
+- [x] S2 (A1, A2, A3, A4, A5). Runtime: hobkin 50b4c5d (read state, `read` in `hobkin reports`), de9ce9d, 116c83c, 58626ba, 9e7018f, 9f087d5, e6efa10 (the command's execute bit). `test/cli-report-catch-up.test.mjs` 13 of 13 on an export of main. Settings in `config.json` `catchUp: { daily, pileUp }`; state in `runtime/catch-up.json`. Imported history does not count in `uncovered`.
 - [x] S3 (A6, A7). Host and window: f222352, fb49d5d, 5fc3f8b, 07a314c, edab1b3. Host 7 tests, window 9 new tests pass; post-processing skipped.
-- [x] S4. The host's three commands against hobkin main's real `catch-up.mjs` on a throwaway home (2026-11-24): defaults read, a change saved, a pile of 0 refused in hobkin's words, Catch me up with nothing unread says so. Stills in the lead's scratchpad. Not seen in the app's window. The daily default is on, so the host's first start after 08:00 writes a catch-up at once.
+- [x] S4 (A4, A6). The host's three commands against hobkin main's real `catch-up.mjs` on a throwaway home (2026-11-24): defaults read, a change saved, a pile of 0 refused in hobkin's words, Catch me up with nothing unread says so. Stills in the lead's scratchpad. Not seen in the app's window. The daily default is on, so the host's first start after 08:00 writes a catch-up at once.
 
 ## Open questions
 

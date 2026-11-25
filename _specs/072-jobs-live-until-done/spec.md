@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["053-run-waits", "056-agent-schedules"],
-  "updated": "2026-11-24"
+  "updated": "2026-11-25"
 }
 ---
 # A job lives until its agent says it is done
@@ -72,8 +72,8 @@ The user, 2026-11-24: "review how hobkins work when asked, they keep creating wo
 
 ## Steps
 
-- [x] S1. The spec (lead). 093c77b.
-- [x] S2 (A1 to A3). Runtime: hobkin b8e2e26, 4b19f5b, ca2a4d3, debb6e7 (`idle`, `idleSince` on a run in the snapshot). `test/cli-jobs-live-until-done.test.mjs` 14 of 14 on an export of main.
+- [x] S1 (A1, A2, A3, A4, A5, A6, A7). The spec (lead). 093c77b.
+- [x] S2 (A1, A2, A3). Runtime: hobkin b8e2e26, 4b19f5b, ca2a4d3, debb6e7 (`idle`, `idleSince` on a run in the snapshot). `test/cli-jobs-live-until-done.test.mjs` 14 of 14 on an export of main.
 - [x] S3 (A4, A5). Runtime: hobkin 35ae661 (`session-job.md`, the main may do a job of a few commands), 4eea6b5 (`v2-runtime.md` matches). Left: `src/cli/session.mjs`'s closing words still say not to merge; another agent holds uncommitted edits there. A job may push only when it is a push or deploy the user said yes to.
 - [x] S4 (A6, A7). Runtime: hobkin 3564e0e, d8ca6f6.
-- [x] S5. The window: a living idle job reads as idle, not working, and Stop ends it. The host passes `runs` whole, so `idle` and `idleSince` only needed their types on `RunSummary`. The dock says "idle since 10:51 PM · its last words" with its face at rest and counts it apart ("1 working · 1 idle"), Home's chip leaves it out and its card says Idle, and the agent page says "Idle since 10:51 PM · waiting for a message" where Thinking was. Stop is unchanged: the run stays among hobkin's active runs while it lives, so hobkin lists its stop control (read in hobkin's `runtime.mjs` and `harnesses.mjs`, not run). `ui/test/run-idle.test.ts` 5 of 5. Not seen in the window.
+- [x] S5 (A1, A2). The window: a living idle job reads as idle, not working, and Stop ends it. The host passes `runs` whole, so `idle` and `idleSince` only needed their types on `RunSummary`. The dock says "idle since 10:51 PM · its last words" with its face at rest and counts it apart ("1 working · 1 idle"), Home's chip leaves it out and its card says Idle, and the agent page says "Idle since 10:51 PM · waiting for a message" where Thinking was. Stop is unchanged: the run stays among hobkin's active runs while it lives, so hobkin lists its stop control (read in hobkin's `runtime.mjs` and `harnesses.mjs`, not run). `ui/test/run-idle.test.ts` 5 of 5. Not seen in the window.
