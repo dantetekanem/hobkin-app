@@ -140,7 +140,7 @@ function applyChange(change: CodeKeyChange, session: Session, code: CodeViewStor
  * It belongs to the review's canvas, under the frame's menus and right of the review's panel, and ends where the proof
  * beside the review starts.
  */
-export function CodeView({ ask, units }: { ask: AskCommand | null; units?: readonly Unit[] }) {
+export function CodeView({ ask, units, verdict }: { ask: AskCommand | null; units?: readonly Unit[]; verdict?: ReactNode }) {
   const store = useSessionStore()
   const source = useSource()
   const rig = useRig()
@@ -317,7 +317,7 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
     }
   })
 
-  const left = useTransform(() => rig.side.get())
+  // The whole width but the proof's at the right: the review's panel is the graph's (the user, 2026-11-25).
   const right = useTransform(() => rig.proof.get())
 
   const glyphs = useMemo(() => glyphsOf(notes, file), [file, notes])
@@ -361,7 +361,7 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
   })()
 
   return (
-    <motion.section ref={section} aria-label="Code" className="cv absolute bottom-0 z-20 flex flex-col bg-code-bg text-code-text" style={{ top: MENU.bottom, left, right }}>
+    <motion.section ref={section} aria-label="Code" className="cv absolute bottom-0 z-20 flex flex-col bg-code-bg text-code-text" style={{ top: MENU.bottom, left: 0, right }}>
       <div className="grid min-h-0 flex-1 grid-cols-[clamp(220px,26%,340px)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)]">
         <FileList rows={rows} active={file} focused={pane === 'files'} onPick={show} list={list} />
         <div className="flex min-h-0 min-w-0 flex-col" onPointerDown={toDiff}>
@@ -380,7 +380,7 @@ export function CodeView({ ask, units }: { ask: AskCommand | null; units?: reado
           <div className="min-h-0 flex-1">{body}</div>
         </div>
       </div>
-      <Foot notice={notice} />
+      <Foot notice={notice} verdict={verdict} />
     </motion.section>
   )
 }
@@ -488,10 +488,11 @@ function HeadButton({ label, keys, pressed, onClick, children }: { label: string
 }
 
 /**
- * The line at the bottom: the switch between the looks, the keys to start with, as pi-coder's footer has them, and the
- * review's short words, each for a moment, where they move nothing.
+ * The line at the bottom: the switch between the looks, the keys to start with, as pi-coder's footer has them, the
+ * review's short words, each for a moment, where they move nothing, and at the right the verdict. The keys give way
+ * first when the line is narrow.
  */
-function Foot({ notice }: { notice: Session['notice'] }) {
+function Foot({ notice, verdict }: { notice: Session['notice']; verdict?: ReactNode }) {
   const [said, setSaid] = useState<string | null>(null)
   // A word said before the code view opened is not said again.
   const heard = useRef(notice?.key)
@@ -502,8 +503,13 @@ function Foot({ notice }: { notice: Session['notice'] }) {
     const gone = setTimeout(() => setSaid(null), NOTICE_MS)
     return () => clearTimeout(gone)
   }, [notice])
-  const hint = (keys: string, words: string) => (
-    <span className="flex shrink-0 items-center gap-1.5">
+  const hint = (keys: string, words: string, first = false) => (
+    <span className="flex h-5 shrink-0 items-center gap-1.5">
+      {first ? null : (
+        <span aria-hidden="true" className="mr-1">
+          ·
+        </span>
+      )}
       <Kbd>{keys}</Kbd>
       {words}
     </span>
@@ -511,16 +517,19 @@ function Foot({ notice }: { notice: Session['notice'] }) {
   return (
     <footer className="flex h-12 shrink-0 items-center gap-2.5 bg-background px-3 text-[12.5px] whitespace-nowrap text-muted-foreground shadow-[0_-1px_0_var(--cv-line)]">
       <ModeSwitch />
-      <span className="ml-1.5 flex items-center gap-2.5">
-        {hint('C', 'a comment')}
-        <span aria-hidden="true">·</span>
-        {hint('D', 'discuss with the agent')}
-        <span aria-hidden="true">·</span>
-        {hint('⌘?', 'every key')}
+      {/* The keys to start with, which give way to the verdict: one that does not fit wraps out of sight whole. For a
+          moment the review's short words take their place. */}
+      <span className="relative flex h-5 min-w-0 flex-1 items-center">
+        <span className={cn('ml-1.5 flex h-5 min-w-0 flex-1 flex-wrap items-center gap-x-2.5 overflow-hidden', said && 'invisible')}>
+          {hint('C', 'a comment', true)}
+          {hint('D', 'discuss with the agent')}
+          {hint('⌘?', 'every key')}
+        </span>
+        <span role="status" className="absolute inset-0 truncate pl-1.5 font-heading text-[13px] leading-5 font-medium text-foreground">
+          {said}
+        </span>
       </span>
-      <span role="status" className="min-w-0 flex-1 truncate text-right font-heading text-[13px] font-medium text-foreground">
-        {said}
-      </span>
+      {verdict}
     </footer>
   )
 }

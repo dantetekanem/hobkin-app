@@ -367,7 +367,8 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
               <span>{mergedWords(landing)}</span>
             </p>
           ) : (
-            choicesRow
+            // A line too narrow for every choice scrolls them, rather than cut the last ones off.
+            <div className="scroll-quiet flex min-w-0 items-center gap-1.5 overflow-x-auto px-0.5 py-1">{choicesRow}</div>
           )}
           {/* What it says, over the line: the one thing that may lie over the code, and only while it speaks. */}
           {speaks ? <div className="absolute right-0 bottom-full z-30 mb-2 flex max-h-[260px] w-[min(420px,calc(100vw-2rem))] flex-col rounded-2xl bg-popover p-1.5 text-popover-foreground shadow-float">{said}</div> : null}

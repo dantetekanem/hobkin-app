@@ -34,7 +34,9 @@ import { Finder } from './graph/Finder.tsx'
 import { Graph } from './graph/Graph.tsx'
 import { WireCard } from './graph/WireCard.tsx'
 import { inProofPanel, keyOwner, pressKey } from './keys.ts'
+import { Actions } from './panel/Actions.tsx'
 import { LAYER_EVENT } from './panel/StackStrip.tsx'
+import { useAskHobkin } from './panel/use-ask.ts'
 import { StackCorner } from './StackCorner.tsx'
 import { focusStackButton } from './stack-start.ts'
 import type { AskCommand } from './panel/ask.ts'
@@ -43,7 +45,7 @@ import { STEPS_STRIP, StepsPanel, stepsPanelWidth, type PanelChrome } from './pa
 import { Shortcuts } from './Shortcuts.tsx'
 import './review.css'
 import { sampleSource, SAMPLE_REVIEWS } from './source.ts'
-import { flushReviewMemory, reviewMemory, StageProvider, useReduced, useReviewMemory } from './state/context.tsx'
+import { flushReviewMemory, reviewMemory, StageProvider, useReduced, useReviewMemory, useSession } from './state/context.tsx'
 import { memoryKey } from './state/memory.ts'
 import { followCursor, shownPlaces } from './state/cursor.ts'
 import { leaveReview } from './state/leave.ts'
@@ -198,6 +200,24 @@ function Panel({ canvas, loader, live, close, verdict, ask, landed }: {
     [live, preparation, assessment, loader, close, verdict, ask, landed],
   )
   return <StepsPanel canvas={canvas} chrome={chrome} />
+}
+
+/**
+ * The verdict along the code view's bottom line (spec 071): the panel's own choices, in a row, for the code view has no
+ * panel. What a choice will do shows over the line, as the panel's foot shows it under its choices.
+ */
+function CodeVerdict({ loader, live, verdict, ask, landed }: {
+  loader: ReviewLoader
+  live: boolean
+  verdict: VerdictCommands | null
+  ask: AskCommand | null
+  landed: PanelChrome['landed']
+}) {
+  const review = useSession((session) => session.review)
+  const notes = useSession((session) => session.notes)
+  const status = useStore(loader, (state) => state.preparation)
+  const askHobkin = useAskHobkin(ask)
+  return <Actions layout="line" review={review} notes={notes} live={live} verdict={verdict} saveNotes={loader.saveNotes} status={status} ask={askHobkin} {...(landed ? { landed } : {})} />
 }
 
 /** The open review. It draws again for what it shows, not each time the loader around it hears from the host. */
@@ -460,7 +480,12 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
 
   const stage = useMemo(() => ({ session, source, camera }), [camera, session, source])
   // What the review's panel and the outline leave of the canvas, at the right: the dock's room, and the proof's.
-  const room = canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP) - (outlineOpen && look === 'graph' ? OUTLINE_ROOM : 0)
+  // The code view has no panel: it takes the whole width, and what centers on what the panel leaves, as the finder, centers on it all.
+  const panelRoom = look === 'code' ? 0 : stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP
+  useEffect(() => {
+    if (look === 'code') camera.side.jump(0)
+  }, [camera, look])
+  const room = canvas.width - panelRoom - (outlineOpen && look === 'graph' ? OUTLINE_ROOM : 0)
   // The camera a review left for another page comes back to is for the graph's first showing. Once the code view has been
   // shown, the graph frames where the story is when it comes back.
   const [resume, setResume] = useState(() => resumedCamera(kept, session.getState().resumed))
@@ -485,7 +510,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
                 <WireCard />
               </>
             ) : (
-              <CodeView ask={ask} units={assessment?.units?.units} />
+              <CodeView ask={ask} units={assessment?.units?.units} verdict={<CodeVerdict loader={loader} live={live} verdict={verdict} ask={ask} landed={landed} />} />
             )}
             <Finder />
             {look === 'graph' ? (
@@ -494,7 +519,8 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
                 <Dock room={room} ask={ask} units={assessment?.units?.units} />
               </>
             ) : null}
-            <Panel canvas={canvas} loader={loader} live={live} close={close} verdict={verdict} ask={ask} landed={landed} />
+            {/* The review's panel is the graph's: the code view is the code alone, with the verdict along its line (the user, 2026-11-25). */}
+            {look === 'graph' ? <Panel canvas={canvas} loader={loader} live={live} close={close} verdict={verdict} ask={ask} landed={landed} /> : null}
             {look === 'graph' ? <CodePanel height={panelHeight} windowHeight={windowHeight} units={assessment?.units?.units} ask={ask} /> : null}
             <ProofBeside canvas={canvas.width} room={room} root={root} keys={proofKeys} />
             {shortcuts ? (
