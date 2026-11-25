@@ -115,13 +115,14 @@ function panelKeys(session: Session, key: string, effects: KeyEffects): boolean 
     case 'c':
     case 'C':
       return session.startNote('comment'), true
-    // A question in the review's input, asked of hobkin about what the reviewer is on. D was a question to discuss
-    // later, and H was talking to hobkin: both are asking it now.
+    // D: a question on what the reviewer is on, kept to discuss with the agent with the comments, as pi-coder's DISCUSS.
     case 'd':
     case 'D':
+      return session.startNote('question'), true
+    // H: a question asked of hobkin about what the reviewer is on, which goes at once.
     case 'h':
     case 'H':
-      return session.startNote('question'), true
+      return session.startNote('question', { ask: true }), true
     // The verdicts, each shown first and done only on a second press: A approves, M approves and merges, X sends the fixes.
     case 'a':
     case 'A':

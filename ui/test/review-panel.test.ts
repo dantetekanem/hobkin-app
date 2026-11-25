@@ -43,12 +43,13 @@ test('T is the key of the proof beside the review, and Shift+T of its full page'
   assert.deepEqual(pressed, [false, false, true])
 })
 
-test("N and C start a comment, and D and H a question to hobkin, in the review's input, about what the reviewer is on", () => {
-  for (const [key, intent] of [['n', 'comment'], ['C', 'comment'], ['d', 'question'], ['H', 'question']] as const) {
+test("N and C start a comment, D a question to discuss with the agent, and H a question to hobkin, in the review's input, about what the reviewer is on", () => {
+  const onStep = { step: sample.story[0]!.id, target: { kind: 'step' } }
+  for (const [key, intent, editor] of [['n', 'comment', onStep], ['C', 'comment', onStep], ['d', 'question', onStep], ['H', 'question', { ...onStep, ask: true }]] as const) {
     const memory = createReviewMemory(memoryStorage())
     const session = createSession(sample, memory)
     assert.equal(pressKey(session.getState(), { key, shift: false, alt: false }, effects), true, key)
-    assert.deepEqual(session.getState().editor, { step: sample.story[0]!.id, target: { kind: 'step' } }, key)
+    assert.deepEqual(session.getState().editor, editor, key)
     assert.equal(memory.getState().of(sample).draft?.intent, intent, key)
   }
 })

@@ -58,8 +58,11 @@ export interface Session {
   selection: Extract<NoteTarget, { kind: 'lines' }> | null
   /** The node the reviewer last pointed at, by a click or the arrows, until the next step. A note started now is about it. */
   pointed: string | null
-  /** The note being written: what it is about, and the note it replaces when it is an edit. */
-  editor: { step: string; target: NoteTarget; editing?: string } | null
+  /**
+   * The note being written: what it is about, and the note it replaces when it is an edit. `ask`: a question asked of
+   * hobkin at once (H), where one without it is kept to discuss with the agent (D), as a comment is kept (C).
+   */
+  editor: { step: string; target: NoteTarget; editing?: string; ask?: true } | null
   /** The steps panel is open, not tucked away. The panel says so, and the camera and the step's text follow. */
   panelOpen: boolean
   /** The finder is open: any node, by name, path or kind. */
@@ -147,8 +150,13 @@ export interface Session {
   historyForward(): boolean
   /** Goes to what a note is about: its step, node, wire, or lines in the code. */
   showNote(noteId: string): void
-  /** Starts a note about what the reviewer is on: selected lines, an open wire, a node off the path, or the step. */
-  startNote(intent: NoteIntent): void
+  /**
+   * Starts a note about what the reviewer is on: selected lines, an open wire, a node off the path, or the step. With
+   * `ask`, a question goes to hobkin at once when it is kept.
+   */
+  startNote(intent: NoteIntent, options?: { ask?: boolean }): void
+  /** Whether the question being written goes to hobkin at once (H) or waits to be discussed with the agent (D). */
+  setAsk(ask: boolean): void
   /** Opens a note to change its words. */
   editNote(noteId: string): void
   /** Keeps what was written as a note and closes the editor. Returns the note when a new one was kept. */
@@ -663,10 +671,11 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
           get().view.nodes.find((node) => node.anchors.some((anchor) => anchor.fileId === target.fileId && anchor.side === target.side && anchor.startLine <= target.endLine && target.startLine <= anchor.endLine))?.id
         if (owner && get().openCode(owner)) set({ selection: target })
       },
-      startNote: (intent) => {
+      startNote: (intent, { ask = false } = {}) => {
         const { story, wire, selection, view, pointed } = get()
         const step = view.story[story.step]
         if (!step) return
+        const asks = ask && intent === 'question' ? { ask: true as const } : {}
         if (get().look === 'code') {
           const held = selection ? noteHolding(get().notes, intent, selection) : undefined
           if (held) return get().editNote(held.id)
@@ -678,7 +687,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
           const on = stepShowing(view.story, (id) => reviewNodesOf(view, id), partOf, target) ?? step.id
           const draft = memory.getState().of(review).draft
           memory.getState().setDraft(review, { intent, text: draft && !draft.editing ? draft.text : '' })
-          set({ editor: { step: on, target } })
+          set({ editor: { step: on, target, ...asks } })
           return
         }
         // A note on a card of folded tests is about its first test: a node of the review, which hobkin can read.
@@ -687,7 +696,13 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         const draft = memory.getState().of(review).draft
         // A draft left behind is picked up again, unless it was an edit of another note.
         memory.getState().setDraft(review, { intent, text: draft && !draft.editing ? draft.text : '' })
-        set({ editor: { step: step.id, target } })
+        set({ editor: { step: step.id, target, ...asks } })
+      },
+      setAsk: (ask) => {
+        const { editor } = get()
+        if (!editor || editor.editing || (editor.ask === true) === ask) return
+        const { ask: _was, ...rest } = editor
+        set({ editor: ask ? { ...rest, ask: true } : rest })
       },
       editNote: (noteId) => {
         const note = get().notes.find((entry) => entry.id === noteId)

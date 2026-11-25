@@ -514,7 +514,7 @@ function Foot({ notice }: { notice: Session['notice'] }) {
       <span className="ml-1.5 flex items-center gap-2.5">
         {hint('C', 'a comment')}
         <span aria-hidden="true">·</span>
-        {hint('D', 'ask hobkin')}
+        {hint('D', 'discuss with the agent')}
         <span aria-hidden="true">·</span>
         {hint('⌘?', 'every key')}
       </span>

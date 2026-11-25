@@ -74,16 +74,18 @@ export async function askHobkin(session: SessionStore, command: AskCommand, text
 }
 
 /**
- * Keeps what the reviewer wrote in the review's input, and says where the keyboard goes next. A comment is kept as a
- * note on what they are on, for the verdict, and the keyboard goes back to the review. A question is kept too and goes
- * to hobkin at once through `send`, which marks it asked once hobkin has it; the input is ready for the next question,
- * about what the reviewer is on now, and the keyboard stays in it. A question that did not go waits, not asked yet. With no hobkin
- * to send to, as in a sample review, a question waits like a comment. A note being changed is only changed.
+ * Keeps what the reviewer wrote in the review's input, and says where the keyboard goes next. A comment, and a question
+ * to discuss with the agent (D), are kept as notes on what they are on, for "Talk to agent", and the keyboard goes back
+ * to the review. A question asked of hobkin (H) is kept too and goes to hobkin at once through `send`, which marks it
+ * asked once hobkin has it; the input is ready for the next question, about what the reviewer is on now, and the
+ * keyboard stays in it. One that did not go waits, not asked yet, as a question to discuss. With no hobkin to send to,
+ * as in a sample review, it waits too. A note being changed is only changed.
  */
 export async function submitNote(session: SessionStore, memory: StoreApi<MemoryState>, send: ((text: string) => Promise<boolean>) | null): Promise<'review' | 'input'> {
+  const asksHobkin = session.getState().editor?.ask === true
   const note = session.getState().saveNote()
-  if (!note || note.intent !== 'question' || !send) return 'review'
-  session.getState().startNote('question')
+  if (!note || note.intent !== 'question' || !asksHobkin || !send) return 'review'
+  session.getState().startNote('question', { ask: true })
   if (await send(note.text)) memory.getState().markSent(session.getState().review, [note.id], Date.now())
   return 'input'
 }

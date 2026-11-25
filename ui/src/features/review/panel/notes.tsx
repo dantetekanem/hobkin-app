@@ -6,7 +6,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { inputKey } from '../keys.ts'
-import { discussionMessage, targetLabel, type Note, type NoteIntent } from '../notes/notes.ts'
+import { targetLabel, type Note, type NoteIntent } from '../notes/notes.ts'
 import { reviewMemory, useReviewMemory, useSession, useSessionStore } from '../state/context.tsx'
 import type { SessionStore } from '../state/session.ts'
 import { submitNote, type AskCommand, type PendingAsk } from './ask.ts'
@@ -96,17 +96,29 @@ export function NoteRow({ note, review }: { note: Note; review: Review }) {
 }
 
 const SAYS: Partial<Record<PendingAsk['state'], string>> = { sending: 'Sending to hobkin…', queued: 'Hobkin reads it after what it is doing now.' }
+
+/** What a note in the input is: a comment (C), a question to discuss with the agent (D), or a question for hobkin now (H). */
+type NoteMode = 'comment' | 'discuss' | 'ask'
+const MODES: { mode: NoteMode; label: string }[] = [
+  { mode: 'comment', label: 'Comment' },
+  { mode: 'discuss', label: 'Discuss' },
+  { mode: 'ask', label: 'Ask hobkin' },
+]
+const intentOf = (mode: NoteMode): NoteIntent => (mode === 'comment' ? 'comment' : 'question')
+/** How the field names itself to a screen reader, before what the note is on. */
+const FIELD_WORDS: Record<NoteMode, string> = { comment: 'A comment on', discuss: 'A question to discuss with the agent about', ask: 'Ask hobkin about' }
 /** The tallest the review's input grows with its words, as the chat's does, in pixels. */
 const INPUT_HEIGHT = 200
 
 /**
  * The review's input, at the bottom of the canvas under the step pager, there for as long as the review is open: where
- * a comment is written on what the reviewer is on, and where hobkin is asked about it. N or C starts a comment, D or H
- * a question, a note's pencil in the panel opens it here to change, and a click starts what was chosen last.
+ * a comment is written on what the reviewer is on, a question to discuss with the agent, or a question for hobkin. N or
+ * C starts a comment, D a question to discuss, H a question for hobkin, a note's pencil in the panel opens it here to
+ * change, and a click starts what was chosen last.
  *
- * Enter keeps a comment for the verdict, and the keyboard goes back to the review. Enter sends a question to hobkin:
- * hobkin's own chat comes into view beside the review to answer it, the keyboard stays here for the next one, and it
- * never goes to the chat's input. Shift with Enter starts a new line. Escape gives the keyboard back to the review with
+ * Enter keeps a comment or a question to discuss, for "Talk to agent", and the keyboard goes back to the review. Enter
+ * sends a question for hobkin to hobkin: hobkin's own chat comes into view beside the review to answer it, the keyboard
+ * stays here for the next one, and it never goes to the chat's input. Shift with Enter starts a new line. Escape gives the keyboard back to the review with
  * the words kept as a draft, and goes no further, so it never reaches the chat, where it would stop hobkin. A click
  * here leaves the chat where it is, so an answer being read stays in view.
  */
@@ -114,7 +126,6 @@ export function NoteInput({ ask, units }: { ask: AskCommand | null; units?: read
   const store = useSessionStore()
   const review = useSession((session) => session.review)
   const editor = useSession((session) => session.editor)
-  const notes = useSession((session) => session.notes)
   const step = useSession((session) => session.view.story[session.story.step])
   const nodes = useSession((session) => session.view.nodes)
   // The node the reviewer is on, for the example of what to ask.
@@ -128,40 +139,35 @@ export function NoteInput({ ask, units }: { ask: AskCommand | null; units?: read
   const send = useAskHobkin(ask)
   const field = useRef<HTMLTextAreaElement>(null)
   // The choice holds from one note to the next.
-  const [chosen, setChosen] = useState<NoteIntent>(draft?.intent ?? 'comment')
-  const intent = draft?.intent ?? chosen
+  const [chosen, setChosen] = useState<NoteMode>(draft?.intent === 'comment' ? 'comment' : 'discuss')
+  const drafted = draft != null
+  const mode: NoteMode = draft ? (draft.intent === 'comment' ? 'comment' : editor?.ask ? 'ask' : 'discuss') : chosen
+  const intent = intentOf(mode)
   useEffect(() => {
-    if (draft?.intent) setChosen(draft.intent)
-  }, [draft?.intent])
+    if (drafted) setChosen(mode)
+  }, [drafted, mode])
 
   const target = editor ? targetLabel(review, editor.target) : null
   const text = draft?.text ?? ''
-  const asking = intent === 'question'
-  // Questions kept before they could go, such as one hobkin could not take, go as one message.
-  const waiting = notes.filter((note) => note.intent === 'question' && note.author === 'user' && note.sent == null)
+  const asking = mode === 'ask'
   const said = newest?.state === 'failed' ? `Not sent. ${newest.error ?? ''}` : newest && (newest.state !== 'queued' || busy) ? SAYS[newest.state] : undefined
 
-  const set = (change: { text?: string; intent?: NoteIntent }) => {
+  const set = (change: { text?: string; intent?: NoteIntent }, asks = asking) => {
     // Words typed with no note open, as after a question went, are about what the reviewer is on now.
-    if (!store.getState().editor) store.getState().startNote(change.intent ?? intent)
+    if (!store.getState().editor) store.getState().startNote(change.intent ?? intent, { ask: asks })
     const now = reviewMemory.getState().of(review).draft
     reviewMemory.getState().setDraft(review, { intent: now?.intent ?? intent, text: now?.text ?? '', ...(now?.editing ? { editing: now.editing } : {}), ...change })
   }
-  const choose = (kind: NoteIntent) => {
+  const choose = (kind: NoteMode) => {
     setChosen(kind)
-    set({ intent: kind })
+    set({ intent: intentOf(kind) }, kind === 'ask')
+    store.getState().setAsk(kind === 'ask')
     field.current?.focus({ preventScroll: true })
   }
   const backToReview = () => field.current?.closest<HTMLElement>('[data-rv-root]')?.focus({ preventScroll: true })
   const submit = async () => {
     if ((await submitNote(store, reviewMemory, send)) === 'review') backToReview()
   }
-  const askWaiting = async () => {
-    const message = discussionMessage(review, waiting)
-    if (!send || !message) return
-    if (await send(message)) reviewMemory.getState().markSent(review, waiting.map((note) => note.id), Date.now())
-  }
-
   // A note started anywhere, by its key or from the panel, puts the keyboard here, the caret after what is there.
   useLayoutEffect(() => {
     const element = field.current
@@ -210,20 +216,20 @@ export function NoteInput({ ask, units }: { ask: AskCommand | null; units?: read
         <div className="flex items-end gap-1">
           <div className="flex h-8 shrink-0 items-center">
             <div className="flex h-7 items-center rounded-full bg-surface-2 p-0.5" role="group" aria-label="What this note is">
-              {(['comment', 'question'] as const).map((kind) => (
+              {MODES.map((choice) => (
                 <button
-                  key={kind}
+                  key={choice.mode}
                   type="button"
-                  aria-pressed={intent === kind}
+                  aria-pressed={mode === choice.mode}
                   // The keyboard stays in the words.
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => choose(kind)}
+                  onClick={() => choose(choice.mode)}
                   className={cn(
                     'h-6 rounded-full px-2.5 text-[13px] leading-none font-medium whitespace-nowrap transition-[background-color,color] duration-[140ms] ease-out',
-                    intent === kind ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
+                    mode === choice.mode ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {kind === 'question' ? 'Ask hobkin' : 'Comment'}
+                  {choice.label}
                 </button>
               ))}
             </div>
@@ -232,16 +238,18 @@ export function NoteInput({ ask, units }: { ask: AskCommand | null; units?: read
             ref={field}
             value={text}
             rows={1}
-            aria-label={asking ? `Ask hobkin about ${target ?? 'what you are on'}` : `A comment on ${target ?? 'what you are on'}`}
+            aria-label={`${FIELD_WORDS[mode]} ${target ?? 'what you are on'}`}
             placeholder={
-              asking
-                ? send
-                  ? `e.g. ${askExample(step, units, nodes, on)}`
-                  : 'Hobkin is not connected to this sample review: the question is kept as a note'
-                : 'What should change, or be remembered?'
+              mode === 'comment'
+                ? 'What should change, or be remembered?'
+                : mode === 'discuss'
+                  ? 'What do you want to talk over with the agent?'
+                  : send
+                    ? `e.g. ${askExample(step, units, nodes, on)}`
+                    : 'Hobkin is not connected to this sample review: the question is kept as a note'
             }
             onFocus={() => {
-              if (!store.getState().editor) store.getState().startNote(intent)
+              if (!store.getState().editor) store.getState().startNote(intent, { ask: asking })
             }}
             onChange={(event) => set({ text: event.target.value })}
             onKeyDown={(event) => {
@@ -289,10 +297,13 @@ export function NoteInput({ ask, units }: { ask: AskCommand | null; units?: read
         ) : (
           <>
             <span className="flex shrink-0 items-center gap-1">
-              <Kbd>N</Kbd> a comment
+              <Kbd>C</Kbd> a comment
             </span>
             <span className="flex shrink-0 items-center gap-1">
-              <Kbd>D</Kbd> ask hobkin
+              <Kbd>D</Kbd> discuss with the agent
+            </span>
+            <span className="flex shrink-0 items-center gap-1">
+              <Kbd>H</Kbd> ask hobkin
             </span>
           </>
         )}
@@ -302,11 +313,6 @@ export function NoteInput({ ask, units }: { ask: AskCommand | null; units?: read
             {newest?.state === 'failed' ? <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" /> : null}
             <span className="min-w-0 truncate">{said}</span>
           </span>
-        ) : null}
-        {send && waiting.length > 0 ? (
-          <button type="button" onClick={() => void askWaiting()} className="font-heading font-semibold text-foreground underline-offset-2 hover:underline">
-            Ask your {waiting.length === 1 ? 'question' : `${waiting.length} questions`}
-          </button>
         ) : null}
       </div>
     </div>

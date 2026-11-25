@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import type { Units } from '#shared/review/assessment.ts'
 import type { Review } from '#shared/review/types.ts'
 import { useView } from '../src/app/view-store.ts'
+import { pressKey, type KeyEffects } from '../src/features/review/keys.ts'
 import { askHobkin, changeAsk, questionAsk, submitNote, type AskCommand } from '../src/features/review/panel/ask.ts'
 import { whatMatters } from '../src/features/review/panel/sidebar.ts'
 import { toStepUnit } from '../src/features/review/reading/model.ts'
@@ -117,14 +118,14 @@ test("a comment written in the review's input is kept on what the reviewer is on
   assert.equal(memory.getState().of(review).draft, null)
 })
 
-test("a question written in the review's input goes to hobkin with the step and the node, brings the chat into view, and the keyboard stays in the input", async () => {
+test("a question asked of hobkin in the review's input goes to hobkin with the step and the node, brings the chat into view, and the keyboard stays in the input", async () => {
   const { memory, session } = reviewing()
   session.getState().goTo(4)
   const step = review.story[4]!
   const { command, calls } = host()
   const send = (text: string) => askHobkin(session, command, text)
 
-  session.getState().startNote('question')
+  session.getState().startNote('question', { ask: true })
   memory.getState().setDraft(review, { intent: 'question', text: '  Why is this safe?  ' })
   assert.equal(await submitNote(session, memory, send), 'input')
   assert.deepEqual(calls, [{ name: 'conversation.send', args: { text: 'Why is this safe?', review: { id: review.id, step: step.id, node: step.focus[0] } } }])
@@ -135,7 +136,38 @@ test("a question written in the review's input goes to hobkin with the step and 
   assert.deepEqual(session.getState().counts.steps[step.id], { comments: 0, questions: 1 })
   // The input is empty and ready for the next question, about the same place.
   assert.deepEqual(memory.getState().of(review).draft, { intent: 'question', text: '' })
-  assert.deepEqual(session.getState().editor, { step: step.id, target: { kind: 'step' } })
+  assert.deepEqual(session.getState().editor, { step: step.id, target: { kind: 'step' }, ask: true })
+})
+
+test("a question to discuss is kept for the agent with the comments: nothing goes to hobkin, and the keyboard goes back to the review", async () => {
+  const { memory, session } = reviewing()
+  session.getState().goTo(4)
+  const step = review.story[4]!
+  const { command, calls } = host()
+  const send = (text: string) => askHobkin(session, command, text)
+
+  session.getState().startNote('question')
+  memory.getState().setDraft(review, { intent: 'question', text: 'Why a lock and not a retry?' })
+  assert.equal(await submitNote(session, memory, send), 'review')
+
+  assert.deepEqual(session.getState().notes.map((note) => [note.step, note.intent, note.text, note.sent ?? null]), [[step.id, 'question', 'Why a lock and not a retry?', null]])
+  assert.equal(calls.length, 0)
+  assert.equal(chatInView(), false)
+  assert.equal(session.getState().editor, null)
+})
+
+test('C writes a comment, D a question to discuss with the agent, and H a question asked of hobkin at once', () => {
+  const { session } = reviewing()
+  const effects: KeyEffects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
+  const press = (key: string) => pressKey(session.getState(), { key, shift: false, alt: false }, effects)
+  const modeAfter = (key: string) => {
+    press(key)
+    const { editor } = session.getState()
+    session.getState().closeEditor()
+    return editor?.ask === true ? 'ask' : 'kept'
+  }
+
+  assert.deepEqual(['c', 'n', 'd', 'h', 'H'].map(modeAfter), ['kept', 'kept', 'kept', 'ask', 'ask'])
 })
 
 test('a question hobkin cannot take waits as a question not asked yet, and so does one where hobkin is not connected', async () => {
@@ -143,7 +175,7 @@ test('a question hobkin cannot take waits as a question not asked yet, and so do
   const failing: AskCommand = async () => {
     throw new Error('hobkin is not running.')
   }
-  session.getState().startNote('question')
+  session.getState().startNote('question', { ask: true })
   memory.getState().setDraft(review, { intent: 'question', text: 'Is this tested?' })
   assert.equal(await submitNote(session, memory, (text) => askHobkin(session, failing, text)), 'input')
   assert.deepEqual(session.getState().notes.map((note) => [note.intent, note.text, note.sent ?? null]), [['question', 'Is this tested?', null]])
@@ -151,7 +183,7 @@ test('a question hobkin cannot take waits as a question not asked yet, and so do
 
   // A sample review has no hobkin to send to: the question is kept, and the keyboard goes back to the review.
   useView.setState({ canvasEngaged: true })
-  session.getState().startNote('question')
+  session.getState().startNote('question', { ask: true })
   memory.getState().setDraft(review, { intent: 'question', text: 'And this one?' })
   assert.equal(await submitNote(session, memory, null), 'review')
   assert.deepEqual(session.getState().notes.map((note) => [note.text, note.sent ?? null]), [['Is this tested?', null], ['And this one?', null]])
