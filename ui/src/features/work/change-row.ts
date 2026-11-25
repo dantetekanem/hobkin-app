@@ -1,4 +1,5 @@
 import type { FinishedChange, StackPlace } from '#shared/protocol/work.ts'
+import { timeOf, waited } from '../reports/time.ts'
 
 /**
  * What a finished change's row says (_specs/061-finished-changes-rows). Pure, so it is tested without a window: the
@@ -63,4 +64,10 @@ export function rowKey({ key, onRow }: { key: string; onRow: boolean }): RowKey 
   if (key === 'Enter') return 'review'
   if (key === ' ') return 'toggle'
   return null
+}
+
+/** How long ago a change was written, "a moment ago", "5 minutes ago" or "2 days ago", from its `at`. Null when it has no readable time. */
+export function whenWords(at: string | undefined, now: number): string | null {
+  const written = timeOf(at)
+  return written === null ? null : `${waited(written, now)} ago`
 }

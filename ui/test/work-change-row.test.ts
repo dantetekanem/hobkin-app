@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { FinishedChange } from '#shared/protocol/work.ts'
-import { factsOf, placeBefore, rowKey } from '../src/features/work/change-row.ts'
+import { factsOf, placeBefore, rowKey, whenWords } from '../src/features/work/change-row.ts'
 
 const change = (over: Partial<FinishedChange> = {}): FinishedChange =>
   ({ key: 'a:1', project: 'storefront', issue: null, size: null, behind: 0, pr: null, models: undefined, ...over }) as FinishedChange
@@ -38,4 +38,18 @@ test('Space opens and closes the row, Enter opens it in Review, and a key meant 
   assert.equal(rowKey({ key: ' ', onRow: false }), null)
   assert.equal(rowKey({ key: 'Enter', onRow: false }), null)
   assert.equal(rowKey({ key: 'a', onRow: true }), null)
+})
+
+test('a row says how long ago its change was written, in the largest whole unit, and nothing when it has no readable time', () => {
+  const now = Date.parse('2026-11-24T20:00:00.000Z')
+  const ago = (ms: number) => whenWords(new Date(now - ms).toISOString(), now)
+  assert.equal(ago(20_000), 'a moment ago')
+  assert.equal(ago(-5_000), 'a moment ago', 'a time a little ahead of this Mac\'s clock')
+  assert.equal(ago(61_000), '1 minute ago')
+  assert.equal(ago(59 * 60_000), '59 minutes ago')
+  assert.equal(ago(3 * 3_600_000 + 59 * 60_000), '3 hours ago')
+  assert.equal(ago(24 * 3_600_000), '1 day ago')
+  assert.equal(ago(10 * 24 * 3_600_000), '10 days ago')
+  assert.equal(whenWords(undefined, now), null)
+  assert.equal(whenWords('not a time', now), null)
 })

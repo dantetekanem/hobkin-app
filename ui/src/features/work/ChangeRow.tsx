@@ -3,16 +3,18 @@ import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
+import { useNow } from '@/features/chat/use-now.ts'
 import { Button, buttonVariants } from '@/components/ui/button.tsx'
 import { finishedReviewId } from '@/features/review/entry.ts'
 import { rowLayout, type Leaving } from '@/features/reports/list-motion.ts'
+import { clockTime, dayLabel, timeOf } from '@/features/reports/time.ts'
 import { ProofCheckLine, ProofChips } from '@/features/proofs/ProofChips.tsx'
 import { usePullRequests } from '@/integration/use-pulls.ts'
 import { type FinishedChange } from '@/lib/host/index.ts'
 import { openLink } from '@/lib/open-link.ts'
 import { cn } from '@/lib/utils.ts'
 import type { HobkinChoice } from './actions.ts'
-import { factsOf, placeBefore, rowKey, type Fact, type Tone } from './change-row.ts'
+import { factsOf, placeBefore, rowKey, whenWords, type Fact, type Tone } from './change-row.ts'
 import { actionOf, gradeBlockOf, sentenceOf, tagsOf, type Tag } from './change-list.ts'
 import { Grades } from './Grades.tsx'
 import { RowMenu } from './RowMenu.tsx'
@@ -75,6 +77,20 @@ const TAG_TONE: Record<Tag['tone'], string> = { note: 'text-warn-fg', bad: 'text
 
 function TagChip({ tag }: { tag: Tag }) {
   return <span className={cn('mr-1.5 inline-block rounded-full border border-border px-2 align-[1px] text-[11px] leading-[18px] font-medium whitespace-nowrap', TAG_TONE[tag.tone])}>{tag.text}</span>
+}
+
+/**
+ * When the change was written, the one part of a closed row that follows the clock. Every row reads the window's one
+ * half-minute clock (`lib/clock.ts`), so many rows add no timer, and only this line draws again as minutes pass.
+ */
+function When({ at }: { at: string | undefined }) {
+  const written = timeOf(at)
+  const now = useNow(written !== null, 30_000)
+  return (
+    <span title={written === null ? undefined : `${dayLabel(written, now)}, ${clockTime(written)}, when hobkin last wrote it`} className="h-4 whitespace-nowrap">
+      {whenWords(at, now) ?? ''}
+    </span>
+  )
 }
 
 function openingMotion({ still, bare }: { still: boolean; bare: boolean }) {
@@ -259,9 +275,9 @@ export function ChangeRow({ change, lowest, place = null, bare = false, initiall
         className={cn('@container flex scroll-mt-[124px] scroll-mb-6 flex-col rounded-2xl bg-background px-4 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2', 'py-3', reviewId && 'pressable')}
       >
         {bare ? null : (
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-2 gap-y-2 @[860px]:grid-cols-[6.5rem_minmax(0,1fr)_4.5rem_8.5rem_auto_auto]">
+          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-x-2 gap-y-2 @[860px]:grid-cols-[6.5rem_minmax(0,1fr)_6.5rem_8.5rem_auto_auto]">
             <Grades block={block} lowest={lowest} />
-            <div className="col-span-4 row-start-2 flex min-w-0 flex-col gap-1 @[860px]:col-span-1 @[860px]:col-start-2 @[860px]:row-start-1 @[860px]:mr-1">
+            <div className="col-span-5 row-start-2 flex min-w-0 flex-col gap-1 @[860px]:col-span-1 @[860px]:col-start-2 @[860px]:row-start-1 @[860px]:mr-1">
               <div className="flex h-6 min-w-0 items-center gap-2">
                 <GradeChip grade={change.grade} />
                 {placed ? <span className="shrink-0 text-[12px] font-medium text-muted-foreground tabular-nums">{placed}</span> : null}
@@ -280,9 +296,13 @@ export function ChangeRow({ change, lowest, place = null, bare = false, initiall
                 </p>
               ) : null}
             </div>
-            <span className="hidden text-right text-[12px] text-muted-foreground tabular-nums @[860px]:block">{change.size ? `${change.size.lines.toLocaleString('en-US')} lines` : ''}</span>
-            <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end @[860px]:col-start-4">{closedAction()}</div>
-            <div className="col-start-3 row-start-1 @[860px]:col-start-5">
+            {/* Its size over when it was written, each line always there, so neither moves when the other changes. */}
+            <div className="col-start-2 row-start-1 flex flex-col items-end text-right text-[12px] leading-4 text-muted-foreground tabular-nums @[860px]:col-start-3">
+              <span className="hidden h-4 whitespace-nowrap @[860px]:block">{change.size ? `${change.size.lines.toLocaleString('en-US')} lines` : ''}</span>
+              <When at={change.at} />
+            </div>
+            <div className="col-start-3 row-start-1 flex min-w-0 items-center justify-end @[860px]:col-start-4">{closedAction()}</div>
+            <div className="col-start-4 row-start-1 @[860px]:col-start-5">
               <RowMenu change={change} live={live} actions={{ busy, chosen, choose, reviewAgain }} reviewing={underWay(assessment)} onReply={() => { setOpened(true); setNoting(true) }} />
             </div>
             <Button
@@ -294,7 +314,7 @@ export function ChangeRow({ change, lowest, place = null, bare = false, initiall
               aria-label={open ? 'Close the details' : 'Open the details'}
               title={open ? 'Close the details (Space)' : 'Open the details (Space)'}
               onClick={() => setOpened((was) => !was)}
-              className="col-start-4 row-start-1 shrink-0 text-muted-foreground @[860px]:col-start-6"
+              className="col-start-5 row-start-1 shrink-0 text-muted-foreground @[860px]:col-start-6"
             >
               <Chevron aria-hidden="true" />
             </Button>
