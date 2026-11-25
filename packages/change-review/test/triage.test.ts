@@ -241,16 +241,25 @@ test('a removal is searched for every name it defined, in one pass over the whol
       'android/app/Bridge.kt': 'val helper = legacyHelper58()\n',
     },
   })
+  // The folders each search was limited to: none is the whole tree.
   const searches: (readonly string[] | undefined)[] = []
-  const counted: RepoReader = { ...repo, grep: (rev, pattern, paths) => (searches.push(paths), repo.grep(rev, pattern, paths)) }
+  const counted: RepoReader = {
+    ...repo,
+    grep: (rev, pattern, paths) => {
+      searches.push(paths)
+      return repo.grep(rev, pattern, paths)
+    },
+  }
 
   const result = await checkBuckets(triage(removalMeta), counted, removalMeta)
+
   const check = result.buckets.find((bucket) => bucket.treatment === 'removal')!.checks![0]!
   assert.deepEqual(searches, [undefined])
   assert.equal(check.passed, false)
-  assert.match(check.detail, /^test\/fixtures\/helpers\.json:1 still refers to legacyHelper59/m)
-  assert.match(check.detail, /^android\/app\/Bridge\.kt:1 still refers to legacyHelper58/m)
-  assert.doesNotMatch(check.detail, /legacyHelper5[0-7]\b|web\/src\/app\.ts/)
+  assert.deepEqual(check.detail.split('\n'), [
+    'test/fixtures/helpers.json:1 still refers to legacyHelper59: { "call": "legacyHelper59" }',
+    'android/app/Bridge.kt:1 still refers to legacyHelper58: val helper = legacyHelper58()',
+  ])
 })
 
 test('a removal whose search fails says it could not tell', async () => {
@@ -259,6 +268,7 @@ test('a removal whose search fails says it could not tell', async () => {
   const failing: RepoReader = { ...repo, grep: () => Promise.reject(new Error('git grep took longer than 600 seconds.')) }
 
   const result = await checkBuckets(triage(removalMeta), failing, removalMeta)
+
   const check = result.buckets.find((bucket) => bucket.treatment === 'removal')!.checks![0]!
   assert.equal(check.passed, null)
   assert.match(check.detail, /git grep took longer than 600 seconds/)

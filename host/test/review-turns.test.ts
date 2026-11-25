@@ -315,17 +315,24 @@ test('a pull request on a code host other than GitHub names that host when it wa
     card: () => null,
   })
   t.after(() => reviews.close())
-  const pulls = Array.from({ length: 5 }, (_, index) => ({ id: reviewIdOf({ kind: 'pull', host: 'corp', owner: 'acme', repo: 'shop', number: index + 1 }), updatedAt: new Date().toISOString() }))
+  // A list from the host that names no commit and no times, as the GitHub test above has.
+  const pulls = Array.from({ length: 5 }, (_, index) => ({
+    id: reviewIdOf({ kind: 'pull', host: 'corp', owner: 'acme', repo: 'shop', number: index + 1 }),
+    updatedAt: new Date().toISOString(),
+  }))
+  const last = 'pr:corp:acme/shop/5'
 
   reviews.watch(pulls)
   await new Promise((resolve) => setTimeout(resolve, 30))
-  const why = reviews.status('pr:corp:acme/shop/5').turn?.why ?? ''
+
+  const why = reviews.status(last).turn?.why ?? ''
   assert.match(why, /corp's list did not say its commit, and hobkin has read none of it yet\. Nor did it say when/)
   assert.doesNotMatch(why, /GitHub/)
 
-  reviews.prepare('pr:corp:acme/shop/5', { asked: true })
-  await reviews.settled('pr:corp:acme/shop/5')
-  const log = reviews.status('pr:corp:acme/shop/5').assessment?.log?.map((line) => line.text) ?? []
+  reviews.prepare(last, { asked: true })
+  await reviews.settled(last)
+
+  const log = reviews.status(last).assessment?.log?.map((line) => line.text) ?? []
   assert.ok(log.includes('Asking corp where #5 is.'), log.join('\n'))
 })
 

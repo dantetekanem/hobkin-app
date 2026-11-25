@@ -177,7 +177,7 @@ function screenOf(now: ReviewLanding | null, kind: 'change' | 'pull' = 'change',
       here: () => here,
       close: () => void seen.push('close'),
       celebrate: (kind: 'tada' | 'done', message: string) => void seen.push(`${kind}: ${message}`),
-      status: async () => ({ ...(now ? { landing: now } : {}), ...(mergeAsked ? { mergeAsked } : {}) }),
+      status: async () => ({ landing: now ?? undefined, mergeAsked }),
     },
     leave: () => void (here = false),
   }

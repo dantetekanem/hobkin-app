@@ -619,12 +619,14 @@ function importPathOf(path: string): string {
  */
 async function referencesTo(reader: RepoReader, head: string, terms: readonly string[], skip: ReadonlySet<string>): Promise<string[]> {
   if (!terms.length) return []
-  const matchers = terms.map((term) => ({ term, pattern: new RegExp(wholeWord([term])) }))
+  const hits = await reader.grep(head, wholeWord(terms))
+
+  // The one search says which lines name some term; each line then says which terms it names.
+  const words = terms.map((term) => ({ term, word: new RegExp(wholeWord([term])) }))
   const found: string[] = []
-  for (const hit of await reader.grep(head, wholeWord(terms))) {
-    if (skip.has(hit.path)) continue
-    for (const { term } of matchers.filter(({ pattern }) => pattern.test(hit.text))) {
-      found.push(`${hit.path}:${hit.line} still refers to ${term}: ${hit.text.trim().slice(0, 120)}`)
+  for (const hit of hits.filter((entry) => !skip.has(entry.path))) {
+    for (const { term, word } of words) {
+      if (word.test(hit.text)) found.push(`${hit.path}:${hit.line} still refers to ${term}: ${hit.text.trim().slice(0, 120)}`)
     }
   }
   return found

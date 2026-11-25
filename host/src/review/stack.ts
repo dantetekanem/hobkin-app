@@ -22,14 +22,16 @@ export interface StackFacts {
   kind: 'own' | 'mine' | 'other'
   /** For hobkin's own change: its Work project. */
   project?: string
-  /** The pull request, with the named code host it is on: none for GitHub's. */
+  /** The pull request it is, or the one hobkin's own change opened. */
   pull?: StackPull
 }
 
+/** A change's pull request, as the stack agent is told of it. */
 export interface StackPull {
   number: number
   address: string
   author: string | null
+  /** The named code host it is on: none for GitHub's. */
   host?: string
   /**
    * For a named code host: where its head is fetched from by hand, and by which ref (`pullHeadFetch`), or null when

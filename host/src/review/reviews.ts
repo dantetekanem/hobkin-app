@@ -2542,7 +2542,7 @@ export class Reviews {
     // What waits gets no review, and so no agent goes back to it by itself: the row says so (spec 058).
     const unchecked = head != null && this.options.store.newest(target) ? ' Its review is of an older commit, so nothing checks this one by itself.' : ' Not reviewed yet, so nothing checks it by itself.'
     const read = this.statuses.get(id)?.head ?? this.lookedHead.get(id)
-    const list = `${(target.kind === 'pull' && target.host) || 'GitHub'}'s list`
+    const list = `${target.kind === 'pull' && target.host ? target.host : 'GitHub'}'s list`
     const unnamed = !this.pullsWithoutHead.has(id)
       ? ''
       : read
