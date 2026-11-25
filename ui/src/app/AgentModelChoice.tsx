@@ -1,7 +1,7 @@
 import { Check, Search } from 'lucide-react'
 import { memo, useMemo, useRef, useState } from 'react'
 import { claudeChoices } from '#shared/tiers/claude-code.ts'
-import { filterModels, type Effort, type ModelChoice } from '#shared/tiers/tiers.ts'
+import { TIER_IDS, TIER_INFO, filterModels, type Effort, type ModelChoice, type TierId } from '#shared/tiers/tiers.ts'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { sendChange, type ChangeTarget } from '@/features/chat/send-change.ts'
 import { shownTier } from '@/features/tiers/host-tiers.ts'
@@ -9,42 +9,57 @@ import { useModelChoices } from '@/features/tiers/models.ts'
 import { useTiers } from '@/features/tiers/store.ts'
 import { runCommand, useHasHost, useListHost, type HostState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
-import { agentModelOf, changeFor, changeTarget, effortsOf, modelWords, type AgentModel } from './agent-model.ts'
+import { agentModelOf, agentTierOf, changeFor, changeForTier, changeTarget, effortsOf, modelWords, tierWords, type AgentModel } from './agent-model.ts'
 import type { RunningAgent } from './running-agents.ts'
 
-/** The pill's one width, whatever model it names, so nothing in the row moves when the model changes. */
+/** The pill's one width, whatever tier or model it names, so nothing in the row moves when either changes. */
 const PILL = 'w-[84px] shrink-0 truncate rounded-full border border-border px-1.5 text-center text-[10px] leading-4 font-medium text-muted-foreground'
 
 const runIn = (state: HostState, runId: string | null) => (runId === null ? undefined : state.snapshot.runs?.find((run) => run.id === runId))
 
+/** What an agent of the dock works on now, the tier that is when it runs on one, and what each tier runs with now. */
+interface AgentRuns {
+  current: AgentModel
+  tier: TierId | null
+  tiers: Record<TierId, AgentModel>
+}
+
 /** What an agent of the dock works on now: its run's model, its hobkin's engine, or what its tier runs with. */
-function useAgentModel(agent: RunningAgent): AgentModel {
+function useAgentRuns(agent: RunningAgent): AgentRuns {
   const live = useHasHost()
   const runId = agent.durable ? agent.durable.run : agent.id
   const asks = live && runId !== null
-  // Two plain strings, so a row draws again only when its own run's model or level changes.
+  // Three plain strings, so a row draws again only when its own run's model, level or tier changes.
   const model = useListHost((state) => (asks ? runIn(state, runId)?.model : undefined))
   const effort = useListHost((state) => (asks ? runIn(state, runId)?.effort : undefined))
+  const ranOn = useListHost((state) => (asks ? runIn(state, runId)?.tier : undefined))
   const config = useTiers((state) => state.config)
   const follows = useTiers((state) => state.follows)
   const checks = useTiers((state) => state.checks)
-  return useMemo(
-    () => agentModelOf(agent, asks ? { model, effort } : undefined, (tier) => shownTier({ config, follows, checks }, tier)),
-    [agent, asks, model, effort, config, follows, checks],
-  )
+  const tiers = useMemo(() => {
+    const now = {} as Record<TierId, AgentModel>
+    for (const tier of TIER_IDS) now[tier] = shownTier({ config, follows, checks }, tier)
+    return now
+  }, [config, follows, checks])
+  return useMemo(() => {
+    const run = asks ? { model, effort, tier: ranOn } : undefined
+    const current = agentModelOf(agent, run, (tier) => tiers[tier])
+    return { current, tier: agentTierOf(agent, run, current, (tier) => tiers[tier]), tiers }
+  }, [agent, asks, model, effort, ranOn, tiers])
 }
 
 /**
- * The model at the end of an agent's row in the dock. Pressed, it opens a small choice of the models Pi can use now and
- * the levels of the one the agent works on, and a choice goes to hobkin at once; hobkin's answer or refusal shows in
- * the same place. An agent hobkin cannot change (on Claude Code, or a run that waits for its time) shows its model only.
+ * The tier at the end of an agent's row in the dock, or its model when it runs on none, with the whole model on hover.
+ * Pressed, it opens a small choice of hobkin's tiers, the models Pi can use now and the levels of the one the agent
+ * works on, and a choice goes to hobkin at once; hobkin's answer or refusal shows in the same place. An agent hobkin
+ * cannot change (on Claude Code, or a run that waits for its time) shows its tier or model only.
  */
 export const AgentModelPill = memo(function AgentModelPill({ agent }: { agent: RunningAgent }) {
-  const current = useAgentModel(agent)
+  const runs = useAgentRuns(agent)
   const models = useModelChoices()
   const named = useMemo(() => [...models, ...claudeChoices()], [models])
-  const words = modelWords(current.model, named) ?? 'model'
-  const full = fullName(current)
+  const words = runs.tier ? tierWords(runs.tier) : (modelWords(runs.current.model, named) ?? 'model')
+  const full = runs.tier ? `${tierWords(runs.tier)}: ${fullName(runs.current)}` : fullName(runs.current)
   const offer = changeTarget(agent)
   if ('why' in offer) {
     return (
@@ -53,25 +68,26 @@ export const AgentModelPill = memo(function AgentModelPill({ agent }: { agent: R
       </span>
     )
   }
-  return <ModelChoicePopover agent={agent} target={offer.target} current={current} models={models} words={words} full={full} />
+  return <ModelChoicePopover agent={agent} target={offer.target} runs={runs} models={models} words={words} full={full} />
 })
 
 /** The pill's hover: the whole `provider/id`, and its level when known. */
 function fullName({ model, effort }: AgentModel): string {
-  if (!model) return 'The model is not reported.'
+  if (!model) return 'The model is not reported'
   return effort ? `${model} at ${effort}` : model
 }
 
 interface ModelChoicePopoverProps {
   agent: RunningAgent
   target: ChangeTarget
-  current: AgentModel
+  runs: AgentRuns
   models: readonly ModelChoice[]
   words: string
   full: string
 }
 
-function ModelChoicePopover({ agent, target, current, models, words, full }: ModelChoicePopoverProps) {
+function ModelChoicePopover({ agent, target, runs, models, words, full }: ModelChoicePopoverProps) {
+  const { current } = runs
   const live = useHasHost()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -88,6 +104,7 @@ function ModelChoicePopover({ agent, target, current, models, words, full }: Mod
     setAnswer(done.ok ? { ok: true, words: done.message } : { ok: false, words: done.why })
   }
 
+  const chooseTier = (tier: TierId) => void send(changeForTier(current, runs.tiers[tier]))
   const chooseModel = (model: ModelChoice) => void send(changeFor(current, model))
   const chooseEffort = (effort: Effort) => void send(effort === current.effort ? null : { effort })
 
@@ -104,8 +121,8 @@ function ModelChoicePopover({ agent, target, current, models, words, full }: Mod
     >
       <PopoverTrigger
         tabIndex={-1}
-        title={`${full}. Choose another model`}
-        aria-label={`Model: ${words}. Choose another`}
+        title={`${full}. Choose another tier or model`}
+        aria-label={`Runs on ${words}. Choose another tier or model`}
         // The row opens the agent on a click; the pill only opens its choice.
         onClick={(event) => event.stopPropagation()}
         className={cn(PILL, 'transition-colors duration-[160ms] ease-[ease] hover:border-border-strong hover:text-foreground data-[popup-open]:border-border-strong data-[popup-open]:text-foreground')}
@@ -128,9 +145,12 @@ function ModelChoicePopover({ agent, target, current, models, words, full }: Mod
         <ModelChoiceBody
           title={agent.title}
           current={current}
+          tier={runs.tier}
+          tiers={runs.tiers}
           models={models}
           busy={busy}
           answer={answer}
+          onTier={chooseTier}
           onModel={chooseModel}
           onEffort={chooseEffort}
         />
@@ -148,29 +168,59 @@ export interface Answer {
 interface ModelChoiceBodyProps {
   title: string
   current: AgentModel
+  /** The tier it runs on now, or null on a model of its own. */
+  tier: TierId | null
+  /** What each tier runs with now. */
+  tiers: Record<TierId, AgentModel>
   models: readonly ModelChoice[]
   busy: boolean
   answer: Answer | null
+  onTier: (tier: TierId) => void
   onModel: (model: ModelChoice) => void
   onEffort: (effort: Effort) => void
 }
 
 /**
- * The choice itself: a search, Pi's models by provider with the current one checked, the current model's levels, and
- * one line for hobkin's answer. Every part keeps its height, so the popup never grows or shrinks under the pointer.
+ * The choice itself: hobkin's tiers with the one it runs on chosen, a search, Pi's models by provider with the current
+ * one checked, the current model's levels, and one line for hobkin's answer. Every part keeps its height, so the popup
+ * never grows or shrinks under the pointer.
  */
-export function ModelChoiceBody({ title, current, models, busy, answer, onModel, onEffort }: ModelChoiceBodyProps) {
+export function ModelChoiceBody({ title, current, tier, tiers, models, busy, answer, onTier, onModel, onEffort }: ModelChoiceBodyProps) {
   const [search, setSearch] = useState('')
   const found = useMemo(() => filterModels(models, search), [models, search])
   const providers = [...new Set(found.map((model) => model.provider))]
   const efforts = effortsOf(current.model, models)
-  const status = busy ? 'Asking hobkin…' : (answer?.words ?? 'It takes a new model or level from its next step.')
+  const status = busy ? 'Asking hobkin…' : (answer?.words ?? 'It takes a new tier, model or level from its next step.')
 
   return (
     <>
       <div className="flex items-baseline gap-2 px-1">
-        <span className="eyebrow shrink-0">Model</span>
+        <span className="eyebrow shrink-0">Runs on</span>
         <span className="min-w-0 truncate text-[11px] text-muted-foreground">{title}</span>
+      </div>
+      <div role="radiogroup" aria-label="Tier" className="flex h-6 items-center gap-1 px-1">
+        {TIER_IDS.map((id) => {
+          const selected = id === tier
+          const runsWith = tiers[id]
+          return (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              // A tier whose model the window cannot name is no choice: there is nothing to send.
+              disabled={busy || !runsWith.model}
+              title={runsWith.model ? `${TIER_INFO[id].meantFor}. ${fullName(runsWith)}` : `${TIER_INFO[id].meantFor}. Its model is not reported`}
+              onClick={() => onTier(id)}
+              className={cn(
+                'h-6 flex-1 rounded-full px-2 text-[11px] font-medium transition-[background-color,color] duration-[160ms] ease-[ease] disabled:opacity-60',
+                selected ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground',
+              )}
+            >
+              {TIER_INFO[id].label}
+            </button>
+          )
+        })}
       </div>
       <label className="flex h-8 items-center gap-2 rounded-full border border-input bg-surface px-3 transition-colors duration-[160ms] ease-[ease] focus-within:border-ring">
         <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />

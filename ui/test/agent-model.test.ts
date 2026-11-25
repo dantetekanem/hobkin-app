@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { HobkinEngine } from '#shared/protocol/hobkins.ts'
-import type { ModelChoice } from '#shared/tiers/tiers.ts'
-import { agentModelOf, changeFor, changeTarget, effortsOf, modelWords } from '../src/app/agent-model.ts'
+import type { ModelChoice, TierId } from '#shared/tiers/tiers.ts'
+import { agentModelOf, agentTierOf, changeFor, changeForTier, changeTarget, effortsOf, modelWords, tierWords, type AgentModel } from '../src/app/agent-model.ts'
 import type { DurableMark } from '../src/features/hobkins/list.ts'
 
 const astra: ModelChoice = { id: 'openai-codex/gpt-6-astra', name: 'gpt-6-astra', provider: 'OpenAI', efforts: ['medium', 'high', 'xhigh'] }
@@ -19,7 +19,58 @@ function hobkin(engine: HobkinEngine, state: DurableMark['state'] = 'waiting') {
   return { id: 'hobkin:h1', tier: 'mid' as const, durable }
 }
 
-test("the pill names the agent's model the way the window names it, never its tier", () => {
+/** What each tier runs with in the tier tests: each its own model or level. */
+const TIERS: Record<TierId, AgentModel> = {
+  fast: { model: 'openai-codex/gpt-6-mini', effort: 'low' },
+  mid: { model: astra.id, effort: 'medium' },
+  high: { model: astra.id, effort: 'xhigh' },
+  max: { model: opus.id, effort: 'high' },
+}
+const byTier = (tier: TierId) => TIERS[tier]
+
+test('the pill names the tier from the agent’s record while it works on what that tier runs with', () => {
+  const session = { id: 'r1', tier: 'mid' as const }
+
+  assert.equal(agentTierOf(session, { tier: 'high' }, TIERS.high, byTier), 'high')
+  assert.equal(tierWords('high'), 'High tier')
+  // Moved to what Max runs with, from the pill, it runs on Max: hobkin keeps the tier it started on.
+  assert.equal(agentTierOf(session, { tier: 'high' }, TIERS.max, byTier), 'max')
+  // On a model no tier runs with, it runs on a model of its own.
+  assert.equal(agentTierOf(session, { tier: 'high' }, { model: opus.id, effort: 'low' }, byTier), null)
+  // What it works on, or what its tier runs with, not known yet: its record stands.
+  assert.equal(agentTierOf(session, { tier: 'high' }, { model: null, effort: null }, byTier), 'high')
+  assert.equal(agentTierOf(session, { tier: 'high' }, TIERS.max, () => ({ model: null, effort: null })), 'high')
+  // On Claude Code its model is never a tier's, and hobkin cannot change it: its record stands.
+  assert.equal(agentTierOf({ ...session, onClaudeCode: true }, { tier: 'high' }, { model: 'claude-code/opus', effort: null }, byTier), 'high')
+})
+
+test('an agent with no tier on record never reads as one, and a sample agent reads as its own', () => {
+  // A routine works on the checks' model: it is never guessed to be the tier that runs the same.
+  assert.equal(agentTierOf({ tier: 'fast' }, {}, TIERS.fast, byTier), null)
+  assert.equal(agentTierOf({ tier: 'fast' }, { tier: 'cheap' }, TIERS.fast, byTier), null)
+  // With no host there is no run, and a sample agent's tier is its own.
+  assert.equal(agentTierOf({ tier: 'max' }, undefined, TIERS.max, byTier), 'max')
+})
+
+test('a durable hobkin runs on its tier engine, or on the tier whose model and level its Pi engine has', () => {
+  assert.equal(agentTierOf(hobkin({ kind: 'tier', tier: 'high' }), undefined, TIERS.high, byTier), 'high')
+  // A tier chosen from the pill is saved as that tier's model and level.
+  assert.equal(agentTierOf(hobkin({ kind: 'pi', model: opus.id, effort: 'high' }), undefined, TIERS.max, byTier), 'max')
+  assert.equal(agentTierOf(hobkin({ kind: 'pi', model: opus.id, effort: 'low' }), undefined, { model: opus.id, effort: 'low' }, byTier), null)
+  assert.equal(agentTierOf(hobkin({ kind: 'claude', model: 'opus' }), undefined, { model: 'claude-code/opus', effort: null }, byTier), null)
+})
+
+test('a tier choice sends what the tier runs with now, only what differs', () => {
+  assert.deepEqual(changeForTier({ model: opus.id, effort: 'low' }, TIERS.high), { model: astra.id, effort: 'xhigh' })
+  assert.deepEqual(changeForTier(TIERS.mid, TIERS.high), { effort: 'xhigh' })
+  assert.equal(changeForTier(TIERS.high, TIERS.high), null)
+  // A tier whose level the window does not know sends its model alone.
+  assert.deepEqual(changeForTier(TIERS.mid, { model: opus.id, effort: null }), { model: opus.id })
+  // A tier whose model the window cannot name is no choice.
+  assert.equal(changeForTier(TIERS.mid, { model: null, effort: 'high' }), null)
+})
+
+test("a model reads the way the window names it", () => {
   assert.equal(modelWords(opus.id, choices), 'Claude Opus 5.5')
   // A model Pi does not list now still reads short: its id without the provider.
   assert.equal(modelWords('openrouter/moonshotai/kimi-k2.6', choices), 'moonshotai/kimi-k2.6')

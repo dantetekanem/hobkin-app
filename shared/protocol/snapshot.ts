@@ -67,6 +67,12 @@ export interface RunSummary {
   scheduleId?: string
   model?: string
   effort?: string
+  /**
+   * The tier its model came from when it started, one of `fast`, `mid`, `high` and `max`: a session's own, or a work
+   * run's from its project's level. hobkin keeps it when the run's model changes. None for a run on no tier, as a
+   * routine, and from a hobkin before its commit 1c74964.
+   */
+  tier?: string
   cwd?: string
   startedAt?: string
   work?: { slug?: string; item?: string; lane?: string }
