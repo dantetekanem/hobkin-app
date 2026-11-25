@@ -1,6 +1,7 @@
 /**
  * Local file paths in Markdown (_specs/027-links-and-files). A full path or one that starts with `~/` is shown as a
- * link that opens the viewer. No JSX here, so the tests can run it with Node alone.
+ * link that opens the viewer: in the chat's words and inline code, and in a report's code as well. No JSX here, so
+ * the tests can run it with Node alone.
  */
 
 /**
@@ -71,4 +72,33 @@ export function remarkFilePaths() {
     })
   }
   return (tree: Node) => walk(tree)
+}
+
+interface Element {
+  type: string
+  tagName?: string
+  value?: string
+  properties?: Record<string, unknown>
+  children?: Element[]
+}
+
+/**
+ * A rehype plugin for code that `remarkFilePaths` leaves alone: a path inside a code block's lines, or inside an inline
+ * code with other words, becomes a link to the file, and the code keeps its words. Code already in a link stays as it is.
+ */
+export function rehypeCodePaths() {
+  const link = (path: string): Element => ({ type: 'element', tagName: 'a', properties: { href: encodeURI(path) }, children: [{ type: 'text', value: path }] })
+  const linked = (code: Element) => {
+    code.children = code.children?.flatMap((child): Element[] =>
+      child.type === 'text' && child.value ? splitPaths(child.value).map((piece) => ('path' in piece ? link(piece.path) : { type: 'text', value: piece.text })) : [child],
+    )
+  }
+  const walk = (parent: Element) => {
+    for (const child of parent.children ?? []) {
+      if (child.tagName === 'a') continue
+      if (child.tagName === 'code') linked(child)
+      else walk(child)
+    }
+  }
+  return (tree: Element) => walk(tree)
 }

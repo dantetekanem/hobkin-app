@@ -1,6 +1,7 @@
 import { createContext, memo, useContext, useMemo, type ComponentProps } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { localPathOf, rehypeCodePaths, remarkFilePaths } from '../viewer/paths.ts'
 import { foldsOf, type ReportPart } from './folds.ts'
 import { reportLinkOf } from './report-link.ts'
 
@@ -8,7 +9,8 @@ import { reportLinkOf } from './report-link.ts'
  * A report's Markdown, set for reading. What a run wrote is never markup of ours: raw HTML shows as the text it
  * is, a link keeps only a safe address and opens outside the app, and a picture is never fetched, because an
  * address a report chose could tell someone it was read. A link to another report (`report-link.ts`) opens it in
- * the reader instead. The one HTML it draws is a fold, `<details>` with its
+ * the reader instead. A local file path, in its words or its code, is a link the app's catcher opens in the file
+ * sheet (`viewer/paths.ts`, `viewer/catch.ts`). The one HTML it draws is a fold, `<details>` with its
  * `<summary>` (`folds.ts`), whose inside is Markdown under these same rules.
  */
 
@@ -35,6 +37,8 @@ const keepReportLinks = (url: string, key: string) => (key === 'href' && reportL
 
 function Link({ node: _node, href, ...props }: ComponentProps<'a'> & { node?: unknown }) {
   const openReport = useContext(OpenReport)
+  const file = localPathOf(href)
+  if (file) return <a {...props} href="#" data-file={file} title={file} className={LINK} />
   const id = reportLinkOf(href)
   if (id === null) return <a {...props} href={href} target="_blank" rel="noopener noreferrer" className={LINK} />
   return (
@@ -76,14 +80,19 @@ const components: Components = {
   ),
   a: Link,
   // A picture shows as its words, linked to where it is. Nothing loads until the user opens it.
-  img: ({ alt, src }) => (
-    <a href={typeof src === 'string' ? src : undefined} target="_blank" rel="noopener noreferrer" className={LINK}>
-      {alt || 'image'}
-    </a>
-  ),
+  img: ({ alt, src }) => {
+    const file = typeof src === 'string' ? localPathOf(src) : null
+    if (file) return <a href="#" data-file={file} title={file} className={LINK}>{alt || 'image'}</a>
+    return (
+      <a href={typeof src === 'string' ? src : undefined} target="_blank" rel="noopener noreferrer" className={LINK}>
+        {alt || 'image'}
+      </a>
+    )
+  },
 }
 
-const plugins = [remarkGfm]
+const plugins = [remarkGfm, remarkFilePaths]
+const rehypePlugins = [rehypeCodePaths]
 
 /** What a fold's label may hold of Markdown: marks within a line. Anything else in it shows as its words. */
 const LABEL_MARKS = ['strong', 'em', 'del', 'code', 'a']
@@ -93,13 +102,13 @@ function Parts({ parts }: { parts: readonly ReportPart[] }) {
     <>
       {parts.map((part, index) =>
         part.kind === 'markdown' ? (
-          <ReactMarkdown key={index} remarkPlugins={plugins} components={components} urlTransform={keepReportLinks}>
+          <ReactMarkdown key={index} remarkPlugins={plugins} rehypePlugins={rehypePlugins} components={components} urlTransform={keepReportLinks}>
             {part.text}
           </ReactMarkdown>
         ) : (
           <details key={index} open={part.open} className="my-4">
             <summary className="cursor-pointer text-sm text-muted-foreground">
-              <ReactMarkdown remarkPlugins={plugins} components={components} urlTransform={keepReportLinks} allowedElements={LABEL_MARKS} unwrapDisallowed>
+              <ReactMarkdown remarkPlugins={plugins} rehypePlugins={rehypePlugins} components={components} urlTransform={keepReportLinks} allowedElements={LABEL_MARKS} unwrapDisallowed>
                 {part.summary}
               </ReactMarkdown>
             </summary>
