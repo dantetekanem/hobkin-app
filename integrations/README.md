@@ -119,7 +119,7 @@ export default echo
 | `hobkin()` | hobkin's application (`workAction`, `refresh`). Throws `Unavailable` while hobkin is not open. |
 | `dataRoot()` | The folder hobkin's home data is in. Throws `Unavailable` while hobkin is not open. |
 | `snapshotWork()` | The `work` key of hobkin's snapshot now, or undefined. A new object each time it changes. |
-| `startWorkflow(name, input?)` | Starts one run of your `workflows/<name>.md` now (see "Workflows" below). Answers `{ run }`. Throws `Unavailable` when hobkin is not open or the workflow is unknown or turned off. |
+| `startWorkflow(name, input?)` | Starts one run of your `workflows/<name>.md` now (see "Workflows" below). `name` is the file's name alone, `summarize` for `workflows/summarize.md`. Answers a promise of `{ run }`, and rejects with `Unavailable` when hobkin is not open or the workflow is unknown or turned off. A hook returns nothing, so from a hook end the promise with a `.catch` that logs why it did not start. |
 
 ### What the part may give
 
@@ -130,7 +130,7 @@ export default echo
 | `start()` | Once, when the host is serving. Start timers here, and `unref()` them. |
 | `close()` | Once, when the host stops. Clear what `start` started. |
 | `beforeCommand(call)` | Before every command the host runs, yours and the app's, from the window (`call.from === 'window'`) or from hobkin (`'hobkin'`). Throw `Unavailable` to refuse it. |
-| `afterCommand(call)` | After every command, with `call.outcome` (`ok`, and `value` or `error`). |
+| `afterCommand(call)` | After every command, with `call.outcome`: `{ ok: true, value }` or `{ ok: false, error: { code, message } }` (`CommandOutcome` in `#host/commands.ts`). |
 | `onToolCall(call)` | Every tool call of every agent, once when it starts and once when it ends: `agent` is `#main` for hobkin's main conversation or a run's id, plus the tool's `name`, its `args`, `state` and, once ended, `output`. It only watches. |
 | `onMerged(pull)` | A pull request left the open ones: merged through the app (Change Review's verdict), or merged or closed elsewhere as the host's watch of hobkin's own pull requests saw it. By `url`, or `repo` and `number`. |
 | `tools` | Tools hobkin's agents can call, run in the host. See "Tools for agents" below. |
@@ -244,6 +244,31 @@ export const notesHome = (state: NotesState): HomeContribution => ({
 })
 ```
 
+Something on Home that waits for the user is a need: a row among Needs and the card it has on the stack, with the
+same id. Things that went wrong and wait for nobody go in `cards`, as cards alone. GitHub's are in
+`integrations/github/window/home.ts`.
+
+```ts
+import type { HomeContribution, HomeRow } from '@/features/home/types.ts'
+
+const screen = { to: 'screen', screen: 'standup' } as const
+
+export const standupHome = (state: StandupState, now: number): HomeContribution => {
+  if (writtenToday(state, now)) return { known: true }
+  const row: HomeRow = { id: 'standup:missing', title: "Today's stand-up is not written", detail: null, tone: 'warn', aside: null, action: { label: 'Write it', target: screen } }
+  return {
+    known: true,
+    needs: [{ row, card: { id: row.id, label: 'Stand-up', reason: 'Not written today', tone: row.tone, title: row.title, detail: null, primary: row.action } }],
+  }
+}
+```
+
+A row is `{ id, title, detail, tone, aside, action }`, where `aside` is a short note on the right and `action` is
+`{ label, target }`. A card is `{ id, label, reason, tone, title, detail, primary }`, and may add `facts`
+(`[{ label, value, tone }]`) and a `secondary` action. Types: `HomeRow` and `HomeCardFields` in
+`ui/src/features/home/types.ts`. A target goes to a `screen` by id, a `url` (`{ to: 'url', url }`), a `report`, an
+`action` or an `agent` by id.
+
 What a screen or card uses from the core:
 
 - `useSlice<State>(id)` from `@/integration/use-slice.ts`: your state as the host sent it, `unknown` before that, and
@@ -317,7 +342,8 @@ toolHooks: {
   names never leaves the agent's process, so hooks cost nothing for the calls they skip. `'all'` sends every call of
   every agent through the host: use it only when you must.
 - `before(call)` answers nothing (the call runs), `{ block: reason }` (the agent reads the reason instead of a result),
-  or `{ args }` (the call runs with these arguments). `call` is `{ agent, id, name, args }`.
+  or `{ args }` (the call runs with these arguments). `call` is `{ agent, id, name, args }`, where `args` is the
+  call's arguments as an object (`{ command: 'git log -5' }` for `bash`), and `name` the tool as agents know it.
 - `after(call, result)` answers nothing, or `{ text?, failed? }`: what the agent reads in place of the result.
 - Hooks of several integrations run in folder order. The first refusal wins, and changed arguments pass to the next.
 - A hook that throws, or has not answered in 10 seconds, lets the call through as it was, and the host logs why. Set
@@ -348,11 +374,13 @@ Read what echo said since yesterday and write a digest of three lines. Use echo_
   `context.startWorkflow(name, input)`). hobkin refuses a file with neither a schedule nor anything in `on`, or with a
   setting it does not know, leaves it out, and lists why with the routines' errors.
 - A schedule, the same fields a routine has. Every Monday at 08:00 in Toronto:
-  `"at": "08:00", "timezone": "America/Toronto", "weekday": 1`. Several times a day: `"at": ["09:00", "17:00"]`. Every
+  `"at": "08:00", "timezone": "America/Toronto", "weekday": 1`. Every weekday: `"weekday": [1, 2, 3, 4, 5]`. Several
+  times a day: `"at": ["09:00", "17:00"]`. Every
   30 minutes between 09:00 and 17:00: `"window": { "start": "09:00", "end": "17:00", "everyMinutes": 30 }` (use `at` or
   `window`, not both). Once: `"date": "2026-12-01"` with `at`. The first of each month: `"day": 1` with `at`.
 - Each start is one run: the body is its directions, its input is in its context as `input`, it is offered your
-  integration's tools and no other integration's, and it reports in Reports like a routine. Several runs of one workflow may run at once.
+  integration's tools and no other integration's, and it reports in Reports like a routine. In the directions, name a
+  tool as agents know it: `standup_last`, not `last`. Several runs of one workflow may run at once.
 - A newly added workflow never runs a scheduled time that passed before it first appeared.
 - The window lists workflows in Routines, under your integration's name, where the user runs them and turns them off
   and on. Your own card or screen can do the same with `@/integration/use-workflows.ts`: `useWorkflows(id)` gives your
@@ -361,15 +389,26 @@ Read what echo said since yesterday and write a digest of three lines. Use echo_
   reason. `pressable(row)` from `@/integration/workflows.ts` says whether a row may be run now.
 
 ```tsx
+import { useState } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { runWorkflow, useWorkflows } from '@/integration/use-workflows.ts'
 import { pressable } from '@/integration/workflows.ts'
 
 export function TidyButton() {
   const tidy = useWorkflows('notes').find((row) => row.id === 'notes/tidy')
-  return tidy && pressable(tidy) ? <Button onClick={() => void runWorkflow(tidy.id).catch(() => {})}>Tidy now</Button> : null
+  const [why, setWhy] = useState<string | null>(null)
+  if (!tidy || !pressable(tidy)) return null
+  return (
+    <>
+      <Button onClick={() => void runWorkflow(tidy.id).then(() => setWhy(null), (error: Error) => setWhy(error.message))}>Tidy now</Button>
+      {why ? <p className="text-[13px] text-muted-foreground">{why}</p> : null}
+    </>
+  )
 }
 ```
+
+The same goes for any command you run from the window: it rejects with the host's reason, which belongs on the screen
+where the user pressed, not in the console.
 
 ## Testing
 
@@ -401,7 +440,8 @@ test('notes.add keeps the note, and an agent finds it with the tool', async () =
 ```
 
 Hand fakes through `options` (GitHub takes a fake `source`; see `integrations/github/test/host-support.ts`), and a
-fake `gh` when your commands run gh.
+fake `gh` when your commands run gh. Take the clock the same way when time matters (`options.now`, a function that
+defaults to `Date.now`), so a test can say what time it is.
 To test through a real host, start one with `integrationFolder` (a folder, or the modules themselves) and
 `integrationOptions: { <id>: {...} }`, as `integrations/github/test/host-wiring.test.ts` does.
 
