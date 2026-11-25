@@ -189,6 +189,68 @@ export function showWholeFile(view: DiffView): DiffView {
 
 type Shown = { range: [number, number] } | Extract<DiffItem, { type: 'gap' }>
 
+interface Block {
+  start: number
+  end: number
+}
+
+/**
+ * The runs of rows a view shows around what it must show, in order, before anything is opened between them: the groups
+ * of changes (with a node's lines pointed at, only those touching them) and lines pointed at that hold no change
+ * (context, an unchanged test), each with its context. Null when the view shows every row.
+ */
+function blocksOf(diff: Diff, view: DiffView): Block[] | null {
+  const last = diff.rows.length - 1
+  const pointedRow = (row: Row) => (row.kind !== 'delete' && covers(view.emphasis, 'added', row.newLine)) || (row.kind !== 'insert' && covers(view.emphasis, 'deleted', row.oldLine))
+  const touching = view.emphasis.length === 0 ? [] : diff.groups.filter((group) => diff.rows.slice(group.start, group.end + 1).some(pointedRow))
+  const seeds = (view.emphasis.length === 0 ? diff.groups : touching).map((group) => ({ ...group }))
+  let run: Block | null = null
+  diff.rows.forEach((row, index) => {
+    const pointed = row.kind === 'equal' && pointedRow(row)
+    if (pointed && run && run.end === index - 1) run.end = index
+    else if (pointed) seeds.push((run = { start: index, end: index }))
+  })
+  // Pointing at lines that are nowhere in the diff leaves every change showing.
+  if (view.emphasis.length > 0 && seeds.length === 0) seeds.push(...diff.groups.map((group) => ({ ...group })))
+  if (view.whole || seeds.length === 0) return null
+
+  const blocks: Block[] = []
+  for (const seed of seeds.sort((a, b) => a.start - b.start)) {
+    const block = { start: Math.max(0, seed.start - CONTEXT_LINES), end: Math.min(last, seed.end + CONTEXT_LINES) }
+    const before = blocks.at(-1)
+    if (before && block.start <= before.end + 1) before.end = Math.max(before.end, block.end)
+    else blocks.push(block)
+  }
+  return blocks
+}
+
+/** Rows held back between two blocks, or before the first or after the last: how many were opened from its top and from its bottom. */
+interface Gap {
+  id: string
+  from: number
+  to: number
+  below: number
+  above: number
+  canBelow: boolean
+  canAbove: boolean
+}
+
+/** The gap before each block and the one after the last, in order. Null where the blocks leave no row between them. */
+function gapsOf(diff: Diff, view: DiffView, blocks: readonly Block[]): (Gap | null)[] {
+  const last = diff.rows.length - 1
+  return Array.from({ length: blocks.length + 1 }, (_, index) => {
+    const from = index === 0 ? 0 : blocks[index - 1]!.end + 1
+    const to = index === blocks.length ? last : blocks[index]!.start - 1
+    const size = to - from + 1
+    if (size <= 0) return null
+    const id = `gap${index}`
+    const [canBelow, canAbove] = [index > 0, index < blocks.length]
+    const below = canBelow ? Math.min(size, view.more[id]?.below ?? 0) : 0
+    const above = canAbove ? Math.min(size - below, view.more[id]?.above ?? 0) : 0
+    return { id, from, to, below, above, canBelow, canAbove }
+  })
+}
+
 /** Which rows are on screen, in order, with a gap wherever rows are held back. */
 function shown(diff: Diff, view: DiffView): Shown[] {
   const last = diff.rows.length - 1
@@ -208,49 +270,75 @@ function shown(diff: Diff, view: DiffView): Shown[] {
     return parts
   }
 
-  // What must show: the groups of changes (with a node's lines pointed at, only those touching them), and
-  // lines pointed at that hold no change (context, an unchanged test).
-  const pointedRow = (row: Row) => (row.kind !== 'delete' && covers(view.emphasis, 'added', row.newLine)) || (row.kind !== 'insert' && covers(view.emphasis, 'deleted', row.oldLine))
-  const touching = view.emphasis.length === 0 ? [] : diff.groups.filter((group) => diff.rows.slice(group.start, group.end + 1).some(pointedRow))
-  const seeds = (view.emphasis.length === 0 ? diff.groups : touching).map((group) => ({ ...group }))
-  let run: { start: number; end: number } | null = null
-  diff.rows.forEach((row, index) => {
-    const pointed = row.kind === 'equal' && pointedRow(row)
-    if (pointed && run && run.end === index - 1) run.end = index
-    else if (pointed) seeds.push((run = { start: index, end: index }))
-  })
-  // Pointing at lines that are nowhere in the diff leaves every change showing.
-  if (view.emphasis.length > 0 && seeds.length === 0) seeds.push(...diff.groups.map((group) => ({ ...group })))
-  if (view.whole || seeds.length === 0) return [{ range: [0, last] }]
-
-  const blocks: { start: number; end: number }[] = []
-  for (const seed of seeds.sort((a, b) => a.start - b.start)) {
-    const block = { start: Math.max(0, seed.start - CONTEXT_LINES), end: Math.min(last, seed.end + CONTEXT_LINES) }
-    const before = blocks.at(-1)
-    if (before && block.start <= before.end + 1) before.end = Math.max(before.end, block.end)
-    else blocks.push(block)
-  }
+  const blocks = blocksOf(diff, view)
+  if (!blocks) return [{ range: [0, last] }]
 
   const parts: Shown[] = []
-  for (let index = 0; index <= blocks.length; index += 1) {
-    const from = index === 0 ? 0 : blocks[index - 1]!.end + 1
-    const to = index === blocks.length ? last : blocks[index]!.start - 1
-    const size = to - from + 1
-    if (size > 0) {
-      const id = `gap${index}`
-      const [canBelow, canAbove] = [index > 0, index < blocks.length]
-      const below = canBelow ? Math.min(size, view.more[id]?.below ?? 0) : 0
-      const above = canAbove ? Math.min(size - below, view.more[id]?.above ?? 0) : 0
+  gapsOf(diff, view, blocks).forEach((gap, index) => {
+    if (gap) {
+      const { id, from, to, below, above } = gap
+      const size = to - from + 1
       if (below + above >= size) parts.push({ range: [from, to] })
       else {
         if (below > 0) parts.push({ range: [from, from + below - 1] })
-        parts.push({ type: 'gap', key: id, id, hidden: size - below - above, above: canAbove, below: canBelow })
+        parts.push({ type: 'gap', key: id, id, hidden: size - below - above, above: gap.canAbove, below: gap.canBelow })
         if (above > 0) parts.push({ range: [to - above + 1, to] })
       }
     }
     if (index < blocks.length) parts.push({ range: [blocks[index]!.start, blocks[index]!.end] })
-  }
+  })
   return parts
+}
+
+/**
+ * The view with lines `startLine` to `endLine` of one side on screen: each gap they are in opens from its nearer end,
+ * just far enough, as the code view does for the unchanged lines its cursor comes to and the lines it is asked to show.
+ * The same view when they show already, and for a patch, whose gaps cannot be opened.
+ */
+export function revealLines(diff: Diff, view: DiffView, side: Emphasis['side'], startLine: number, endLine: number): DiffView {
+  if (diff.partial) return view
+  const blocks = blocksOf(diff, view)
+  if (!blocks) return view
+  let [first, last] = [-1, -1]
+  diff.rows.forEach((row, index) => {
+    const line = side === 'added' ? (row.kind === 'delete' ? undefined : row.newLine) : row.kind === 'insert' ? undefined : row.oldLine
+    if (line == null || line < startLine || line > endLine) return
+    if (first < 0) first = index
+    last = index
+  })
+  if (first < 0) return view
+
+  let more = view.more
+  for (const gap of gapsOf(diff, view, blocks)) {
+    if (!gap) continue
+    // What is still held back in it, and of that, what is wanted.
+    const [top, bottom] = [gap.from + gap.below, gap.to - gap.above]
+    const [from, to] = [Math.max(first, top), Math.min(last, bottom)]
+    if (from > to) continue
+    const fromTop = to - top + 1
+    const fromBottom = bottom - from + 1
+    const opensFromTop = gap.canBelow && (!gap.canAbove || fromTop <= fromBottom)
+    more = { ...more, [gap.id]: opensFromTop ? { below: gap.below + fromTop, above: gap.above } : { below: gap.below, above: gap.above + fromBottom } }
+  }
+  return more === view.more ? view : { ...view, more }
+}
+
+/** The number a line has on one side of the file: a removed line is on the old side only, an added one on the new side only, and an unchanged one on both. */
+export function lineNumberOn(line: DiffLine, side: Emphasis['side']): number | undefined {
+  if (side === 'added') return line.kind === 'removed' ? undefined : line.newLine
+  return line.kind === 'added' ? undefined : line.oldLine
+}
+
+/** The lines a row draws: one in one column, up to two side by side in two, none in a gap. */
+export function linesIn(item: DiffItem | SplitItem): DiffLine[] {
+  if (item.type === 'line') return [item.line]
+  if (item.type === 'row') return [item.left, item.right].filter((line): line is DiffLine => line != null)
+  return []
+}
+
+/** The row that draws a line of one side, in one column or two. -1 when no row on screen does. */
+export function rowOfLine(items: readonly (DiffItem | SplitItem)[], side: Emphasis['side'], line: number): number {
+  return items.findIndex((item) => linesIn(item).some((each) => lineNumberOn(each, side) === line))
 }
 
 function lineOf(row: Row, side: 'old' | 'new', view: DiffView): DiffLine {
