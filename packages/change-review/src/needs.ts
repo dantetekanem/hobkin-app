@@ -8,7 +8,7 @@ import { isTestPath } from './triage.ts'
 import { changesOnlyModels, isModelFile, modelsOf } from './tla.ts'
 import { readRatings } from './model.ts'
 import { NEED_CRITERIA, NEED_KINDS } from './types.ts'
-import type { Answered, ChangedFile, ModelCheck, NeedCriterion, NeedKind, NeedScore, NotRated, ReviewNeeds, ReviewNode } from './types.ts'
+import type { Answered, ChangedFile, ModelCheck, NeedCriterion, NeedKind, NeedScore, NotRated, ReviewNeeds, ReviewNode, TestRun } from './types.ts'
 
 /** What the caps read, as the review measured it. */
 export interface NeedsFacts {
@@ -39,7 +39,7 @@ export interface NeedsFacts {
   coverageGaps?: string[]
   changedProof?: number
   /** Criterion-specific measured evidence. Absent only on older callers. */
-  evidence?: Record<string, { criteria: NeedCriterion[]; text: string; uncertain?: boolean }>
+  evidence?: Record<string, { criteria: NeedCriterion[]; text: string; uncertain?: boolean; highRisk?: boolean }>
 }
 
 /** The longest evidence hobkin keeps for a score. */
@@ -62,7 +62,7 @@ function named(names: readonly string[]): string {
 const several = (names: readonly string[]) => names.map(oneLine).filter(Boolean).length > 1
 
 /** What the caps read, from the review's parts as rated, the change's files, the model checks and the monitoring given. */
-export function needsFacts({ nodes, files, checks, monitoring, onlyUnread = false }: { nodes: readonly ReviewNode[]; files: readonly ChangedFile[]; checks: readonly ModelCheck[]; monitoring: boolean; onlyUnread?: boolean }): NeedsFacts {
+export function needsFacts({ nodes, files, checks, monitoring, onlyUnread = false, runs = [] }: { nodes: readonly ReviewNode[]; runs?: readonly TestRun[]; files: readonly ChangedFile[]; checks: readonly ModelCheck[]; monitoring: boolean; onlyUnread?: boolean }): NeedsFacts {
   const paths = files.map((file) => file.path)
   const parts = nodes.filter((node) => !node.hidden && node.kind !== 'test' && node.change !== 'none')
   const definitions = parts.filter((node) => (node.kind === 'function' || node.findings.some((finding) => finding.rule === 'not-mapped')) && node.change !== 'removed' && node.facts.effect.value !== 'text')
@@ -71,19 +71,20 @@ export function needsFacts({ nodes, files, checks, monitoring, onlyUnread = fals
   const checkOf = (spec: string) => checks.find((check) => check.spec === spec)
   const onlyTests = paths.length > 0 && paths.every(isTestPath)
   const onlyModels = changesOnlyModels(paths)
-  const evidence: NonNullable<NeedsFacts['evidence']> = {}
+  const evidence: NonNullable<NeedsFacts['evidence']> = Object.create(null)
   for (const node of parts) {
     evidence[`${node.id}:proof`] = { criteria: ['coverage', 'proof'], text: `${node.symbol}: ${node.facts.proof.value}; ${node.facts.proof.evidence}` }
-    evidence[`${node.id}:risk`] = { criteria: ['safety'], text: `${node.symbol}: ${node.level?.current ?? 'unknown'}; ${node.level?.why.join(' ') ?? 'not rated'}` }
+    evidence[`${node.id}:risk`] = { criteria: ['safety'], ...(node.level?.current === 'high' || node.facts.undo.value === 'none' ? { highRisk: true } : {}), text: `${node.symbol}: ${node.level?.current ?? 'unknown'}; ${node.level?.why.join(' ') ?? 'not rated'}` }
     evidence[`${node.id}:undo`] = { criteria: ['rollback'], text: `${node.symbol}: ${node.facts.undo.value}; ${node.facts.undo.evidence}` }
     if (node.facts.proof.value === 'unknown' || node.unverified || node.extras.unresolvedReference) evidence[`${node.id}:uncertainty`] = { criteria: ['safety'], uncertain: true, text: `${node.symbol}: impact is uncertain, not a demonstrated regression; ${node.extras.unresolvedReference ?? node.unverified ?? node.facts.proof.evidence}` }
     if (node.watch) evidence[`${node.id}:watch`] = { criteria: ['visibility'], text: JSON.stringify(node.watch) }
   }
   for (const path of paths.filter((path) => isTestPath(path) || isModelFile(path, paths))) {
     const check = checks.find((check) => check.spec === path)
-    const runs = nodes.flatMap((node) => node.runs).filter((run) => run.kind === 'baseline' && run.tests.includes(path) && !run.not_run)
-    const result = check?.result ?? (runs.length ? runs.some((run) => run.exit_code !== 0) ? 'failed at head' : 'ran at head' : 'not run at head')
-    evidence[path] = { criteria: onlyTests || onlyModels ? ['coverage', 'proof', 'safety', 'rollback'] : isTestPath(path) ? ['coverage', 'proof'] : [], uncertain: !check && !runs.length, text: `${path}: ${result}; ${onlyModels ? 'model evidence, not an implementation test' : 'test changes, not branch coverage'}. Reverting restores the previous check.` }
+    const baselines = runs.filter((run) => run.kind === 'baseline' && !run.node && run.tests.includes(path))
+    const own = baselines.find((run) => run.tests.length === 1)
+    const result = check?.result ?? (own && !own.not_run ? own.exit_code === 0 ? 'passed at head' : 'failed at head' : !own && baselines.length ? 'no individual file result' : 'not run at head')
+    evidence[path] = { criteria: onlyTests || onlyModels ? ['coverage', 'proof', 'safety', 'rollback'] : isTestPath(path) ? ['coverage', 'proof'] : [], uncertain: !check && (!own || Boolean(own.not_run)), text: `${path}: ${result}; ${onlyModels ? 'model evidence, not an implementation test' : 'test changes, not branch coverage'}. Reverting restores the previous check.` }
   }
   if (monitoring) evidence.monitoring = { criteria: ['visibility'], text: 'Use the supplied project monitoring, not CI results.' }
   if (onlyUnread) evidence.unread = { criteria: ['coverage', 'proof', 'safety', 'rollback'], text: `No runtime, build or generator consumer found for ${paths.join(', ')}.` }
@@ -125,8 +126,9 @@ function capsOf(facts: NeedsFacts): Partial<Record<NeedCriterion, { most: number
 /** Refuse unsupported numbers, rather than inventing a replacement for a false premise. */
 function unsupportedScore(criterion: NeedCriterion, score: NeedScore, facts: NeedsFacts): string | null {
   if (!facts.evidence || (criterion === 'visibility' && !facts.monitoring)) return null
-  if (!score.facts?.length || score.facts.some((id) => !facts.evidence![id]?.criteria.includes(criterion))) return 'cite measured rating_evidence for this criterion; CI or an unaccepted finding is not proof'
-  if (criterion === 'safety' && score.score <= 5 && !facts.high.length && !facts.undoNone.length && !score.facts.some((id) => facts.evidence![id]?.uncertain)) return 'a safety score of 5 or less needs an established break, irreversible effect, or explicitly cited uncertainty; not an invented failure'
+  const cited = (score.facts ?? []).map((id) => Object.hasOwn(facts.evidence!, id) ? facts.evidence![id] : undefined)
+  if (!cited.length || cited.some((fact) => !fact?.criteria.includes(criterion))) return 'cite measured rating_evidence for this criterion; CI or an unaccepted finding is not proof'
+  if (criterion === 'safety' && score.score <= 5 && !cited.some((fact) => fact?.highRisk || fact?.uncertain)) return 'a safety score of 5 or less needs an established break, irreversible effect, or explicitly cited uncertainty; not an invented failure'
   if (criterion === 'coverage' && score.score >= 9 && (facts.unproven.length || facts.coverageGaps?.length)) return `near-complete ${criterion} conflicts with unproven parts or branch gaps: ${named([...facts.unproven, ...(facts.coverageGaps ?? [])])}`
   return null
 }

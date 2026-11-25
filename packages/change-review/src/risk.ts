@@ -1,6 +1,6 @@
 import { floor } from './floor.ts'
 import { EVIDENCE_KINDS, LEVELS } from './types.ts'
-import type { Finding, Floor, FloorInput, Level, NodeLevel, Question, ReviewNode, RiskEvent, Watch } from './types.ts'
+import type { Finding, Floor, FloorInput, Level, NodeLevel, Question, ReviewNode, RiskEvent, ScanAnchor, Watch } from './types.ts'
 
 const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
 const DIRECTIONS = ['up', 'down', 'sideways', 'time']
@@ -60,6 +60,63 @@ function malformed(event: RiskEvent): string | null {
 
 export type RiskSource = (path: string, side: 'base' | 'head') => string | null
 
+const identifier = '[A-Za-z_$][\\w$]*'
+const simpleValue = `(?:${identifier}(?:\\.${identifier})*|-?\\d+(?:\\.\\d+)?)`
+
+/** Deliberately bounded to simple JS declarations/calls. Other destructuring, spreads and nested expressions stay unknown. */
+function signatureShape(text: string): { name: string; required: boolean[]; optionalOption?: string } | null {
+  const match = text.trim().match(new RegExp(`^(?:export\\s+(?:default\\s+)?)?(?:async\\s+)?(?:function\\s+)?(${identifier})\\s*\\(([^()]*)\\)\\s*\\{$`))
+  if (!match) return null
+  const parameters = match[2]!.trim() ? match[2]!.split(',').map((part) => part.trim()) : []
+  const ordinary = (part: string) => new RegExp(`^${identifier}(?:\\s*=\\s*${simpleValue})?$`).test(part)
+  const options = parameters.at(-1)?.match(new RegExp(`^\\{\\s*(${identifier})\\s*=\\s*(?:true|false)\\s*\\}\\s*=\\s*\\{\\s*\\}$`))
+  if (options) {
+    if (!parameters.slice(0, -1).every(ordinary)) return null
+    return { name: match[1]!, required: [...parameters.slice(0, -1).map((part) => !part.includes('=')), false], optionalOption: options[1]! }
+  }
+  if (!parameters.every(ordinary)) return null
+  return { name: match[1]!, required: parameters.map((part) => !part.includes('=')) }
+}
+
+type CallShape = NonNullable<ReturnType<typeof signatureShape>>
+const callStatement = new RegExp(`^(?:if\\s*\\(!?${identifier}\\)\\s*)?(?:(?:const|let|var)\\s+${identifier}\\s*=\\s*|return\\s+)?(?:await\\s+)?(?:${identifier}\\.)*(${identifier})\\s*\\(([^()]*)\\)\\s*;?$`)
+const simpleArgument = new RegExp(`^${simpleValue}(?:\\s*[+-]\\s*\\d+)?$`)
+
+/** Count arguments only for a single static call. A destructured option must be omitted or supplied as a known literal. */
+function callArguments(text: string, shape: CallShape): string[] | null {
+  const call = callStatement.exec(text.trim())
+  if (!call || call[1] !== shape.name) return null
+  const args = call[2]!.trim() ? call[2]!.split(',').map((part) => part.trim()) : []
+  const known = args.every((arg, index) => {
+    if (shape.optionalOption && index === shape.required.length - 1) {
+      const literal = /^\{\s*([\w$]+)\s*:\s*(?:true|false)\s*\}$/.exec(arg)
+      return literal?.[1] === shape.optionalOption
+    }
+    return simpleArgument.test(arg) && (!shape.optionalOption || (arg !== 'null' && arg !== 'undefined'))
+  })
+  return known ? args : null
+}
+
+const missingArgument = (shape: NonNullable<ReturnType<typeof signatureShape>>, args: string[]) =>
+  shape.required.some((required, index) => required && (index >= args.length || args[index] === 'undefined'))
+
+/** This is call-shape evidence only. A JS export alone is not a separately shipped package contract. */
+export function compatibleInternalCallShape(anchor: ScanAnchor, head: string | null, source: RiskSource): string | undefined {
+  const { callers, callSites = [], entry } = anchor
+  if (!/\.[cm]?[jt]sx?$/.test(anchor.path) || !head || !callers?.complete || callers.total === 0 || callers.shown !== callers.total || callSites.length !== callers.total) return
+  if (entry?.exact && (entry.kind !== 'export' || entry.doors?.length || entry.routes?.length)) return
+  const shape = signatureShape(head.split('\n')[anchor.startLine - 1] ?? '')
+  if (!shape || shape.name !== anchor.symbol.split(/\.|#|::/).at(-1)) return
+  const compatible = callSites.every((site) => {
+    if (site.resolution !== 'exact' || !site.text) return false
+    const line = source(site.path, 'head')?.split('\n')[site.line - 1]
+    if (line?.trim() !== site.text.trim()) return false
+    const args = callArguments(site.text, shape)
+    return args !== null && !missingArgument(shape, args)
+  })
+  if (compatible) return `All ${callSites.length} exact internal calls fit the parameter list; argument values and body behavior still need review.`
+}
+
 /** A model claim is not a measured failure. Require a checkable path through both revisions. */
 function unsupported(event: RiskEvent, node: ReviewNode, source?: RiskSource): string | null {
   if (event.by !== 'model' || event.origin === 'pre-existing') return null
@@ -75,10 +132,21 @@ function unsupported(event: RiskEvent, node: ReviewNode, source?: RiskSource): s
     if (!lines || !site.quote.trim() || !lines.slice(site.line - 1, site.line - 1 + site.quote.split('\n').length).join('\n').includes(site.quote.trim())) return `source witness does not match ${site.side}:${site.path}:${site.line}`
   }
   const consumers = trace.filter((site) => site.role === 'consumer' && site.side === 'head')
-  const bound = consumers.some((witness) =>
+  const bound = consumers.filter((witness) =>
     node.callSites?.some((site) => site.resolution === 'exact' && site.path === witness.path && site.line === witness.line && (!site.text || witness.quote.includes(site.text.trim())))
     || (witness.path === node.path && witness.line >= node.lines[0] && witness.line <= node.lines[1] && node.runs_from?.found === 'origins' && node.runs_from.origins.some((origin) => origin.exact && origin.hops === 0)))
-  if (!bound) return 'source witnesses need an exact consumer binding; name-only or unresolved sites do not establish reachability'
+  if (!bound.length) return 'source witnesses need an exact consumer binding; name-only or unresolved sites do not establish reachability'
+  // Quoting only declarations demonstrates a changed signature, not a failure inside a correctly supplied call.
+  // Do not inspect prose for negation: check the cited consumer's arguments against the cited head signature.
+  const changes = trace.filter((site) => site.role === 'change')
+  const shapes = changes.map((site) => site.path === node.path ? signatureShape(site.quote) : null)
+  if (shapes.every((shape) => shape !== null)) {
+    const head = shapes[changes.findIndex((site) => site.side === 'head')]
+    if (head && !bound.some((site) => {
+      const args = callArguments(site.quote, head)
+      return args !== null && missingArgument(head, args)
+    })) return 'signature-only witnesses need a conflicting exact consumer; otherwise cite the failing body branch and observable result'
+  }
   return null
 }
 

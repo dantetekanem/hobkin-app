@@ -141,6 +141,17 @@ test('exact native case success is preferred without passing sibling or template
   assert.equal(tests.find((item) => item.symbol === 'renders a mention')?.at_head, 'not-run')
 })
 
+test('an exact Bun suite path identifies the scanned case, not an identically named case in a different suite', () => {
+  const path = 'test/helpers/posts.test.js'
+  const definitions = ['cart', 'order'].map((suite, i) => ({ id: 't' + i, symbol: `describe "${suite}".adds`, path, startLine: 10 * i + 1, endLine: 10 * i + 5, anchors: [{ id: 'n1', lines: [] }], changed: false }))
+  const runs: TestRun[] = [
+    { ...run('baseline', [path]), cases: [{ path, name: 'cart > adds', status: 'passed' }, { path, name: 'order > adds', status: 'skipped' }] },
+    { ...run('probe', [path], [path], 'n1'), cases: [{ path, name: 'cart > adds', status: 'failed' }, { path, name: 'order > adds', status: 'skipped' }], failed_at: [{ path, line: 12 }] },
+  ]
+  const cases = nodeTestsOf(input({ runs, definitions })).filter((test) => test.path === path && test.symbol)
+  assert.deepEqual(cases.map((test) => [test.at_head, test.shows]), [['passed', 'proves'], ['not-run', undefined]])
+})
+
 test('a test has no tests of its own', () => {
   assert.deepEqual(nodeTestsOf(input({ node: { id: 't1', symbol: 'rounds', path: 'test/total.test.js', kind: 'test' } })), [])
 })

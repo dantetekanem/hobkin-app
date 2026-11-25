@@ -88,6 +88,19 @@ test('a repository has a test command for each kind of test file it holds, so a 
 
 // ───────────────────────── Candidates ─────────────────────────
 
+test('changed tests importing the source are bounded candidates even when they call only its public entry', async () => {
+  const files = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`test/turn-${i}.test.js`, "import { perform } from '../src/enemy.js'; perform()"]))
+  files['test/unrelated.test.js'] = "import { perform } from '../src/other.js'; perform()"
+  files['test/wrong-source.test.js'] = "import { perform } from '../other/enemy.js'; perform()"
+  const selected = await candidateTests({
+    node: { id: 'n1', symbol: 'retreatDestination', path: 'src/enemy.js' }, scan: { anchors: [] },
+    changedTestPaths: ['test/wrong-source.test.js', 'test/unrelated.test.js', ...Object.keys(files)], isLifecycleTest: () => false,
+    exists: (path) => path in files, read: (path) => files[path] ?? null,
+  })
+  assert.equal(selected.length, 8)
+  assert.ok(selected.every((item) => item.path.startsWith('test/turn-') && item.changed && !item.lifecycle))
+})
+
 test('candidate tests: what the scan links, changed tests that name the symbol, and files named after the source', async () => {
   const files: Record<string, string> = {
     'test/flow/checkout.test.ts': "checkout(['a'])",
@@ -684,6 +697,45 @@ test('a file that is not plain UTF-8 text is never rewritten', async (t) => {
   })
   assert.deepEqual(result.runs.map((run) => run.kind), ['baseline'])
   assert.ok(readFileSync(join(dir, 'src/latin.js')).equals(latin('2')))
+})
+
+test('indirect callees require measured failure, and an unavailable revert falls back to reach only', async (t) => {
+  const dir = tempDir(t, 'indirect-proof')
+  const git = gitIn(dir)
+  git('init', '--quiet', '--initial-branch=main')
+  const source = (n: number) => fileOf('export function perform() { return retreatDestination() }', 'function retreatDestination() {', `  return ${n}`, '}', 'export function unrelated() { return 7 }')
+  writeIn(dir, {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }),
+    'src/enemy.js': source(1),
+    'test/turn.test.js': `${TEST_HEADER}import { perform } from '../src/enemy.js'\ntest('turn', () => assert.equal(perform(), 2))\n`,
+    'test/unrelated.test.js': `${TEST_HEADER}import { unrelated } from '../src/enemy.js'\ntest('other entry', () => assert.equal(unrelated(), 7))\n`,
+  })
+  git('add', '-A'); git('commit', '--quiet', '-m', 'Base')
+  const base = git('rev-parse', 'HEAD')
+  writeIn(dir, { 'src/enemy.js': source(2) })
+  git('commit', '--quiet', '-am', 'Change')
+  const head = git('rev-parse', 'HEAD')
+  const node: ProofNode = { id: 'n1', symbol: 'retreatDestination', path: 'src/enemy.js', lines: [2, 4], kind: 'function', change: 'modified' }
+  const candidates = await candidateTests({ node, scan: { anchors: [] }, changedTestPaths: ['test/turn.test.js', 'test/unrelated.test.js'], isLifecycleTest: () => false, exists: (path) => existsSync(join(dir, path)), read: (path) => readFileSync(join(dir, path), 'utf8') })
+  const prove = (diffs: FileDiff[], parses?: Parameters<typeof runProof>[0]['parses']) => runProof({ cwd: dir, head, nodes: [node], candidates: { n1: candidates }, runbook: detectRunbook(dir), diffs, doublePatterns: DOUBLES, parses })
+  const measured = await prove(await gitRepo(dir).diffs(base, head))
+  assert.deepEqual(measured.nodes.n1?.observedBy, ['test/turn.test.js'])
+  assert.deepEqual(measured.nodes.n1?.stillPass, ['test/unrelated.test.js'])
+  assert.equal(measured.nodes.n1?.value, 'isolated')
+  const fallback = await prove([])
+  assert.equal(fallback.nodes.n1?.value, 'unknown')
+  assert.deepEqual(fallback.nodes.n1?.observedBy, [])
+  assert.deepEqual(fallback.nodes.n1?.reachedBy, ['test/turn.test.js'])
+  assert.deepEqual(fallback.nodes.n1?.stillPass, ['test/unrelated.test.js'])
+  assert.match(fallback.nodes.n1!.evidence, /reach only.*does not prove the change/)
+  assert.deepEqual(fallback.runs.filter((run) => run.kind !== 'baseline').map((run) => run.kind), ['reach', 'reach', 'reach'])
+  const invalid = await prove(await gitRepo(dir).diffs(base, head), (path, before, after, language) =>
+    after.includes('return 1') ? Promise.resolve('partial revert does not parse') : checkParses(path, before, after, language))
+  assert.equal(invalid.nodes.n1?.value, 'unknown')
+  assert.match(invalid.nodes.n1!.evidence, /partial revert does not parse; reach only/)
+  assert.deepEqual(invalid.nodes.n1?.reachedBy, ['test/turn.test.js'])
+  assert.equal(invalid.runs.some((run) => run.kind === 'revert'), false)
+  assert.equal(git('status', '--porcelain'), '')
 })
 
 test('a test that fails with the change is a break only when it passes with the change undone', async (t) => {

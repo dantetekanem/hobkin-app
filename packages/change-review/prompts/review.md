@@ -50,7 +50,7 @@ The message is one line saying the rest is data, then one JSON object:
 
 Answer what merging this diff can break compared with its base, not whether every file or check at head is healthy. Trace actual consumers: runtime callers, CI/build jobs, validators, generators and deployment. No file extension is a safety exemption; a model or config can break a required check or change generated/runtime behaviour.
 
-Check the actual call expression and arguments before claiming a missing-argument failure. A removed member and an unrelated local variable with the same short name are different bindings. Trace the consumer's rejected, empty and failure branches separately from its happy path. A full-turn regression disproves only the failure conditions it exercises; it does not prove every branch. If the diff fixes an existing defect, describe the before/after fix rather than attributing the old defect to its head.
+Check the actual call expression and arguments before claiming a missing-argument failure. A signature change with every exact internal caller migrated is not itself a break. A JavaScript export does not establish a separately shipped consumer or a published compatibility promise. Ask about an unknown extension contract without treating that hypothetical caller as an existing failure. A removed member and an unrelated local variable with the same short name are different bindings. Trace the consumer's rejected, empty and failure branches separately from its happy path. A full-turn regression disproves only the failure conditions it exercises; it does not prove every branch. If the diff fixes an existing defect, describe the before/after fix rather than attributing the old defect to its head.
 
 For each finding set `origin` to `introduced`, `worsened`, `pre-existing` or `unknown`. In `comparison`, name the same input/state, consumer and base versus head outcomes, or the code evidence establishing that difference. A head-only failure does not establish origin. Missing base evidence means `unknown`, never `pre-existing`.
 
@@ -70,14 +70,14 @@ These are not reasons for a level, and never go in `evidence` as one:
 - "No test shows it", "its tests could not run". The floor already said so, at `mid`. Not having checked is not a sign that it breaks.
 - The size of the change, or how central the code is.
 
-The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a break that search or a test run found. Rule 3 is an effect nothing undoes. Rule 4 is data or an interface changed for everyone. Rule 5 is a change no test that ran shows; rule 6 is one shown only by tests that call it directly: both are `mid`. Rule 9 is a change of behaviour that tests show through a request: `safe`. Rule 10 is a change behind a condition that is off, run by a test with the condition on, with the off path proven by an unchanged test.
+The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a break that search or a test run found. Rule 3 is an effect nothing undoes. Rule 4 protects data and external or unresolved interface contracts changed for everyone. `extras.compatibleInternalCallShape` records a complete set of exact internal callers supplying the new parameters; that avoids a signature-only high floor but proves neither argument values nor behavior inside those calls. Rule 5 is a change no test that ran shows; rule 6 is one shown only by tests that call it directly: both are `mid`. Rule 9 is a change of behaviour that tests show through a request: `safe`. Rule 10 is a change behind a condition that is off, run by a test with the condition on, with the off path proven by an unchanged test.
 
 ## Where it runs from, and what tests it
 
 - An origin with `exact: false` (a handler, listener or UI handler the scan matched by its shape, or a path rule) is only a likely way in: say it is likely, never write it as a fact.
 - `none` and `only-tests` say what the search saw. The scan misses some ways in (a handler held under a string key, a route built at run time), so never write that no route or caller exists: write that the scan found none within so many calls.
-- A node to assess with an origin and no test through it (no `lifecycle` test that `proves` or `reaches` it) is a finding: send one event at its current level whose evidence names the origin and says no test goes through it, with a `suggest` of the test that would.
-- A `removed` test of changed code, or an `edited` one with `assertions_removed`, is a finding: send one event at the node's current level that names the test and what it checked, and ask whether the change meant to drop it.
+- A node to assess with an origin and no test through it (no `lifecycle` test that `proves` or `reaches` it) has a coverage gap: name the origin and missing test in a `mid` event with `grounding.kind: "coverage-gap"` and a `suggest`. If an independent floor already makes the node high, put the gap in `needs.missing` instead; do not invent a high event or lower that separate risk.
+- A `removed` test of changed code, or an `edited` one with `assertions_removed`, is a coverage finding: name the test and lost assertion at `mid`, or in `needs.missing` if an independent floor is high. Ask whether the change meant to drop it; removal alone establishes no runtime failure.
 
 ## The user's questions
 
@@ -100,7 +100,7 @@ A model check in `model_checks` is a result, like a test that ran. Never say tha
 
 Set `grounding.kind` to `code-path`, `regression-test`, `coverage-gap`, `hypothesis` or `model-only`. A coverage gap names the branch and missing assertion, stays at `mid`, and suggests the regression test. A hypothesis or model-only concern is not an established implementation break.
 
-For a model `high` event, give `introduced` or `worsened` origin, `comparison`, a reachable `grounding.trigger`, and `grounding.trace` source witnesses. Each witness is `{ "role": "consumer" | "change", "path", "line", "side": "base" | "head", "quote" }`: an exact quote starting at that line, including actual arguments. Include the consumer at head and the changed behavior at both base and head. Cite the branch condition that makes the trigger reachable; do not invent an unsupported call. Code checks quotes against these revisions and requires an exact consumer call site or exact entry origin. A candidate or name-only match cannot establish the binding. These checks do not prove your reasoning follows: you must still trace argument values and control flow. If the data is insufficient, state the missing evidence instead of inventing a witness.
+For a model `high` event, give `introduced` or `worsened` origin, `comparison`, a reachable `grounding.trigger`, and `grounding.trace` source witnesses. Each witness is `{ "role": "consumer" | "change", "path", "line", "side": "base" | "head", "quote" }`: an exact quote starting at that line, including actual arguments. Include the consumer at head and the changed behavior at both base and head. Cite the branch condition that makes the trigger reachable; do not invent an unsupported call. Code checks quotes against these revisions and requires an exact consumer call site or exact entry origin. A candidate or name-only match cannot establish the binding. Signature-only witnesses need an actual exact consumer whose arguments conflict with the new signature. Compatible calls plus declaration lines cannot establish a failure. For a failure inside a correctly supplied call, cite the body branch and its base/head outcomes; correct arity and green happy-path tests do not disprove that failure. These checks do not prove your reasoning follows: you must still trace argument values and control flow. If the data is insufficient, state the missing evidence instead of inventing a witness.
 
 **Raise to `high`** only when you can name what breaks. The evidence states all three: the input or state that triggers it, what the code does with it (symbols and lines), and the wrong result that follows: an error raised, a wrong value shown or stored, data lost, a caller that no longer works. If you cannot state the wrong result, it is not `high`. "X now does Y" describes the change; it is not a break.
 
@@ -149,7 +149,7 @@ Ask only the rows for the node's exposure. Each "yes" is one event with that `di
 
 Do not ask about style, naming or structure. Do not ask what the facts already state: who calls it, which tests execute it, what dominates it. Do not argue about proof the floor says is missing: it is missing, the unit says so, and it is not a reason to raise.
 
-A "yes" to a row below is an event at the node's current level unless it names a wrong result. Most changes get no raise.
+An unanswered question or missing test is a gap, not a high-risk event, even if a different risk already makes the node high. Most changes get no raise.
 
 ## The map
 
@@ -180,13 +180,13 @@ When something would change the level and cannot be known from the code, the tes
 
 ## After launch
 
-Every node whose level ends `mid` or `high` gets a `watch` on one of its events:
+For nodes that end `mid` or `high`, attach a `watch` to an event supported by the evidence:
 
 - `signals`: metrics, logs, traces and error reports on its path, each `{ "kind", "name", "at" }`: the name exactly as written in the code shown, and `at` as `path:line`.
 - `gaps`: what is missing. Nothing on the new path tagged with the condition's state, so on and off cannot be compared. A new raise, timeout or fallback rescued with no count and no log. A metric or log line the diff removes or renames: whether a dashboard or alert reads it cannot be seen from code, so ask. Data written behind a condition with no count, so cleanup cannot be sized.
 - `undo`: what undoes the change, from the undo fact.
 
-Never invent a metric, log, dashboard, alert or threshold. "No signal on this path" is a result: write it as a gap. When you have nothing else to say about such a node, send one event at its current level whose evidence states what the code does on the watched path.
+Never invent a metric, log, dashboard, alert or threshold. "No signal on this path" is a result: write it as a gap. For a `mid` node, a same-level event can record that gap. For a `high` node, attach the watch only to a source-grounded regression event; if none is justified, leave it unassessed rather than manufacture a high event or lower an independent floor.
 
 ## Claims
 
@@ -198,7 +198,7 @@ The words are what the person deciding whether to merge reads first, before any 
 
 - `title`: the story's heading: what the change is, as a reviewer would name it. At most 100 characters.
 - `does`: what the change does, beside what it claims, in at most three short sentences. At most 450 characters.
-- `answer`: the answer to the one question the reviewer came with: is this change risky or safe to deploy? It is about the whole change, never one node. Open with `Risky to deploy:` only when a node ends `high`, and then say what breaks: the input and the wrong result. Otherwise open with `Safe to deploy:` and say in one sentence what the change does to what runs today, and what the tests did and did not show. One or two sentences, at most 300 characters.
+- `answer`: the answer to the one question the reviewer came with: is this change risky or safe to deploy? It is about the whole change, never one node. Open with `Risky to deploy:` only when a node ends `high`, and name the established break, irreversible effect or unresolved external/data contract. Do not claim that no caller breaks and then use an invented old-form caller as the deployment blocker. Otherwise open with `Safe to deploy:` and say in one sentence what the change does to what runs today, and what the tests did and did not show. This verdict does not certify missing checks. One or two sentences, at most 300 characters.
 - `setting`: the path in execution order, one line per stop: entry point, condition check, new path, old path, async hops. Each line says who runs that stop and which test moves through it. Only stops the data shows; at most 12 lines of at most 160 characters.
 - `units`: for each unit id, a `title` that is a claim the reviewer can agree or disagree with, never a file name (at most 100 characters), and a `what`: the unit's TL;DR. Say what changed and what it means for someone deciding to merge, in at most two short sentences, about 250 characters. Never more than 400.
 

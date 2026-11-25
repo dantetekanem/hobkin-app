@@ -27,11 +27,11 @@ import { packOrigins, runsFromOf, walkOrigin } from './origins.ts'
 import { progressFiles, trackProgress } from './progress.ts'
 import { candidateTests, detectRunbooks, runProof, scanLinkHolds, type ProofRequest, type ProofResult, type RunbookOverride, type TestCandidate } from './proof.ts'
 import { addedParts, carryWords, reshapeMap } from './reshape.ts'
-import { applyRiskEvents, type RejectedEvent } from './risk.ts'
+import { applyRiskEvents, compatibleInternalCallShape, type RejectedEvent } from './risk.ts'
 import { runScan, type ScanOutcome, type ScanRequest } from './scan.ts'
 import { renderStory } from './story.ts'
 import { changesOnlyModels, isModelFile } from './tla.ts'
-import { checkBuckets, triage as triageOf } from './triage.ts'
+import { checkBuckets, isTestPath, triage as triageOf } from './triage.ts'
 import { zoneOf } from './zones.ts'
 import type {
   BlindAction,
@@ -529,6 +529,11 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       callers: callersOf(scan, anchor, config),
       callersComplete: anchor.callers?.complete ?? false,
     })
+    if (derived.facts.effect.value === 'interface' && !derived.effects.includes('data') && !scan.coverage.truncated) {
+      for (const site of anchor.callSites ?? []) await linesAt(head, site.path)
+      const compatible = compatibleInternalCallShape(anchor, atHead?.join('\n') ?? null, (path) => lines.get(`${head}:${path}`)?.join('\n') ?? null)
+      if (compatible) derived.extras.compatibleInternalCallShape = compatible
+    }
     const bucket = bucketOf(anchor.path)
     const change = changeOf(anchor, atHead)
     const kind = kindOf(anchor, testFiles.has(anchor.path))
@@ -561,7 +566,16 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     })
   }
   // A definition removed while something that remains still refers to it: broken, whatever else is true.
-  for (const [index, dangling] of scan.dangling.entries()) nodes.push(brokenReferenceNode(dangling, `x${index + 1}`))
+  for (const [index, dangling] of scan.dangling.entries()) {
+    const node = brokenReferenceNode(dangling, `x${index + 1}`)
+    node.reference_sites = await Promise.all(dangling.references.slice(0, 3).map(async ({ path, line, resolution }) => {
+      const lines = await linesAt(head, path)
+      const start = Math.max(0, line - 3)
+      const context = (lines ?? []).slice(start, line + 2).map((text, i) => ({ line: start + i + 1, text: text.slice(0, 240) }))
+      return { path, line, resolution, context }
+    }))
+    nodes.push(node)
+  }
   const known = new Set(nodes.map((node) => node.id))
   const edges: GraphEdge[] = scan.edges.flatMap((edge) => {
     if (!edge.to || !known.has(edge.from) || !known.has(edge.to)) return []
@@ -756,6 +770,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       problems.push(`${left.size} of the ${flows.length} ${kinds} test files found for ${node.symbol} were not run: ${MOST_FLOW_FILES} are run for one definition.`)
     }
   }
+  const referenceTests = new Set(nodes.flatMap((node) => node.reference_sites?.filter((site) => site.context.length && isTestPath(site.path)).map((site) => site.path) ?? []))
   const proved = new Set<string>()
   const proof = await (options.proof ?? runProof)({
     cwd,
@@ -766,6 +781,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     diffs,
     doublePatterns: DOUBLE_PATTERNS,
     changedTests,
+    referenceTests: [...referenceTests].slice(0, 8),
     signal,
     onRun: (run) => {
       if (run.node) proved.add(run.node)
@@ -773,8 +789,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       const testFileWord = run.tests.length === 1 ? 'file' : 'files'
       // A reach run is said in words of its own: a host that reads the other kinds as proof would say it proves the change.
       if (run.kind === 'reach') {
-        const went = run.exit_code === 0 ? 'none runs through it' : 'at least one runs through it'
-        tracker.tick('map-proof', proved.size, `map-proof: made ${who} fail and ran ${run.tests.length} request test ${testFileWord} that pass with and without the change: ${went}`)
+        tracker.tick('map-proof', proved.size, `map-proof: tested whether ${run.tests.length} test ${testFileWord} reach ${who}: ${run.not_run ?? `exit ${run.exit_code}`}`)
         return
       }
       tracker.tick('map-proof', proved.size, `map-proof: ${run.kind} run for ${who}: ${run.tests.length} test ${testFileWord}, exit ${run.exit_code}`)
@@ -809,7 +824,8 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     })
     if (answer?.observedBy.some((path) => changedTests.includes(path))) node.extras.testChangedWithIt = true
     const mine = new Set((candidates[node.id] ?? []).map((candidate) => candidate.path))
-    node.runs = proof.runs.filter((run) => run.node === node.id || (run.kind === 'baseline' && run.tests.some((test) => mine.has(test))))
+    for (const site of node.reference_sites ?? []) if (referenceTests.has(site.path)) mine.add(site.path)
+    node.runs = proof.runs.filter((run) => run.node === node.id || (!run.node && run.kind === 'baseline' && run.tests.some((test) => mine.has(test))))
     // A test that fails with the change in place is said on the node. It is a break, and high, only when the proof
     // showed the change is why: the test passes once the definition is put back.
     for (const finding of proof.findings.filter((item) => [...mine].some((path) => item.text.startsWith(`${path} `)))) node.findings.push(finding)
@@ -876,7 +892,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       .sort((a, b) => Number(directCallees.has(b.id)) - Number(directCallees.has(a.id)) || a.path.localeCompare(b.path) || a.startLine - b.startLine)
       .map((entry) => ({ symbol: entry.symbol, path: entry.path, lines: [entry.startLine, entry.endLine], ...(directCallees.has(entry.id) ? { direct: true } : {}) }))
     const zones = graphOf(applied.nodes).zones
-    const ratingEvidence = needsFacts({ nodes: applied.nodes, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length), onlyUnread }).evidence
+    const ratingEvidence = needsFacts({ nodes: applied.nodes, runs: proof.runs, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length), onlyUnread }).evidence
     const request = reviewRequest({ source, hostedChecks, ratingEvidence, triage, files: meta.files, diffs, onlyUnread, nodes: applied.nodes, units: units.units, code, context, modelChecks, ...(zones?.length ? { zones } : {}), ...(options.monitoring?.length ? { monitoring: options.monitoring } : {}) })
     problems.push(...request.cut.map((cut) => `Left out of what the Reviewer read: ${cut}`))
     const asked = await attempt(() => model({ pass: 'review', system: request.system, prompt: request.prompt, signal }))
@@ -892,7 +908,6 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       const said = (problem: string) => `From the Reviewer: ${problem}`
       problems.push(...answer.problems.map(said))
       const settled = new Map(answer.claims.map((claim) => [claim.text, claim]))
-      triage = { ...triage, claims: triage.claims.map((claim) => settled.get(claim.text) ?? claim) }
       // A part the Reviewer adds is checked against the diff and the scan, then rated by its floor and the events, as every part is.
       const adds = answer.map.flatMap((op) => (op.op === 'add' ? [op] : []))
       for (const op of adds) if (!texts.has(`${op.side}:${op.path}`)) texts.set(`${op.side}:${op.path}`, (await linesAt(op.side === 'base' ? base : head, op.path))?.join('\n') ?? null)
@@ -924,6 +939,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
         for (const node of applied.nodes) delete node.told
         problems.push(said('Unsupported high-risk claims were rejected; narrative descriptions were replaced by measured facts.'))
       }
+      if (!rejectedRisk) triage = { ...triage, claims: triage.claims.map((claim) => settled.get(claim.text) ?? claim) }
       const title = answer.words.title ?? words.title
       const told: StoryWords = { ...words, ...answer.words, ...(title ? { title } : {}) }
       if (answer.map.length) {
@@ -948,6 +964,10 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
         units = next
       }
       answered = answer.needs
+      if (rejectedRisk && answered) {
+        delete answered.scores.safety
+        delete answered.missing
+      }
       storyBy = rejectedRisk ? 'host' : 'model'
       tracker.end('risk-model')
     }
@@ -1013,7 +1033,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     : undefined
   const rating = await rateNeeds({
     ...(answered ? { answered } : {}),
-    facts: needsFacts({ nodes: applied.nodes, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length), onlyUnread }),
+    facts: needsFacts({ nodes: applied.nodes, runs: proof.runs, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length), onlyUnread }),
     head,
     review: story,
     ...(options.monitoring?.length ? { monitoring: options.monitoring } : {}),

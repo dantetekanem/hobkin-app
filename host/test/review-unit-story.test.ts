@@ -171,6 +171,22 @@ test('a file-level reach result does not establish a named case passed', async (
   assert.match(told.summary, /No individual result/)
 })
 
+test('the named case result wins over a stack frame from a sibling and a trailing context line', async () => {
+  const graph = await review()
+  const file = 'test/models/cart_test.rb'
+  const parts = { units: [], words: null, places: places.map((place) => place.kind === 'test' ? { ...place, symbol: 'describe "cart".rounds', lines: [2, 3] as [number, number] } : place) }
+  const nodes = unitWords(graph, { ...parts, runs: [
+    { kind: 'baseline', tests: [file], failed: [], cases: [{ path: file, name: 'cart > rounds', status: 'passed' }] },
+    { kind: 'probe', node: 'n1', tests: [file], failed: [file], failed_at: [{ path: file, line: 3 }], cases: [{ path: file, name: 'cart > rounds', status: 'passed' }, { path: file, name: 'other > rounds', status: 'failed' }] },
+  ] })
+  assert.equal(nodes.find((node) => node.kind === 'test')?.status, 'passed')
+})
+
+test('a case whose file was never selected does not claim its file ran', async () => {
+  const node = unitWords(await review(), { units: [], places, words: null, runs: [] }).find((node) => node.kind === 'test')
+  assert.match(node!.summary, /file was not run/)
+})
+
 test('native exact case receipts establish success, not a sibling name', async () => {
   const graph = await review()
   const file = 'test/models/cart_test.rb'

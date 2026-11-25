@@ -6,6 +6,7 @@
  * are read from the diff's test hunks, by text: the pack does not list them.
  */
 import type { NodeProof, TestCandidate } from './proof.ts'
+import { caseOutcome } from './test-case.ts'
 import { isTestPath } from './triage.ts'
 import type { FileDiff, FileStatus, Finding, NodeTest, RemovedTest, ReviewNode, TestDefinition, TestRun } from './types.ts'
 
@@ -233,13 +234,20 @@ function fileTests(path: string, how: Found, definitions: readonly TestDefinitio
     // In a file the diff did not touch or that it added whole, the file's reasons are each test's.
     const why = byFile === undefined && reasons.length ? definitionWhy(reasons, relation) : how.why
     const weakened = relation === 'edited' && diff ? weakenedIn(diff, [[definition.startLine, definition.endLine]]) : undefined
-    const uniqueName = definitions.filter((item) => item.symbol === definition.symbol).length === 1
-    const failedHere = (run: TestRun) => !run.not_run && (uniqueName && run.cases?.some((item) => item.path === path && item.name === definition.symbol && item.status === 'failed') || (run.failed.includes(path) && run.failed_at?.some((at) => at.path === path && definition.startLine <= at.line && at.line <= definition.endLine)))
-    const failed = input.runs.some((run) => run.kind === 'baseline' && !run.node && failedHere(run))
+    const uniqueName = input.definitions.filter((item) => item.path === path && item.symbol === definition.symbol).length === 1
+    const receipt = (run: TestRun) => caseOutcome(run, path, uniqueName ? definition.symbol : undefined)
+    const failedHere = (run: TestRun) => {
+      const outcome = receipt(run)
+      if (outcome) return outcome === 'failed'
+      return !run.not_run && run.failed.includes(path) && run.failed_at?.some((at) => at.path === path && definition.startLine <= at.line && at.line <= definition.endLine)
+    }
+    const baselines = input.runs.filter((run) => run.kind === 'baseline' && !run.node && run.tests.includes(path))
+    const failed = baselines.some(failedHere)
+    const atHead = failed ? 'failed' : baselines.some((run) => receipt(run) === 'passed') ? 'passed' : 'not-run'
     const mutation = how.picked && input.runs.some((run) => run.node === input.node.id && ['revert', 'probe'].includes(run.kind) && failedHere(run))
     const reach = how.picked && input.runs.some((run) => run.node === input.node.id && run.kind === 'reach' && failedHere(run))
     const caseShows = mutation && (shows === 'proves' || shows === 'mocks') ? shows : reach ? 'reaches' as const : undefined
-    return { path, symbol: definition.symbol, line: definition.startLine, relation, found: how.found, lifecycle: how.lifecycle, at_head: failed ? 'failed' : (uniqueName && input.runs.find((run) => run.kind === 'baseline' && !run.node && run.tests.length === 1 && run.tests[0] === path)?.cases?.find((item) => item.path === path && item.name === definition.symbol)?.status === 'passed' ? 'passed' : 'not-run'), ...(caseShows ? { shows: caseShows } : {}), ...(why ? { why } : {}), ...(weakened ? { weakened } : {}) }
+    return { path, symbol: definition.symbol, line: definition.startLine, relation, found: how.found, lifecycle: how.lifecycle, at_head: atHead, ...(caseShows ? { shows: caseShows } : {}), ...(why ? { why } : {}), ...(weakened ? { weakened } : {}) }
   })]
 }
 

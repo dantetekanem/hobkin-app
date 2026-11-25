@@ -173,6 +173,43 @@ function fakeModel() {
 
 const levelsOf = (units: Units) => Object.fromEntries(units.units.map((unit) => [unit.nodes.join(','), unit.level])) as Record<string, Level>
 
+test('internal signature migration is not a deployment break; real contract, data and consumer risks remain', async (t) => {
+  const path = 'src/Enemy.js'
+  const before = 'export default class Enemy {\n  async moveAway(apCost = 10) {\n    this.enemy.ap -= apCost;\n  }\n  async turn(turn) {\n    await this.moveAway();\n  }\n}\n'
+  const after = before.replace('moveAway(apCost = 10)', 'moveAway(destination, apCost)').replace('await this.moveAway();', 'await this.moveAway(turn.destination, 10);')
+  const { repo, base, head, out } = repoOf(t, { [path]: before }, { [path]: after })
+  const anchor: ScanAnchor = { id: 'move', symbol: 'Enemy.moveAway', kind: 'method', path, startLine: 2, endLine: 4, changedLines: [2], signatureChanged: true, language: 'javascript', status: 'modified', tests: [], callers: { total: 1, shown: 1, complete: true }, callSites: [{ id: 'turn', symbol: 'Enemy.turn', path, line: 6, text: 'await this.moveAway(turn.destination, 10);', resolution: 'exact', guards: [] }] }
+  const cases: [string, Partial<ScanAnchor>, Level][] = [
+    ['complete internal migration', {}, 'mid'],
+    ['within-repo export', { entry: { kind: 'export', exact: true } }, 'mid'],
+    ['incomplete callers', { callers: { total: 2, shown: 1, complete: false } }, 'high'],
+    ['ambiguous consumer', { callSites: [{ ...anchor.callSites![0]!, resolution: 'static_candidate' }] }, 'high'],
+    ['published package contract', { entry: { kind: 'export', exact: true, doors: [{ kind: 'export', title: 'package export', file: 'package.json', line: 1 }] } }, 'high'],
+    ['serialized data', { effects: [{ kind: 'write', line: 3, text: 'persistent write' }] }, 'high'],
+  ]
+  for (const [name, patch, expected] of cases) {
+    const scan = scanWith([{ ...anchor, ...patch }])
+    const result = await reviewChange({ cwd: repo, base, head, out: `${out}-${name.replaceAll(' ', '-')}`, scan: scanning(scan), proof: noTestsRan, ratingTries: 0,
+      entriesAbove: async () => ({ entries: {}, notes: [], stops: {} }), entryTests: async () => ({ ok: false, reason: 'not searched in this fixture' }),
+      model: expected === 'mid' ? async ({ pass }) => pass !== 'review' ? null : JSON.stringify({ events: [{ node: 'move', level: 'high', direction: 'up', aspect: 'failure', origin: 'introduced', evidence: 'Both callers pass the destination and cost. No broken caller is shown.', comparison: 'Base selected its destination; head receives it from the migrated internal caller.', grounding: { kind: 'code-path', trigger: 'a retreat turn', trace: [
+        { role: 'consumer', path, line: 6, side: 'head', quote: '    await this.moveAway(turn.destination, 10);' },
+        { role: 'change', path, line: 2, side: 'base', quote: '  async moveAway(apCost = 10) {' },
+        { role: 'change', path, line: 2, side: 'head', quote: '  async moveAway(destination, apCost) {' },
+      ] } }], words: { answer: 'Risky to deploy: a hypothetical old-form caller loses AP.' } }) : undefined,
+    })
+    const node = result.graph.nodes.find((node) => node.id === 'move')!
+    assert.equal(node.level!.current, expected, name)
+    assert.equal(Boolean(node.extras.compatibleInternalCallShape), expected === 'mid', name)
+    assert.equal(result.answer.deploy, expected === 'mid' ? 'safe' : 'risky', name)
+    if (expected === 'mid') {
+      assert.equal(result.rejected.length, 1)
+      assert.equal(result.storyBy, 'host')
+      assert.match(result.story, /Safe to deploy/)
+    }
+    assert.equal(execFileSync('git', ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8' }), '')
+  }
+})
+
 test('the blind check runs once and changes no level', async (t) => {
   const { repo, base, head, out, git } = project(t)
   const { model, calls } = fakeModel()
@@ -933,13 +970,43 @@ test('a name-only hit on a local DOM variable is not a removed-member break', as
     { 'src/panel.js': 'class Panel {}\n' },
   )
   const scan = scanWith([], [{ symbol: 'Panel#indicator', path: 'src/panel.js', oldLine: 2, references: [{ path: 'src/local.js', line: 2, text: 'indicator.remove()', resolution: 'static_candidate' }] }])
-  const result = await reviewChange({ cwd: repo, base, head, out, scan: scanning(scan), proof: noTestsRan })
+  let references
+  const model: ModelRunner = async ({ pass, prompt }) => {
+    if (pass === 'review') references = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1)).nodes.find((node: { id: string }) => node.id === 'x1').reference_sites
+    return null
+  }
+  const result = await reviewChange({ cwd: repo, base, head, out, scan: scanning(scan), proof: noTestsRan, ratingTries: 0, model })
+  assert.deepEqual(references, [{ path: 'src/local.js', line: 2, resolution: 'static_candidate', context: [{ line: 1, text: 'const indicator = document.querySelector(".indicator")' }, { line: 2, text: 'indicator.remove()' }, { line: 3, text: '' }] }])
   const removed = result.graph.nodes.find((node) => node.id === 'x1')!
   assert.equal(removed.level!.current, 'mid')
   assert.equal(removed.critical, false)
   assert.equal(removed.extras.unreferencedRemoval, undefined)
   assert.match(removed.questions[0]!.why, /binding|receiver/)
   assert.ok(removed.findings.some((finding) => finding.rule === 'unresolved-reference'))
+})
+
+test('a baseline recheck after mutating another part does not enter this part’s evidence', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const result = await reviewChange({ cwd: repo, base, head, out, scan: scanning(scanOf()), proof: async (request) => {
+    const file = request.candidates.n1![0]!.path
+    const run = { command: 'test', kind: 'baseline' as const, tests: [file], failed: [], condition_state: 'default' as const, exit_code: 0, seconds: 1 }
+    return { clean: true, nodes: {}, findings: [], runs: [run, { ...run, node: 'another-part' }] }
+  } })
+  assert.deepEqual(result.graph.nodes.find((node) => node.id === 'n1')!.runs.map((run) => run.node), [undefined])
+})
+
+test('runs the surviving test file at a candidate reference without crediting the removed member as proven', async (t) => {
+  const testPath = 'test/menu.test.mjs'
+  const { repo, base, head, out } = repoOf(t,
+    { 'src/enemy.js': 'class Enemy { get actions() { return {} } }', [testPath]: "import test from 'node:test'\nimport assert from 'node:assert/strict'\ntest('menu', () => { const actions = []; assert.equal(actions.length, 0) })\n" },
+    { 'src/enemy.js': 'class Enemy {}' },
+  )
+  const scan = scanWith([], [{ symbol: 'Enemy.actions', path: 'src/enemy.js', oldLine: 1, references: [{ path: testPath, line: 3, text: 'const actions = []', resolution: 'static_candidate' }] }])
+  const result = await reviewChange({ cwd: repo, base, head, out, scan: scanning(scan), runbook: { command: [process.execPath, '--test'] } })
+  const node = result.graph.nodes.find((part) => part.symbol === 'Enemy.actions')!
+  assert.deepEqual(node.runs.map((run) => [run.kind, run.tests, run.exit_code]), [['baseline', [testPath], 0]])
+  assert.equal(node.facts.proof.value, 'not-applicable')
+  assert.equal(node.tests?.some((item) => item.shows === 'proves'), false)
 })
 
 test('the review input includes unchanged callee return contracts and changed parametrized tests missing from the scan', async (t) => {
@@ -975,11 +1042,12 @@ test('a rejected high claim cannot survive in the narrative or depress numerical
     events: [{ node: 'n1', level: 'high', critical: true, direction: 'up', aspect: 'failure', origin: 'unknown', evidence: 'total() crashes every checkout because callers omit both arguments.' }],
     words: { title: 'total() crashes every checkout', answer: 'Risky to deploy: total() crashes every checkout.', units: { u1: { title: 'total() crashes every checkout' } } },
     map: [{ op: 'describe', node: 'n1', title: 'total() crashes every checkout' }],
-    needs: { kind: 'bug-fix', scores: { safety: { score: 2, evidence: 'total() crashes every checkout.', facts: ['n1:risk'] } } },
+    needs: { kind: 'bug-fix', missing: 'Stop total() crashing every checkout.', scores: { safety: { score: 6, evidence: 'total() crashes every checkout.', facts: ['n1:risk'] } } },
   }) : null })
   assert.equal(result.rejected.length, 1)
   assert.doesNotMatch(result.story, /total\(\) crashes/)
   assert.equal(result.needs?.scores.safety, undefined)
+  assert.equal(result.needs?.missing, undefined)
   assert.ok(result.notRated?.missing.includes('safety'))
 })
 

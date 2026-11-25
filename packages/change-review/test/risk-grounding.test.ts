@@ -99,6 +99,18 @@ test('valid source text at an unrelated or unresolved consumer cannot establish 
   assert.equal(apply([unrelated]).rejected.length, 1)
 })
 
+test('test-only ratings use the actual file run even without a mapped definition; a failed batch cannot fail a green sibling', () => {
+  const path = 'test/turn.test.js'
+  const other = 'test/failing.test.js'
+  const file = { path, status: 'modified' as const, binary: false, added: 1, deleted: 1 }
+  const batch: TestRun = { kind: 'baseline', command: 'bun test', tests: [path, other], failed: [other], exit_code: 1, seconds: 1, condition_state: 'default' }
+  const singleton = { ...batch, tests: [path], failed: [], exit_code: 0 }
+  const evidence = (runs: TestRun[]) => needsFacts({ nodes: [], files: [file], checks: [], monitoring: false, runs }).evidence![path]!
+  assert.match(evidence([batch, singleton]).text, /passed at head/)
+  assert.match(evidence([batch, { ...singleton, not_run: 'no test ran' }]).text, /not run at head/)
+  assert.match(evidence([batch]).text, /no individual file result/)
+})
+
 test('test-only and unchecked model changes have rateable evidence, and uncertainty can justify low safety', () => {
   for (const path of ['test/move.test.js', '_specs/tla/Move.tla']) {
     const facts = needsFacts({ nodes: [], files: [{ path, status: 'modified', binary: false, added: 1, deleted: 1 }], checks: [], monitoring: false })
@@ -127,6 +139,14 @@ test('all component ratings require criterion-specific measured evidence, not no
   const low = scores()
   low.scores.safety = { score: 2, evidence: 'move() crashes with no arguments', facts: ['move:risk'] }
   assert.equal(capNeeds(low, facts, 'head').scores.safety, undefined)
+  // A different part's high must not validate this node's ungrounded score.
+  const other = { ...part(), id: 'elsewhere', symbol: 'anotherAction', extras: { broken: 'Another action no longer exists at head.' } }
+  const independent = factsOf(applyRiskEvents([part(), other], []).nodes)
+  assert.equal(capNeeds(low, independent, 'head').scores.safety, undefined)
+  low.scores.safety!.facts = ['elsewhere:risk']
+  assert.equal(capNeeds(low, independent, 'head').scores.safety?.score, 2)
+  low.scores.safety!.facts = ['constructor']
+  assert.equal(capNeeds(low, independent, 'head').scores.safety, undefined)
   let called = 0
   const rated = await rateNeeds({ answered: unsupported, facts, head: 'head', review: 'No established regression.', tries: 1, ask: async ({ prompt }) => {
     called++

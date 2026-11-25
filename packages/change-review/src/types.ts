@@ -355,7 +355,7 @@ export interface TestRun {
   cases?: { path: string; name: string; status: 'passed' | 'failed' | 'skipped' }[]
   /**
    * Where the failures were, when the runner's output names places in the run's test files: a failing test's own
-   * line, the line of its failed assertion. A test of a file that failed, with no place of its own here, passed.
+   * line, the line of its failed assertion. Absence of a frame does not establish a case result.
    * Absent when the run passed or its output named no place.
    */
   failed_at?: { path: string; line: number }[]
@@ -413,6 +413,8 @@ export interface FloorExtras {
   isTest?: boolean
   /** Rule 2: a type and nothing else (a TypeScript type alias or interface): erased before the code runs, checked by the compiler. */
   typeOnly?: boolean
+  /** Complete exact internal callers supply the new JS parameters. Shape only: not proof of values, results or body behavior. */
+  compatibleInternalCallShape?: string
   /** Rules 6 and 9: the schema change adds without constraining, rewriting or locking. */
   additiveSchema?: boolean
   /** Rules 5 and 6 apply to code that runs in a request, job or consumer. False for test helpers, scripts and build tooling. Default true. */
@@ -683,6 +685,8 @@ export interface ReviewNode {
   /** Triage bucket this node's file is in. */
   bucket?: string
   callers?: { total: number; shown: number; complete: boolean }
+  /** Bounded head excerpts for candidate references to a removed definition. */
+  reference_sites?: { path: string; line: number; resolution?: string; context: { line: number; text: string }[] }[]
   /** Actual arguments and resolution, not merely a caller count. */
   callSites?: CallSite[]
   /** Sensitive names matched (money, auth, tenant...). Orders units inside a level; never sets one. */

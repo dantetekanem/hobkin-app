@@ -54,7 +54,16 @@ function reviewed(t: TestContext, review: Review, graph: object, repo: string | 
   mkdirSync(folder, { recursive: true })
   const write = (name: string, value: unknown) => writeFileSync(join(folder, name), typeof value === 'string' ? value : JSON.stringify(value))
   const facts = { effect: { value: 'behaviour', evidence: '' }, proof: { value: 'lifecycle', evidence: '' }, exposure: { value: 'everyone', evidence: '' }, undo: { value: 'rollback', evidence: '' } }
-  write('summary.json', { level: 'mid', critical: false, needsYou: 0, worthALook: 1, safe: 0, storyBy: 'host', at: '2026-11-23T10:00:00.000Z' })
+  write('summary.json', {
+    level: 'mid',
+    critical: false,
+    needsYou: 0,
+    worthALook: 1,
+    safe: 0,
+    storyBy: 'host',
+    at: '2026-11-23T10:00:00.000Z',
+    range: { base: review.change.base, head: review.change.head },
+  })
   write('units.json', {
     schema: 'review-units/1',
     map: 'node-level',
@@ -86,9 +95,21 @@ const flowTest = lines("import { doingAfter } from '../../src/doing.ts';", "test
 const doingAfterNode = { id: 'n1', kind: 'function', symbol: 'doingAfter', path: 'src/doing.ts', lines: [1, 4], change: 'modified', level: { current: 'mid' }, critical: false, findings: [], questions: [], sensitive: [] }
 const titled = (nodes: readonly ReviewNode[], title: string) => nodes.find((node) => node.title === title)!
 
-test("an unchanged test that covered the code before takes its status from the runs at the change's commit", async (t) => {
+test("an unchanged test that covered the code before takes its status from the engine's case result", async (t) => {
   const { review, files } = await prepared()
-  const assessments = reviewed(t, review, { nodes: [doingAfterNode], runs: [{ kind: 'baseline', tests: ['test/doing.test.ts'], failed: [], exit_code: 0 }] })
+  const tests = [{
+    path: 'test/doing.test.ts',
+    symbol: 'says researching',
+    line: 2,
+    relation: 'before',
+    found: 'scan',
+    lifecycle: false,
+    at_head: 'passed',
+  }]
+  const assessments = reviewed(t, review, {
+    nodes: [{ ...doingAfterNode, tests }],
+    runs: [{ kind: 'baseline', tests: ['test/doing.test.ts'], failed: [], exit_code: 0 }],
+  })
 
   const shown = assessments.present(TARGET, review, files)!
 
@@ -175,6 +196,27 @@ test('a zone the Reviewer named is shown by its name', async (t) => {
   const shown = assessments.present(TARGET, review, files)!
 
   assert.equal(shown.zones?.find((entry) => entry.id === zone)?.label, 'What hobkin is doing')
+})
+
+test('named unchanged test results do not collapse onto an earlier aggregate file node', async (t) => {
+  const { review: preparedReview, files } = await prepared({ links: [] })
+  const { repo, sha } = committed(t, { 'test/doing.test.ts': testFile })
+  const review = { ...preparedReview, change: { ...preparedReview.change, head: sha } }
+  const tests = [
+    { path: 'test/doing.test.ts', relation: 'before', found: 'scan', lifecycle: false, at_head: 'passed' },
+    { path: 'test/doing.test.ts', symbol: 'says researching', line: 2, relation: 'before', found: 'scan', lifecycle: false, at_head: 'failed' },
+    { path: 'test/doing.test.ts', symbol: 'keeps idle', line: 5, relation: 'before', found: 'scan', lifecycle: false, at_head: 'passed' },
+  ]
+  const assessments = reviewed(t, review, { nodes: [{ ...doingAfterNode, tests }] }, repo)
+
+  const shown = assessments.present(TARGET, review, files)!
+
+  const aggregate = titled(shown.nodes, 'doing.test.ts')
+  const researching = titled(shown.nodes, 'says researching')
+  const idle = titled(shown.nodes, 'keeps idle')
+  assert.deepEqual([aggregate.status, researching.status, idle.status], ['passed', 'failed', 'passed'])
+  assert.equal(shown.nodes.filter((node) => node.kind === 'test' && node.subtitle === 'test/doing.test.ts').length, 3)
+  assert.deepEqual(validateReview(shown), [])
 })
 
 test('a test the change review found through the way in, with no name, joins as its whole file, read at the change\'s commit', async (t) => {

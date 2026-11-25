@@ -7,6 +7,7 @@
  */
 import type { StoryWords, Unit } from '#shared/review/assessment.ts'
 import { testCovers } from '#shared/review/draft.ts'
+import { caseOutcome } from '../../../packages/change-review/src/test-case.ts'
 import { cleanProse, listed } from '#shared/review/prose.ts'
 import { connectingEdge } from '#shared/review/story.ts'
 import { HOST_TEXT_LIMIT, MAX_FOCUS, PROSE_LIMIT, type NodeStatus, type Review, type ReviewNode, type StoryStep } from '#shared/review/types.ts'
@@ -92,21 +93,26 @@ function testsTold(review: Review, parts: UnitWordsParts): Map<string, TestTold>
     const path = node.subtitle
     const ran = parts.runs.filter((run) => run.tests.includes(path))
     const here = node.anchors.filter((anchor) => anchor.side !== 'deleted' && files.get(anchor.fileId)?.path === path)
-    /** The run failed in this test: in its file, and at one of its own lines when the run says where it failed. */
-    const failedIn = (run: UnitRun) =>
-      !run.not_run && (receipt(run) === 'failed' || (run.failed.includes(path) && Boolean(run.failed_at?.some((at) => at.path === path && here.some((anchor) => anchor.startLine <= at.line && at.line <= anchor.endLine)))))
+    const places = parts.places.filter((place) => place.kind === 'test' && place.path === path && place.change !== 'removed')
+    const matching = places.filter((place) => here.some((anchor) => anchor.startLine === place.lines[0]))
+    const place = matching.length === 1 ? matching[0] : undefined
+    const name = place?.symbol && places.filter((entry) => entry.symbol === place.symbol).length === 1 ? place.symbol : undefined
+    const receipt = (run: UnitRun) => caseOutcome(run, path, name)
+    const failedIn = (run: UnitRun) => {
+      const outcome = receipt(run)
+      if (outcome) return outcome === 'failed'
+      return !run.not_run && run.failed.includes(path) && run.failed_at?.some((at) => at.path === path && (place ? place.lines[0] <= at.line && at.line <= place.lines[1] : here.some((anchor) => anchor.startLine <= at.line && at.line <= anchor.endLine)))
+    }
     const namesOf = (kinds: readonly string[]) => [...new Set(ran.filter((run) => kinds.includes(run.kind) && run.node && failedIn(run)).map((run) => symbolOf.get(run.node!) ?? run.node!))]
-    const matching = parts.places.filter((place) => place.kind === 'test' && place.path === path && here.some((anchor) => anchor.startLine === place.lines[0] && anchor.endLine === place.lines[1]))
-    const name = matching.length === 1 ? matching[0]?.symbol : undefined
-    const receipt = (run: UnitRun) => name ? run.cases?.find((item) => item.path === path && item.name === name)?.status : undefined
-    const failsAtHead = ran.some((run) => run.kind === 'baseline' && run.node == null && failedIn(run))
+    const failsAtHead = ran.some((run) => run.kind === 'baseline' && !run.node && failedIn(run))
     const proves = namesOf(['revert', 'probe'])
-    const atHead = ran.filter((run) => run.kind === 'baseline')
+    const atHead = ran.filter((run) => run.kind === 'baseline' && !run.node)
     const alone = atHead.filter((run) => run.tests.length === 1)
     const telling = alone.length ? alone : atHead
     // Match only the exact scan name, never a suffix or parameterized template.
     const status: NodeStatus = failsAtHead || telling.some((run) => receipt(run) === 'failed') ? 'failed' : proves.length ? 'proves-change' : telling.some((run) => receipt(run) === 'passed') ? 'passed' : 'not-run'
-    const why = status === 'not-run' ? (telling.find((run) => run.not_run)?.not_run ?? unrun.get(path) ?? parts.notRun ?? 'no case-local execution receipt was recorded.') : undefined
+    const missing = telling.some((run) => receipt(run) === 'skipped') ? 'the runner skipped this case.' : telling.length ? 'no case-local execution receipt was recorded.' : 'the file was not run.'
+    const why = status === 'not-run' ? (telling.find((run) => run.not_run)?.not_run ?? unrun.get(path) ?? parts.notRun ?? missing) : undefined
     told.set(node.id, { status, proves, reaches: namesOf(['reach']), ...(why ? { why } : {}) })
   }
   return told

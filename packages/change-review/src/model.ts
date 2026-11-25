@@ -93,6 +93,7 @@ const MONITORING_CHARS = 200
 const MAX_ORIGINS = 3
 const MAX_STEPS = 6
 const MAX_TESTS = 8
+const MAX_CASES = 32
 const TEST_AGE: Record<NodeTest['relation'], number> = { before: 0, edited: 1, added: 2, removed: 3 }
 const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
 
@@ -288,9 +289,12 @@ function runLine(run: TestRun): string {
   const tests = run.tests.length <= 3 ? run.tests.join(', ') || 'no test files' : `${run.tests.length} test files`
   const failed = run.failed.length > 3 ? `${run.failed.slice(0, 3).join(', ')} and ${run.failed.length - 3} more` : run.failed.join(', ')
   let result = run.exit_code === 0 ? 'all passed' : 'did not pass'
-  if (failed) result = `failed: ${failed}`
-  const cases = (run.cases ?? []).slice(0, MAX_TESTS).map((receipt) => `${plainText(receipt.path, 240)}: ${plainText(receipt.name, 160)} [${receipt.status}]`).join('; ')
-  const omitted = Math.max(0, (run.cases?.length ?? 0) - MAX_TESTS)
+  if (run.not_run) result = `not run: ${plainText(run.not_run, 240)}`
+  else if (failed) result = `failed: ${failed}`
+  else if (run.exit_code === 0 && run.cases?.some((receipt) => receipt.status === 'skipped')) result = 'passed with skipped cases'
+  const receipts = [...(run.cases ?? [])].sort((a, b) => Number(a.status === 'passed') - Number(b.status === 'passed'))
+  const cases = receipts.slice(0, MAX_CASES).map(({ name, status, path }) => `${run.tests.length === 1 ? '' : plainText(path, 240) + ': '}${plainText(name, 160)} [${status}]`).join('; ')
+  const omitted = Math.max(0, receipts.length - MAX_CASES)
   return `${run.kind}${run.node ? ` of ${run.node}` : ''}, condition ${run.condition_state}: ${tests}, ${result} (exit ${run.exit_code}, ${run.seconds} s)${cases ? `; cases: ${cases}${omitted ? `; ${omitted} more cases omitted` : ''}` : ''}`
 }
 
@@ -375,6 +379,7 @@ function nodeData(node: ReviewNode, code: string | undefined, cut: string[], inp
     ...(node.tests?.length ? { tests: testsSent(node.id, node.tests, cut) } : {}),
     ...(node.zone ? { zone: node.zone } : {}),
     ...(node.callers ? { callers: { total: node.callers.total, complete: node.callers.complete } } : {}),
+    ...(node.reference_sites?.length ? { reference_sites: node.reference_sites } : {}),
     ...(node.callSites?.length ? { call_sites: node.callSites.slice(0, 12).map((site) => ({ ...site, text: site.text?.slice(0, 600) })), call_sites_omitted: Math.max(0, node.callSites.length - 12) } : {}),
     sensitive: node.sensitive,
     ...(node.findings.length ? { findings: node.findings.map((finding) => finding.text) } : {}),
