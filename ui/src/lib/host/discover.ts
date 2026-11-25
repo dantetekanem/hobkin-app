@@ -39,10 +39,12 @@ export function hostSource({ handed, macWindow, dev }: { handed: boolean; macWin
  */
 export async function discoverHost(): Promise<HostAddress | null> {
   const handed = (globalThis as { __HOBKIN_HOST__?: Handed }).__HOBKIN_HOST__
-  const source = hostSource({ handed: Boolean(handed), macWindow: inMacWindow(), dev: import.meta.env.DEV })
+  // Vite sets import.meta.env. Code run without it, such as the tests in Node, is not a development page.
+  const dev = import.meta.env?.DEV === true
+  const source = hostSource({ handed: Boolean(handed), macWindow: inMacWindow(), dev })
   if (source === 'handed') return typeof handed === 'function' ? handed() : handed!
   if (source === 'shell') return shellHostAddress()
-  const handshake = source === 'handshake' ? handshakeFor(location.search, import.meta.env.DEV) : null
+  const handshake = source === 'handshake' ? handshakeFor(location.search, dev) : null
   if (!handshake) return null
 
   try {
