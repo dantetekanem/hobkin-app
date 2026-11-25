@@ -24,6 +24,7 @@ import {
   isLive,
   lastRunWords,
   leftWords,
+  listCounts,
   nameOf,
   orderSchedules,
   ownerWords,
@@ -37,9 +38,6 @@ import {
 } from './schedules.ts'
 import { useTextMeasure } from './text-measure.ts'
 import { sendSchedule, useScheduleList, useSchedules } from './use-schedules.ts'
-
-/** The line's room in the row under an agent's or a hobkin's talk box, beside the status words, kept with or without schedules. */
-export const PAGE_ROOM = 'min(13rem, 46%)'
 
 /** The list never covers the header above it, and has at least this much room. */
 const LEAVE = 64
@@ -55,34 +53,29 @@ const pressOf = (event: { key: string; code: string; ctrlKey: boolean; altKey: b
 })
 
 /**
- * Whether this line hears Control+Option+W. A page's line hears it while the keyboard is on that page and the page is
- * the one shown. The main chat's hears it everywhere else, and also on a page that keeps no schedule of its own.
+ * Whether the main chat's line hears Control+Option+W: everywhere but a page with the keyboard that has a schedules line
+ * of its own, under its header (`SchedulesLine.tsx`).
  */
-function takesKey(element: HTMLElement, main: boolean): boolean {
+function takesKey(element: HTMLElement): boolean {
   if (element.closest('[inert]') || element.getClientRects().length === 0) return false
   const active = document.activeElement instanceof Element ? document.activeElement : null
-  const pageWithKeyboard = active?.closest('[data-canvas-screen]') ?? null
-  if (main) return !pageWithKeyboard?.querySelector('[data-schedule-line]')
-  const page = element.closest<HTMLElement>('[data-canvas-screen]')
-  if (!page || page !== pageWithKeyboard) return false
-  return page.dataset.canvasScreen === document.querySelector<HTMLElement>('[data-active-canvas-screen]')?.dataset.activeCanvasScreen
+  return !active?.closest('[data-canvas-screen]')?.querySelector('[data-schedule-line]')
 }
 
 /**
- * The schedules agents keep for themselves (`056-agent-schedules`), in one line near the input: with one, its name and
- * when it fires, "Watch CI in 1:42"; with more, how many and the next, "2 · Watch CI in 1:42"; while one runs its
+ * The main chat's schedules (`056-agent-schedules`), in one line in its status row under the input: with one, its name
+ * and when it fires, "Watch CI in 1:42"; with more, how many and the next, "2 · Watch CI in 1:42"; while one runs its
  * command, that it runs. A press, Enter on it, or Control+Option+W opens every one above it, and the same again or
- * Escape closes it, with the keyboard back where it was. With none, nothing is drawn.
+ * Escape closes it, with the keyboard back where it was. With none, nothing is drawn. An agent's page has its schedules
+ * as a line under its header instead (`SchedulesLine.tsx`).
  *
- * Its room comes one of two ways. On a page the parent gives it a width (`style`) that is kept with or without
- * schedules. In the main chat's status row (`inRow`) the row gives it its width (`use-turn-room.ts`), none without a
- * schedule. Either way the parent is a positioned row, and the open list rises from that row's right end. The words
- * fit the room: the name and the countdown, then the count and the countdown, then the dot with the count, then the
- * dot alone (`line-fit.ts`).
+ * The row gives it its width (`inRow`, `use-turn-room.ts`), none without a schedule. The row is positioned, and the
+ * open list rises from its right end. The words fit the room: the name and the countdown, then the count and the
+ * countdown, then the dot with the count, then the dot alone (`line-fit.ts`).
  */
-export function ScheduleLine({ place, className, style, inRow }: { place: SchedulePlace; className?: string; style?: CSSProperties; inRow?: { width: number } }) {
+export function ScheduleLine({ place, className, inRow }: { place: SchedulePlace; className?: string; inRow: { width: number } }) {
   const schedules = useSchedules(place)
-  return <ScheduleLineView schedules={schedules} place={place} className={className} style={style} inRow={inRow} />
+  return <ScheduleLineView schedules={schedules} place={place} className={className} inRow={inRow} />
 }
 
 /** The line for given schedules, with no host: what `ScheduleLine` draws, and what a still render draws. */
@@ -90,19 +83,14 @@ export function ScheduleLineView({
   schedules,
   place,
   className,
-  style,
   inRow,
-  measured,
   send = sendSchedule,
 }: {
   schedules: readonly AgentSchedule[]
   place: SchedulePlace
   className?: string
-  style?: CSSProperties
-  /** In the main chat's status row: the width the row gives it. */
-  inRow?: { width: number }
-  /** For a still render, which measures nothing: the line's own width on a page. */
-  measured?: number
+  /** The width the main chat's status row gives it. */
+  inRow: { width: number }
   send?: ScheduleSend
 }) {
   const still = useStill()
@@ -111,12 +99,11 @@ export function ScheduleLineView({
   const any = ordered.length > 0
   const open = useScheduleList((state) => state.open === key) && any
   const root = useRef<HTMLDivElement>(null)
-  const ownWidth = useOwnWidth(root, inRow !== undefined, measured)
-  const lineWidth = inRow ? inRow.width : ownWidth
-  // In the main chat the row's height is what stays kept. With no schedule the line takes no width, so the row is
-  // what it was without one; with one it takes its room at the row's right end, where nothing was, and the bubble,
-  // anchored at its left, is cut sooner. Nothing that can be pressed moves.
-  const rootStyle = inRow ? { width: any ? lineWidth : 0, marginLeft: any ? 8 : 0 } : style
+  const lineWidth = inRow.width
+  // The row's height is what stays kept. With no schedule the line takes no width, so the row is what it was without
+  // one; with one it takes its room at the row's right end, where nothing was, and the bubble, anchored at its left, is
+  // cut sooner. Nothing that can be pressed moves.
+  const rootStyle = { width: any ? lineWidth : 0, marginLeft: any ? 8 : 0 }
   const bar = useRef<HTMLButtonElement>(null)
   // Where the keyboard was when the list opened, to go back to as it closes, and whether a key opened it.
   const keyboardWasAt = useRef<HTMLElement | null>(null)
@@ -147,18 +134,17 @@ export function ScheduleLineView({
   // Control+Option+W reaches the list from anywhere its place has the keyboard, so it is heard on the window.
   useEffect(() => {
     if (!any) return
-    const main = key === 'main'
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return
       if (scheduleListKey(pressOf(event), { open: false, inList: false }) !== 'toggle') return
       const element = root.current
-      if (!element || !takesKey(element, main) || inOverlay(event.target, document)) return
+      if (!element || !takesKey(element) || inOverlay(event.target, document)) return
       event.preventDefault()
       latestToggle.current()
     }
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
-  }, [any, key])
+  }, [any])
 
   // A press anywhere else closes the open list, as a popover does.
   useEffect(() => {
@@ -285,21 +271,6 @@ function Dot({ lead }: { lead: ScheduleLineWords['lead'] }) {
   return <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', DOT[lead])} />
 }
 
-/** The line's own width on a page, read before the first paint and again as it is resized. A still render gives it. */
-function useOwnWidth(element: RefObject<HTMLElement | null>, given: boolean, measured: number | undefined): number {
-  const [width, setWidth] = useState(0)
-  useLayoutEffect(() => {
-    const node = element.current
-    if (given || measured !== undefined || !node) return
-    const read = () => setWidth(node.getBoundingClientRect().width)
-    read()
-    const sizes = new ResizeObserver(read)
-    sizes.observe(node)
-    return () => sizes.disconnect()
-  }, [element, given, measured])
-  return measured ?? width
-}
-
 /** How tall the open list may be: from the row it rises from up to a little under the top of its side of the window. */
 function useRoomAbove(element: RefObject<HTMLElement | null>): number | undefined {
   const [room, setRoom] = useState<number>()
@@ -327,14 +298,9 @@ function useRoomAbove(element: RefObject<HTMLElement | null>): number | undefine
 const SchedulePanel = memo(function SchedulePanel({ id, schedules, main, still, takeKeyboard, send }: { id: string; schedules: readonly AgentSchedule[]; main: boolean; still: boolean; takeKeyboard: boolean; send: ScheduleSend }) {
   const outer = useRef<HTMLDivElement>(null)
   const room = useRoomAbove(outer)
-  const live = schedules.filter(isLive)
-  const ended = schedules.filter(isEnded)
-  // The countdowns, the times ago and what is left move once a second, and only while one is live.
-  const now = useNow(live.length > 0)
   useEffect(() => {
     if (takeKeyboard) outer.current?.focus({ preventScroll: true })
   }, [takeKeyboard])
-  const counts = ended.length ? `${live.length} live · ${ended.length} ended` : `${live.length} live`
 
   return (
     <motion.div
@@ -351,21 +317,39 @@ const SchedulePanel = memo(function SchedulePanel({ id, schedules, main, still, 
     >
       <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
         <span className="text-[13px] font-medium">Schedules</span>
-        <span className="min-w-0 truncate text-[12px] text-muted-foreground tabular-nums">{counts}</span>
+        <span className="min-w-0 truncate text-[12px] text-muted-foreground tabular-nums">{listCounts(schedules)}</span>
         <Kbd className="ml-auto">⌃⌥W</Kbd>
       </div>
-      <ul aria-label="Schedules, running ones first, then the soonest" className="scroll-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2">
-        {live.map((schedule, index) => (
-          <ScheduleRow key={schedule.id} schedule={schedule} now={now} main={main} index={index} still={still} send={send} />
-        ))}
-        {ended.length ? <li className="px-2 pt-2 pb-0.5 text-[11px] font-medium text-muted-foreground">Ended lately</li> : null}
-        {ended.map((schedule, index) => (
-          <ScheduleRow key={schedule.id} schedule={schedule} now={now} main={main} index={live.length + index} still={still} send={send} />
-        ))}
+      <ul aria-label={SCHEDULES_ORDER} className="scroll-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2">
+        <ScheduleRows schedules={schedules} main={main} still={still} send={send} />
       </ul>
     </motion.div>
   )
 })
+
+/** What a list of schedules holds, for a screen reader. */
+export const SCHEDULES_ORDER = 'Schedules, running ones first, then the soonest'
+
+/**
+ * Every schedule's row, live ones first and then those that ended lately, each an `li`, for a list to hold. The
+ * countdowns, the times ago and what is left move once a second, and only while one is live.
+ */
+export function ScheduleRows({ schedules, main, still, send }: { schedules: readonly AgentSchedule[]; main: boolean; still: boolean; send: ScheduleSend }) {
+  const live = schedules.filter(isLive)
+  const ended = schedules.filter(isEnded)
+  const now = useNow(live.length > 0)
+  return (
+    <>
+      {live.map((schedule, index) => (
+        <ScheduleRow key={schedule.id} schedule={schedule} now={now} main={main} index={index} still={still} send={send} />
+      ))}
+      {ended.length ? <li className="px-2 pt-2 pb-0.5 text-[11px] font-medium text-muted-foreground">Ended lately</li> : null}
+      {ended.map((schedule, index) => (
+        <ScheduleRow key={schedule.id} schedule={schedule} now={now} main={main} index={live.length + index} still={still} send={send} />
+      ))}
+    </>
+  )
+}
 
 const WHEN_TONE: Partial<Record<AgentScheduleState, string>> = { running: 'text-[var(--hb-code-fg)] font-medium', waiting: 'text-foreground', failed: 'text-bad-fg' }
 const LAST_TONE = { ok: 'text-ok-fg', bad: 'text-bad-fg', quiet: 'text-foreground' } as const

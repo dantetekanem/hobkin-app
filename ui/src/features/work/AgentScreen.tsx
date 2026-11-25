@@ -24,7 +24,6 @@ import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import { releaseImages } from '@/features/chat/image-uploads.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
-import { PAGE_ROOM, ScheduleLine } from '@/features/schedules/ScheduleLine.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { agentsFrom, sameFields } from '@/lib/host/frame.ts'
@@ -837,8 +836,7 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
           />
         </div>
       </form>
-      {/* Always there, so the box does not move when words or a schedule come and go: the words at the left, the
-          agent's own schedules at the right (056), whose list rises from this row. */}
+      {/* Always there, so the box does not move when words come and go. Its schedules are a line under its header (056). */}
       <div className="relative mt-1 flex min-h-6 items-start gap-3 px-3">
         <div className="min-w-0 flex-1 py-1 text-[11px] leading-4">
           {problem || images.problem ? (
@@ -858,7 +856,6 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
             <p className="text-muted-foreground">It has finished, so nothing more reaches it.</p>
           ) : null}
         </div>
-        <ScheduleLine place={{ kind: 'run', id: agentId }} style={{ width: PAGE_ROOM }} />
       </div>
     </div>
   )

@@ -8,9 +8,12 @@ import {
   everyWords,
   lastRunWords,
   leftWords,
+  nextDueAt,
   orderSchedules,
   ownerWords,
+  placeOfAgent,
   scheduleLine,
+  schedulesCount,
   schedulesGlow,
   schedulesIn,
   whenWords,
@@ -117,6 +120,27 @@ test('the main chat shows only the schedules it made, and a page shows only its 
   assert.deepEqual(schedulesIn(all, { kind: 'hobkin', id: 'run-412' }), [], 'a hobkin is not a run of the same id')
   assert.deepEqual(schedulesIn([{ id: 'nobody' }], { kind: 'main' }), [], 'one with no owner is no one’s, the main chat’s included')
   assert.deepEqual(schedulesIn([{ id: 'nobody' }], { kind: 'run', id: 'run-412' }), [])
+})
+
+test('an agent’s lines read its own schedules by the id the window names it with: a run, a durable hobkin, hobkin’s main agent', () => {
+  assert.deepEqual(placeOfAgent('run-412'), { kind: 'run', id: 'run-412' })
+  assert.deepEqual(placeOfAgent('hobkin:abcd1234'), { kind: 'hobkin', id: 'abcd1234' }, 'every turn’s schedules are the hobkin’s (056 A13)')
+  assert.deepEqual(placeOfAgent('#main'), { kind: 'main' }, 'hobkin’s mind')
+})
+
+test('the schedules line counts the live ones, as the other lines count theirs, and is not drawn with none live', () => {
+  const done: AgentSchedule = { ...watch, id: 'd', state: 'done', nextAt: undefined }
+  assert.equal(schedulesCount([watch]), '1 schedule')
+  assert.equal(schedulesCount([watch, { ...watch, id: 's2', state: 'paused' }, done]), '2 schedules', 'an ended one is not counted')
+  assert.equal(schedulesCount([done]), null)
+  assert.equal(schedulesCount([]), null)
+})
+
+test('the line wakes when the soonest waiting schedule comes due, to glow, and waits for nothing else', () => {
+  assert.equal(nextDueAt([watch, { ...watch, id: 's2', nextAt: at(30 * SECOND) }], NOW), NOW + 30 * SECOND)
+  assert.equal(nextDueAt([{ ...watch, nextAt: at(-SECOND) }], NOW), null, 'due already: it glows until the host says it runs')
+  assert.equal(nextDueAt([{ ...watch, state: 'running' }, { ...watch, id: 'p', state: 'paused' }], NOW), null)
+  assert.equal(nextDueAt([{ ...watch, nextAt: undefined }], NOW), null)
 })
 
 test('running ones come first, then the soonest, then paused ones, then those that ended, newest end first', () => {

@@ -2,6 +2,7 @@ import { ChevronDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { holdStill, useStill } from '@/app/still.ts'
+import { Kbd } from '@/components/ui/kbd.tsx'
 // The line's glow is the tasks line's own (`aa-glow`).
 import '@/features/agent-activity/agent-activity.css'
 import { useDrop, type DropName } from '@/features/agent-activity/drop.ts'
@@ -21,6 +22,8 @@ export interface FoldList {
   label: string
   /** Drawn only while the list is open. */
   rows: ReactNode
+  /** The key that opens it from anywhere on the page, shown in its heading, such as "⌃⌥W". */
+  keys?: string
 }
 
 interface FoldLineProps {
@@ -123,15 +126,18 @@ function FoldPanel({ id, list, still }: { id: string; list: FoldList; still: boo
         id={id}
         role="region"
         aria-label={list.title}
+        // The key that opens it can hand it the keyboard, so Tab walks its controls.
+        tabIndex={-1}
         style={{ maxHeight: room }}
         initial={holdStill({ opacity: 0, transform: 'translateY(-6px) scale(0.96)' }, still)}
         animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.sheet, opacity: tween.enter } }, still)}
         exit={holdStill({ opacity: 0, transform: 'translateY(-4px) scale(0.96)', transition: tween.exit }, still)}
-        className="pointer-events-auto flex w-full max-w-[28rem] origin-top-left flex-col overflow-hidden rounded-[18px] border border-border bg-popover text-popover-foreground shadow-panel"
+        className="pointer-events-auto flex w-full max-w-[28rem] origin-top-left flex-col overflow-hidden rounded-[18px] border border-border bg-popover text-popover-foreground shadow-panel outline-none"
       >
         <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
           <span className="text-[13px] font-medium">{list.title}</span>
           <span className="min-w-0 truncate text-[12px] text-muted-foreground tabular-nums">{list.counts}</span>
+          {list.keys ? <Kbd className="ml-auto">{list.keys}</Kbd> : null}
         </div>
         <ul aria-label={list.label} className="scroll-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2">
           {list.rows}

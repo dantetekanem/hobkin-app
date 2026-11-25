@@ -1,3 +1,5 @@
+import { MAIN_ACTIVITY } from '#shared/protocol/activity.ts'
+import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import { ENDED_SCHEDULE_STATES, type AgentSchedule, type AgentScheduleState } from '#shared/protocol/schedules.ts'
 
 /**
@@ -19,6 +21,16 @@ export const stateOf = (schedule: AgentSchedule): AgentScheduleState => schedule
 export const isEnded = (schedule: AgentSchedule): boolean => ENDED_SCHEDULE_STATES.includes(stateOf(schedule))
 
 export const isLive = (schedule: AgentSchedule): boolean => !isEnded(schedule)
+
+/**
+ * Whose schedules an agent's lines show, by the id the window names the agent with (`AgentLines.tsx`): hobkin's main
+ * agent its own, a durable hobkin its own across every turn (056 A13), a run its own.
+ */
+export function placeOfAgent(agentId: string): SchedulePlace {
+  if (agentId === MAIN_ACTIVITY) return { kind: 'main' }
+  const hobkin = hobkinOfAgent(agentId)
+  return hobkin === null ? { kind: 'run', id: agentId } : { kind: 'hobkin', id: hobkin }
+}
 
 /** One key for a place, for the one list open at a time. */
 export const placeKey = (place: SchedulePlace): string => (place.kind === 'main' ? 'main' : `${place.kind}:${place.id}`)
@@ -135,6 +147,29 @@ export function scheduleLine(list: readonly AgentSchedule[], now: number): Sched
   const clock = when.startsWith('in ') ? when.slice(3) : when
   const counted = count > 1 ? `${count} · ` : ''
   return { count, lead, name, when, text: `${counted}${name} ${when}`, short: `${counted}${clock}` }
+}
+
+/** The schedules line under an agent's header, as the other lines count: how many are live, "2 schedules". Null with none live. */
+export function schedulesCount(list: readonly AgentSchedule[]): string | null {
+  const live = list.filter(isLive).length
+  if (live === 0) return null
+  return live === 1 ? '1 schedule' : `${live} schedules`
+}
+
+/** How many of a list are live and how many ended, as its open list heads them: "2 live · 1 ended". */
+export function listCounts(list: readonly AgentSchedule[]): string {
+  const live = list.filter(isLive).length
+  const ended = list.length - live
+  return ended ? `${live} live · ${ended} ended` : `${live} live`
+}
+
+/** When the soonest waiting schedule comes due, for the line to glow then. Null when none waits with time left. */
+export function nextDueAt(list: readonly AgentSchedule[], now: number): number | null {
+  const times = list.flatMap((schedule) => {
+    const next = stateOf(schedule) === 'waiting' ? timeOf(schedule.nextAt) : null
+    return next !== null && next > now ? [next] : []
+  })
+  return times.length ? Math.min(...times) : null
 }
 
 /** The line glows while a schedule runs its command or is due now (`glow.ts` in agent-activity holds the other lines' rules). */

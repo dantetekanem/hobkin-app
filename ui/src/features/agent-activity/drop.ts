@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
-/** A list that hangs under an agent's header: its tasks, its teams agents, or its helpers. */
-export type DropName = 'tasks' | 'agents' | 'helpers'
+/** A list that hangs under an agent's header: its tasks, its teams agents, its helpers, or its schedules. */
+export type DropName = 'tasks' | 'agents' | 'helpers' | 'schedules'
 
 /**
  * Which list hangs open under the header. One at a time, so neither covers the other. Kept while the window is open,
