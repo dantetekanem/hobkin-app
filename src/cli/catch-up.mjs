@@ -47,12 +47,18 @@ const statePath = home => join(home, 'runtime', 'catch-up.json');
 const askedPath = home => join(home, 'runtime', 'catch-up-asked.json');
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
+/** A saved setting: null when it is off, and its default when it is missing or not one hobkin can use. */
+function savedSetting(value, isValid, fallback) {
+  if (value === null) return null;
+  return isValid(value) ? value : fallback;
+}
+
 /** The two triggers as saved. One left out has its default, and one set to null is off. */
 function settings(home) {
   const saved = loadConfig(home).catchUp ?? {};
   return {
-    daily: saved.daily === null ? null : isClockTime(saved.daily) ? saved.daily : DEFAULTS.daily,
-    pileUp: saved.pileUp === null ? null : isCount(saved.pileUp) ? saved.pileUp : DEFAULTS.pileUp,
+    daily: savedSetting(saved.daily, isClockTime, DEFAULTS.daily),
+    pileUp: savedSetting(saved.pileUp, isCount, DEFAULTS.pileUp),
   };
 }
 
@@ -68,8 +74,8 @@ function readState(home) {
   }
 }
 
-const saidNothingNew = report => report.outcome === 'no_change'
-  || reportTriage({ status: report.outcome, result: { text: report.body } })?.level === 'nothing';
+const triageOf = report => reportTriage({ status: report.outcome, result: { text: report.body } });
+const saidNothingNew = report => report.outcome === 'no_change' || triageOf(report)?.level === 'nothing';
 
 /**
  * The listed reports a catch-up would cover, newest first: unread, from a run that finished since hobkin began to watch
@@ -78,10 +84,15 @@ const saidNothingNew = report => report.outcome === 'no_change'
 export function uncoveredReports(home, reports) {
   const since = trackingSince(home);
   if (since === null) return [];
+
   const states = reportReadStates(home);
+  const isUncovered = report => !states.has(report.id)
+    && report.scheduleId !== CATCH_UP
+    && report.outcome !== 'imported'
+    && Date.parse(report.at) >= since
+    && !saidNothingNew(report);
   return reports
-    .filter(report => !states.has(report.id) && report.scheduleId !== CATCH_UP && report.outcome !== 'imported'
-      && Date.parse(report.at) >= since && !saidNothingNew(report))
+    .filter(isUncovered)
     .toSorted((left, right) => Date.parse(right.at) - Date.parse(left.at));
 }
 
@@ -98,16 +109,21 @@ export function readCatchUp(root) {
 
 /** A report's triage line as it opens the report, or null when it has none. */
 function triageLine(report) {
-  const triage = reportTriage({ status: report.outcome, result: { text: report.body } });
-  return triage?.message ? `${triage.level[0].toUpperCase()}${triage.level.slice(1)}: ${triage.message}` : null;
+  const triage = triageOf(report);
+  if (!triage?.message) return null;
+
+  const label = `${triage.level[0].toUpperCase()}${triage.level.slice(1)}`;
+  return `${label}: ${triage.message}`;
 }
 
 function excerpt(body) {
   const text = reportText(body);
-  return text.length > EXCERPT_CHARACTERS ? `${text.slice(0, EXCERPT_CHARACTERS).trimEnd()}…` : text;
+  if (text.length <= EXCERPT_CHARACTERS) return text;
+  return `${text.slice(0, EXCERPT_CHARACTERS).trimEnd()}…`;
 }
 
-const given = report => ({
+/** What a catch-up is told about one report it covers. */
+const coveredEntry = report => ({
   id: report.id,
   title: report.title,
   routine: report.scheduleId ?? null,
@@ -121,38 +137,60 @@ const given = report => ({
 function routineAttention(home) {
   try {
     const { schedules } = JSON.parse(readFileSync(join(home, 'runtime', 'report-attention.json'), 'utf8'));
-    return schedules.filter(({ scheduleId }) => scheduleId !== CATCH_UP)
-      .map(({ scheduleId, title, reports, read, nothingNew, critical, usd, ignored }) => ({ routine: scheduleId, title, reports, read, nothingNew, critical, usd, ignored }));
+    return schedules
+      .filter(({ scheduleId }) => scheduleId !== CATCH_UP)
+      .map(({ scheduleId, title, reports, read, nothingNew, critical, usd, ignored }) => ({
+        routine: scheduleId,
+        title,
+        reports,
+        read,
+        nothingNew,
+        critical,
+        usd,
+        ignored,
+      }));
   } catch {
     return [];
   }
 }
 
-/** What one catch-up is given: the newest uncovered reports that fit, and each routine's attention numbers. */
-function material(home, uncovered) {
+/**
+ * What one catch-up is given, as JSON: the newest uncovered reports whose entries fit the bound, at least one, and each
+ * routine's attention numbers. Each entry costs its own bytes and the comma before the next.
+ */
+function catchUpMaterial(home, uncovered) {
   const routines = routineAttention(home);
   const reports = [];
-  let bytes = Buffer.byteLength(JSON.stringify({ reports, routines }, null, 2));
+  let bytes = Buffer.byteLength(JSON.stringify({ reports, routines }));
   for (const report of uncovered) {
-    const entry = given(report);
-    const size = Buffer.byteLength(JSON.stringify(entry, null, 2)) + 8;
+    const entry = coveredEntry(report);
+    const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
     if (reports.length && bytes + size > MOST_MATERIAL_BYTES) break;
+
     reports.push(entry);
     bytes += size;
   }
   return { reports, routines };
 }
 
+/** The reports a finished catch-up covered count as caught up from now, and the window shows it. */
+function coverReports(home, app, catchUpId, reports) {
+  const at = app.now();
+  app.telemetry.recordCaughtUp(reports.map(report => report.id), catchUpId, at);
+  atomicJson(statePath(home), { ...readState(home), version: 1, lastAt: new Date(at).toISOString() });
+  app.requestRefresh();
+}
+
 /**
  * Runs one catch-up as hobkin's own background run, on the fast tier with low effort, so it is listed in Reports like
  * any other. Only once it has finished with a report does each report it was given count as caught up.
  */
-async function write(home, app, given, binding, trigger) {
+async function writeCatchUp(home, app, material, binding, trigger) {
   const id = `${CATCH_UP}:${randomUUID()}`;
   const harnessId = randomUUID();
   const jobs = join(home, 'jobs');
   mkdirSync(jobs, { recursive: true, mode: 0o700 });
-  const prompt = JSON.stringify(given, null, 2);
+
   const { work } = app.runner.startTracked({
     id,
     kind: 'background',
@@ -172,16 +210,23 @@ async function write(home, app, given, binding, trigger) {
     model: binding.model,
     effort: 'low',
     cwd: home,
-    prompt,
+    prompt: JSON.stringify(material),
     sessionFile: join(jobs, `${harnessId}.jsonl`),
     signal: AbortSignal.any([signal, AbortSignal.timeout(TIME_LIMIT_MS)]),
   }));
+
   const ended = await work;
-  if (ended?.status !== 'completed' || !ended.result?.text?.trim()) return;
-  const at = app.now();
-  app.telemetry.recordCaughtUp(given.reports.map(report => report.id), id, at);
-  atomicJson(statePath(home), { ...readState(home), version: 1, lastAt: new Date(at).toISOString() });
-  app.requestRefresh();
+  const wroteReport = ended?.status === 'completed' && Boolean(ended.result?.text?.trim());
+  if (wroteReport) coverReports(home, app, id, material.reports);
+}
+
+/** The fast tier's model, or null when there is none or config.json cannot be read. */
+function fastModel(home) {
+  try {
+    return fastBinding(home);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -192,19 +237,21 @@ async function write(home, app, given, binding, trigger) {
 export function startCatchUp(root, app, { trigger = 'manual' } = {}) {
   const home = resolveDataRoot(root);
   if (writing.has(home)) return { message: ALREADY };
-  const covered = material(home, uncoveredReports(home, app.snapshot?.reports ?? readLocalView(home).reports));
-  if (!covered.reports.length) return { message: NOTHING };
-  let binding = null;
-  try {
-    binding = fastBinding(home);
-  } catch {
-    // A config that cannot be read has no model to ask.
-  }
+
+  const listed = app.snapshot?.reports ?? readLocalView(home).reports;
+  const material = catchUpMaterial(home, uncoveredReports(home, listed));
+  if (!material.reports.length) return { message: NOTHING };
+
+  const binding = fastModel(home);
   if (!binding) return { message: NO_MODEL };
+
   // A catch-up that fails covers nothing, and the next trigger tries again.
-  const run = write(home, app, covered, binding, trigger).catch(() => {}).finally(() => writing.delete(home));
+  const run = writeCatchUp(home, app, material, binding, trigger)
+    .catch(() => {})
+    .finally(() => writing.delete(home));
   writing.set(home, run);
-  return { message: `hobkin is writing a catch-up of ${plural(covered.reports.length, 'unread report')}. It shows in Reports when it is done, in about a minute.` };
+  const count = plural(material.reports.length, 'unread report');
+  return { message: `hobkin is writing a catch-up of ${count}. It shows in Reports when it is done, in about a minute.` };
 }
 
 /** Resolves once no catch-up is being written for this home. */
@@ -216,7 +263,10 @@ export function setCatchUp(root, { daily, pileUp } = {}) {
   if (pileUp !== undefined && pileUp !== null && !isCount(pileUp)) throw Error(BAD_COUNT);
   const home = resolveDataRoot(root);
   const current = settings(home);
-  const catchUp = { daily: daily === undefined ? current.daily : daily, pileUp: pileUp === undefined ? current.pileUp : pileUp };
+  const catchUp = {
+    daily: daily === undefined ? current.daily : daily,
+    pileUp: pileUp === undefined ? current.pileUp : pileUp,
+  };
   atomicJson(join(home, 'config.json'), { ...loadConfig(home), catchUp });
   return readCatchUp(home);
 }
@@ -224,10 +274,19 @@ export function setCatchUp(root, { daily, pileUp } = {}) {
 /** An agent's or the user's ask from another process, for the running hobkin to start on its next tick. */
 export function requestCatchUp(root) {
   const home = resolveDataRoot(root);
-  const count = uncoveredReports(home, readLocalView(home).reports).length;
-  if (!count) return { message: NOTHING };
+  const uncovered = uncoveredReports(home, readLocalView(home).reports).length;
+  if (!uncovered) return { message: NOTHING };
+
   atomicJson(askedPath(home), { version: 1, at: new Date().toISOString() });
-  return { message: `Asked hobkin for a catch-up of ${plural(count, 'unread report')}. It starts within a second while hobkin runs, and shows in Reports when it is done.` };
+  const count = plural(uncovered, 'unread report');
+  return { message: `Asked hobkin for a catch-up of ${count}. It starts within a second while hobkin runs, and shows in Reports when it is done.` };
+}
+
+/** Whether `hobkin reports catch-up` left an ask since the last look. Taking it removes it, so it is answered once. */
+function takeAsk(home) {
+  if (!lstatSync(askedPath(home), { throwIfNoEntry: false })) return false;
+  rmSync(askedPath(home), { force: true });
+  return true;
 }
 
 /** The settings, read again only once config.json has changed. */
@@ -238,14 +297,18 @@ function tickSettings(home, seen) {
   return seen.settings;
 }
 
-const localDay = clock => `${clock.getFullYear()}-${String(clock.getMonth() + 1).padStart(2, '0')}-${String(clock.getDate()).padStart(2, '0')}`;
+const twoDigits = number => String(number).padStart(2, '0');
+const localDay = clock => `${clock.getFullYear()}-${twoDigits(clock.getMonth() + 1)}-${twoDigits(clock.getDate())}`;
 
 /** Once its local time has come each day: a catch-up when anything is uncovered, and none when one is being written already. */
 function tickDaily(home, app, daily, seen) {
   if (daily === null) return;
+
   const clock = new Date(app.now());
   const [hours, minutes] = daily.split(':').map(Number);
-  if (clock.getHours() * 60 + clock.getMinutes() < hours * 60 + minutes) return;
+  const minuteNow = clock.getHours() * 60 + clock.getMinutes();
+  if (minuteNow < hours * 60 + minutes) return;
+
   const today = localDay(clock);
   seen.dailyOn ??= readState(home).dailyOn ?? null;
   if (seen.dailyOn === today) return;
@@ -261,12 +324,15 @@ function tickDaily(home, app, daily, seen) {
 function tickPileUp(home, app, pileUp, seen) {
   const reports = app.snapshot?.reports;
   if (!Array.isArray(reports) || reports === seen.reports) return;
+
   const before = seen.ids;
   seen.reports = reports;
   seen.ids = new Set(reports.map(report => report.id));
   if (!before || pileUp === null || writing.has(home)) return;
+
   const finished = reports.some(report => !before.has(report.id) && report.scheduleId !== CATCH_UP);
-  if (finished && uncoveredReports(home, reports).length >= pileUp) startCatchUp(home, app, { trigger: 'scheduled' });
+  if (!finished) return;
+  if (uncoveredReports(home, reports).length >= pileUp) startCatchUp(home, app, { trigger: 'scheduled' });
 }
 
 /**
@@ -278,10 +344,7 @@ export function tickCatchUp(root, app) {
   const seen = ticks.get(home) ?? {};
   ticks.set(home, seen);
   try {
-    if (lstatSync(askedPath(home), { throwIfNoEntry: false })) {
-      rmSync(askedPath(home), { force: true });
-      startCatchUp(home, app);
-    }
+    if (takeAsk(home)) startCatchUp(home, app);
     const { daily, pileUp } = tickSettings(home, seen);
     tickDaily(home, app, daily, seen);
     tickPileUp(home, app, pileUp, seen);

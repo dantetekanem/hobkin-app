@@ -35,16 +35,27 @@ function savedView(root, reports) {
   writeFileSync(join(root, 'runtime/view.json'), JSON.stringify({ version: 1, reports }));
 }
 
+/** A report as the saved list has it, `minutes` after tracking began. */
 const listed = (id, minutes, body = `Useful: ${id} found something.`, patch = {}) => ({
-  id, title: `Routine ${id}`, scheduleId: `routine-${id}`, at: iso(STARTED + minutes * MINUTE), body, outcome: 'completed', ...patch,
+  id,
+  title: `Routine ${id}`,
+  scheduleId: `routine-${id}`,
+  at: iso(STARTED + minutes * MINUTE),
+  body,
+  outcome: 'completed',
+  ...patch,
 });
+
+const CATCH_UP_TEXT = 'Useful: Two invoices came in, and the mail check found nothing that needs you.\n\n## What happened\n\nThe digest found two invoices.';
+const writesCatchUp = () => ({ status: 'completed', text: CATCH_UP_TEXT, cost: null });
 
 /**
  * hobkin itself on a home whose reads were watched from the start, with no model: each catch-up's model run gets
  * `answer(request)`, and any other model run fails, as one with no model would. Both triggers start off, so only a
  * test's own ask or the triggers it sets start a catch-up, and its first tick is over before the test goes on.
  */
-async function openHobkin(t, root, { answer = () => ({ status: 'completed', text: CATCH_UP_TEXT, cost: null }), now, catchUp = {} } = {}) {
+async function openHobkin(t, root, options = {}) {
+  const { answer = writesCatchUp, now, catchUp = {} } = options;
   Telemetry.open(root, STARTED);
   setCatchUp(root, { daily: null, pileUp: null, ...catchUp });
   const asked = [];
@@ -53,7 +64,13 @@ async function openHobkin(t, root, { answer = () => ({ status: 'completed', text
     asked.push(request);
     return answer(request);
   };
-  const app = await HobkinApplication.open(root, { createMain: fakePi(root).createMain, runHarness, intervalMs: 60000, ...(now ? { now } : {}) });
+
+  const app = await HobkinApplication.open(root, {
+    createMain: fakePi(root).createMain,
+    runHarness,
+    intervalMs: 60000,
+    ...(now ? { now } : {}),
+  });
   t.after(() => app.close());
   await app.runner.tick();
   return { app, asked };
@@ -64,8 +81,6 @@ async function finishRun(app, id, text, { scheduleId = 'digest', title = 'Digest
   await app.runtime.admit({ id, kind: 'background', scheduleId, title, ...(trigger ? { trigger } : {}) });
   await app.runtime.finish(id, { status, text, ...(status === 'failed' ? { error: text } : {}) });
 }
-
-const CATCH_UP_TEXT = 'Useful: Two invoices came in, and the mail check found nothing that needs you.\n\n## What happened\n\nThe digest found two invoices.';
 
 test('a report is read once opened for 3 seconds or asked about, caught up once a catch-up covered it, and read wins', t => {
   const root = home(t);
@@ -198,8 +213,13 @@ test('a catch-up covers exactly the uncovered unread reports, once it has finish
   const { reports, routines } = JSON.parse(request.prompt);
   assert.deepEqual(reports.map(({ id }) => id), ['mail-1', 'digest-1'], 'newest first, and only the uncovered unread ones');
   assert.deepEqual(reports[1], {
-    id: 'digest-1', title: 'Digest', routine: 'digest', at: reports[1].at, outcome: 'completed',
-    triage: 'Useful: The digest found two invoices.', text: 'Two invoices came in.',
+    id: 'digest-1',
+    title: 'Digest',
+    routine: 'digest',
+    at: reports[1].at,
+    outcome: 'completed',
+    triage: 'Useful: The digest found two invoices.',
+    text: 'Two invoices came in.',
   });
   assert.equal(reports[0].triage, 'Useful: The mail check found a letter from the bank.');
   assert.equal(reports[0].text, `${long.slice(0, 600).trimEnd()}…`, 'with no short version, the start of the body');
@@ -210,8 +230,11 @@ test('a catch-up covers exactly the uncovered unread reports, once it has finish
   await catchUpIdle(root);
   const listed = (await app.refresh()).reports;
 
-  const states = Object.fromEntries(listed.map(({ id, readState }) => [id, readState]));
-  assert.deepEqual([states['digest-1'], states['mail-1'], states['late-1'], states['opened-1']], ['caught-up', 'caught-up', undefined, 'read']);
+  const stateOf = id => listed.find(report => report.id === id).readState;
+  assert.equal(stateOf('digest-1'), 'caught-up');
+  assert.equal(stateOf('mail-1'), 'caught-up');
+  assert.equal(stateOf('late-1'), undefined, 'it came in while the catch-up was written');
+  assert.equal(stateOf('opened-1'), 'read');
   const written = listed.find(({ scheduleId }) => scheduleId === 'catch-up');
   assert.equal(written.title, 'Catch-up');
   assert.equal(written.body, CATCH_UP_TEXT);
@@ -249,8 +272,11 @@ test('with no fast model to write it, no catch-up starts and hobkin says so', { 
   const { app, asked } = await openHobkin(t, root);
   await finishRun(app, 'digest-1', 'Useful: The digest found two invoices.');
   await app.refresh();
-  const { tiers, background: { model, ...background }, ...config } = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8'));
-  atomicJson(join(root, 'config.json'), { ...config, background });
+  // Neither the fast tier nor the checks model it follows has a model.
+  const config = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8'));
+  delete config.tiers;
+  delete config.background.model;
+  atomicJson(join(root, 'config.json'), config);
 
   assert.deepEqual(startCatchUp(root, app), { message: 'hobkin has no fast model to write a catch-up with. Choose one for the fast tier in Settings.' });
   assert.equal(asked.length, 0);
