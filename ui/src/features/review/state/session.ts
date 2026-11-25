@@ -695,7 +695,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         if (editor.editing) memory.getState().editNote(review, editor.editing, { text: draft.text, intent: draft.intent })
         else kept = memory.getState().addNote(review, { step: editor.step, target: editor.target, intent: draft.intent, text: draft.text })
         memory.getState().setDraft(review, null)
-        set({ editor: null, selection: null })
+        // In the code view the selection is the cursor's, and stays: the next note, as the next question, is about it too.
+        set({ editor: null, ...(get().look === 'code' ? {} : { selection: null }) })
         return kept
       },
       closeEditor: () => {

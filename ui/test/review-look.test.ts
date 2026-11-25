@@ -222,3 +222,17 @@ test('I opens the code view only where one takes its keys', () => {
   assert.equal(pressKey(session.getState(), { key: 'i', shift: false, alt: false }, noCodeView), false)
   assert.equal(session.getState().look, 'graph')
 })
+
+test('a note kept in the code view leaves its lines selected, so the next question is about them too', () => {
+  const { memory, session } = codeSession()
+  session.getState().showFile('src/cli/runtime.mjs')
+  const lines = { kind: 'lines', fileId: 'src/cli/runtime.mjs', side: 'added', startLine: 150, endLine: 151, hash: 'h' } as const
+  session.getState().selectLines(lines)
+  session.getState().startNote('question')
+  memory.getState().setDraft(sample, { intent: 'question', text: 'Why two calls?' })
+  session.getState().saveNote()
+  assert.equal(session.getState().selection, lines)
+  // What the input does after a question went to hobkin: the next one starts on the same lines.
+  session.getState().startNote('question')
+  assert.deepEqual(session.getState().editor?.target, lines)
+})
