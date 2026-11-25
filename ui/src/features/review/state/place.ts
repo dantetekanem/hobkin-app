@@ -34,6 +34,8 @@ export interface SessionPlace {
   look?: ReviewLook
   /** The file the code view showed. */
   file?: string | null
+  /** The code view was opened from the graph, so Escape goes back there. */
+  fromGraph?: boolean
 }
 
 /** And where the camera was. */

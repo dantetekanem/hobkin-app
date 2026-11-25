@@ -216,6 +216,28 @@ test('Escape in the code view closes the note, the finder, the proof, then the c
   assert.equal(closed, 1)
 })
 
+test('Escape in a code view opened from the graph goes back to the graph, and from there closes the review', () => {
+  const memory = createReviewMemory(memoryStorage())
+  const session = createSession(sample, memory)
+  let closed = 0
+  const escape = () => escapeReview(session.getState(), () => void (closed += 1), () => false)
+
+  session.getState().goTo(3)
+  session.getState().setLook('code')
+  escape()
+  assert.deepEqual([session.getState().look, session.getState().story.step, closed], ['graph', 3, 0], 'back on the step it left')
+
+  session.getState().setLook('code')
+  const place = session.getState().placeNow()
+  const back = createSession(sample, memory, place)
+  escapeReview(back.getState(), () => void (closed += 1), () => false)
+  assert.deepEqual([back.getState().look, closed], ['graph', 0], 'a review back from another page still goes back to the graph')
+
+  escape()
+  escape()
+  assert.equal(closed, 1, 'the graph closes the review as it always has')
+})
+
 test('I opens the code view only where one takes its keys', () => {
   const session = createSession(sample, createReviewMemory(memoryStorage()))
   const { codeKey: _, ...noCodeView } = effects

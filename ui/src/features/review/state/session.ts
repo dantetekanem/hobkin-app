@@ -81,6 +81,8 @@ export interface Session {
    * opens in the look the window's settings choose, or in the one it was left in for another page.
    */
   look: ReviewLook
+  /** The code view was opened from the graph: Escape there goes back to the graph instead of closing the review. */
+  fromGraph: boolean
   /**
    * The code view: the file it shows, by id, null for the first it lists, and lines a step, a part or a note asked it to
    * show, which its cursor goes to. `ask` goes up each time it is asked to show something, so the same ask moves it again.
@@ -508,6 +510,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       opened: null,
       mode: firstMode,
       look: firstLook,
+      fromGraph: firstLook === 'code' && kept?.fromGraph === true,
       diff: { file: firstFile, at: null, ask: 0 },
       fold,
       seen: seenNow(),
@@ -811,7 +814,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       },
       toggleOutline: () => set(get().outline ? { outline: false } : { outline: true, outlineAsked: get().outlineAsked + 1 }),
       placeNow: () => {
-        const { story, mode, history, outline, code, proof, view, look, diff } = get()
+        const { story, mode, history, outline, code, proof, view, look, diff, fromGraph } = get()
         const stepId = (step: number) => view.story[step]?.id ?? ''
         const kept = (entry: FocusEntry): KeptEntry => ({ ...entry, stepId: stepId(entry.step) })
         return {
@@ -825,6 +828,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
           proof: proof?.run ?? null,
           look,
           file: diff.file,
+          fromGraph,
         }
       },
       say: (text) => set({ notice: { key: (get().notice?.key ?? 0) + 1, text } }),
@@ -947,6 +951,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         beforeCode = null
         set({
           look,
+          fromGraph: true,
           code: null,
           wire: null,
           finder: false,

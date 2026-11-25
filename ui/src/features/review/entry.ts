@@ -28,6 +28,9 @@ interface EscapableSession {
   codeAt?: number
   /** Graph or Code (spec 071). */
   look?: 'graph' | 'code'
+  /** The code view was opened from the graph, which Escape goes back to. */
+  fromGraph?: boolean
+  setLook?(look: 'graph' | 'code'): void
 }
 
 /**
@@ -37,14 +40,17 @@ interface EscapableSession {
  * never one for each. With the proof open it never leaves the review. Graph focus never traps the screen's exit.
  *
  * The code view (spec 071) has no code panel, wire or group: the note, the finder, the proof, then `collapse`, which takes
- * a selection of several lines back to the cursor's line and says whether it did, then the review.
+ * a selection of several lines back to the cursor's line and says whether it did. Then a code view opened from the graph
+ * goes back to the graph, and one the review opened in closes the review.
  */
 export function escapeReview(session: EscapableSession, close: () => void, collapse?: () => boolean): void {
   if (session.look === 'code') {
     if (session.editor) session.closeEditor()
     else if (session.finder) session.closeFinder()
     else if (session.proof && session.closeProof) session.closeProof()
-    else if (!collapse?.()) close()
+    else if (collapse?.()) return
+    else if (session.fromGraph && session.setLook) session.setLook('graph')
+    else close()
     return
   }
   const codeOverProof = session.code != null && (session.codeAt ?? 0) > (session.proofAt ?? 0)
