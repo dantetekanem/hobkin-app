@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
-import { focusCanvas, handOffCanvasFocus, requestCanvasFocus, takeKeyboardIfNowhere } from '../src/app/focus.ts'
+import { focusCanvas, handOffCanvasFocus, hearStrayKeys, requestCanvasFocus, takeKeyboardIfNowhere } from '../src/app/focus.ts'
 import { useView } from '../src/app/view-store.ts'
 import { bindStops } from '../src/app/stops.ts'
 
@@ -270,4 +270,45 @@ test('a screen takes the keyboard when it is nowhere, never from where the user 
   // Whatever held it left the page with its screen.
   Object.assign(document, { activeElement: { tagName: 'BUTTON', isConnected: false } })
   assert.equal(takeKeyboardIfNowhere(review.root), true)
+})
+
+test('a key pressed with the keyboard on the page itself goes to the open screen, which takes the keyboard', () => {
+  const body = { tagName: 'BODY' }
+  const review = screen('review')
+  const leaving = screen('work')
+  Object.assign(review.root, { isConnected: true })
+  let listener: ((event: unknown) => void) | null = null
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      ...page,
+      body,
+      documentElement: { tagName: 'HTML' },
+      activeElement: body,
+      // The two screens, and no dialog, menu or list over the window.
+      querySelectorAll: (selector: string) => (selector.includes('data-canvas-screen') ? [review.section, leaving.section] : []),
+      addEventListener: (_name: string, take: (event: unknown) => void) => void (listener = take),
+      removeEventListener: () => void (listener = null),
+    },
+  })
+  page.activeKey = 'review'
+  const heard: string[] = []
+  const release = hearStrayKeys(review.root, (event) => heard.push(event.key))
+  const press = (key: string, target: unknown, defaultPrevented = false) => listener?.({ key, target, defaultPrevented })
+
+  press('ArrowDown', body)
+  assert.deepEqual(heard, ['ArrowDown'], 'a key on the page itself')
+  assert.equal(document.activeElement, review.root, 'the screen took the keyboard')
+  press('j', { tagName: 'DIV', isConnected: false })
+  assert.deepEqual(heard, ['ArrowDown', 'j'], 'a key on something that has left the page, as the code view drawn for the last file')
+
+  press('k', { tagName: 'BUTTON', isConnected: true })
+  press('k', body, true)
+  assert.deepEqual(heard, ['ArrowDown', 'j'], 'a control still on the page keeps its keys, and a key already used goes no further')
+  page.activeKey = 'work'
+  press('k', body)
+  assert.deepEqual(heard, ['ArrowDown', 'j'], 'a screen on its way out hears nothing')
+
+  release()
+  assert.equal(listener, null)
 })

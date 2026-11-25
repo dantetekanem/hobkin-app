@@ -1,3 +1,5 @@
+import { overlayOpen } from './key-page.ts'
+
 export function messageInput(): HTMLTextAreaElement | null {
   return document.querySelector<HTMLTextAreaElement>('[data-chat-side] textarea')
 }
@@ -19,15 +21,39 @@ export function focusCanvas(): void {
   activeCanvasScreen()?.focus({ preventScroll: true })
 }
 
+/** On nothing, on the page itself, or on something that has left the page. */
+function keyboardNowhere(held: unknown): boolean {
+  return held == null || held === document.body || held === document.documentElement || (held as Node).isConnected === false
+}
+
 /**
  * A screen takes the keyboard only when it is nowhere: on nothing, on the page itself, or on something that
  * has left the page with its old screen. Typing in the chat, or any control still on the page, keeps it.
  */
 export function takeKeyboardIfNowhere(element: HTMLElement): boolean {
-  const held = document.activeElement as HTMLElement | null
-  const nowhere = held == null || held === document.body || held === document.documentElement || held.isConnected === false
+  const nowhere = keyboardNowhere(document.activeElement)
   if (nowhere) element.focus({ preventScroll: true })
   return nowhere
+}
+
+/**
+ * A key pressed with the keyboard nowhere goes to `element`'s screen while it is the open one: the screen takes the
+ * keyboard and hears the key. The frame puts a fallen keyboard back only when the page says it fell
+ * (`keyboard-watch.ts`), and a focused element that is removed may say nothing, so this keeps the keys working. A
+ * dialog, menu or list drawn over the window leaves the key alone.
+ */
+export function hearStrayKeys(element: HTMLElement, hear: (event: KeyboardEvent) => void): () => void {
+  const stray = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || !keyboardNowhere(event.target)) return
+
+    const onOpenScreen = element.isConnected && element.closest('[data-canvas-screen]') === activeCanvasScreen()
+    if (!onOpenScreen || overlayOpen(document)) return
+
+    element.focus({ preventScroll: true })
+    hear(event)
+  }
+  document.addEventListener('keydown', stray)
+  return () => document.removeEventListener('keydown', stray)
 }
 
 /** Navigation waits for React to mount the arriving section. */

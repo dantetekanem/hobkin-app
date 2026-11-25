@@ -15,7 +15,7 @@ import { sampleHost } from './preparing/sample-run.ts'
 import { ReviewLoad } from './ReviewLoad.ts'
 import { isSamplePull } from './sample/pull-id.ts'
 import { escapeReview, reviewTakesEscape } from './entry.ts'
-import { handOffCanvasFocus, takeKeyboardIfNowhere } from '@/app/focus.ts'
+import { handOffCanvasFocus, hearStrayKeys, takeKeyboardIfNowhere } from '@/app/focus.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { useView } from '@/app/view-store.ts'
 import { Hob } from '@/avatar/Hob.tsx'
@@ -486,8 +486,11 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
       if (inCode && session.getState().code == null) element.focus({ preventScroll: true })
     }
     element.addEventListener('keydown', onKeyDown)
+    // A key pressed with the keyboard fallen to the page, as when what held it was drawn again, is the review's too.
+    const releaseStrays = hearStrayKeys(element, onKeyDown)
     return () => {
       releaseFocus()
+      releaseStrays()
       element.removeEventListener('keydown', onKeyDown)
     }
   }, [loader, placeKey, session])
