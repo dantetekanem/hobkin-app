@@ -146,13 +146,20 @@ test('only an explicitly injected reply can keep a test main local', { timeout: 
   const { createScriptedModel } = await import('../src/scripted.ts')
   const settings = { compaction: { enabled: false }, retry: { enabled: false } }
   const session = { agent: {} }
+  const hobkinTool = { name: 'hobkin_memory' }
   fixture.pi = () => ({ ModelRuntime: { create: async () => ({}) }, SettingsManager: { inMemory: (value: unknown) => { assert.deepEqual(value, settings); return settings } },
-    createAgentSession: async (options: Record<string, unknown>) => { assert.deepEqual(options.tools, ['fixture']); assert.equal(options.settingsManager, settings); return { session } } })
+    createAgentSession: async (options: Record<string, unknown>) => {
+      // hobkin checks that its main session has exactly the tools it gave, so the app's tools are not added here.
+      assert.deepEqual(options.tools, ['bash', 'hobkin_memory'])
+      assert.deepEqual(options.customTools, [hobkinTool])
+      assert.equal(options.settingsManager, settings)
+      return { session }
+    } })
   fixture.ai = () => ({})
   fixture.openPiSession = async (_options, dependencies) => {
     const deps = dependencies as { isolatedMain?: boolean; createSession: (options: object) => Promise<unknown> }
     assert.equal(deps.isolatedMain, undefined)
-    await deps.createSession({ tools: ['bash'] })
+    await deps.createSession({ tools: ['bash', 'hobkin_memory'], customTools: [hobkinTool] })
     return session
   }
   t.after(() => { fixture.pi = fixture.ai = fixture.openPiSession = refuse })

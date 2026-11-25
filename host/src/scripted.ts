@@ -45,7 +45,11 @@ export interface SessionTool {
 export interface ScriptedOptions {
   /** What the model says. The built-in script answers when this is absent. */
   reply?: (call: ScriptedCall) => ScriptedReply | Promise<ScriptedReply>
-  /** Tools the app adds to the session. They are the only tools the scripted session can run. */
+  /**
+   * Tools the app adds to the scripted child's session: the captured client tool, the only tool it can run. A main
+   * answered by an injected reply runs in this process with hobkin's own tools instead, which the reply calls only
+   * when a test says so.
+   */
   tools?: readonly SessionTool[]
 }
 
@@ -310,14 +314,13 @@ export async function createScriptedModel(root: string, { reply, tools = [] }: S
   let factory: ReturnType<typeof createScriptedSessionFactory> | undefined
   const dependencies: ScriptedModel['dependencies'] = {
     agentDir,
+    // hobkin refuses a main session whose tools differ from the ones it gave, so they pass through as they are.
     createSession: async options => {
       const pi = await loadPiCodingAgent()
       factory ??= createScriptedSessionFactory(agentDir, reply)
 
       return (await factory)({
         ...options,
-        customTools: [...((options.customTools as unknown[] | undefined) ?? []), ...tools],
-        tools: tools.map(tool => tool.name),
         settingsManager: pi.SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }),
       })
     },
