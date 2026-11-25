@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { pullChecks } from '../src/review/pull-checks.ts'
+import type { ApiCall, HostApi } from '../src/review/code-hosts.ts'
 import type { GhCall } from '../src/review/gh.ts'
 
 const head = 'a'.repeat(40)
@@ -38,6 +39,27 @@ test('missing gh, failures, timeouts, malformed payloads and thrown errors are u
     assert.equal(evidence.status, 'unknown')
     assert.deepEqual(evidence.checks, [])
     assert.ok(!JSON.stringify(evidence).includes('private error'))
+  }
+})
+
+test("a named host's checks are read with one GET through its own API, and gh is never asked", async () => {
+  const calls: ApiCall[] = []
+  const api: HostApi = async (call) => (calls.push(call), JSON.stringify({ total_count: 2, check_runs: [run(), run('completed', 'failure')] }))
+  let asked = 0
+  const gh: GhCall = async () => ((asked += 1), { kind: 'missing' })
+  const named = { ...target, host: 'corp' }
+  const evidence = await pullChecks({ target: named, head, gh, apiOf: () => api })
+  assert.deepEqual(calls, [{ path: `repos/owner/repo/commits/${head}/check-runs?per_page=100` }])
+  assert.deepEqual([evidence.status, evidence.checks.map((check) => check.conclusion), asked], ['available', ['success', 'failure'], 0])
+
+  // A host that cannot be asked, or that fails, is unknown, and says nothing of what it answered.
+  const failing: HostApi = async () => {
+    throw new Error('private error')
+  }
+  for (const apiOf of [() => failing, () => null, () => { throw new Error('private error') }]) {
+    const unknown = await pullChecks({ target: named, head, gh, apiOf })
+    assert.equal(unknown.status, 'unknown')
+    assert.ok(!JSON.stringify(unknown).includes('private error'))
   }
 })
 

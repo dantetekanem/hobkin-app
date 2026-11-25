@@ -251,7 +251,8 @@ export function hostReviews(seat: ReviewSeat): Reviews {
           // What hobkin's readiness record says of the project's monitoring and its way back, for the visibility rating (spec 058).
           const monitoring = request.target.kind === 'change' ? projectMonitoring(seat, request.target.slug) : undefined
           const tries = triesOf(seat.work()?.yolo?.rules)
-          const hostedChecks = request.target.kind === 'pull' ? await pullChecks({ target: request.target, head: request.head, gh: seat.gh }) : undefined
+          // A named code host's checks are read through its own API, as the code host file names it.
+          const hostedChecks = request.target.kind === 'pull' ? await pullChecks({ target: request.target, head: request.head, gh: seat.gh, apiOf: hosts.apiOf }) : undefined
           const result = await reviewChange({ ...request, model, modelChecks, ...(hostedChecks ? { hostedChecks } : {}), ...(monitoring ? { monitoring } : {}), ...(tries ? { ratingTries: tries } : {}) })
           for (const problem of result.problems) seat.log?.(`Change review at ${request.head.slice(0, 7)}: ${problem}`)
           return { units: result.units, storyBy: result.storyBy, answer: result.answer }
