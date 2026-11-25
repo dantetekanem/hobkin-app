@@ -1603,7 +1603,9 @@ export class HobkinApplication {
   tickWakes() {
     if (this.waking || !this.canStartHoldTurn()) return;
     if (this.handOffs?.length) {
-      void this.runtime.send(handOffBrief(this.handOffs.splice(0))).catch(() => {});
+      // A choice that could not be sent goes back in front, for the next try.
+      const jobs = this.handOffs.splice(0);
+      void this.runtime.send(handOffBrief(jobs)).catch(() => { this.handOffs.unshift(...jobs); });
       return;
     }
     const root = this.runtime.directory;

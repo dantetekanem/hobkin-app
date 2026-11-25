@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { buildInvocation, namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
 import { BRIDGE } from '../src/cli/bridge.mjs';
 import { createDoneTool, doneExtension } from '../src/cli/done-extension.mjs';
+import { atomicJson, initialize } from '../src/cli/config.mjs';
+import { HobkinApplication } from '../src/cli/application.mjs';
+import { fakePi } from './helpers/pi-session.mjs';
 
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
 
@@ -203,4 +206,47 @@ test('a living job reads its own short prompt in place of the routines\' one, an
   assert.ok(told(request(t)).includes(words('background')));
   assert.equal(told(request(t, { untilDone: true })).includes(words('session-job')), false, 'not without hobkin_done to end with');
   assert.throws(() => buildInvocation(living(t, { purpose: 'work-do' })), /lives until/);
+});
+
+/** A temporary home whose main chat is a fake Pi. The home goes once every app opened on it has closed. */
+function home(t, { concurrency } = {}) {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-until-done-home-')));
+  const opened = [];
+  t.after(async () => {
+    await Promise.all(opened.map(app => app.close()));
+    rmSync(root, { recursive: true, force: true });
+  });
+  const config = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
+  config.main.model = 'fixture/local';
+  config.background.model = 'fixture/check';
+  if (concurrency) config.concurrency = concurrency;
+  atomicJson(join(root, 'config.json'), config);
+  const main = fakePi(root);
+  const open = async options => {
+    const app = await HobkinApplication.open(root, { createMain: main.createMain, intervalMs: 60000, runHarness: async () => notHere, ...options });
+    opened.push(app);
+    return app;
+  };
+  return { root, open };
+}
+// The report's editor and its short version are runs of their own, and these tests leave them out.
+const notHere = { status: 'failed', cost: null, error: 'Not in this test.' };
+
+test('a card choice the main agent could not be sent is sent on the next try, once', async t => {
+  const app = await home(t).open();
+  const send = app.runtime.send.bind(app.runtime);
+  app.handOff({ project: 'finboard', item: 'abc123', title: 'Browse older payment installments', branch: 'hobkin/abc123', asked: 'Refresh it.', why: 'work mode is off' });
+  app.runtime.send = async () => { throw Error('Wake was not admitted'); };
+  await app.tickWakes();
+  await wait(0);
+  app.runtime.send = send;
+  const sent = t.mock.method(app.runtime, 'send');
+
+  await app.tickWakes();
+  await app.runtime.idle();
+  await app.tickWakes();
+
+  const woken = sent.mock.calls.map(({ arguments: [text] }) => text);
+  assert.equal(woken.length, 1);
+  assert.match(woken[0], /^<hobkin-wake>\n\{"handOff":\[[\s\S]*Browse older payment installments/);
 });
