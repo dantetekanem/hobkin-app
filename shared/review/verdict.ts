@@ -102,18 +102,24 @@ export function askForChanges(review: Review, notes: readonly Note[], summary: s
   const said = summary.trim()
   if (asked.length === 0 && discussed.length === 0 && !said) return null
 
-  const parts = said ? [said] : []
+  const parts: string[] = said ? [said] : []
+  /** Adds lines as a block of their own, a blank line after whatever came before. */
+  const block = (...lines: string[]) => {
+    if (parts.length > 0) parts.push('')
+    parts.push(...lines)
+  }
   let number = 0
   const list = (items: readonly Note[]) => {
     for (const note of items) {
       number += 1
-      parts.push('', `${number}. ${whereInWords(review, note)}`, ...note.text.split('\n').map((line) => `   ${line}`))
+      block(`${number}. ${whereInWords(review, note)}`, ...note.text.split('\n').map((line) => `   ${line}`))
     }
   }
+
   const named = discussed.length > 0
-  if (named && asked.length > 0) parts.push(...(said ? [''] : []), COMMENTS_HEADING)
+  if (named && asked.length > 0) block(COMMENTS_HEADING)
   list(asked)
-  if (named) parts.push(...(parts.length > 0 ? [''] : []), DISCUSS_HEADING)
+  if (named) block(DISCUSS_HEADING)
   list(discussed)
-  return parts.join('\n').replace(/^\n/, '')
+  return parts.join('\n')
 }

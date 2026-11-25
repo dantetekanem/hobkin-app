@@ -139,7 +139,7 @@ export function NoteInput({ ask, units }: { ask: AskCommand | null; units?: read
   const send = useAskHobkin(ask)
   const field = useRef<HTMLTextAreaElement>(null)
   // The choice holds from one note to the next.
-  const [chosen, setChosen] = useState<NoteMode>(draft?.intent === 'comment' ? 'comment' : 'discuss')
+  const [chosen, setChosen] = useState<NoteMode>(draft?.intent === 'question' ? 'discuss' : 'comment')
   const drafted = draft != null
   const mode: NoteMode = draft ? (draft.intent === 'comment' ? 'comment' : editor?.ask ? 'ask' : 'discuss') : chosen
   const intent = intentOf(mode)
