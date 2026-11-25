@@ -197,6 +197,16 @@ test('native exact case receipts establish success, not a sibling name', async (
   assert.equal(told('another case').status, 'not-run')
 })
 
+test('a case the runner places on other lines than the test’s is not its result', async () => {
+  const graph = await review()
+  const file = 'test/models/cart_test.rb'
+  const own = graph.nodes.find((node) => node.kind === 'test')!
+  const parts = { units: [], words: null, places: places.map((place) => (place.kind === 'test' ? { ...place, symbol: 'total is rounded' } : place)) }
+  const told = (line: number) => unitWords(graph, { ...parts, runs: [{ kind: 'baseline', tests: [file], failed: [], cases: [{ path: file, name: 'total is rounded', status: 'passed', line }] }] }).find((node) => node.id === own.id)!
+  assert.equal(told(2).status, 'passed')
+  assert.equal(told(40).status, 'not-run')
+})
+
 test('code of a unit says what the unit says of it: its member line, else what changed', async () => {
   const graph = await review()
   const units = [unit('u1', 1, { nodes: ['n1', 'n2'], members: [{ node: 'n1', name: 'total', what: 'Rounds the total.' }], what: 'The totals change.' })]

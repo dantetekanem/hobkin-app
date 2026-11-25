@@ -42,7 +42,8 @@ export interface UnitRun {
   failed: readonly string[]
   /** Case-local failure locations. Missing locations say nothing about individual cases. */
   failed_at?: readonly { path: string; line: number }[]
-  cases?: readonly { path: string; name: string; status: 'passed' | 'failed' | 'skipped' }[]
+  /** Each case's own result, as its runner gave it, with the case's line when the runner says where it is. */
+  cases?: readonly { path: string; name: string; status: 'passed' | 'failed' | 'skipped'; line?: number }[]
   /** Why the run tells nothing of how its test files did: its command could not start, it was stopped, or it ran no test. */
   not_run?: string
 }
@@ -97,7 +98,7 @@ function testsTold(review: Review, parts: UnitWordsParts): Map<string, TestTold>
     const matching = places.filter((place) => here.some((anchor) => anchor.startLine === place.lines[0]))
     const place = matching.length === 1 ? matching[0] : undefined
     const name = place?.symbol && places.filter((entry) => entry.symbol === place.symbol).length === 1 ? place.symbol : undefined
-    const receipt = (run: UnitRun) => caseOutcome(run, path, name)
+    const receipt = (run: UnitRun) => caseOutcome(run, path, name, place?.lines)
     const failedIn = (run: UnitRun) => {
       const outcome = receipt(run)
       if (outcome) return outcome === 'failed'

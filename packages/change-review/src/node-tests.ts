@@ -235,7 +235,7 @@ function fileTests(path: string, how: Found, definitions: readonly TestDefinitio
     const why = byFile === undefined && reasons.length ? definitionWhy(reasons, relation) : how.why
     const weakened = relation === 'edited' && diff ? weakenedIn(diff, [[definition.startLine, definition.endLine]]) : undefined
     const uniqueName = input.definitions.filter((item) => item.path === path && item.symbol === definition.symbol).length === 1
-    const receipt = (run: TestRun) => caseOutcome(run, path, uniqueName ? definition.symbol : undefined)
+    const receipt = (run: TestRun) => caseOutcome(run, path, uniqueName ? definition.symbol : undefined, [definition.startLine, definition.endLine])
     const failedHere = (run: TestRun) => {
       const outcome = receipt(run)
       if (outcome) return outcome === 'failed'

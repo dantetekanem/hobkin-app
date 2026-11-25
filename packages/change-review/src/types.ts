@@ -351,8 +351,8 @@ export interface TestRun {
   seconds: number
   /** Test files that failed in this run. */
   failed: string[]
-  /** Concrete case receipts reported by a runner, scoped to their test file. */
-  cases?: { path: string; name: string; status: 'passed' | 'failed' | 'skipped' }[]
+  /** Concrete case receipts reported by a runner, scoped to their test file, with the case's line when the runner gives it. */
+  cases?: { path: string; name: string; status: 'passed' | 'failed' | 'skipped'; line?: number }[]
   /**
    * Where the failures were, when the runner's output names places in the run's test files: a failing test's own
    * line, the line of its failed assertion. Absence of a frame does not establish a case result.

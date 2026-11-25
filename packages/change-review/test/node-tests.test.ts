@@ -152,6 +152,17 @@ test('an exact Bun suite path identifies the scanned case, not an identically na
   assert.deepEqual(cases.map((test) => [test.at_head, test.shows]), [['passed', 'proves'], ['not-run', undefined]])
 })
 
+test('a case in nested suites is the runner’s case of the same suites, and a case the runner places on other lines is not it', () => {
+  const path = 'test/helpers/posts.test.js'
+  const definitions = [{ id: 't1', symbol: 'describe "cart" describe "empty".has no total', path, startLine: 12, endLine: 16, anchors: [{ id: 'n1', lines: [] }], changed: false }]
+  const atHead = (receipt: Partial<NonNullable<TestRun['cases']>[number]>) =>
+    nodeTestsOf(input({ definitions, runs: [{ ...run('baseline', [path]), cases: [{ path, name: 'cart > empty > has no total', status: 'passed', ...receipt }] }] })).find((test) => test.symbol)?.at_head
+  assert.equal(atHead({}), 'passed')
+  assert.equal(atHead({ line: 12 }), 'passed')
+  assert.equal(atHead({ line: 2 }), 'not-run')
+  assert.equal(atHead({ name: 'empty > has no total' }), 'not-run')
+})
+
 test('a test has no tests of its own', () => {
   assert.deepEqual(nodeTestsOf(input({ node: { id: 't1', symbol: 'rounds', path: 'test/total.test.js', kind: 'test' } })), [])
 })
