@@ -2,7 +2,7 @@ import { Dialog } from '@base-ui/react/dialog'
 import { ArrowLeft, Check, ChevronRight, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { focusInput } from '@/app/keys.ts'
+import { focusHome } from '@/app/focus-home.ts'
 import {
   EFFORTS,
   REVIEW_ROLES,
@@ -61,7 +61,7 @@ export function TiersLightbox() {
   useEffect(() => {
     if (wasOpen.current && !open) {
       requestAnimationFrame(() => {
-        if (document.activeElement === document.body) focusInput()
+        if (document.activeElement === document.body) focusHome()
       })
     }
     wasOpen.current = open

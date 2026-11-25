@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
-import { focusInput } from '@/app/keys.ts'
+import { focusHome } from '@/app/focus-home.ts'
 import { stillVariants, useStill } from '@/app/still.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
@@ -62,7 +62,7 @@ function Sheet({ question, at, of, left }: { question: Question; at: number; of:
     options.current?.focus()
     return () => {
       requestAnimationFrame(() => {
-        if (document.activeElement === document.body) focusInput()
+        if (document.activeElement === document.body) focusHome()
       })
     }
   }, [])

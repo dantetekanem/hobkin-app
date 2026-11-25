@@ -2,7 +2,7 @@ import { Dialog } from '@base-ui/react/dialog'
 import { ExternalLink, X } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { focusInput } from '@/app/keys.ts'
+import { focusHome } from '@/app/focus-home.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
@@ -31,11 +31,11 @@ export function FileViewer() {
   const still = useStill()
   const wasOpen = useRef(false)
 
-  // Closing hands the keyboard back to the message input, unless something else has taken it.
+  // Closing hands the keyboard home (an agent's screen keeps it), unless something else has taken it.
   useEffect(() => {
     if (wasOpen.current && !open) {
       requestAnimationFrame(() => {
-        if (document.activeElement === document.body) focusInput()
+        if (document.activeElement === document.body) focusHome()
       })
     }
     wasOpen.current = open

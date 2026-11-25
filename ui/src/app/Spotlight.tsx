@@ -6,7 +6,7 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { focusInput } from './keys.ts'
+import { focusHome } from './focus-home.ts'
 import { useSpotlightTargets, type SpotlightTarget } from './spotlight-entries.ts'
 import { searchSpotlight, type SpotlightKind } from './spotlight-search.ts'
 import { stillVariants, useStill } from './still.ts'
@@ -46,7 +46,7 @@ export function Spotlight() {
 /** The keyboard goes back where it was before the spotlight opened, or home when that is gone. */
 function giveBack(to: Element | null): void {
   if (to instanceof HTMLElement && to.isConnected && to !== document.body) to.focus({ preventScroll: true })
-  else focusInput()
+  else focusHome()
 }
 
 function Panel() {
