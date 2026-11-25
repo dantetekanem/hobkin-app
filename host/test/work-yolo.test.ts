@@ -103,7 +103,10 @@ test('only the window changes YOLO mode', async (t) => {
   const handlers = workHandlers({ app: () => app, root: () => root })
   const reported = async () => workFrom({ work: await runWorkCommand(root, []), waiting: null })!.yolo!
 
-  assert.deepEqual(await reported(), { on: false, rate: 8, lowest: 6, highest: 10, ready: 0, waits: 'work mode is off', pullRequests: false, projects: [] }, 'off until the user turns it on, taking no pull request')
+  // The rules and their defaults are hobkin's own to test (063-yolo-settings-and-grades, its cli-yolo-change-rules test).
+  const { rules, ...status } = await reported()
+  assert.ok(rules)
+  assert.deepEqual(status, { on: false, rate: 8, lowest: 1, highest: 10, ready: 0, waits: 'work mode is off', pullRequests: false, projects: [] }, 'off until the user turns it on, taking no pull request')
 
   // hobkin's own tool is refused, and does not even list it.
   const tool = createClientTool({ run: (name, args) => runCommand(handlers, name, args) })
