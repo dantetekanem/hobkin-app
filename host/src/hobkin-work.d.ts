@@ -144,3 +144,12 @@ declare module 'hobkin/src/cli/work/review-grades.mjs' {
    */
   export function recordGrades(root: string, slug: string, item: string, grades: unknown): unknown
 }
+
+declare module 'hobkin/src/cli/work/run-guide.mjs' {
+  import type { RunGuide } from '#shared/protocol/work.ts'
+
+  /** A project's run guide as the window reads it (068-run-guide). Only reads. Throws hobkin's refusal for an unknown project. */
+  export function readRunGuide(root: string, slug: string): RunGuide
+  /** Files the guide look at the front of the project's queue. Throws hobkin's refusal for an unknown project, one not taken or a goal. */
+  export function requestRunGuide(root: string, slug: string): { message: string } | Promise<{ message: string }>
+}
