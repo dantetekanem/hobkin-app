@@ -22,10 +22,12 @@ export function ChatDim({ side }: { side?: RefObject<HTMLElement | null> }) {
   const split = useSplit() !== null
   const needsModel = useNeedsSignIn()
   const back = chatBack({ reviewing, split, needsModel })
+  const underPage = back === 'gone'
   const disengageCanvas = useView((view) => view.disengageCanvas)
   const transition = still ? agentEntry(true) : spring.screen
-  useCoveredChat(side, still, back === 'gone')
-  useUnderPage(side, back === 'gone')
+
+  useCoveredChat(side, still, underPage)
+  useUnderPage(side, underPage)
 
   return (
     <AnimatePresence>
@@ -58,8 +60,11 @@ function useUnderPage(side: RefObject<HTMLElement | null> | undefined, underPage
   useLayoutEffect(() => {
     const element = side?.current
     if (!element || !underPage) return
+
     element.setAttribute('data-under-page', '')
-    return () => element.removeAttribute('data-under-page')
+    return () => {
+      element.removeAttribute('data-under-page')
+    }
   }, [side, underPage])
 }
 

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { endingOf, pressEndOf, takeBackEnd, useEnding } from '@/features/work/end-agent.ts'
 import { spring, tween } from '@/lib/motion.ts'
+import { cn } from '@/lib/utils.ts'
 
 /**
  * The parts every agent's page shares (`034-durable-hobkins`, `021-agent-rendering`): a run's and a durable hobkin's
@@ -168,7 +169,10 @@ export function PageHeader({ agentId, split, face, title, rename, line, lineTitl
                   onClick={() => beginRename(shownTitle)}
                   // In the split, where the page has the chat's width, a long name is cut only at the end of its room:
                   // the padding its hover shows passes the edge instead of taking room from the name.
-                  className={`${split ? 'max-w-[calc(100%+1rem)]' : 'max-w-full'} truncate rounded-lg px-2 py-0.5 -mx-2 text-left transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2`}
+                  className={cn(
+                    'truncate rounded-lg px-2 py-0.5 -mx-2 text-left transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2',
+                    split ? 'max-w-[calc(100%+1rem)]' : 'max-w-full',
+                  )}
                 >
                   {shownTitle}
                 </button>
