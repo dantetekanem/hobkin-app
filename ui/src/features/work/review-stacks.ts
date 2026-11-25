@@ -1,8 +1,8 @@
-import type { FinishedChange, StackPlace } from '#shared/protocol/work.ts'
-import { pullOfReview, reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
-import { layerReviewId } from '../review/stack-strip.ts'
+import type { StackPlace } from '#shared/protocol/work.ts'
+import { pullOfReview } from '#shared/review/ids.ts'
 import type { ReviewRow } from './ai-reviews.ts'
 import type { StackOf } from './review-story.ts'
+import { placeLookup, type MergingLayer, type PlaceOf } from './stack-places.ts'
 
 /**
  * The Review list's rows as a stack is drawn on Work (_specs/067-review-list-one-list, "Stacks and one row each"): one
@@ -11,31 +11,7 @@ import type { StackOf } from './review-story.ts'
  * window.
  */
 
-/** Where a row stands in a stack, read from the finished changes: null for a row that is in none. */
-export type PlaceOf = (row: ReviewRow) => StackPlace | null
-
-/**
- * The finished change a row is of: by the row's own review, or for a pull request by the change that opened it, or else
- * the change at the pull request's commit, since a layer can be read as a pull request too.
- */
-function changeLookup(changes: readonly FinishedChange[]): (row: ReviewRow) => FinishedChange | null {
-  const byReview = new Map<string, FinishedChange>()
-  const byPull = new Map<string, FinishedChange>()
-  const byHead = new Map<string, FinishedChange>()
-  for (const change of changes) {
-    byReview.set(layerReviewId(change), change)
-    const opened = change.pr ? targetOfReviewId(change.pr) : null
-    if (opened) byPull.set(reviewIdOf(opened), change)
-    if (change.head && !byHead.has(change.head)) byHead.set(change.head, change)
-  }
-  return ({ item }) => byReview.get(item.id) ?? byPull.get(item.id) ?? (item.head ? byHead.get(item.head) : undefined) ?? null
-}
-
-/** Where each row stands in its stack. Built once for the list and the work, then asked for every row. */
-export function placeLookup(changes: readonly FinishedChange[]): PlaceOf {
-  const changeOf = changeLookup(changes)
-  return (row) => changeOf(row)?.stack ?? null
-}
+export { placeLookup, type MergingLayer, type PlaceOf }
 
 /** The stack a row is in and its layer, as the story reads it. */
 export const stackLookupOf = (placeOf: PlaceOf): StackOf => (row) => {
@@ -91,7 +67,9 @@ export interface LayerRow {
 }
 
 /** A stack on the list: its layers bottom first, which land in that order. */
-export type ListEntry = { kind: 'row'; row: ReviewRow } | { kind: 'stack'; id: string; size: number; name: string | null; layers: LayerRow[] }
+export type ListEntry =
+  | { kind: 'row'; row: ReviewRow }
+  | { kind: 'stack'; id: string; size: number; name: string | null; layers: LayerRow[]; /** Layers the user said merge to, drawn as a quiet line where they stand. */ merging: MergingLayer[] }
 
 /** How many rows an entry holds. */
 export const rowsIn = (entry: ListEntry): number => (entry.kind === 'row' ? 1 : entry.layers.length)
@@ -113,14 +91,15 @@ export function entriesOf(ordered: readonly ReviewRow[], placeOf: PlaceOf): List
   for (const row of ordered) {
     const place = placeOf(row)
     const layers = place ? stacks.get(place.id)! : []
-    if (!place || layers.length < 2) {
+    const merging = place ? (placeOf.merging.get(place.id) ?? []).filter((one) => !layers.some((layer) => layer.place.layer === one.place.layer)) : []
+    if (!place || layers.length + merging.length < 2) {
       entries.push({ kind: 'row', row })
       continue
     }
     if (drawn.has(place.id)) continue
     drawn.add(place.id)
-    const size = Math.max(...layers.map((layer) => Math.max(layer.place.of, layer.place.layer)))
-    entries.push({ kind: 'stack', id: place.id, size, name: layers.find((layer) => layer.place.name)?.place.name ?? null, layers })
+    const size = Math.max(...[...layers.map((layer) => layer.place), ...merging.map((one) => one.place)].map((one) => Math.max(one.of, one.layer)))
+    entries.push({ kind: 'stack', id: place.id, size, name: layers.find((layer) => layer.place.name)?.place.name ?? null, layers, merging: merging.toSorted((a, b) => a.place.layer - b.place.layer) })
   }
   return entries
 }

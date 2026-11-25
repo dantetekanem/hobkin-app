@@ -25,6 +25,7 @@ import { entriesOf, oneRowPerLayer, placeLookup, projectEntries, projectLookup, 
 import { ReviewStack, type LineOf } from './ReviewStack.tsx'
 import { clickPressesRow } from './row-press.ts'
 import { useStory } from './story-store.ts'
+import { usePullRequests } from '@/integration/use-pulls.ts'
 import { useWorkView } from './store.ts'
 import { DeployWhy, GradeChip, ReviewBadge, ReviewProgress, SectionHeading, Segmented } from './parts.tsx'
 import { QUESTIONS } from '@/features/review/panel/needs.ts'
@@ -53,7 +54,9 @@ export function AiReviews({ live, reviews, priorityOf }: {
   const { work } = useWorkView()
   // One row for each layer, and a pull request under the project whose repository it is in: read from the work.
   const finished = work?.finished
-  const placeOf = useMemo(() => placeLookup((finished ?? []).flatMap((group) => group.changes)), [finished])
+  const merging = work?.merging
+  const pulls = usePullRequests()
+  const placeOf = useMemo(() => placeLookup((finished ?? []).flatMap((group) => group.changes), pulls, merging), [finished, pulls, merging])
   const projectOf = useMemo(() => projectLookup(work?.projects ?? []), [work?.projects])
   const rows = useMemo(() => oneRowPerLayer(rowsOf(reviews.list, priorityOf), placeOf), [reviews.list, priorityOf, placeOf])
   const words = useMemo(() => repoWordsOf(reviews.list), [reviews.list])

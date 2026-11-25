@@ -40,6 +40,7 @@ import { opensQueue } from './queue-sheet.ts'
 import { ProjectChips } from './ProjectChips.tsx'
 import { useProjectChoice } from './project-choice.ts'
 import { chipsOf, filterPage, resolveChoice } from './project-filter.ts'
+import { usePullRequests } from '@/integration/use-pulls.ts'
 import { runWork, useWorkUi, useWorkView } from './store.ts'
 import { useWorkTab, type WorkTab } from './tab.ts'
 import { prioritiesOfWork } from './review-order.ts'
@@ -153,7 +154,9 @@ export function WorkScreen() {
   const reviews = useMemo(() => ({ list: reviewList, error: reviewError, refresh: refreshReviews }), [reviewList, reviewError, refreshReviews])
   // One count of what waits on the user, over the rows the list shows (one for each layer). A merge that did not land has its own mark on its row.
   const finishedChanges = work?.finished
-  const waits = useMemo(() => waitingRows(oneRowPerLayer(rowsOf(reviewList), placeLookup((finishedChanges ?? []).flatMap((group) => group.changes)))).length, [reviewList, finishedChanges])
+  const mergingNow = work?.merging
+  const pulls = usePullRequests()
+  const waits = useMemo(() => waitingRows(oneRowPerLayer(rowsOf(reviewList), placeLookup((finishedChanges ?? []).flatMap((group) => group.changes), pulls, mergingNow))).length, [reviewList, finishedChanges, pulls, mergingNow])
   const priorities = parts?.priorities ?? null
   const reviewPriority = useMemo(() => prioritiesOfWork(priorities), [priorities])
   const tally = useSame(useMemo(() => reviewTallyOf(reviewList), [reviewList]))

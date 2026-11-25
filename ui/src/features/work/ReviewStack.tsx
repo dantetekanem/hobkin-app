@@ -1,7 +1,7 @@
 import { ArrowDown } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { placeOf } from './stacks.ts'
-import { stackHeading, type LayerRow, type ListEntry } from './review-stacks.ts'
+import { stackHeading, type LayerRow, type ListEntry, type MergingLayer } from './review-stacks.ts'
 
 /**
  * A stack on the Review list, drawn as Work draws one (_specs/067-review-list-one-list): one quiet frame under its
@@ -37,9 +37,17 @@ export function ReviewStack({ entry, draw }: { entry: StackEntry; draw: DrawLaye
       <div role="group" aria-label={stackHeading(entry)} className="flex flex-col gap-1.5 rounded-[28px] bg-foreground/[0.025] p-1.5 pt-3">
         <p className="px-5 text-[12.5px] leading-snug font-medium text-muted-foreground">{stackHeading(entry)}</p>
         <ul className="flex flex-col">
-          {entry.layers.map((layer, index) => {
+          {inOrder(entry).map((layer, index) => {
+            if ('key' in layer) {
+              return (
+                <LayerSlot key={`merging:${layer.key}`} first={index === 0}>
+                  <MergingLine layer={layer} />
+                </LayerSlot>
+              )
+            }
             const id = layer.row.item.id
-            const line: LineOf | null = index === 0 ? null : { place: placeOf(layer.place), lands: `lands after ${layer.place.layer - 1}`, opened: open.has(id), onToggle: () => toggle(id) }
+            // The layer that lands first of those still to review is the whole row; a merging line above it is not one.
+            const line: LineOf | null = layer === entry.layers[0] ? null : { place: placeOf(layer.place), lands: `lands after ${layer.place.layer - 1}`, opened: open.has(id), onToggle: () => toggle(id) }
             return (
               <LayerSlot key={id} first={index === 0}>
                 {draw(layer, line)}
@@ -63,5 +71,22 @@ function LayerSlot({ first, children }: { first: boolean; children: ReactNode })
       )}
       {children}
     </>
+  )
+}
+
+/** The stack's layers, rows and merging lines together, bottom first. */
+function inOrder({ layers, merging }: StackEntry): (LayerRow | MergingLayer)[] {
+  const place = (layer: LayerRow | MergingLayer) => layer.place.layer
+  return [...layers, ...merging].toSorted((a, b) => place(a) - place(b))
+}
+
+/** A layer the user already said merge to: one quiet line in its place, with the height of any other line, and nothing to press. */
+function MergingLine({ layer }: { layer: MergingLayer }) {
+  return (
+    <li className="flex min-h-11 items-center gap-3 rounded-2xl px-4 py-2 text-muted-foreground" aria-label={`${placeOf(layer.place)}: ${layer.title}, merging`}>
+      <span className="flex h-11 w-[6.5rem] shrink-0 items-center justify-center text-[12px]">merging</span>
+      <span className="w-9 shrink-0 text-[12px] font-medium tabular-nums">{placeOf(layer.place)}</span>
+      <span className="min-w-0 flex-1 truncate text-[13.5px] leading-snug">{layer.title}</span>
+    </li>
   )
 }
