@@ -1281,4 +1281,7 @@ test("the user's notes stay on their run's record with their receipts, and what 
   assert.deepEqual(notes().map(([noteId]) => noteId), [sum], 'taken back into the box, it leaves the run');
   await runner.messageCheck({ scheduleId: 'check', runId: 'run', noteId: month, message: 'Plan the month instead', queue: 'interrupt' });
   assert.deepEqual(notes(), [[month, 'Plan the month instead', 123, 'interrupt', undefined, undefined]], 'what the interrupted turn never read leaves too');
+  // Its page reads them back, and a run hobkin does not know has none.
+  assert.deepEqual(await runner.notesOf('run'), runtime.data.runs.run.notes);
+  assert.deepEqual(await runner.notesOf('gone'), []);
 });

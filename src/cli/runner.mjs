@@ -757,6 +757,11 @@ export class HobkinRunner {
     }).catch(() => {});
   }
 
+  /** What the user added to a run while it worked, as its record keeps it, for the run's page. None for a run hobkin does not know. */
+  async notesOf(runId) {
+    return (await this.runtime.state()).runs[runId]?.notes ?? [];
+  }
+
   /** A note's receipt goes on its run's record as well, so it still reads as read once hobkin has let its own go. Nothing waits for it. */
   keepReceipt(runId, noteId, at) {
     this.runtime.change(state => {
