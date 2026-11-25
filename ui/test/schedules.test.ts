@@ -95,14 +95,10 @@ test('the line glows while a schedule runs or is due now, and is still while the
   assert.equal(schedulesGlow([], NOW), false)
 })
 
-test('with only ended schedules the line says they ended, and counts none as live', () => {
+test('the line shows only while a schedule is live, and an ended one is not counted beside a live one', () => {
   const done: AgentSchedule = { ...watch, state: 'done', nextAt: undefined, endedWhy: 'the checks passed' }
-  const ended = scheduleLine([done], NOW)
-  assert.equal(ended?.text, 'Watch CI ended')
-  assert.equal(ended?.lead, 'ended')
-  assert.equal(ended?.count, 0)
-  assert.equal(scheduleLine([done, { ...done, id: 's6', state: 'cancelled' }], NOW)?.text, '2 ended')
-  assert.equal(scheduleLine([done, watch], NOW)?.text, 'Watch CI in 1:42', 'an ended one is not counted beside a live one')
+  assert.equal(scheduleLine([done, { ...done, id: 's6', state: 'cancelled' }], NOW), null, 'the user, 2026-11-24: "when no schedule, dont show schedules"')
+  assert.equal(scheduleLine([done, watch], NOW)?.text, 'Watch CI in 1:42')
 })
 
 test('a schedule with no name is named by its command or its note', () => {

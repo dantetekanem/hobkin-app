@@ -261,14 +261,14 @@ function LineButton({
 
 /** The line's words: with a name, the count, the name and when ("3 · Watch CI in 1:42"); with none, the count and the countdown ("3 · 1:42"). */
 function LineWords({ line, name }: { line: ScheduleLineWords; name: string | null }) {
-  // "2 paused" and "2 ended" have no name to leave out.
+  // "2 paused" has no name to leave out.
   if (line.text === line.short) return <span className="min-w-0 truncate text-muted-foreground">{line.text}</span>
   const whenTone = line.lead === 'running' ? 'text-[var(--hb-code-fg)]' : 'text-muted-foreground'
   const clock = name === null && line.when.startsWith('in ') ? line.when.slice(3) : line.when
   return (
     <span className="flex min-w-0 items-baseline gap-1 tabular-nums">
       {line.count > 1 ? <span className="shrink-0 text-muted-foreground">{countWords(line)}</span> : null}
-      {name === null ? null : <span className={cn('min-w-0 truncate', line.lead === 'ended' ? 'text-muted-foreground' : 'font-medium')}>{name}</span>}
+      {name === null ? null : <span className={'min-w-0 truncate font-medium'}>{name}</span>}
       <span className={cn('min-w-0 truncate', whenTone)}>{clock}</span>
     </span>
   )
@@ -278,10 +278,9 @@ const DOT: Record<ScheduleLineWords['lead'], string> = {
   waiting: 'bg-[var(--hb-code)]',
   running: 'aa-running bg-[var(--hb-code)]',
   paused: 'shadow-[inset_0_0_0_1.5px_var(--hb-code)]',
-  ended: 'shadow-[inset_0_0_0_1.5px_var(--hb-border-strong)]',
 }
 
-/** How the line's schedule stands, in a dot: filled while it waits, breathing while it runs, a ring while it is paused or ended. */
+/** How the line's schedule stands, in a dot: filled while it waits, breathing while it runs, a ring while it is paused. */
 function Dot({ lead }: { lead: ScheduleLineWords['lead'] }) {
   return <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', DOT[lead])} />
 }

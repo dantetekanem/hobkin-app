@@ -99,7 +99,7 @@ export interface ScheduleLineWords {
   /** How many are live: waiting, running or paused. */
   count: number
   /** How the one named stands. `ended` when none is live. */
-  lead: 'waiting' | 'running' | 'paused' | 'ended'
+  lead: 'waiting' | 'running' | 'paused'
   /** The one the line names: the running one, or else the soonest. */
   name: string
   /** What follows the name: "in 1:42", "running", "paused", "due now" or "ended". */
@@ -118,7 +118,8 @@ export function scheduleLine(list: readonly AgentSchedule[], now: number): Sched
   const ordered = orderSchedules(list)
   const live = ordered.filter(isLive)
   const [first] = live
-  if (!first) return endedLine(ordered)
+  // With nothing live the line is not drawn (the user, 2026-11-24).
+  if (!first) return null
 
   const count = live.length
   const state = stateOf(first)
@@ -139,18 +140,6 @@ export function scheduleLine(list: readonly AgentSchedule[], now: number): Sched
 /** The line glows while a schedule runs its command or is due now (`glow.ts` in agent-activity holds the other lines' rules). */
 export const schedulesGlow = (list: readonly AgentSchedule[], now: number): boolean =>
   list.some((schedule) => stateOf(schedule) === 'running' || whenWords(schedule, now) === 'due now')
-
-/** The line when every schedule has ended: the one that ended last by name, or how many ended. Null with none at all. */
-function endedLine(ended: readonly AgentSchedule[]): ScheduleLineWords | null {
-  const [newest] = ended
-  if (!newest) return null
-  const name = nameOf(newest)
-  if (ended.length > 1) {
-    const text = `${ended.length} ended`
-    return { count: 0, lead: 'ended', name, when: 'ended', text, short: text }
-  }
-  return { count: 0, lead: 'ended', name, when: 'ended', text: `${name} ended`, short: 'ended' }
-}
 
 /** How often it fires: "once", "every minute", "every 2 min", "every hour", "every 6 h", "every day", "every 1 d 12 h". */
 export function everyWords(every: number | undefined): string {
