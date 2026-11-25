@@ -7,7 +7,7 @@ import { sendChange, type ChangeTarget } from '@/features/chat/send-change.ts'
 import { shownTier } from '@/features/tiers/host-tiers.ts'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { useTiers } from '@/features/tiers/store.ts'
-import { runCommand, useHasHost, useListHost } from '@/lib/host/index.ts'
+import { runCommand, useHasHost, useListHost, type HostState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { agentModelOf, changeFor, changeTarget, effortsOf, modelWords, type AgentModel } from './agent-model.ts'
 import type { RunningAgent } from './running-agents.ts'
@@ -15,13 +15,16 @@ import type { RunningAgent } from './running-agents.ts'
 /** The pill's one width, whatever model it names, so nothing in the row moves when the model changes. */
 const PILL = 'w-[84px] shrink-0 truncate rounded-full border border-border px-1.5 text-center text-[10px] leading-4 font-medium text-muted-foreground'
 
+const runIn = (state: HostState, runId: string | null) => (runId === null ? undefined : state.snapshot.runs?.find((run) => run.id === runId))
+
 /** What an agent of the dock works on now: its run's model, its hobkin's engine, or what its tier runs with. */
 function useAgentModel(agent: RunningAgent): AgentModel {
   const live = useHasHost()
   const runId = agent.durable ? agent.durable.run : agent.id
   const asks = live && runId !== null
-  const model = useListHost((state) => (asks ? state.snapshot.runs?.find((run) => run.id === runId)?.model : undefined))
-  const effort = useListHost((state) => (asks ? state.snapshot.runs?.find((run) => run.id === runId)?.effort : undefined))
+  // Two plain strings, so a row draws again only when its own run's model or level changes.
+  const model = useListHost((state) => (asks ? runIn(state, runId)?.model : undefined))
+  const effort = useListHost((state) => (asks ? runIn(state, runId)?.effort : undefined))
   const config = useTiers((state) => state.config)
   const follows = useTiers((state) => state.follows)
   const checks = useTiers((state) => state.checks)
@@ -41,7 +44,7 @@ export const AgentModelPill = memo(function AgentModelPill({ agent }: { agent: R
   const models = useModelChoices()
   const named = useMemo(() => [...models, ...claudeChoices()], [models])
   const words = modelWords(current.model, named) ?? 'model'
-  const full = current.model ? (current.effort ? `${current.model} at ${current.effort}` : current.model) : 'The model is not reported.'
+  const full = fullName(current)
   const offer = changeTarget(agent)
   if ('why' in offer) {
     return (
@@ -52,6 +55,12 @@ export const AgentModelPill = memo(function AgentModelPill({ agent }: { agent: R
   }
   return <ModelChoicePopover agent={agent} target={offer.target} current={current} models={models} words={words} full={full} />
 })
+
+/** The pill's hover: the whole `provider/id`, and its level when known. */
+function fullName({ model, effort }: AgentModel): string {
+  if (!model) return 'The model is not reported.'
+  return effort ? `${model} at ${effort}` : model
+}
 
 interface ModelChoicePopoverProps {
   agent: RunningAgent
@@ -78,6 +87,9 @@ function ModelChoicePopover({ agent, target, current, models, words, full }: Mod
     setBusy(false)
     setAnswer(done.ok ? { ok: true, words: done.message } : { ok: false, words: done.why })
   }
+
+  const chooseModel = (model: ModelChoice) => void send(changeFor(current, model))
+  const chooseEffort = (effort: Effort) => void send(effort === current.effort ? null : { effort })
 
   return (
     <Popover
@@ -113,7 +125,15 @@ function ModelChoicePopover({ agent, target, current, models, words, full }: Mod
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
-        <ModelChoiceBody title={agent.title} current={current} models={models} busy={busy} answer={answer} onModel={(model) => void send(changeFor(current, model))} onEffort={(effort) => void send(effort === current.effort ? null : { effort })} />
+        <ModelChoiceBody
+          title={agent.title}
+          current={current}
+          models={models}
+          busy={busy}
+          answer={answer}
+          onModel={chooseModel}
+          onEffort={chooseEffort}
+        />
       </PopoverContent>
     </Popover>
   )
@@ -144,6 +164,7 @@ export function ModelChoiceBody({ title, current, models, busy, answer, onModel,
   const found = useMemo(() => filterModels(models, search), [models, search])
   const providers = [...new Set(found.map((model) => model.provider))]
   const efforts = effortsOf(current.model, models)
+  const status = busy ? 'Asking hobkin…' : (answer?.words ?? 'It takes a new model or level from its next step.')
 
   return (
     <>
@@ -216,7 +237,7 @@ export function ModelChoiceBody({ title, current, models, busy, answer, onModel,
         )}
       </div>
       <p role="status" title={answer?.words} className={cn('line-clamp-2 h-8 px-1 text-[11px] leading-4', answer && !answer.ok ? 'text-bad-fg' : 'text-muted-foreground')}>
-        {busy ? 'Asking hobkin…' : (answer?.words ?? 'It takes a new model or level from its next step.')}
+        {status}
       </p>
     </>
   )

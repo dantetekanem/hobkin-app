@@ -16,7 +16,11 @@ export interface AgentModel {
 
 const NONE: AgentModel = { model: null, effort: null }
 
-const effortOf = (level: string | undefined): Effort | null => ((EFFORTS as readonly string[]).includes(level ?? '') ? (level as Effort) : null)
+/** A level as the host sends it, or null for one the window does not know. */
+function effortOf(level: string | undefined): Effort | null {
+  const known = EFFORTS.find((effort) => effort === level)
+  return known ?? null
+}
 
 /**
  * What an agent works on: its run's own model, a durable hobkin's engine, or, between a tier hobkin's turns and for a
@@ -51,8 +55,9 @@ export function modelWords(model: string | null, choices: readonly ModelChoice[]
  * by its id (`hobkin.change`). hobkin refuses both for Claude Code, and a run that waits for its time is not working.
  */
 export function changeTarget(agent: Pick<RunningAgent, 'id' | 'durable' | 'onClaudeCode' | 'waits'>): { target: ChangeTarget } | { why: string } {
-  if (agent.durable) return agent.durable.engine.kind === 'claude' ? { why: 'On Claude Code it keeps its model.' } : { target: { hobkin: agent.durable.id } }
-  if (agent.onClaudeCode) return { why: 'On Claude Code it keeps its model.' }
+  const onClaudeCode = agent.durable ? agent.durable.engine.kind === 'claude' : agent.onClaudeCode === true
+  if (onClaudeCode) return { why: 'On Claude Code it keeps its model.' }
+  if (agent.durable) return { target: { hobkin: agent.durable.id } }
   if (agent.waits !== undefined) return { why: 'It waits for its time. Its model changes while it works.' }
   return { target: { agent: agent.id } }
 }
