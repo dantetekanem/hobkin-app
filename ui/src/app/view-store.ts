@@ -10,15 +10,19 @@ import type { Place } from '../features/main-agent/mind.ts'
 
 /** Width of the chat, in pixels. */
 export const CONVERSATION_WIDTH = { min: 360, initial: 460, max: 720 } as const
-/** How much of the chat stays in view beside a review that has the user's attention, in pixels. */
-export const REVIEW_KEEPS = 112
+/**
+ * The share of the window's width a review that has the user's attention covers (the user, 2026-11-24: "right now it
+ * doesnt cover everything, should go to 98%"). The rest, at the left, is a strip of the chat.
+ */
+export const REVIEW_SHARE = 0.98
 /** The gap between the chat and the right side (`Divider.tsx`, `w-2.5`), in pixels. */
 export const DIVIDER_WIDTH = 10
 
 /**
- * How far the canvas slides over the chat, in pixels. A review that has the user's attention takes almost the whole
- * window, and a durable hobkin's split takes all of it: its page lies where the chat was. Every other screen, an
- * agent's however it was opened, leaves the chat its room.
+ * How far the canvas slides over the chat, in pixels. A review that has the user's attention covers 98% of the window,
+ * and a durable hobkin's split takes all of it: its page lies where the chat was. Every other screen, an agent's however
+ * it was opened, leaves the chat its room. The canvas starts after the chat and the divider, so its growth is what moves
+ * that edge to the review's share. `windowWidth` is the window's, read where it is not given.
  */
 export function canvasGrowth({
   screen,
@@ -26,11 +30,14 @@ export function canvasGrowth({
   conversationWidth,
   trail = [],
   split = false,
-}: Pick<ViewState, 'screen' | 'canvasEngaged' | 'conversationWidth'> & { trail?: readonly Stop[]; split?: boolean }): number {
+  windowWidth = typeof innerWidth === 'number' ? innerWidth : 1440,
+}: Pick<ViewState, 'screen' | 'canvasEngaged' | 'conversationWidth'> & { trail?: readonly Stop[]; split?: boolean; windowWidth?: number }): number {
   if (split) return conversationWidth + DIVIDER_WIDTH
   // A TLA+ run opened from a review is part of reading it, so it keeps the review's room.
   const reviewing = screen === 'review' || (screen === 'proof' && trail.at(-1)?.screen === 'review')
-  return reviewing && canvasEngaged ? Math.max(0, conversationWidth - REVIEW_KEEPS) : 0
+  if (!reviewing || !canvasEngaged) return 0
+  const keeps = Math.round(windowWidth * (1 - REVIEW_SHARE))
+  return Math.max(0, conversationWidth + DIVIDER_WIDTH - keeps)
 }
 
 /**
