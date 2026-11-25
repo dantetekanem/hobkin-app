@@ -6,6 +6,7 @@ import { test, type TestContext } from 'node:test'
 import type { GhCall } from '../src/review/gh.ts'
 import { gitIn, type GitRun } from '../src/review/assessment.ts'
 import { ownCloneOf, pullCheckout, pullRefs } from '../src/review/pull-checkout.ts'
+import { pullSource } from '../src/review/sources.ts'
 import { temporaryDirectory } from './support.ts'
 
 const GITHUB_URL = 'https://github.com/acme/shop.git'
@@ -175,9 +176,44 @@ test('a clone that fails leaves nothing behind and says why; a head GitHub no lo
   const checkout = pullCheckout({ root, folders: () => [join(poetry, 'shop')], gh: noGh })
   await assert.rejects(checkout.fetch(target, { head: 'f'.repeat(40), baseBranch: 'main' }), /#12 is no longer at fffffff on GitHub: it moved while it was fetched/)
   await checkout.fetch(target, { head, baseBranch: 'main' })
-  await assert.rejects(checkout.fetch(target, { head, baseBranch: 'main', baseSha: head }), /base.*moved/i, 'a stale base tip cannot set the range')
   gitAt(bare)('update-ref', 'refs/pull/12/head', base)
   await assert.rejects(checkout.fetch(target, { head, baseBranch: 'main' }), /it moved while it was fetched/, 'the old object is still local after the hosted head moved')
+})
+
+test('a layer whose lower layer was force-pushed is read from where its head meets that branch as fetched, though its host still names the old tip', async (t) => {
+  const { bare, base } = github(t)
+  const work = join(temporaryDirectory(t), 'work')
+  execFileSync('git', ['clone', '--quiet', bare, work])
+  const git = gitAt(work)
+  const commit = (file: string, text: string) => {
+    writeFileSync(join(work, file), text)
+    git('add', file)
+    git('commit', '--quiet', '-m', `Write ${file}`)
+    return git('rev-parse', 'HEAD')
+  }
+  // The lower layer, and #12 on top of it.
+  git('checkout', '--quiet', '-b', 'lower', base)
+  const lower = commit('lower.txt', 'one\n')
+  git('push', '--quiet', bare, 'lower')
+  const head = commit('upper.txt', 'two\n')
+  git('push', '--quiet', '--force', bare, `${head}:refs/pull/12/head`)
+  // The lower layer is written again and force-pushed; #12's host still says its base is at the old tip.
+  git('checkout', '--quiet', '-B', 'lower', base)
+  commit('lower.txt', 'one, again\n')
+  git('push', '--quiet', '--force', bare, 'lower')
+  const gh: GhCall = async (args) => {
+    const path = args.at(-1)
+    if (path === 'repos/acme/shop/pulls/12') return { kind: 'done', stdout: JSON.stringify({ state: 'open', title: 'Upper layer', body: '', base: { ref: 'lower', sha: lower }, head: { ref: 'upper', sha: head }, user: { login: 'dev' } }) }
+    if (path === 'user') return { kind: 'done', stdout: JSON.stringify({ login: 'me' }) }
+    return { kind: 'failed', code: 1, stdout: '', stderr: `HTTP 404: ${path}` }
+  }
+  const poetry = temporaryDirectory(t)
+  userClone(join(poetry, 'shop'), bare)
+  const source = pullSource({ gh, checkout: pullCheckout({ root: temporaryDirectory(t), folders: () => [join(poetry, 'shop')], gh: noGh }) })
+
+  const input = await source.read(target, head)
+  assert.equal(input.capture.base, base, 'where #12 meets the lower layer as it is now')
+  assert.deepEqual(input.capture.files.map((file) => file.path).sort(), ['lower.txt', 'upper.txt'])
 })
 
 test("a pull request on a named code host is fetched from the user's own bare clone through the host's own ref, into refs of that host, moving nothing of theirs", async (t) => {

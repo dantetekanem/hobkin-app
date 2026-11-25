@@ -235,7 +235,7 @@ export function pullSource({
       const details = await read(pull)<{ title: string; body?: string | null; base: { ref: string; sha?: string }; head: { ref: string; sha?: string }; user?: { login?: string } | null; mergeable?: boolean | null; mergeable_state?: string }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
       if (details.head.sha && details.head.sha !== head) throw new Error(`#${pull.number} moved while its details were read. Start its review again.`)
       watch.titled?.(details.title)
-      const { repo, base } = await checkout.fetch(pull, { head, baseBranch: details.base.ref, ...(details.base.sha ? { baseSha: details.base.sha } : {}), headBranch: details.head.ref }, say)
+      const { repo, base } = await checkout.fetch(pull, { head, baseBranch: details.base.ref, headBranch: details.head.ref }, say)
       if (details.base.sha) ranges.set(pullUrl(pull)!, { head, tip: details.base.sha, base })
       // How far behind its base the pull request is, counted in the checkout this read already made.
       const behind = await gitIn(repo, 'rev-list', '--count', `${head}..${pullRefs(pull).base}`).then((count) => Number.parseInt(count, 10), () => null)
