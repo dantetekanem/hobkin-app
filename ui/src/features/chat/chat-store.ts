@@ -12,10 +12,14 @@ import { runExecution, useExecution } from '../work/store.ts'
 import { useReportReply, withRoutineReference } from '@/features/reports/reply.ts'
 import { draftReducer, emptyDraft, storedDraft, type DraftAction, type DraftState } from './draft.ts'
 import { attachImages, forgetPreviews as forget } from './image-uploads.ts'
-import { emptyOutbox, settleOutbox, settleStored, type Outbox } from './outbox.ts'
+import { emptyOutbox, settleOutbox, settleStored, type Outbox, type OutboxEntry } from './outbox.ts'
 import { transientLine } from './transient-line.ts'
 import { closedSlash, slashCommandIn, slashKey, slashTyped, type SlashKey, type SlashState } from './slash.ts'
+import { shownTurn } from './stop-turn.ts'
 import { firstWord } from './use-first-word.ts'
+
+/** What a message sent during a turn does to it, as Pi's keys have it: Alt+Enter follows it up, Control+Enter interrupts it. Enter steers. */
+export type SendDuring = 'follow-up' | 'interrupt'
 
 interface ChatState {
   draft: DraftState
@@ -39,7 +43,16 @@ interface ChatState {
     /** Sends plain text without borrowing the current draft or report reply. True only after host acceptance. */
     (text: string): Promise<boolean>
   }
+  /**
+   * Sends the draft as `send()` does, saying what it does to a running turn: waits as a follow-up until the turn would end, or
+   * interrupts it and starts its own, with what the stopped turn never read put back in the input. With no turn running it just sends.
+   */
+  sendDuring: (during: SendDuring) => Promise<boolean>
   stop: (mode?: 'stop' | 'force', target?: ExecutionControl) => void
+  /** Pi's Alt+Up: what waits for the running turn comes back into the input, ahead of what is being typed, and the turn goes on. */
+  dequeue: () => void
+  /** Goes on with the turn the user stopped. Pi cannot resume a stopped run, so hobkin sends Continue as the user's message. */
+  continueTurn: () => void
   /** Attaches images to the draft: pasted, dropped or picked. Each one hobkin would refuse is turned away with the reason. */
   attach: (files: readonly File[]) => void
   detach: (id: string) => void
@@ -74,6 +87,80 @@ const retainsAttachment = (draft: DraftState, id: string) =>
 export const canSendDraft = ({ text, attachments }: Pick<DraftState, 'text' | 'attachments'>): boolean =>
   (text.trim().length > 0 || attachments.length > 0) && attachments.every(({ handle }) => handle !== undefined)
 
+/**
+ * Sends the draft, or plain `message` without touching the draft, as the chat store's `send` and `sendDuring` do. During a turn it
+ * waits for that turn above the input (`queue`) until the model reads it, unless it interrupts the turn.
+ */
+async function sendWith(message: string | undefined, during: SendDuring | undefined): Promise<boolean> {
+  // Settings can send a plain request without consuming the user's draft, images or report reply.
+  const plain = typeof message === 'string'
+  const { text, attachments } = plain ? { text: message, attachments: [] } : useChat.getState().draft
+  if (!canSendDraft({ text, attachments })) return false
+
+  // A command written out with what follows it, such as "/feedback the list flickers", runs as that command.
+  const command = plain || attachments.length ? null : slashCommandIn(text.trim(), useChat.getState().commands)
+  if (command) {
+    useChat.getState().change({ type: 'sent' })
+    useChat.getState().runCommand(command.name, command.args)
+    return false
+  }
+
+  const words = text.trim()
+  const images = attachments.map(({ handle }) => handle as string)
+  // The report the message is about goes with it, once, as in the terminal app.
+  const report = plain ? null : useReportReply.getState().report
+  if (report) useReportReply.getState().clear()
+  // A routine goes as a line before the words, since hobkin's `about` only knows reports. The chat shows it as "About ...".
+  const routine = report?.kind === 'routine' && report.file
+  const sentText = routine && words ? withRoutineReference(report, words) : words
+  // An action item goes whole, as the host has no item to look up: hobkin gets it the way it gets a report.
+  const item = report?.kind === 'item' ? { id: report.id, title: report.title, body: report.body ?? '' } : null
+  const about = item ? `Action item: ${item.title}` : report && !routine ? report.title : null
+  // Sent during a turn, it waits for that turn from the moment it is sent, unless it interrupts the turn to start its own.
+  const queue = (taken: boolean) => (!taken || during === 'interrupt' ? {} : { queue: during === 'follow-up' ? ('follow-up' as const) : ('steer' as const) })
+  const entry: OutboxEntry = { id: ++sends, text: sentText, images: images.length, at: Date.now(), accepted: false, ...(about ? { about } : {}), ...queue(shownTurn(hostStore.getState()) !== null) }
+  const before = useChat.getState().outbox.entries.filter((sent) => sent.queue).map((sent) => sent.id)
+  useChat.setState(({ draft, outbox }) => ({ draft: plain ? draft : draftReducer(draft, { type: 'sent' }), outbox: { ...outbox, entries: [...outbox.entries, entry] }, problem: null, said: null }))
+  const attached = item ? { item } : report && !routine ? { report: report.id } : {}
+  // When the user sent it goes along, to a host that takes it, and the reply's first words are timed from then.
+  const measure = firstWord.sent(entry.at, hostStore.getState())
+  const args = { ...(sentText ? { text: sentText } : {}), ...(images.length ? { images } : {}), ...attached, ...(during ? { during } : {}), ...sentAtArg(hostStore.getState(), entry.at) }
+  return runCommand('conversation.send', args).then(
+    (said) => {
+      firstWord.accepted(measure, said)
+      forget(attachments)
+      // hobkin took it. It stays on screen, without the queued mark, until the stored conversation shows it. The
+      // screen may still show hobkin idle from before it took it, so only a stored copy takes the row away here.
+      // Whether it waits for a turn is now hobkin's word: one that started its own turn joins the conversation.
+      const { queue: _, ...rest } = entry
+      const taken = (outbox: Outbox) => ({ ...outbox, entries: outbox.entries.map((sent) => (sent.id === entry.id ? { ...rest, accepted: true, ...queue(said.queued) } : sent)) })
+      useChat.setState(({ outbox }) => ({ outbox: settleStored(taken(outbox), screenStore.getState().messages) }))
+      // What the turn it interrupted never read goes back into the input, as a stop gives it back.
+      if (said.unsent?.length) returnUnsent(said.unsent, before)
+      return true
+    },
+    (error) => {
+      firstWord.refused(measure)
+      // A message that did not go takes its report back, unless another one was chosen meanwhile.
+      if (report && !useReportReply.getState().report) useReportReply.getState().attach(report)
+      useChat.setState(({ draft, outbox }) => ({
+        outbox: { ...outbox, entries: outbox.entries.filter((sent) => sent.id !== entry.id) },
+        draft: plain ? draft : draftReducer(draft, { type: 'restored', text, attachments }),
+        problem: `Not sent: ${reason(error)}`,
+      }))
+      return false
+    },
+  )
+}
+
+/** What hobkin gives back that the model never read goes into the input ahead of what is being typed, and its rows among `waited` go. */
+function returnUnsent(unsent: readonly string[], waited: readonly number[]) {
+  useChat.setState(({ draft, outbox }) => ({
+    draft: draftReducer(draft, { type: 'stopped', unsent }),
+    outbox: { ...outbox, entries: outbox.entries.filter((sent) => !waited.includes(sent.id) || !unsent.includes(sent.text)) },
+  }))
+}
+
 /** The message being written and what was sent but is not in the conversation yet. Sending, stopping, attaching and commands go through the host. */
 export const useChat = create<ChatState>()(
   persist(
@@ -93,58 +180,21 @@ export const useChat = create<ChatState>()(
           return { draft: next, problem: null, said: null, slash: next.text === draft.text ? slash : slashTyped(slash, next.text) }
         }),
 
-      send: async (message?: string) => {
-        // Settings can send a plain request without consuming the user's draft, images or report reply.
-        const plain = typeof message === 'string'
-        const { text, attachments } = plain ? { text: message, attachments: [] } : get().draft
-        if (!canSendDraft({ text, attachments })) return false
+      send: (message?: string) => sendWith(message, undefined),
 
-        // A command written out with what follows it, such as "/feedback the list flickers", runs as that command.
-        const command = plain || attachments.length ? null : slashCommandIn(text.trim(), get().commands)
-        if (command) {
-          get().change({ type: 'sent' })
-          get().runCommand(command.name, command.args)
-          return false
-        }
+      sendDuring: (during) => sendWith(undefined, during),
 
-        const words = text.trim()
-        const images = attachments.map(({ handle }) => handle as string)
-        // The report the message is about goes with it, once, as in the terminal app.
-        const report = plain ? null : useReportReply.getState().report
-        if (report) useReportReply.getState().clear()
-        // A routine goes as a line before the words, since hobkin's `about` only knows reports. The chat shows it as "About ...".
-        const routine = report?.kind === 'routine' && report.file
-        const sentText = routine && words ? withRoutineReference(report, words) : words
-        // An action item goes whole, as the host has no item to look up: hobkin gets it the way it gets a report.
-        const item = report?.kind === 'item' ? { id: report.id, title: report.title, body: report.body ?? '' } : null
-        const about = item ? `Action item: ${item.title}` : report && !routine ? report.title : null
-        const entry = { id: ++sends, text: sentText, images: images.length, at: Date.now(), accepted: false, ...(about ? { about } : {}) }
-        set(({ draft, outbox }) => ({ draft: plain ? draft : draftReducer(draft, { type: 'sent' }), outbox: { ...outbox, entries: [...outbox.entries, entry] }, problem: null, said: null }))
-        const attached = item ? { item } : report && !routine ? { report: report.id } : {}
-        // When the user sent it goes along, to a host that takes it, and the reply's first words are timed from then.
-        const measure = firstWord.sent(entry.at, hostStore.getState())
-        return runCommand('conversation.send', { ...(sentText ? { text: sentText } : {}), ...(images.length ? { images } : {}), ...attached, ...sentAtArg(hostStore.getState(), entry.at) }).then(
-          (said) => {
-            firstWord.accepted(measure, said)
-            forget(attachments)
-            // hobkin took it. It stays on screen, without the queued mark, until the stored conversation shows it. The
-            // screen may still show hobkin idle from before it took it, so only a stored copy takes the row away here.
-            const taken = (outbox: Outbox) => ({ ...outbox, entries: outbox.entries.map((sent) => (sent.id === entry.id ? { ...sent, accepted: true } : sent)) })
-            set(({ outbox }) => ({ outbox: settleStored(taken(outbox), screenStore.getState().messages) }))
-            return true
-          },
-          (error) => {
-            firstWord.refused(measure)
-            // A message that did not go takes its report back, unless another one was chosen meanwhile.
-            if (report && !useReportReply.getState().report) useReportReply.getState().attach(report)
-            set(({ draft, outbox }) => ({
-              outbox: { ...outbox, entries: outbox.entries.filter((sent) => sent.id !== entry.id) },
-              draft: plain ? draft : draftReducer(draft, { type: 'restored', text, attachments }),
-              problem: `Not sent: ${reason(error)}`,
-            }))
-            return false
-          },
+      dequeue: () => {
+        const waited = get().outbox.entries.filter((sent) => sent.queue).map((sent) => sent.id)
+        runCommand('conversation.dequeue').then(
+          ({ unsent }) => (unsent.length ? returnUnsent(unsent, waited) : undefined),
+          (error) => set({ problem: `Not taken back: ${reason(error)}` }),
         )
+      },
+
+      continueTurn: () => {
+        set({ problem: null, said: null })
+        runCommand('conversation.continue', sentAtArg(hostStore.getState(), Date.now())).catch((error) => set({ problem: `Not continued: ${reason(error)}` }))
       },
 
       stop: (mode = 'stop', captured) => {

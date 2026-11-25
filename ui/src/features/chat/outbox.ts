@@ -13,6 +13,11 @@ export interface OutboxEntry {
   at: number
   /** hobkin took it. Until then it shows as queued. */
   accepted: boolean
+  /**
+   * Sent during a turn, it waits in Pi's queue for that turn: `steer`ing it, or as a `follow-up` once it would end. It
+   * shows above the input, not in the conversation, until the model reads it or the turn ends without it.
+   */
+  queue?: 'steer' | 'follow-up'
 }
 
 export interface Outbox {
@@ -26,18 +31,21 @@ export const emptyOutbox: Outbox = { entries: [], delivered: [] }
 /**
  * What is still waiting once the stored conversation has moved on. The rule is the terminal app's
  * (`settleOutbox` in hobkin's `src/cli/ui.mjs`): a message leaves when the conversation shows a user message
- * stored after it was sent, or when hobkin took it and the turn ended without it.
+ * stored after it was sent, or when hobkin took it and the turn ended without it. A copy with the same words is
+ * matched first, since Pi reads what steers a turn before what follows it up, whichever was sent first.
  * Returns the same outbox when nothing changed.
  */
 export function settleOutbox(outbox: Outbox, messages: readonly ChatMessage[], busy: boolean): Outbox {
   if (!outbox.entries.length) return outbox.delivered.length ? emptyOutbox : outbox
 
   const matched = new Set(outbox.delivered)
-  const kept = outbox.entries.filter((entry) => {
-    const copy = messages.find((message) => message.role === 'user' && !matched.has(message.id) && (timeOf(message.at) ?? 0) >= entry.at)
+  const stored = (entry: OutboxEntry, words: boolean) => {
+    const copy = messages.find((message) => message.role === 'user' && !matched.has(message.id) && (timeOf(message.at) ?? 0) >= entry.at && (!words || message.content === entry.text))
     if (copy) matched.add(copy.id)
-    return !copy && !(entry.accepted && !busy)
-  })
+    return copy !== undefined
+  }
+  const read = new Set(outbox.entries.filter((entry) => stored(entry, true)))
+  const kept = outbox.entries.filter((entry) => !read.has(entry) && !stored(entry, false) && !(entry.accepted && !busy))
   if (kept.length === outbox.entries.length) return outbox
   return kept.length ? { entries: kept, delivered: [...matched] } : emptyOutbox
 }

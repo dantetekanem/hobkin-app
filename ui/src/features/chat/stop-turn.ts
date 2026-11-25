@@ -22,3 +22,6 @@ export function armedAt(armed: ArmedStop | null, turn: string | null): number | 
   if (armed === null || armed.turn !== turn) return null
   return armed.at
 }
+
+/** The id of Chat's line for a main turn the user stopped, as hobkin posts it (`noticeStop`, a card action): where Continue is offered. */
+export const stopLineId = (runId: string): string => `notice:card:main-stop:${runId}`

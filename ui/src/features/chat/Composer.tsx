@@ -14,6 +14,8 @@ import { AttachButton, AttachmentTray } from './AttachmentTray.tsx'
 import { availabilityOf } from './availability.ts'
 import { canSendDraft, useChat } from './chat-store.ts'
 import { ChatAvatar } from './ChatAvatar.tsx'
+import { composerKey } from './composer-keys.ts'
+import type { OutboxEntry } from './outbox.ts'
 import { PromptEditor } from './PromptEditor.tsx'
 import { useReportReply } from '@/features/reports/reply.ts'
 import { slashList, type SlashKey } from './slash.ts'
@@ -43,9 +45,11 @@ export interface ComposerProps {
  * The message input, with the avatar beside it, the line above it that says what hobkin is doing, the images
  * attached to the draft, and the list of commands for a message that starts with a slash.
  *
- * Keys: Enter sends and Shift+Enter adds a line. Escape twice, or Control+C, stops a running turn: the first Escape
- * only asks, since one press is too easy to make by mistake. With no turn running, Escape drops the report the message
- * is about. Up in an empty message brings
+ * Keys, as in Pi's terminal (`composer-keys.ts`): Enter sends, and during a turn steers it; Alt+Enter queues the message
+ * for after the turn; Control+Enter stops the turn and sends at once. Enter in an empty message continues a turn the
+ * user stopped, and Alt+Up brings what waits for the turn back into the input. Shift+Enter adds a line.
+ * Escape twice, or Control+C, stops a running turn: the first Escape only asks, since one press is too easy to make by
+ * mistake. With no turn running, Escape drops the report the message is about. Up in an empty message brings
  * back earlier messages. Command+U attaches an image and Backspace at the start removes the last one.
  * Control+Option+P opens the full prompt editor. Page Up, Page Down and Command+Down move the conversation.
  * While the command list is open, Tab completes, Up and Down move, Enter runs and Escape closes.
@@ -57,7 +61,8 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   const said = useChat((chat) => chat.said)
   const commands = useChat((chat) => chat.commands)
   const slash = useChat((chat) => chat.slash)
-  const { change, send, stop, attach, detach, slashKey, reachCommand } = useChat.getState()
+  const sent = useChat((chat) => chat.outbox.entries)
+  const { change, send, sendDuring, stop, dequeue, continueTurn, attach, detach, slashKey, reachCommand } = useChat.getState()
 
   const link = useHost((state) => state.link)
   const home = useHost((state) => state.home)
@@ -79,6 +84,11 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   const execution = useExecution()
   const stopping = main !== undefined && execution.pending[executionKey(main, 'stop')] === true
   const canSend = ready && canSendDraft({ text, attachments })
+  // What the user sent that waits for the running turn, shown above the input until the model reads it.
+  const queued = useMemo(() => sent.filter((entry) => entry.queue), [sent])
+  // The last turn is one the user stopped and nothing has started since, so Enter in an empty message continues it.
+  const stoppedTurn = useHost((state) => state.snapshot.mainStopped ?? null)
+  const stopped = ready && !turnRunning && stoppedTurn !== null
   const list = ready ? slashList(text, commands, slash) : null
   // The report the next message is about, chosen with r on a report.
   const report = useReportReply((reply) => reply.report)
@@ -149,9 +159,13 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
     // The frame leaves Tab to an open list, so with nothing to complete it must not walk the keyboard out of the input.
     if (list && event.key === 'Tab') return used()
 
-    if (event.key === 'Enter' && plain && !event.shiftKey) {
-      // Enter sends. Shift+Enter is left alone, so it adds a line.
-      if (canSend) send()
+    const press = { key: event.key, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }
+    const sending = composerKey(press, { turnRunning, canSend, empty: !text.trim() && attachments.length === 0, stopped, queued: queued.length > 0 })
+    if (sending) {
+      if (sending.do === 'send') void send()
+      else if (sending.do === 'follow-up' || sending.do === 'interrupt') void sendDuring(sending.do)
+      else if (sending.do === 'continue') continueTurn()
+      else if (sending.do === 'dequeue') dequeue()
       used()
     } else if (event.key === 'Escape' && turnRunning) {
       // One Escape never stops hobkin: the first asks, a second soon after stops.
@@ -209,6 +223,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
           <ChatAvatar followWithin={followWithin} typing={text.length > 0} />
           <div className="relative min-w-0 flex-1">
             <SlashPanel list={list} id={listId} onReach={reachCommand} onChoose={(index) => (reachCommand(index), slashKey('Enter'))} />
+            <QueuedRows entries={queued} />
             <form
               className={cn(
                 'rounded-[24px] border-[1.5px] bg-card py-1.5 pr-1.5 pl-1.5 transition-colors duration-[160ms] ease-[ease] focus-within:border-ring',
@@ -251,43 +266,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
                   )}
                   style={{ maxHeight: MAX_INPUT_HEIGHT }}
                 />
-                <AnimatePresence initial={false}>
-                  {turnRunning ? (
-                    <motion.div
-                      key="stop"
-                      initial={{ opacity: 0, transform: 'scale(0.96)' }}
-                      animate={{ opacity: 1, transform: 'scale(1)', transition: spring.alive }}
-                      exit={{ opacity: 0, transform: 'scale(0.96)', transition: tween.exit }}
-                    >
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <button
-                              type="button"
-                              onClick={() => stop()}
-                              disabled={main !== undefined && execution.pending[executionKey(main, 'stop')]}
-                              aria-label="Stop hobkin"
-                              className="grid size-8 shrink-0 place-items-center rounded-full border border-border-strong text-foreground outline-offset-2 transition-[transform,background-color] duration-[140ms] ease-out hover:bg-surface-2 active:scale-[0.97]"
-                            />
-                          }
-                        >
-                          <Square className="size-3 fill-current" aria-hidden="true" />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          Stop <Kbd>esc</Kbd> <Kbd>esc</Kbd>
-                        </TooltipContent>
-                      </Tooltip>
-                    </motion.div>
-                  ) : null}
-                </AnimatePresence>
-                <button
-                  type="submit"
-                  disabled={!canSend}
-                  aria-label={turnRunning ? 'Send to steer the turn' : 'Send'}
-                  className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground outline-offset-2 transition-[transform,opacity] duration-[140ms] ease-out active:scale-[0.97] disabled:opacity-40"
-                >
-                  <ArrowUp className="size-4" aria-hidden="true" />
-                </button>
+                <SendButton turnRunning={turnRunning} canSend={canSend} stopping={stopping} onStop={() => stop()} />
               </div>
             </form>
           </div>
@@ -295,6 +274,83 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
       </div>
       <PromptEditor />
     </div>
+  )
+}
+
+/**
+ * The one button beside the input: Send, and Stop while a turn runs, in the same place and size so nothing moves when it
+ * swaps. Its hover lists the keys for each.
+ */
+function SendButton({ turnRunning, canSend, stopping, onStop }: { turnRunning: boolean; canSend: boolean; stopping: boolean; onStop: () => void }) {
+  const icon = 'col-start-1 row-start-1 transition-[opacity,transform] duration-[140ms] ease-out'
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type={turnRunning ? 'button' : 'submit'}
+            onClick={turnRunning ? onStop : undefined}
+            disabled={turnRunning ? stopping : !canSend}
+            aria-label={turnRunning ? 'Stop hobkin' : 'Send'}
+            className={cn(
+              'grid size-8 shrink-0 place-items-center rounded-full border outline-offset-2 transition-[transform,opacity,background-color,border-color,color] duration-[140ms] ease-out active:scale-[0.97] disabled:opacity-40',
+              turnRunning ? 'border-border-strong bg-transparent text-foreground hover:bg-surface-2' : 'border-transparent bg-primary text-primary-foreground',
+            )}
+          />
+        }
+      >
+        <ArrowUp className={cn(icon, 'size-4', turnRunning && 'scale-75 opacity-0')} aria-hidden="true" />
+        <Square className={cn(icon, 'size-3 fill-current', !turnRunning && 'scale-75 opacity-0')} aria-hidden="true" />
+      </TooltipTrigger>
+      <TooltipContent>
+        {turnRunning ? (
+          <span className="grid grid-cols-[auto_auto] items-center gap-x-3 gap-y-1">
+            <span>Stop</span>
+            <span className="flex gap-1"><Kbd>esc</Kbd><Kbd>esc</Kbd><Kbd>⌃C</Kbd></span>
+            <span>Steer</span>
+            <Kbd>↵</Kbd>
+            <span>Send after the turn</span>
+            <Kbd>⌥↵</Kbd>
+            <span>Stop and send now</span>
+            <Kbd>⌃↵</Kbd>
+          </span>
+        ) : (
+          <>
+            Send <Kbd>↵</Kbd>
+          </>
+        )}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * What the user sent that waits for the running turn, a quiet line each with how it waits, newest last, until the model
+ * reads it. Alt+Up brings them back into the input, as Pi's does.
+ */
+function QueuedRows({ entries }: { entries: readonly OutboxEntry[] }) {
+  return (
+    <ul aria-label="Waiting for this turn" className="flex flex-col px-3">
+      <AnimatePresence initial={false}>
+        {entries.map((entry, index) => (
+          <motion.li
+            key={entry.id}
+            initial={{ opacity: 0, transform: 'translateY(4px)' }}
+            animate={{ opacity: 1, transform: 'translateY(0px)', transition: spring.alive }}
+            exit={{ opacity: 0, transition: tween.exit }}
+            className="flex min-w-0 items-center gap-2 pb-1 text-[12.5px] leading-5"
+          >
+            <span className="eyebrow shrink-0">{entry.queue === 'follow-up' ? 'Follow-up' : 'Steer'}</span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">{entry.text || (entry.images === 1 ? '1 image' : `${entry.images ?? 0} images`)}</span>
+            {index === entries.length - 1 ? (
+              <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-muted-foreground">
+                <Kbd>⌥↑</Kbd> edit
+              </span>
+            ) : null}
+          </motion.li>
+        ))}
+      </AnimatePresence>
+    </ul>
   )
 }
 

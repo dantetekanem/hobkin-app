@@ -232,6 +232,7 @@ export function buildConversation({ messages, local = [], live = null, outbox = 
     // Nothing is drawn before the first word: the line above the input already says hobkin is at work.
     if (entry) place(entry, now)
   }
-  for (const sent of outbox) place(sentEntryOf(sent), sent.at)
+  // What waits for a running turn shows above the input until the model reads it (`QueuedRows`).
+  for (const sent of outbox) if (!sent.queue) place(sentEntryOf(sent), sent.at)
   return days
 }

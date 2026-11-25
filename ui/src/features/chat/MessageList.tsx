@@ -7,12 +7,15 @@ import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { MemoryLine } from '@/features/memory/MemoryLine.tsx'
 import { useHost } from '@/lib/host/index.ts'
+import { isLive as hobkinLive } from '@/lib/host/state.ts'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { arrangementOf, arrivalsOf, drawnOf, isLive, type Drawn } from './chat-rows.ts'
+import { useChat } from './chat-store.ts'
 import type { DayGroup, Entry, MessageEntry, NoticeEntry } from './conversation.ts'
 import { heldBy, type Holder } from './doing.ts'
 import { MessageText, risen, StreamingMarkdown, sunk } from './markdown.ts'
+import { shownTurn, stopLineId } from './stop-turn.ts'
 import { nextReveal } from './stream-buffer.ts'
 import { usePaced } from './use-paced.ts'
 import type { PinnedScroll } from './use-pinned-scroll.ts'
@@ -284,6 +287,7 @@ function Notice({ entry }: { entry: NoticeEntry }) {
           </button>
         ) : null}
         {entry.memory ? <MemoryLine note={entry.memory} /> : null}
+        {entry.tone === 'system' ? <ContinueStopped line={entry.key} /> : null}
       </span>
       {entry.at === null ? null : (
         <time dateTime={new Date(entry.at).toISOString()} className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
@@ -291,5 +295,24 @@ function Notice({ entry }: { entry: NoticeEntry }) {
         </time>
       )}
     </>
+  )
+}
+
+/**
+ * Continue, on Chat's line for the turn the user stopped, while nothing has started since. Pi cannot resume a stopped run,
+ * so hobkin sends the word Continue as the user's message. Enter in an empty message does the same.
+ */
+function ContinueStopped({ line }: { line: string }) {
+  const offered = useHost((state) => hobkinLive(state) && typeof state.snapshot.mainStopped === 'string' && stopLineId(state.snapshot.mainStopped) === line && shownTurn(state) === null)
+  if (!offered) return null
+  return (
+    <button
+      type="button"
+      className="ml-2 inline-flex h-6 items-center gap-1 rounded-full bg-surface-2 pr-1 pl-2 align-middle text-[12px] font-medium text-foreground outline-offset-1 transition-[transform,background-color] duration-[140ms] ease-out hover:bg-secondary active:scale-[0.97]"
+      onClick={() => useChat.getState().continueTurn()}
+    >
+      Continue
+      <Kbd>↵</Kbd>
+    </button>
   )
 }
