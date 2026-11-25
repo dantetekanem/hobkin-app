@@ -15,7 +15,7 @@ import { rowOffersStack } from '@/features/review/stack-start.ts'
 import { useStackStart } from '@/features/review/use-stack-start.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
-import { pullScreen } from '@/integration/pull-screen.ts'
+import { pullScreens } from '@/integration/pull-screen.ts'
 import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { buildButton, canReviewAgain, canReviewNow, nothingChanged, repoWordsOf, reviewToOpen, REVIEW_ORDERS, rowsOf, type PriorityOf, type ReviewOrder, type ReviewRow } from './ai-reviews.ts'
@@ -139,20 +139,27 @@ function OrderSwitch({ count }: { count: number }) {
   )
 }
 
-/** How a review starts, for a host that has none yet. */
+/** Names in a sentence: "GitHub", "GitHub or Forge", "A, B or C". */
+const eitherOf = (names: readonly string[]) => (names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`)
+
+/** How a review starts, for a host that has none yet. Each integration with pull requests is offered. */
 function NoReviews() {
-  const pulls = pullScreen()
+  const pulls = pullScreens()
   return (
     <section aria-label="No review yet" className="flex flex-col items-start gap-3 rounded-3xl bg-background p-6">
       <p className="font-heading text-[18px] leading-snug font-semibold tracking-[-0.015em]">No review yet</p>
       <p className="max-w-[64ch] text-[14px] leading-relaxed text-muted-foreground">
         A finished change gets one by itself, once work mode finishes it.
-        {pulls ? ` A pull request gets one when you press Start review on its row on the ${pulls.label} page.` : ''}
+        {pulls.length ? ` A pull request gets one when you press Start review on its row on the ${eitherOf(pulls.map(({ label }) => label))} page.` : ''}
       </p>
-      {pulls ? (
-        <Button variant="outline" data-stop="" onClick={() => useView.getState().openPartScreen(pulls.id)}>
-          Open {pulls.label}
-        </Button>
+      {pulls.length ? (
+        <div className="flex flex-wrap gap-2">
+          {pulls.map((screen) => (
+            <Button key={screen.id} variant="outline" data-stop="" onClick={() => useView.getState().openPartScreen(screen.id)}>
+              Open {screen.label}
+            </Button>
+          ))}
+        </div>
       ) : null}
     </section>
   )
