@@ -67,7 +67,7 @@ export function checkedShort(body, answer) {
 }
 
 /** The fast tier as hobkin runs it now: its own model, or the checks model it follows. Null when there is no Pi model to ask. */
-function fastBinding(root) {
+export function fastBinding(root) {
   const config = loadConfig(root);
   const { model, effort, follows } = tierBinding(config, 'fast');
   if (!model || (follows === 'background' && (config.background.harness ?? 'pi') !== 'pi')) return null;

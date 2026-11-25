@@ -4,9 +4,11 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HobkinApplication } from '../src/cli/application.mjs';
-import { readCatchUp, setCatchUp } from '../src/cli/catch-up.mjs';
+import { catchUpIdle, readCatchUp, setCatchUp, startCatchUp } from '../src/cli/catch-up.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
+import { buildInvocation } from '../src/cli/harnesses.mjs';
 import { main } from '../src/cli/main.mjs';
+import { saveShortReport } from '../src/cli/reports.mjs';
 import { reportReadStates, Telemetry } from '../src/cli/telemetry.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
@@ -162,4 +164,107 @@ test('the catch-up settings change one at a time, turn off with null, and refuse
   }
   assert.deepEqual(config().catchUp, { daily: null, pileUp: null }, 'a refused change changes nothing');
   assert.equal(setCatchUp(root, { pileUp: 1 }).pileUp, 1);
+});
+
+const until = async check => {
+  while (!check()) await new Promise(resolve => setTimeout(resolve, 5));
+};
+
+test('a catch-up covers exactly the uncovered unread reports, once it has finished, and one runs at a time', { timeout: 20000 }, async t => {
+  const root = home(t);
+  const answered = Promise.withResolvers();
+  const { app, asked } = await openHobkin(t, root, () => answered.promise);
+  const long = `Useful: The mail check found a letter from the bank.\n\n${'The letter asks for a signed form before Friday. '.repeat(30)}`;
+  await finishRun(app, 'digest-1', 'Useful: The digest found two invoices.');
+  saveShortReport(root, 'digest-1', 'Two invoices came in.');
+  await finishRun(app, 'mail-1', long, { scheduleId: 'mail', title: 'Mail' });
+  await finishRun(app, 'quiet-1', 'Nothing new.', { trigger: 'manual' });
+  await finishRun(app, 'opened-1', 'Useful: Opened already.');
+  app.recordReportRead({ id: 'opened-1', dwellMs: 5000 });
+  await app.refresh();
+
+  assert.deepEqual(startCatchUp(root, app), { message: 'hobkin is writing a catch-up of 2 unread reports. It shows in Reports when it is done, in about a minute.' });
+  assert.equal(readCatchUp(root).running, true);
+  assert.deepEqual(startCatchUp(root, app), { message: 'hobkin is already writing a catch-up. Reports that came in since go in the next one.' });
+  await until(() => asked.length);
+
+  const [request] = asked;
+  assert.equal(request.purpose, 'catch-up');
+  assert.equal(request.model, 'fixture/fast');
+  assert.equal(request.effort, 'low');
+  const { reports, routines } = JSON.parse(request.prompt);
+  assert.deepEqual(reports.map(({ id }) => id), ['mail-1', 'digest-1'], 'newest first, and only the uncovered unread ones');
+  assert.deepEqual(reports[1], {
+    id: 'digest-1', title: 'Digest', routine: 'digest', at: reports[1].at, outcome: 'completed',
+    triage: 'Useful: The digest found two invoices.', text: 'Two invoices came in.',
+  });
+  assert.equal(reports[0].triage, 'Useful: The mail check found a letter from the bank.');
+  assert.equal(reports[0].text, `${long.slice(0, 600).trimEnd()}…`, 'with no short version, the start of the body');
+  assert.ok(Array.isArray(routines));
+
+  await finishRun(app, 'late-1', 'Useful: This came in while the catch-up was written.');
+  answered.resolve({ status: 'completed', text: CATCH_UP_TEXT, cost: null });
+  await catchUpIdle(root);
+  const listed = (await app.refresh()).reports;
+
+  const states = Object.fromEntries(listed.map(({ id, readState }) => [id, readState]));
+  assert.deepEqual([states['digest-1'], states['mail-1'], states['late-1'], states['opened-1']], ['caught-up', 'caught-up', undefined, 'read']);
+  const written = listed.find(({ scheduleId }) => scheduleId === 'catch-up');
+  assert.equal(written.title, 'Catch-up');
+  assert.equal(written.body, CATCH_UP_TEXT);
+  const caught = app.telemetry.events.filter(({ type }) => type === 'report_caught_up');
+  assert.deepEqual(caught.map(({ id, by }) => [id, by]), [['mail-1', written.id], ['digest-1', written.id]]);
+  const after = readCatchUp(root);
+  assert.equal(after.running, false);
+  assert.equal(after.uncovered, 1, 'the report that came in during the run, and never the catch-up itself');
+  assert.ok(Number.isFinite(Date.parse(after.lastAt)));
+});
+
+test('a catch-up that fails covers nothing, and with nothing uncovered none starts', { timeout: 20000 }, async t => {
+  const root = home(t);
+  const answers = [{ status: 'failed', text: '', error: 'The model is not signed in.' }, { status: 'completed', text: '  ' }];
+  const { app, asked } = await openHobkin(t, root, () => answers.shift());
+
+  assert.deepEqual(startCatchUp(root, app), { message: 'Nothing to catch up on: every report is read or already in a catch-up.' });
+  assert.equal(readCatchUp(root).running, false);
+
+  await finishRun(app, 'digest-1', 'Useful: The digest found two invoices.');
+  await app.refresh();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    startCatchUp(root, app);
+    await catchUpIdle(root);
+    await app.refresh();
+  }
+
+  assert.equal(asked.length, 2);
+  assert.equal(app.telemetry.events.some(({ type }) => type === 'report_caught_up'), false);
+  assert.deepEqual(readCatchUp(root), { daily: '08:00', pileUp: 8, running: false, lastAt: null, uncovered: 1 });
+});
+
+test('with no fast model to write it, no catch-up starts and hobkin says so', { timeout: 20000 }, async t => {
+  const root = home(t);
+  const { app, asked } = await openHobkin(t, root);
+  await finishRun(app, 'digest-1', 'Useful: The digest found two invoices.');
+  await app.refresh();
+  const { tiers, background: { model, ...background }, ...config } = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8'));
+  atomicJson(join(root, 'config.json'), { ...config, background });
+
+  assert.deepEqual(startCatchUp(root, app), { message: 'hobkin has no fast model to write a catch-up with. Choose one for the fast tier in Settings.' });
+  assert.equal(asked.length, 0);
+});
+
+test('the catch-up runs with no tools, and its prompt asks for a one-minute read in three parts that links each report and changes nothing', t => {
+  const root = home(t);
+  const { args } = buildInvocation({
+    id: '00000000-0000-4000-8000-000000000000', harness: 'pi', purpose: 'catch-up', cwd: root, model: 'fixture/fast', effort: 'low',
+    prompt: '{"reports":[],"routines":[]}', sessionFile: join(root, 'job.jsonl'),
+  });
+
+  assert.ok(args.includes('--no-tools'));
+  const prompt = args[args.indexOf('--system-prompt') + 1];
+  assert.match(prompt, /under 200 words/);
+  for (const label of ['Critical:', 'Blocked:', 'Useful:']) assert.ok(prompt.includes(`\`${label}`), label);
+  for (const part of ['## What happened', '## Open these', '## Skippable']) assert.ok(prompt.includes(part), part);
+  assert.ok(prompt.includes('[title](hobkin-report:<id>)'));
+  assert.match(prompt, /Never pause, change or delete a routine/);
 });
