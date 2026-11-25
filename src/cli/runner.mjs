@@ -334,7 +334,13 @@ export class HobkinRunner {
 
   /** A living job's turn ended without `hobkin_done`, saying `said`: it sits idle until a turn starts on it again. */
   jobIdle({ id, title, scheduleId }, said) {
-    this.idle.set(id, { title, routineId: scheduleId, since: new Date(this.now()).toISOString(), said: String(said ?? '').trim().slice(0, LONGEST_SAID), told: false });
+    this.idle.set(id, {
+      title,
+      routineId: scheduleId,
+      since: new Date(this.now()).toISOString(),
+      said: String(said ?? '').trim().slice(0, LONGEST_SAID),
+      told: false,
+    });
   }
 
   /** A turn started on a living job, so it works again. */
@@ -344,8 +350,9 @@ export class HobkinRunner {
 
   /** What living jobs said as their turns ended that the main agent has not heard yet, oldest first. A turn that said nothing tells nobody. */
   idleReplies() {
-    return [...this.idle].filter(([, idle]) => !idle.told && idle.said).map(([id, idle]) => ({ id, ...idle }))
-      .toSorted((a, b) => a.since.localeCompare(b.since));
+    const untold = [...this.idle].filter(([, idle]) => idle.said && !idle.told);
+    const replies = untold.map(([id, idle]) => ({ id, ...idle }));
+    return replies.toSorted((a, b) => a.since.localeCompare(b.since));
   }
 
   /** The main agent heard these replies. A job that has since ended a later turn is told that one too. */

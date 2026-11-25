@@ -533,8 +533,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     try {
       // Pi's own waits need its process to stay up, which a run here does not unless it lives until done, so the agent
       // is told so once and goes on.
-      const stoppedOnCall = assistant?.stopReason === 'toolUse' && !untilDone;
-      const piWaits = stoppedOnCall && !toldPiWait ? [...calledLast].filter(name => PI_WAIT_TOOLS.includes(name)) : [];
+      const stoppedOnCall = assistant?.stopReason === 'toolUse';
+      const piWaits = stoppedOnCall && !untilDone && !toldPiWait ? [...calledLast].filter(name => PI_WAIT_TOOLS.includes(name)) : [];
       if (piWaits.length) {
         request.signal?.throwIfAborted();
         toldPiWait = true;
@@ -679,9 +679,10 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     const scheduledUntil = !untilDone && !asked && assistant?.stopReason === 'stop' && Number.isInteger(request.waits) && request.waits < MOST_WAITS ? schedulesUntil() : null;
     // A schedule with no end keeps it waiting with no time to start again: only a wake, or the schedule's end, starts it.
     const waiting = asked || typeof scheduledUntil === 'number';
-    const ended = waiting || done !== undefined;
-    if (!ended && assistant?.stopReason === 'toolUse') throw Error(stoppedMidStep([...calledLast]));
-    if (!ended && (assistant?.stopReason !== 'stop' || !result.text.trim())) {
+    // A run that waits, or whose agent said it is done, chose its end, so its last reply need not be its report.
+    const chosenEnd = waiting || done !== undefined;
+    if (!chosenEnd && assistant?.stopReason === 'toolUse') throw Error(stoppedMidStep([...calledLast]));
+    if (!chosenEnd && (assistant?.stopReason !== 'stop' || !result.text.trim())) {
       throw Error(`Pi did not finish a response (${assistant?.stopReason ?? 'missing'}).`);
     }
     if (extensionErrors.size) {

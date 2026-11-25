@@ -27,8 +27,11 @@ export const recordSessionEnd = ({ name, report, userStop }, now = Date.now()) =
  * What a job's report says when hobkin closed or died while the job lived (072-jobs-live-until-done): that it was cut
  * off and not started again, then what its agent last said, if anything.
  */
-export const cutOffReport = said => ['This job was cut off when hobkin closed or restarted, before its agent said it was done. Nothing started it again.',
-  ...(said?.trim() ? [`What it said last:\n\n${said.trim()}`] : [])].join('\n\n');
+export function cutOffReport(said) {
+  const cutOff = 'This job was cut off when hobkin closed or restarted, before its agent said it was done. Nothing started it again.';
+  const last = said?.trim();
+  return last ? `${cutOff}\n\nWhat it said last:\n\n${last}` : cutOff;
+}
 
 /**
  * What a session's end leaves: its last reply as the report when it wrote none, and its end in the session log. The run

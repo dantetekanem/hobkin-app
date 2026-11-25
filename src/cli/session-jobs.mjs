@@ -100,7 +100,8 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
       onWoken: () => runner.jobWoken(request.id),
     });
     // hobkin closing stops every job, and one it stopped says so in its report (072-jobs-live-until-done).
-    return runner.stopped && run?.status === 'interrupted' ? { ...run, text: cutOffReport(run.text) } : run;
+    const cutOff = runner.stopped && run?.status === 'interrupted';
+    return cutOff ? { ...run, text: cutOffReport(run.text) } : run;
   }, () => { admitted = true; }, { resume });
 
   return work.then(run => {
