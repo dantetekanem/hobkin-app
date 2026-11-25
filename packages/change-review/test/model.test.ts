@@ -135,6 +135,26 @@ describe('reviewRequest', () => {
     assert.deepEqual([request.cut, data.cut], [[], []])
   })
 
+  it('includes the late regression cases in a realistic Bun file and puts failed cases before passing noise when bounded', () => {
+    const path = 'test/turn.test.js'
+    const cases = Array.from({ length: 48 }, (_, i) => ({ path, name: 'case ' + i, status: 'passed' as const }))
+    const reads = (receipts: TestRun['cases']) => {
+      const node = { ...nodes[1]!, runs: [{ ...baseline, tests: [path], cases: receipts }] }
+      return sent(reviewRequest({ triage, nodes: [node], units, code }).prompt).data.nodes[0]!.runs[0]!
+    }
+    assert.match(reads(cases.slice(0, 29)), /case 28 \[passed\]/)
+    assert.match(reads([cases[0]!, { path, name: 'one skipped case', status: 'skipped' }]), /passed with skipped cases/)
+    assert.match(reads([...cases, { path, name: 'rejected move', status: 'failed' }]), /rejected move \[failed\]/)
+  })
+
+  it('reports an unrun file even when its runner exited zero', () => {
+    const notRun = 'the test runner found no test to run.'
+    const node = { ...nodes[1]!, runs: [{ ...baseline, not_run: notRun }] }
+    const request = reviewRequest({ triage, nodes: [node], units, code })
+
+    assert.match(sent(request.prompt).data.nodes[0]!.runs[0]!, /not run: the test runner found no test to run/)
+  })
+
   it('caps each excerpt at 40 lines and the prompt at its limit, cutting from the least severe node and saying what was cut', () => {
     const long = Array.from({ length: 60 }, (_, index) => `+  line ${index + 1}`).join('\n')
     const capped = reviewRequest({ triage, nodes, units, code: { ...code, n5: long } })

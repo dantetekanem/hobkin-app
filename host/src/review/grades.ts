@@ -55,8 +55,8 @@ export interface GradesBridgeOptions {
 
 export class GradesBridge {
   private readonly options: GradesBridgeOptions
-  /** What happened to each change at each commit, so a refresh that looks again sends nothing twice. */
-  private readonly done = new Map<string, GradeOutcome>()
+  /** Refreshes repeat the same grades; a rebuilt review at the same commit can have new evidence. */
+  private readonly done = new Map<string, { evidence: string; outcome: GradeOutcome }>()
 
   constructor(options: GradesBridgeOptions) {
     this.options = options
@@ -64,33 +64,34 @@ export class GradesBridge {
 
   /** What became of this change's grades at this commit, when the host sent or refused to send them. */
   outcomeOf(target: ReviewTarget, head: string): GradeOutcome | undefined {
-    return this.done.get(`${reviewIdOf(target)}@${head}`)
+    return this.done.get(`${reviewIdOf(target)}@${head}`)?.outcome
   }
 
-  /** Sends a finished review's ratings once for each commit. A refusal is kept and not asked again until the change moves. */
+  /** Send a finished review's grades once; reconsider them when the evidence changes. */
   async send(target: ReviewTarget, needs: ReviewNeeds | null | undefined, current: string | null): Promise<GradeOutcome> {
     if (target.kind !== 'change') return { state: 'skipped', why: 'Only a hobkin change has grades to record.' }
     const grades = gradesOf(needs, current)
     if (!grades) return { state: 'skipped', why: 'Its ratings are not the change review\'s complete ratings at the commit the change is at.' }
     const key = `${reviewIdOf(target)}@${grades.head}`
+    const evidence = JSON.stringify(grades)
     const known = this.done.get(key)
-    if (known && known.state !== 'unavailable') return known
+    if (known?.evidence === evidence && known.outcome.state !== 'unavailable') return known.outcome
 
     const { recordGrades } = await (this.options.runtime ?? hobkinGradesRuntime)()
     if (!recordGrades) {
       // Not kept: once hobkin has the door, the same review goes.
       const none: GradeOutcome = { state: 'unavailable' }
-      this.done.set(key, none)
+      this.done.set(key, { evidence, outcome: none })
       return none
     }
     try {
       await recordGrades(this.options.root(), target.slug, target.item, grades)
       const recorded: GradeOutcome = { state: 'recorded' }
-      this.done.set(key, recorded)
+      this.done.set(key, { evidence, outcome: recorded })
       return recorded
     } catch (error) {
       const refused: GradeOutcome = { state: 'refused', why: messageOf(error) }
-      this.done.set(key, refused)
+      this.done.set(key, { evidence, outcome: refused })
       this.options.log?.(`Grades of ${reviewIdOf(target)} at ${grades.head.slice(0, 7)} were not recorded: ${refused.why}`)
       return refused
     }

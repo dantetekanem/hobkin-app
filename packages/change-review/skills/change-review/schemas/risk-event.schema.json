@@ -25,6 +25,30 @@
       "minLength": 20,
       "description": "Base/head evidence for the same input and consumer; required for pre-existing."
     },
+    "grounding": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["code-path", "regression-test", "coverage-gap", "hypothesis", "model-only"] },
+        "trigger": { "type": "string" },
+        "trace": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "required": ["role", "path", "line", "side", "quote"],
+            "properties": {
+              "role": { "enum": ["consumer", "change"] },
+              "path": { "type": "string", "minLength": 1 },
+              "line": { "type": "integer", "minimum": 1 },
+              "side": { "enum": ["base", "head"] },
+              "quote": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
     "node": {
       "type": "string",
       "description": "Node id from graph.json."

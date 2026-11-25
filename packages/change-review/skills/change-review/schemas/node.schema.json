@@ -26,7 +26,22 @@
     "runs": {
       "type": "array",
       "description": "Test runs that executed this node's changed lines, or tried to.",
-      "items": { "type": "object", "required": ["command", "exit_code", "seconds", "executed_changed_lines"], "properties": { "command": { "type": "string" }, "test": { "type": "string" }, "entry": { "type": "string" }, "condition_state": { "enum": ["default", "on", "off"] }, "exit_code": { "type": "integer" }, "seconds": { "type": "number" }, "executed_changed_lines": { "type": "boolean" }, "doubles": { "type": "array", "items": { "type": "string" }, "description": "What the test stubbed or mocked on the path." }, "test_changed_in_diff": { "type": "boolean" } } }
+      "items": {
+        "type": "object",
+        "required": ["command", "kind", "tests", "failed", "exit_code", "seconds", "condition_state"],
+        "properties": {
+          "command": { "type": "string" },
+          "kind": { "enum": ["baseline", "revert", "probe", "reach"] },
+          "node": { "type": "string" },
+          "condition_state": { "enum": ["default", "on", "off"] },
+          "exit_code": { "type": "integer" },
+          "seconds": { "type": "number" },
+          "tests": { "type": "array", "items": { "type": "string" } },
+          "failed": { "type": "array", "items": { "type": "string" } },
+          "not_run": { "type": "string" },
+          "cases": { "type": "array", "items": { "type": "object", "required": ["path", "name", "status"], "properties": { "path": { "type": "string" }, "name": { "type": "string" }, "status": { "enum": ["passed", "failed", "skipped"] } } } }
+        }
+      }
     },
     "level": {
       "oneOf": [

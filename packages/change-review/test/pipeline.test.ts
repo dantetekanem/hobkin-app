@@ -173,6 +173,43 @@ function fakeModel() {
 
 const levelsOf = (units: Units) => Object.fromEntries(units.units.map((unit) => [unit.nodes.join(','), unit.level])) as Record<string, Level>
 
+test('internal signature migration is not a deployment break; real contract, data and consumer risks remain', async (t) => {
+  const path = 'src/Enemy.js'
+  const before = 'export default class Enemy {\n  async moveAway(apCost = 10) {\n    this.enemy.ap -= apCost;\n  }\n  async turn(turn) {\n    await this.moveAway();\n  }\n}\n'
+  const after = before.replace('moveAway(apCost = 10)', 'moveAway(destination, apCost)').replace('await this.moveAway();', 'await this.moveAway(turn.destination, 10);')
+  const { repo, base, head, out } = repoOf(t, { [path]: before }, { [path]: after })
+  const anchor: ScanAnchor = { id: 'move', symbol: 'Enemy.moveAway', kind: 'method', path, startLine: 2, endLine: 4, changedLines: [2], signatureChanged: true, language: 'javascript', status: 'modified', tests: [], callers: { total: 1, shown: 1, complete: true }, callSites: [{ id: 'turn', symbol: 'Enemy.turn', path, line: 6, text: 'await this.moveAway(turn.destination, 10);', resolution: 'exact', guards: [] }] }
+  const cases: [string, Partial<ScanAnchor>, Level][] = [
+    ['complete internal migration', {}, 'mid'],
+    ['within-repo export', { entry: { kind: 'export', exact: true } }, 'mid'],
+    ['incomplete callers', { callers: { total: 2, shown: 1, complete: false } }, 'high'],
+    ['ambiguous consumer', { callSites: [{ ...anchor.callSites![0]!, resolution: 'static_candidate' }] }, 'high'],
+    ['published package contract', { entry: { kind: 'export', exact: true, doors: [{ kind: 'export', title: 'package export', file: 'package.json', line: 1 }] } }, 'high'],
+    ['serialized data', { effects: [{ kind: 'write', line: 3, text: 'persistent write' }] }, 'high'],
+  ]
+  for (const [name, patch, expected] of cases) {
+    const scan = scanWith([{ ...anchor, ...patch }])
+    const result = await reviewChange({ cwd: repo, base, head, out: `${out}-${name.replaceAll(' ', '-')}`, scan: scanning(scan), proof: noTestsRan, ratingTries: 0,
+      entriesAbove: async () => ({ entries: {}, notes: [], stops: {} }), entryTests: async () => ({ ok: false, reason: 'not searched in this fixture' }),
+      model: expected === 'mid' ? async ({ pass }) => pass !== 'review' ? null : JSON.stringify({ events: [{ node: 'move', level: 'high', direction: 'up', aspect: 'failure', origin: 'introduced', evidence: 'Both callers pass the destination and cost. No broken caller is shown.', comparison: 'Base selected its destination; head receives it from the migrated internal caller.', grounding: { kind: 'code-path', trigger: 'a retreat turn', trace: [
+        { role: 'consumer', path, line: 6, side: 'head', quote: '    await this.moveAway(turn.destination, 10);' },
+        { role: 'change', path, line: 2, side: 'base', quote: '  async moveAway(apCost = 10) {' },
+        { role: 'change', path, line: 2, side: 'head', quote: '  async moveAway(destination, apCost) {' },
+      ] } }], words: { answer: 'Risky to deploy: a hypothetical old-form caller loses AP.' } }) : undefined,
+    })
+    const node = result.graph.nodes.find((node) => node.id === 'move')!
+    assert.equal(node.level!.current, expected, name)
+    assert.equal(Boolean(node.extras.compatibleInternalCallShape), expected === 'mid', name)
+    assert.equal(result.answer.deploy, expected === 'mid' ? 'safe' : 'risky', name)
+    if (expected === 'mid') {
+      assert.equal(result.rejected.length, 1)
+      assert.equal(result.storyBy, 'host')
+      assert.match(result.story, /Safe to deploy/)
+    }
+    assert.equal(execFileSync('git', ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8' }), '')
+  }
+})
+
 test('the blind check runs once and changes no level', async (t) => {
   const { repo, base, head, out, git } = project(t)
   const { model, calls } = fakeModel()
@@ -307,7 +344,7 @@ test('a removed definition is decided by what still refers to it: nothing is saf
   const removed = (id: string, symbol: string, startLine: number, value: number): ScanAnchor => ({
     id, symbol, kind: 'function', path: 'src/shop.js', startLine, endLine: startLine + 2, changedLines: [], removed: [{ oldStart: startLine - 1, lines: ['', `export function ${symbol}() {`, `  return ${value}`, '}'] }], tests: [],
   })
-  const dangling = [{ symbol: 'called', path: 'src/shop.js', references: [{ path: 'src/user.js', line: 1, text: "import { called } from './shop.js'" }] }]
+  const dangling = [{ symbol: 'called', path: 'src/shop.js', references: [{ path: 'src/user.js', line: 1, text: "import { called } from './shop.js'", resolution: 'exact' }] }]
   const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanWith([removed('n1', 'unused', 5, 2), removed('n2', 'called', 9, 3)], dangling)) })
   const of = (id: string) => result.graph.nodes.find((node) => node.id === id)!
 
@@ -433,7 +470,11 @@ test('a change of tests alone runs them at its commit, and the graph keeps every
   ]
   const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanWith(anchors)) })
   const told = (graph: { runs?: { kind: string; node?: string; tests: string[]; failed: string[] }[] }) => (graph.runs ?? []).map((run) => [run.kind, run.node ?? '', [...run.tests].sort().join(' '), run.failed.join(' ')])
-  assert.deepEqual(told(result.graph), [['baseline', '', 'test/limits.test.js test/total.test.js', '']])
+  assert.deepEqual(told(result.graph), [
+    ['baseline', '', 'test/limits.test.js test/total.test.js', ''],
+    ['baseline', '', 'test/limits.test.js', ''],
+    ['baseline', '', 'test/total.test.js', ''],
+  ])
   assert.deepEqual(result.graph.not_run, [{ path: 'test/models/cart_test.rb', why: 'this review runs tests with the test script in package.json runs node --test, which does not take it.' }])
   const saved = JSON.parse(readFileSync(join(out, 'graph.json'), 'utf8'))
   assert.deepEqual([told(saved), saved.not_run], [told(result.graph), result.graph.not_run], 'graph.json keeps them')
@@ -635,7 +676,8 @@ test('a test the change removes, and one it edits to assert less, are on the par
   assert.deepEqual(result.graph.removed_tests, [{ path: 'test/total.test.js', symbol: 'adds', base_line: 10, names: ['total'] }])
   const total = result.graph.nodes.find((node) => node.id === 'n1')!
   assert.deepEqual(total.tests, [
-    { path: 'test/total.test.js', symbol: 'rounds', line: 5, relation: 'edited', found: 'scan', lifecycle: false, at_head: 'passed', shows: 'still-passes', why: 'the scan links it to total; this diff changed it and it names total; named after src/total.js', weakened: { assertions_removed: 1, lines: [7] } },
+    { path: 'test/total.test.js', relation: 'edited', found: 'scan', lifecycle: false, at_head: 'passed', shows: 'still-passes', why: 'the scan links it to total; this diff changed it and it names total; named after src/total.js' },
+    { path: 'test/total.test.js', symbol: 'rounds', line: 5, relation: 'edited', found: 'scan', lifecycle: false, at_head: 'not-run', why: 'the scan links it to total; this diff changed it and it names total; named after src/total.js', weakened: { assertions_removed: 1, lines: [7] } },
     { path: 'test/total.test.js', symbol: 'adds', line: 10, relation: 'removed', found: 'diff', lifecycle: false },
   ])
 })
@@ -733,7 +775,7 @@ test('a helper its direct tests prove, with an older request test running throug
     helper.facts.proof.evidence,
     'test/helpers/posts.test.js fails when linkUserTags is put back to base; test/e2e/topics.test.js runs through linkUserTags and passes with the change (it fails when linkUserTags is made to throw): a life-cycle test this diff did not change.',
   )
-  assert.deepEqual(helper.runs.map((run) => run.kind), ['baseline', 'revert', 'revert', 'revert', 'baseline', 'reach'])
+  assert.deepEqual(helper.runs.map((run) => run.kind), ['baseline', 'baseline', 'baseline', 'revert', 'revert', 'revert', 'baseline', 'reach'])
   // Rule 9: tests fail without the change, and a test goes through a request to it. A test changed with it shows the
   // change, so nothing says none did.
   assert.deepEqual([helper.level?.current, helper.level?.rule, helper.extras.testChangedWithIt], ['safe', 9, true])
@@ -769,16 +811,16 @@ test('where a part runs from, its tests and its zone set no level: the same part
 
 test('a whole review of the mentions change comes out rated, at its commit, and the ratings change no unit, story, level or answer', async (t) => {
   const { repo, base, head, out } = mentionsProject(t)
-  const score = (value: number, evidence: string) => ({ score: value, evidence })
+  const score = (value: number, evidence: string, fact: string) => ({ score: value, evidence, facts: [fact] })
   const needs = {
     kind: 'performance',
     missing: 'A request test that counts the lookups.',
     scores: {
-      coverage: score(9, 'test/helpers/posts.test.js fails when linkUserTags is put back, and test/e2e/topics.test.js runs through it.'),
-      proof: score(8, 'test/helpers/posts.test.js was added for this change and counts the lookups.'),
-      safety: score(9, 'linkUserTags only reads users; nothing is written.'),
-      visibility: score(5, 'No monitoring is known for this project.'),
-      rollback: score(9, 'A rollback undoes it; nothing is stored.'),
+      coverage: score(8, 'test/helpers/posts.test.js proves linkUserTags; the unmapped script remains unproven.', 'n1:proof'),
+      proof: score(8, 'test/helpers/posts.test.js was added for this change and counts the lookups.', 'n1:proof'),
+      safety: score(9, 'linkUserTags only reads users; nothing is written.', 'n1:risk'),
+      visibility: score(5, 'No monitoring is known for this project.', 'monitoring'),
+      rollback: score(9, 'A rollback undoes it; nothing is stored.', 'n1:undo'),
     },
   }
   const asks: string[] = []
@@ -922,6 +964,122 @@ test('an answer with an empty map gives the same review as one with none', async
   assert.deepEqual(readFileSync(join(`${out}-empty`, 'story-words.json'), 'utf8'), readFileSync(join(out, 'story-words.json'), 'utf8'))
 })
 
+test('a name-only hit on a local DOM variable is not a removed-member break', async (t) => {
+  const { repo, base, head, out } = repoOf(t,
+    { 'src/panel.js': 'class Panel {\n  indicator = null\n}\n', 'src/local.js': 'const indicator = document.querySelector(".indicator")\nindicator.remove()\n' },
+    { 'src/panel.js': 'class Panel {}\n' },
+  )
+  const scan = scanWith([], [{ symbol: 'Panel#indicator', path: 'src/panel.js', oldLine: 2, references: [{ path: 'src/local.js', line: 2, text: 'indicator.remove()', resolution: 'static_candidate' }] }])
+  let references
+  const model: ModelRunner = async ({ pass, prompt }) => {
+    if (pass === 'review') references = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1)).nodes.find((node: { id: string }) => node.id === 'x1').reference_sites
+    return null
+  }
+  const result = await reviewChange({ cwd: repo, base, head, out, scan: scanning(scan), proof: noTestsRan, ratingTries: 0, model })
+  assert.deepEqual(references, [{ path: 'src/local.js', line: 2, resolution: 'static_candidate', context: [{ line: 1, text: 'const indicator = document.querySelector(".indicator")' }, { line: 2, text: 'indicator.remove()' }, { line: 3, text: '' }] }])
+  const removed = result.graph.nodes.find((node) => node.id === 'x1')!
+  assert.equal(removed.level!.current, 'mid')
+  assert.equal(removed.critical, false)
+  assert.equal(removed.extras.unreferencedRemoval, undefined)
+  assert.match(removed.questions[0]!.why, /binding|receiver/)
+  assert.ok(removed.findings.some((finding) => finding.rule === 'unresolved-reference'))
+})
+
+test('a baseline recheck after mutating another part does not enter this part’s evidence', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const result = await reviewChange({ cwd: repo, base, head, out, scan: scanning(scanOf()), proof: async (request) => {
+    const file = request.candidates.n1![0]!.path
+    const run = { command: 'test', kind: 'baseline' as const, tests: [file], failed: [], condition_state: 'default' as const, exit_code: 0, seconds: 1 }
+    return { clean: true, nodes: {}, findings: [], runs: [run, { ...run, node: 'another-part' }] }
+  } })
+  assert.deepEqual(result.graph.nodes.find((node) => node.id === 'n1')!.runs.map((run) => run.node), [undefined])
+})
+
+test('runs the surviving test file at a candidate reference without crediting the removed member as proven', async (t) => {
+  const testPath = 'test/menu.test.mjs'
+  const { repo, base, head, out } = repoOf(t,
+    { 'src/enemy.js': 'class Enemy { get actions() { return {} } }', [testPath]: "import test from 'node:test'\nimport assert from 'node:assert/strict'\ntest('menu', () => { const actions = []; assert.equal(actions.length, 0) })\n" },
+    { 'src/enemy.js': 'class Enemy {}' },
+  )
+  const scan = scanWith([], [{ symbol: 'Enemy.actions', path: 'src/enemy.js', oldLine: 1, references: [{ path: testPath, line: 3, text: 'const actions = []', resolution: 'static_candidate' }] }])
+  const result = await reviewChange({ cwd: repo, base, head, out, scan: scanning(scan), runbook: { command: [process.execPath, '--test'] } })
+  const node = result.graph.nodes.find((part) => part.symbol === 'Enemy.actions')!
+  assert.deepEqual(node.runs.map((run) => [run.kind, run.tests, run.exit_code]), [['baseline', [testPath], 0]])
+  assert.equal(node.facts.proof.value, 'not-applicable')
+  assert.equal(node.tests?.some((item) => item.shows === 'proves'), false)
+})
+
+test('the review input includes unchanged callee return contracts and changed parametrized tests missing from the scan', async (t) => {
+  const board = ['export function move(unit) {', '  if (unit.blocked) return false', ...Array.from({ length: 80 }, (_, index) => `  // unchanged work ${index}`), '  if (!unit.ready) return Promise.reject(new Error("not ready"))', '  return Promise.resolve(true)', '}'].join('\n')
+  const parameterized = "import { test, expect } from 'bun:test'\nimport { execute } from '../src/turn.js'\ntest.each([false, true])('keeps move result %s', (result) => {\n  expect(execute({}, { move: () => result })).toBe(result)\n})\n"
+  const { repo, base, head, out } = repoOf(t,
+    { 'src/turn.js': 'export function execute(unit, board) {\n  board.move(unit)\n  return true\n}\n', 'src/board.js': board },
+    { 'src/turn.js': 'export function execute(unit, board) {\n  return board.move(unit)\n}\n', 'test/turn.test.js': parameterized },
+  )
+  const scan = scanWith([{ id: 'n1', symbol: 'execute', kind: 'function', path: 'src/turn.js', startLine: 1, endLine: 3, changedLines: [2], status: 'modified', tests: [] }])
+  scan.nodes.board = { id: 'board', symbol: 'move', kind: 'function', path: 'src/board.js', startLine: 1, endLine: 85 }
+  scan.edges.push({ from: 'n1', to: 'board', relationship: 'calls', resolution: 'exact', line: 2 })
+  let data: any
+  await reviewChange({ cwd: repo, base, head, out, scan: scanning(scan), proof: noTestsRan, ratingTries: 0, model: async ({ pass, prompt }) => {
+    if (pass !== 'review') return null
+    data = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1))
+    return '{}'
+  } })
+  const callee = data.context.find((entry: { symbol: string }) => entry.symbol === 'move')
+  assert.equal(callee.direct, true)
+  assert.ok(callee.code.some((line: { line: number; text: string }) => line.line === 2 && line.text.includes('return false')))
+  assert.ok(callee.code.some((line: { line: number; text: string }) => line.line === 84 && line.text.includes('Promise.resolve(true)')))
+  assert.ok(callee.code.some((line: { text: string }) => line.text.includes('Promise.reject')))
+  assert.ok(callee.code.length <= 40)
+  const changedTest = data.test_code.find((entry: { path: string }) => entry.path === 'test/turn.test.js')
+  assert.ok(changedTest.code.some((line: { line: number; text: string }) => line.line === 3 && line.text.includes('test.each')))
+  assert.ok(changedTest.code.some((line: { text: string }) => line.text.includes('toBe(result)')))
+})
+
+test('a rejected high claim cannot survive in the narrative or depress numerical safety', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const result = await reviewChange({ cwd: repo, base, head, out, scan: scanning(scanOf()), proof: noTestsRan, ratingTries: 0, model: async ({ pass }) => pass === 'review' ? JSON.stringify({
+    events: [{ node: 'n1', level: 'high', critical: true, direction: 'up', aspect: 'failure', origin: 'unknown', evidence: 'total() crashes every checkout because callers omit both arguments.' }],
+    words: { title: 'total() crashes every checkout', answer: 'Risky to deploy: total() crashes every checkout.', units: { u1: { title: 'total() crashes every checkout' } } },
+    map: [{ op: 'describe', node: 'n1', title: 'total() crashes every checkout' }],
+    needs: { kind: 'bug-fix', missing: 'Stop total() crashing every checkout.', scores: { safety: { score: 6, evidence: 'total() crashes every checkout.', facts: ['n1:risk'] } } },
+  }) : null })
+  assert.equal(result.rejected.length, 1)
+  assert.doesNotMatch(result.story, /total\(\) crashes/)
+  assert.equal(result.needs?.scores.safety, undefined)
+  assert.equal(result.needs?.missing, undefined)
+  assert.ok(result.notRated?.missing.includes('safety'))
+})
+
+test('the Reviewer receives actual caller arguments and only exact-head hosted checks', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const scan = scanOf()
+  scan.anchors[0]!.callSites = [{ id: 'checkout', symbol: 'checkout', path: 'src/checkout.js', line: 4, text: 'total(1.2, 1.4)', resolution: 'exact', guards: [] }]
+  for (const checkHead of [head, base]) {
+    let data: any
+    const model: ModelRunner = async ({ pass, prompt }) => {
+      if (pass !== 'review') return null
+      data = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1))
+      return '{}'
+    }
+    const result = await reviewChange({ cwd: repo, base, head, out: `${out}-${checkHead}`, scan: scanning(scan), proof: noTestsRan, model, ratingTries: 0,
+      hostedChecks: { status: 'available', headSha: head, checks: [{ name: 'suite', status: 'completed', conclusion: 'success', headSha: checkHead }], truncated: false },
+    })
+    assert.equal(data.nodes.find((node: { id: string }) => node.id === 'n1').call_sites[0].text, 'total(1.2, 1.4)')
+    assert.equal(data.hosted_checks.status, checkHead === head ? 'available' : 'unknown')
+    assert.equal(data.hosted_checks.checks.length, checkHead === head ? 1 : 0)
+    assert.deepEqual(result.graph.hostedChecks, data.hosted_checks)
+    assert.deepEqual(JSON.parse(readFileSync(join(`${out}-${checkHead}`, 'graph.json'), 'utf8')).hostedChecks, data.hosted_checks)
+    assert.ok(data.rating_evidence['n1:proof'])
+    const excerpts = data.nodes.find((node: { id: string }) => node.id === 'n1').source_excerpts
+    assert.equal(excerpts.base.line, 1)
+    assert.match(excerpts.base.text, /return a \+ b/)
+    assert.match(excerpts.head.text, /return Math.round\(a \+ b\)/)
+  }
+  const noModel = await reviewChange({ cwd: repo, base, head, out: `${out}-no-model`, scan: scanning(scan), proof: noTestsRan, hostedChecks: { status: 'unknown', headSha: head, checks: [], truncated: false, reason: 'Checks unavailable.' } })
+  assert.equal(noModel.graph.hostedChecks!.status, 'unknown')
+})
+
 const SALE_SPEC = '_specs/tla/sale/Sale.tla'
 const SALE_CFG = '_specs/tla/sale/Sale.cfg'
 
@@ -982,7 +1140,13 @@ test('a TLA+ model TLC checked at the head is evidence the Reviewer is given: it
 
 for (const origin of ['pre-existing', 'introduced', 'worsened'] as const) {
   test(`Review steps distinguish ${origin} consumer failure`, async (t) => {
-    const { repo, base, head, out } = modeledSale(t)
+    const { repo, base, head, out } = repoOf(t,
+      { 'src/sale.js': 'export function sell(stock, count) {\n  return stock - count\n}\n', 'src/consumer.js': "import { sell } from './sale.js'\nexport const backorder = -sell(3, 4)\n" },
+      { 'src/sale.js': 'export function sell(stock, count) {\n  return count > stock ? stock : stock - count\n}\n' },
+    )
+    const scan = saleScan()
+    scan.anchors[0]!.callSites = [{ id: 'consumer', symbol: 'backorder', path: 'src/consumer.js', line: 2, text: 'sell(3, 4)', resolution: 'exact', guards: [] }]
+    scan.nodes.consumer = { id: 'consumer', symbol: 'backorder', path: 'src/consumer.js', kind: 'constant', startLine: 2, endLine: 2 }
     const historical = origin === 'pre-existing'
     const title = historical ? 'Validation exposes an old stock failure' : 'The stock consumer now fails'
     const explanation = historical
@@ -993,11 +1157,15 @@ for (const origin of ['pre-existing', 'introduced', 'worsened'] as const) {
       const data = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1))
       const unit = data.units.find((unit: { nodes: string[] }) => unit.nodes.includes('n1'))
       return JSON.stringify({
-        events: [{ node: 'n1', level: 'high', critical: true, origin, comparison: explanation, direction: 'up', aspect: 'failure', evidence: 'The stock consumer rejects the input of four units against three in stock.' }],
+        events: [{ node: 'n1', level: 'high', critical: true, origin, comparison: explanation, direction: 'up', aspect: 'failure', evidence: 'The stock consumer computes a backorder of -3 instead of 1 for four units against three in stock.', grounding: { kind: 'code-path', trigger: 'the consumer requests four units against three in stock', trace: [
+          { role: 'consumer', path: 'src/consumer.js', line: 2, side: 'head', quote: 'export const backorder = -sell(3, 4)' },
+          { role: 'change', path: 'src/sale.js', line: 2, side: 'base', quote: 'return stock - count' },
+          { role: 'change', path: 'src/sale.js', line: 2, side: 'head', quote: 'return count > stock ? stock : stock - count' },
+        ] } }],
         words: { units: { [unit.id]: { title, what: explanation } } },
       })
     }
-    const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(saleScan()), proof: noTestsRan, model })
+    const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan), proof: noTestsRan, model, ratingTries: 0 })
     const part = result.graph.nodes.find((node) => node.id === 'n1')!
     const unit = result.units.units.find((unit) => unit.nodes.includes('n1'))!
     assert.equal(part.level?.current, historical ? 'mid' : 'high')

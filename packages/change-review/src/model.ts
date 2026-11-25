@@ -6,10 +6,12 @@
  */
 import { readFileSync } from 'node:fs'
 import { floor } from './floor.ts'
+import { isTestPath } from './triage.ts'
 import type { MapOp } from './reshape.ts'
-import { nodeLevelOf } from './risk.ts'
+import { nodeLevelOf, type RiskSource } from './risk.ts'
+import type { NeedsFacts } from './needs.ts'
 import { EVIDENCE_KINDS, LEVELS, NEED_CRITERIA, NEED_KINDS } from './types.ts'
-import type { Answered, ChangedFile, Claim, ClaimStatus, Level, FileDiff, ModelCheck, NeedCriterion, NeedKind, NeedScore, NodeTest, Question, ReviewNode, RiskEvent, RunsFrom, Signal, StoryWords, TestRun, Triage, Unit, Watch, Zone } from './types.ts'
+import type { Answered, HostedChecks, ChangedFile, Claim, ClaimStatus, Level, FileDiff, ModelCheck, NeedCriterion, NeedKind, NeedScore, NodeTest, Question, ReviewNode, RiskEvent, RunsFrom, Signal, StoryWords, TestRun, Triage, Unit, Watch, Zone } from './types.ts'
 
 /** A unit as curate drafted it, before any model words. */
 export type DraftUnit = Pick<Unit, 'id' | 'nodes' | 'grouping' | 'level' | 'title' | 'where' | 'what'>
@@ -20,10 +22,14 @@ export interface ReviewInput {
   units: readonly DraftUnit[]
   /** Each node's changed lines, by node id. */
   code: Readonly<Record<string, string>>
+  /** Snapshot reads, for bounded excerpts with trustworthy base/head line offsets. */
+  source?: RiskSource
   /** Unchanged definitions the scan found beside the change, which the Reviewer may add to the map as context. */
   context?: readonly ContextEntry[]
   /** What TLC said at this commit of the TLA+ models the change adds, edits or touches a file of: evidence, like a test that ran. */
   modelChecks?: readonly ModelCheck[]
+  hostedChecks?: HostedChecks
+  ratingEvidence?: NeedsFacts['evidence']
   /** The zones the nodes name (spec 055), which the Reviewer may rename. */
   zones?: readonly Zone[]
   /**
@@ -55,6 +61,8 @@ export interface ContextEntry {
   symbol: string
   path: string
   lines: [number, number]
+  direct?: boolean
+  code?: { line: number; text: string }[]
 }
 
 export interface ReviewAnswer {
@@ -85,6 +93,7 @@ const MONITORING_CHARS = 200
 const MAX_ORIGINS = 3
 const MAX_STEPS = 6
 const MAX_TESTS = 8
+const MAX_CASES = 32
 const TEST_AGE: Record<NodeTest['relation'], number> = { before: 0, edited: 1, added: 2, removed: 3 }
 const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
 
@@ -176,6 +185,9 @@ interface RequestData {
   zones?: { id: string; label: string }[]
   context?: ContextEntry[]
   model_checks?: ModelCheck[]
+  hosted_checks?: HostedChecks
+  rating_evidence?: NeedsFacts['evidence']
+  test_code?: { path: string; side: 'base' | 'head'; code: { line: number; text: string }[] }[]
   /** What the project's monitoring covers, or `unknown`. */
   monitoring: string[] | 'unknown'
   /** Every changed file, skipped ones included. */
@@ -277,8 +289,13 @@ function runLine(run: TestRun): string {
   const tests = run.tests.length <= 3 ? run.tests.join(', ') || 'no test files' : `${run.tests.length} test files`
   const failed = run.failed.length > 3 ? `${run.failed.slice(0, 3).join(', ')} and ${run.failed.length - 3} more` : run.failed.join(', ')
   let result = run.exit_code === 0 ? 'all passed' : 'did not pass'
-  if (failed) result = `failed: ${failed}`
-  return `${run.kind}${run.node ? ` of ${run.node}` : ''}, condition ${run.condition_state}: ${tests}, ${result} (exit ${run.exit_code}, ${run.seconds} s)`
+  if (run.not_run) result = `not run: ${plainText(run.not_run, 240)}`
+  else if (failed) result = `failed: ${failed}`
+  else if (run.exit_code === 0 && run.cases?.some((receipt) => receipt.status === 'skipped')) result = 'passed with skipped cases'
+  const receipts = [...(run.cases ?? [])].sort((a, b) => Number(a.status === 'passed') - Number(b.status === 'passed'))
+  const cases = receipts.slice(0, MAX_CASES).map(({ name, status, path }) => `${run.tests.length === 1 ? '' : plainText(path, 240) + ': '}${plainText(name, 160)} [${status}]`).join('; ')
+  const omitted = Math.max(0, receipts.length - MAX_CASES)
+  return `${run.kind}${run.node ? ` of ${run.node}` : ''}, condition ${run.condition_state}: ${tests}, ${result} (exit ${run.exit_code}, ${run.seconds} s)${cases ? `; cases: ${cases}${omitted ? `; ${omitted} more cases omitted` : ''}` : ''}`
 }
 
 /** A node's changed lines, at most 40 and none very long, with each cut said. */
@@ -291,7 +308,54 @@ function excerpt(id: string, text: string | undefined, cut: string[]): string | 
   return kept.map((line) => (line.length > CODE_LINE_CHARS ? `${line.slice(0, CODE_LINE_CHARS)}…` : line)).join('\n')
 }
 
-function nodeData(node: ReviewNode, code: string | undefined, cut: string[]): NodeData {
+/** Keep both ends and contract/changed-line windows, not just the beginning of a long definition. */
+function numberedCode(text: string, from: number, to: number, focus: number[], label: string, cut: string[]) {
+  const lines = text.split('\n')
+  const start = Math.max(1, from)
+  const end = Math.min(lines.length, to)
+  const picks = new Set<number>()
+  for (const at of [start, end, ...focus]) for (let line = Math.max(start, at - 2); line <= Math.min(end, at + 2); line++) picks.add(line)
+  const ordered = [...picks].sort((a, b) => a - b)
+  const kept = ordered.length <= CODE_LINES ? ordered : [...ordered.slice(0, CODE_LINES / 2), ...ordered.slice(-CODE_LINES / 2)]
+  if (kept.length < end - start + 1) cut.push(`${label}: ${end - start + 1 - kept.length} lines omitted; contract/changed-line windows and both ends retained`)
+  return kept.map((line) => ({ line, text: lines[line - 1]!.slice(0, CODE_LINE_CHARS) }))
+}
+
+function contextSent(entry: ContextEntry, input: ReviewInput, cut: string[]): ContextEntry {
+  const text = input.source?.(entry.path, 'head')
+  if (text == null || !entry.direct) return entry
+  const focus = text.split('\n').flatMap((line, index) => /\b(return|throw|resolve|reject)\b/.test(line) && index + 1 >= entry.lines[0] && index + 1 <= entry.lines[1] ? [index + 1] : [])
+  return { ...entry, code: numberedCode(text, ...entry.lines, focus, `callee ${entry.symbol}`, cut) }
+}
+
+function changedTestCode(input: ReviewInput, cut: string[]): NonNullable<RequestData['test_code']> {
+  const files = (input.diffs ?? []).filter((file) => isTestPath(file.path))
+  if (files.length > MAX_TESTS) cut.push(`changed test source: ${files.length - MAX_TESTS} files omitted`)
+  return files.slice(0, MAX_TESTS).flatMap((file) => {
+    const side = input.files?.find((entry) => entry.path === file.path)?.status === 'deleted' ? 'base' : 'head'
+    const path = side === 'base' ? file.oldPath ?? file.path : file.path
+    const text = input.source?.(path, side)
+    if (text == null) return []
+    const focus = file.hunks.flatMap((hunk) => Array.from({ length: side === 'base' ? hunk.oldLines : hunk.newLines }, (_, index) => (side === 'base' ? hunk.oldStart : hunk.newStart) + index))
+    return [{ path, side, code: numberedCode(text, 1, text.split('\n').length, focus, `test ${path}`, cut) }]
+  })
+}
+
+function sourceExcerpts(node: ReviewNode, input: ReviewInput, cut: string[]) {
+  if (!input.source) return undefined
+  const file = input.diffs?.find((file) => file.path === node.path)
+  const at = node.changed_lines[0] ?? node.lines[0]
+  const hunk = file?.hunks.find((hunk) => at >= hunk.newStart && at < hunk.newStart + hunk.newLines)
+  return Object.fromEntries((['base', 'head'] as const).flatMap((side) => {
+    const path = side === 'base' ? file?.oldPath ?? node.path : node.path
+    const text = input.source!(path, side)
+    if (text === null) return []
+    const line = Math.max(1, side === 'base' ? hunk?.oldStart ?? node.lines[0] : Math.max(node.lines[0], at - 3))
+    return [[side, { path, line, text: excerpt(`${node.id} at ${side}`, text.split('\n').slice(line - 1, line + CODE_LINES).join('\n'), cut) }]]
+  }))
+}
+
+function nodeData(node: ReviewNode, code: string | undefined, cut: string[], input: ReviewInput): NodeData {
   const level = levelOf(node)
   return {
     id: node.id,
@@ -315,11 +379,14 @@ function nodeData(node: ReviewNode, code: string | undefined, cut: string[]): No
     ...(node.tests?.length ? { tests: testsSent(node.id, node.tests, cut) } : {}),
     ...(node.zone ? { zone: node.zone } : {}),
     ...(node.callers ? { callers: { total: node.callers.total, complete: node.callers.complete } } : {}),
+    ...(node.reference_sites?.length ? { reference_sites: node.reference_sites } : {}),
+    ...(node.callSites?.length ? { call_sites: node.callSites.slice(0, 12).map((site) => ({ ...site, text: site.text?.slice(0, 600) })), call_sites_omitted: Math.max(0, node.callSites.length - 12) } : {}),
     sensitive: node.sensitive,
     ...(node.findings.length ? { findings: node.findings.map((finding) => finding.text) } : {}),
     ...(node.questions.length ? { questions: node.questions.map((question) => question.text) } : {}),
     ...(node.unverified ? { unverified: node.unverified } : {}),
     ...(code === undefined ? {} : { code }),
+    ...(input.source ? { source_excerpts: sourceExcerpts(node, input, cut) } : {}),
   }
 }
 
@@ -339,6 +406,10 @@ function fit(data: RequestData, limit: number) {
     delete data.context
     data.cut.push('the unchanged definitions near the change left out to fit the size limit')
   }
+  if (data.test_code && !fits()) {
+    delete data.test_code
+    data.cut.push('changed test source left out to fit the size limit')
+  }
   if (data.skipped_diffs && !fits()) {
     delete data.skipped_diffs
     data.cut.push('the diffs of skipped files left out to fit the size limit')
@@ -352,8 +423,9 @@ function fit(data: RequestData, limit: number) {
   }
   for (const node of data.nodes.toReversed()) {
     if (fits()) return
-    if (node.code === undefined) continue
+    if (node.code === undefined && node.source_excerpts === undefined) continue
     delete node.code
+    delete node.source_excerpts
     data.cut.push(`code of ${node.id} left out to fit the size limit`)
   }
   for (const node of data.nodes.toReversed().filter((candidate) => candidate.task === 'words')) {
@@ -382,13 +454,16 @@ export function reviewRequest(input: ReviewInput): ReviewRequest {
     change: { range: triage.range, mode: triage.mode, description_source: triage.description_source, totals: triage.totals, ...(input.onlyUnread ? { only_unread: true } : {}) },
     claims: triage.claims.slice(0, MAX_CLAIMS).map(({ text, source }) => ({ text, source })),
     directives: directives.slice(0, MAX_DIRECTIVES),
-    nodes: input.nodes.map((node) => nodeData(node, excerpt(node.id, input.code[node.id], cut), cut)).sort(worstFirst),
+    nodes: input.nodes.map((node) => nodeData(node, excerpt(node.id, input.code[node.id], cut), cut, input)).sort(worstFirst),
     units: input.units.map(({ id, nodes, grouping, level, title, where, what }) => ({ id, nodes, grouping, level, title, where, what })),
     ...(input.zones?.length ? { zones: input.zones.map(({ id, label }) => ({ id, label })) } : {}),
-    ...(context.length ? { context: context.slice(0, MAX_CONTEXT).map(({ symbol, path, lines }) => ({ symbol, path, lines })) } : {}),
+    ...(context.length ? { context: context.slice(0, MAX_CONTEXT).map((entry) => contextSent(entry, input, cut)) } : {}),
     ...(input.modelChecks?.length
       ? { model_checks: input.modelChecks.map(({ spec, run, result, states, rules, unfired, models, broken, steps, message }) => ({ spec, run, result, states, rules, unfired, models, broken, steps, message })) }
       : {}),
+    ...(input.source ? { test_code: changedTestCode(input, cut) } : {}),
+    ...(input.hostedChecks ? { hosted_checks: input.hostedChecks } : {}),
+    ...(input.ratingEvidence ? { rating_evidence: input.ratingEvidence } : {}),
     monitoring: monitoring.length ? monitoring.slice(0, MAX_MONITORING) : 'unknown',
     ...filesSent(input, cut),
     cut,
@@ -406,7 +481,7 @@ const SUGGEST_KINDS = ['add-flag', 'resolve-callers', 'restructure', 'add-test']
 const SIGNAL_KINDS = ['metric', 'log', 'trace', 'error-report'] as const
 const STATUSES = ['verified', 'contradicted', 'unverifiable'] as const satisfies readonly ClaimStatus[]
 /** The fields of schemas/risk-event.schema.json, and `watch` from types.ts. */
-const EVENT_FIELDS = ['origin', 'comparison', 'node', 'level', 'direction', 'aspect', 'evidence', 'evidence_kind', 'lines', 'critical', 'confidence', 'rule', 'questions', 'suggest', 'watch', 'by']
+const EVENT_FIELDS = ['origin', 'comparison', 'grounding', 'node', 'level', 'direction', 'aspect', 'evidence', 'evidence_kind', 'lines', 'critical', 'confidence', 'rule', 'questions', 'suggest', 'watch', 'by']
 const WORD_FIELDS = ['title', 'does', 'answer', 'setting', 'units']
 const MIN_EVIDENCE = 20
 const MAX_EVENTS_PER_NODE = 10
@@ -588,6 +663,13 @@ function eventOf(raw: unknown, index: number, nodes: ReadonlySet<string>, proble
     evidence: problems.capped(raw.evidence as string, LIMITS.evidence, `${at}.evidence`),
   }
   if (raw.origin !== undefined) event.origin = raw.origin as RiskEvent['origin']
+  if (raw.grounding !== undefined) {
+    const grounding = raw.grounding
+    if (!isRecord(grounding) || !oneOf(['code-path', 'regression-test', 'coverage-gap', 'hypothesis', 'model-only'], grounding.kind)) return problems.drop(at, 'bad grounding kind')
+    const trace = grounding.trace
+    if (trace !== undefined && (!Array.isArray(trace) || trace.length > 12 || trace.some((site) => !isRecord(site) || !oneOf(['consumer', 'change'], site.role) || !oneOf(['base', 'head'], site.side) || !filled(site.path) || !Number.isInteger(site.line) || Number(site.line) < 1 || !filled(site.quote)))) return problems.drop(at, 'bad grounding trace')
+    event.grounding = { kind: grounding.kind as NonNullable<RiskEvent['grounding']>['kind'], ...(filled(grounding.trigger) ? { trigger: problems.capped(grounding.trigger, LIMITS.evidence, `${at}.grounding.trigger`) } : {}), ...(trace ? { trace: trace as NonNullable<RiskEvent['grounding']>['trace'] } : {}) }
+  }
   const comparison = problems.text(raw.comparison, LIMITS.evidence, `${at}.comparison`)
   if (comparison) event.comparison = comparison
   if (raw.evidence_kind !== undefined) event.evidence_kind = raw.evidence_kind as RiskEvent['evidence_kind']

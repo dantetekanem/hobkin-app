@@ -48,6 +48,15 @@ test('a finished review at the commit the change is at is recorded once, as the 
   assert.equal(runtime.calls.length, 1)
 })
 
+test('a fresh review with different evidence at the same head replaces its previous grades once', async () => {
+  const runtime = fakeRuntime()
+  const grades = bridge(runtime)
+  const original = rated()
+  const rebuilt = rated({ scores: { ...original.scores, proof: score(9) } })
+  for (const needs of [original, rebuilt, rebuilt]) await grades.send(target, needs, HEAD)
+  assert.deepEqual(runtime.calls.map(call => (call[3] as ReviewNeeds).scores.proof), [score(7), score(9)])
+})
+
 test('only ratings the host itself built, complete, for the commit the change is at, and for a change, go to the runtime', async () => {
   const runtime = fakeRuntime()
   const grades = bridge(runtime)

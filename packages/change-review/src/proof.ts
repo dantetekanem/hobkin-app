@@ -6,9 +6,9 @@
  * a request's way and a test shows it. The changed file gets its exact bytes back before anything else runs, and the
  * proof refuses a checkout that is not exactly the change. No coverage tooling, clone or sandbox.
  */
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { basename, extname, join, resolve, sep } from 'node:path'
+import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { basename, delimiter, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { gitRepo, runProgram, type GitRepo, type ProgramRun } from './git.ts'
 import type { FileDiff, Finding, Hunk, Proof, ReviewNode, Scan, TestRun } from './types.ts'
 
@@ -106,6 +106,21 @@ function packageRunbook(cwd: string): Runbook | null {
   }
   const testScript = object(pkg.scripts).test
   const script = typeof testScript === 'string' ? testScript : ''
+  if (/^\s*bun\s+test(?:\s|$)/.test(script)) {
+    // Complex shell scripts need an explicit runbook; never discard their flags or filters.
+    const words = script.trim().split(/\s+/)
+    if (!/^bun\s+test(?:\s+--(?:timeout\s+\d+|bail))*$/.test(script.trim())) return null
+    const folders = [...(process.env.PATH ?? '').split(delimiter).filter(isAbsolute), join(homedir(), '.bun/bin'), '/opt/homebrew/bin', '/usr/local/bin']
+    const bun = folders.map((folder) => join(folder, 'bun')).find((path) => {
+      try {
+        accessSync(path, constants.X_OK)
+        return statSync(path).isFile()
+      } catch {
+        return false
+      }
+    })
+    return bun ? runbook([bun, ...words.slice(1)], SCRIPT_TEST_FILES, 'the test script in package.json runs bun test') : null
+  }
   const dependencies = { ...object(pkg.dependencies), ...object(pkg.devDependencies) }
   const bin = (name: string) => join(cwd, 'node_modules', '.bin', name)
   // The node that runs this package runs node --test too: an app opened from the Finder may have no node on PATH.
@@ -137,7 +152,7 @@ export interface TestCandidate {
   /** This diff added or changed it. */
   changed: boolean
   /**
-   * How it was found first: the scan links it (`scan`), this diff changed it and it names the definition (`diff`), it is
+   * How it was found first: the scan links it (`scan`), this diff changed it and it names the definition or imports its source (`diff`), it is
    * named after the definition's file (`convention`), or it is a life-cycle test of an entry point above it (`entry`).
    */
   found?: 'scan' | 'diff' | 'convention' | 'entry'
@@ -213,6 +228,17 @@ function importsFile(text: string | null, path: string): boolean {
   return new RegExp(`['"](?:[^'"\\n]*/)?${escape(name)}(?:/index)?(?:\\.[cm]?[jt]sx?)?['"]`).test(text)
 }
 
+/* Relative imports can be resolved without guessing an alias or matching another file's basename. */
+function importsSource(text: string | null, testPath: string, sourcePath: string): boolean {
+  if (text === null) return false
+  const withoutEnding = (path: string) => path.replace(/\.[cm]?[jt]sx?$/, '').replace(/\/index$/, '')
+  const source = withoutEnding(resolve('/', sourcePath))
+  for (const match of text.matchAll(/(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)['"](\.[^'"\n]+)['"]/g)) {
+    if (withoutEnding(resolve('/', dirname(testPath), match[1]!)) === source) return true
+  }
+  return false
+}
+
 /**
  * Whether a test the scan links to a definition by name runs it. A common name reaches tests of other code: in
  * JavaScript and TypeScript a test that runs the definition directly imports its file, and one that goes through the
@@ -225,7 +251,8 @@ export async function scanLinkHolds(test: { path: string; lifecycle: boolean; te
 
 /**
  * The test files that may prove a node: the tests the scan links to it, the test files this diff changed that name
- * it, and the files named after its source file. Only files that exist are kept, the node's own file never.
+ * it, up to eight changed tests importing its source through a resolved relative path, and the files named after its
+ * source file. These are candidates, not proof. Only files that exist are kept, the node's own file never.
  */
 export async function candidateTests({
   node,
@@ -262,9 +289,16 @@ export async function candidateTests({
   }
   const name = shortName(node.symbol)
   const named = asWord(name)
+  let affinity = 0
   for (const path of changedTestPaths) {
     const text = await read(path)
     if (text !== null && named.test(text)) add(path, `this diff changed it and it names ${name}`, 'diff')
+    else if (affinity < MOST_LINKED_TESTS && SCRIPT_FILES.includes(extname(node.path)) && importsSource(text, path, node.path)) {
+      // Public-entry tests need not spell an internal callee. Imports select candidates only;
+      // the mutation run, never the filename or import, determines what they observe.
+      add(path, `this diff changed it and it imports ${node.path}`, 'diff')
+      affinity++
+    }
   }
   for (const path of conventionNames(node.path)) add(path, `named after ${node.path}`, 'convention')
 
@@ -655,7 +689,7 @@ export interface NodeProof {
   doubles: string[]
   /** The test files that ran with the definition changed and still passed: they ran, and do not observe it. */
   stillPass: string[]
-  /** The life-cycle tests among those that run through the definition: they fail once it is made to throw. */
+  /** Tests that reach the definition when it is made to throw, without proving its changed behavior. */
   reachedBy: string[]
   /** The test files that fail with the change in place and pass once it is put back: the change breaks them. */
   brokenTests?: string[]
@@ -868,8 +902,8 @@ export function couldNotStart(output: string, code: number | null): string | nul
   return null
 }
 
-/** What minitest and RSpec say when they ran no test, and still exit 0. */
-const NONE_RAN = [/\b0 runs, 0 assertions\b/, /\b0 examples, 0 failures\b/]
+/** Runner summaries that report no executed test, even when the command exits successfully. */
+const NONE_RAN = [/\b0 runs, 0 assertions\b/, /\b0 examples, 0 failures\b/, /(?:^|\n)\s*0 pass\b/, /(?:^|\n)(?:# |ℹ )pass 0\b/]
 
 function outcomeOf(run: Started): Outcome {
   if (run.timedOut) return 'timed-out'
@@ -919,6 +953,7 @@ function testEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
 
 async function start(command: Command, files: readonly string[]): Promise<Started | { stopped: string }> {
   const [program, ...args] = command.book.command
+  if (files.some((file) => file.startsWith('-'))) return { stopped: 'a test file must not be a command option.' }
   const run = await runProgram(program!, [...args, ...files], {
     cwd: command.cwd,
     env: command.env,
@@ -931,11 +966,36 @@ async function start(command: Command, files: readonly string[]): Promise<Starte
   return run.started ? run : { stopped: `${program} could not start: ${run.reason}` }
 }
 
+/** Native Bun singleton receipts only: never borrow a header from another file or infer success. */
+export function bunCases(output: string, files: readonly string[], cwd: string): NonNullable<TestRun['cases']> {
+  if (files.length !== 1 || output.length > 1024 * 1024 || !/^bun test v\d+\./.test(output)) return []
+  const path = files[0]!
+  let own = false
+  const found = new Map<string, NonNullable<TestRun['cases']>[number]>()
+  const duplicate = new Set<string>()
+  for (const line of output.split('\n')) {
+    if (line.endsWith(':') && !line.startsWith('(')) {
+      own = resolve(cwd, line.slice(0, -1)) === resolve(cwd, path)
+      continue
+    }
+    if (!own) continue
+    const match = /^\((pass|fail|skip)\) (.+?)(?: \[\d+(?:\.\d+)?ms\])?$/.exec(line)
+    if (!match) continue
+    const name = match[2]!
+    if (name.length > 500 || found.size >= 500) return []
+    if (found.has(name)) duplicate.add(name)
+    found.set(name, { path, name, status: match[1] === 'pass' ? 'passed' : match[1] === 'fail' ? 'failed' : 'skipped' })
+  }
+  return [...found.values()].filter((item) => !duplicate.has(item.name))
+}
+
 /** A run as recorded. `notRun` says why it tells nothing of its files when the run itself cannot say so. */
 function testRunOf(command: Command, files: readonly string[], kind: TestRun['kind'], node: string | undefined, run: Started, failed: string[], notRun?: string): TestRun {
   const failedAt = failed.length ? failuresIn(run.tail, failed) : []
   const why = notRun ?? (failed.length ? null : notRunOf(run))
+  const cases = basename(command.book.command[0] ?? '') === 'bun' && command.book.command[1] === 'test' && !run.aborted && !run.timedOut ? bunCases(run.tail, files, command.cwd) : []
   return {
+    ...(cases.length ? { cases } : {}),
     command: commandLine([...command.book.command, ...files]),
     tests: [...files],
     kind,
@@ -968,8 +1028,8 @@ async function runFiles(runner: Runner, files: readonly string[], kind: TestRun[
 }
 
 /**
- * Runs test files with one command: in one run when there are several, and when that fails, each file alone to learn
- * which ones fail. The batch is recorded first, naming the files that failed alone.
+ * Runs test files with one command, then verifies each file alone even when the batch passed: a green batch can
+ * include excluded or skipped files. The batch is recorded first, naming the files that failed alone.
  */
 async function runCommand(command: Command, files: readonly string[], kind: TestRun['kind'], node?: string): Promise<Ran> {
   if (files.length === 0) return { outcomes: new Map() }
@@ -983,7 +1043,7 @@ async function runCommand(command: Command, files: readonly string[], kind: Test
     const why = `the test command could not start here (${unstarted}).`
     return { outcomes: new Map(), unstarted: new Map(files.map((file) => [file, why])) }
   }
-  if (files.length === 1 || first.code === 0 || first.aborted) {
+  if (files.length === 1 || first.aborted) {
     command.record(testRunOf(command, files, kind, node, first, failedIn(first, files)))
     if (first.aborted) return { stopped: 'the proof was stopped.' }
     return { outcomes: new Map(files.map((file) => [file, outcomeOf(first)])) }
@@ -1028,6 +1088,8 @@ export interface ProofRequest {
   doublePatterns: readonly string[]
   /** The test files the change adds or edits, in the checkout: each one is run at head too, picked for a node or not. */
   changedTests?: readonly string[]
+  /** Unchanged tests containing a candidate reference: run at head, never counted as changed proof. */
+  referenceTests?: readonly string[]
   /** Most time one run may take; the runbook's when not given. */
   timeoutMs?: number
   signal?: AbortSignal
@@ -1133,7 +1195,11 @@ export async function runProof(request: ProofRequest): Promise<ProofResult> {
   const plans = nodes.map((node) => planOf(node, candidates[node.id] ?? [], books))
   // The change's own tests run at head whether a node picked them or not: a test is shown passing only where it ran.
   const picked = plans.flatMap((plan) => ('tests' in plan ? plan.tests.map((test) => test.path) : []))
-  const baselineFiles = [...new Set([...picked, ...ownTests.filter((path) => takes(books, path))])]
+  const referenced = (request.referenceTests ?? []).filter((path) => {
+    const file = resolve(cwd, path)
+    return !isAbsolute(path) && !path.startsWith('-') && isTestFile(path) && takes(books, path) && existsSync(file) && lstatSync(file).isFile() && realpathSync(file).startsWith(realpathSync(cwd) + sep)
+  })
+  const baselineFiles = [...new Set([...picked, ...ownTests.filter((path) => takes(books, path)), ...referenced])]
   const baseline = await runFiles(runner, baselineFiles, 'baseline')
   let stopped: string | null = 'stopped' in baseline ? baseline.stopped : null
   const atHead = 'outcomes' in baseline ? baseline.outcomes : new Map<string, Outcome>()
@@ -1295,11 +1361,22 @@ async function proveNode({
   passing: TestCandidate[]
   doublePatterns: readonly string[]
 }): Promise<{ answer: NodeProof } | { stopped: string }> {
-  const mutation = node.change === 'added' ? 'probe' : 'revert'
-  const made = await mutate({ runner, repo, head, node, diffs, parses }, mutation)
+  let mutation: 'probe' | 'revert' = node.change === 'added' ? 'probe' : 'revert'
+  const context = { runner, repo, head, node, diffs, parses }
+  let made = await mutate(context, mutation)
+  let fallback: string | undefined
+  if ('why' in made && mutation === 'revert') {
+    const reason = made.why
+    const thrown = await mutate(context, 'probe')
+    if (!('why' in thrown)) {
+      made = thrown
+      mutation = 'probe'
+      fallback = reason
+    }
+  }
   if ('why' in made) return { answer: unknown(`could not ${mutation === 'probe' ? 'make it throw' : 'put it back to base'}: ${made.why}`) }
   const { text, runWith } = made
-  const ran = await runWith(made.changed, passing, mutation)
+  const ran = await runWith(made.changed, passing, fallback ? 'reach' : mutation)
   if ('stopped' in ran) return ran
 
   // A file that failed with the change made observes it only if it passes again run alone at head: one that fails
@@ -1347,5 +1424,10 @@ async function proveNode({
       }
     }
   }
-  return { answer: proofOf({ symbol: node.symbol, mutation, observations, ...(reach ? { reach } : {}), timeoutMs: runner.timeoutMs }) }
+  const answer = proofOf({ symbol: node.symbol, mutation, observations, ...(reach ? { reach } : {}), timeoutMs: runner.timeoutMs })
+  if (fallback) {
+    // Throwing confirms execution, not the changed behavior of a modified definition.
+    return { answer: { ...answer, value: 'unknown', observedBy: [], reachedBy: failed.map(({ candidate }) => candidate.path), evidence: `could not put it back to base: ${fallback}; reach only: ${answer.evidence} This does not prove the change.` } }
+  }
+  return { answer }
 }

@@ -160,7 +160,7 @@ test('with no clone on this Mac, hobkin makes a blobless one through gh in its o
 })
 
 test('a clone that fails leaves nothing behind and says why; a head GitHub no longer has is refused', async (t) => {
-  const { bare, head } = github(t)
+  const { bare, base, head } = github(t)
   const root = temporaryDirectory(t)
   const gh: GhCall = async (args) => {
     mkdirSync(join(args[3]!, '.git'), { recursive: true })
@@ -174,6 +174,10 @@ test('a clone that fails leaves nothing behind and says why; a head GitHub no lo
   userClone(join(poetry, 'shop'), bare)
   const checkout = pullCheckout({ root, folders: () => [join(poetry, 'shop')], gh: noGh })
   await assert.rejects(checkout.fetch(target, { head: 'f'.repeat(40), baseBranch: 'main' }), /#12 is no longer at fffffff on GitHub: it moved while it was fetched/)
+  await checkout.fetch(target, { head, baseBranch: 'main' })
+  await assert.rejects(checkout.fetch(target, { head, baseBranch: 'main', baseSha: head }), /base.*moved/i, 'a stale base tip cannot set the range')
+  gitAt(bare)('update-ref', 'refs/pull/12/head', base)
+  await assert.rejects(checkout.fetch(target, { head, baseBranch: 'main' }), /it moved while it was fetched/, 'the old object is still local after the hosted head moved')
 })
 
 test("a pull request on a named code host is fetched from the user's own bare clone through the host's own ref, into refs of that host, moving nothing of theirs", async (t) => {

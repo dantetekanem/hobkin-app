@@ -53,6 +53,7 @@ function rowOf(input: FloorInput): Floor {
   if (input.model) return modelRow(input.model)
 
   if (input.broken) return row(1, 'high', sentence(input.broken), { critical: true })
+  if (input.unresolvedReference) return row(11, 'mid', sentence(input.unresolvedReference))
   if (input.context) return row(2, 'safe', 'Nothing in it changed: it is shown for context.')
   if (effect === 'text') return row(2, 'safe', 'Only comments, whitespace or translations changed.')
   if (input.unreferencedRemoval) return row(2, 'safe', 'Nothing that remains refers to what was removed.')
@@ -60,8 +61,9 @@ function rowOf(input: FloorInput): Floor {
   if (input.isTest) return row(2, 'safe', 'A test: it is proof for the code it runs, and is read with that code.')
   if (input.typeOnly) return row(2, 'safe', 'Only a type: the compiler checks it, and it is gone before the code runs.')
   if (undo === 'none' && exposure !== 'nobody-yet') return row(3, 'high', 'Nothing undoes it, and no condition holds it back.')
-  // Row 4: what other code or stored data relies on changed. High while nothing shows a request still working with it.
-  if ((effect === 'data' || effect === 'interface') && (exposure === 'everyone' || exposure === 'at-load') && !input.additiveSchema) {
+  // Row 4 protects external/unresolved contracts and stored data, not an accounted-for internal call migration.
+  const contractRisk = effect === 'data' || (effect === 'interface' && !input.compatibleInternalCallShape)
+  if (contractRisk && (exposure === 'everyone' || exposure === 'at-load') && !input.additiveSchema) {
     const what = effect === 'data' ? 'data it writes, sends or keeps' : 'an interface other code uses'
     if (shown) return row(4, 'mid', `It changes ${what}, and a test goes through a request to it.`)
     return row(4, 'high', `It changes ${what}, ${exposure === 'everyone' ? 'everyone runs it' : 'it takes effect at load'}, and no test goes through a request to it.`)

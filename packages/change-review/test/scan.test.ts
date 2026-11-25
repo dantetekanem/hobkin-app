@@ -140,14 +140,14 @@ test('newer anchor fields pass through when they have the expected shape, and a 
 test('a removed definition is dangling only when it is not defined elsewhere and something still refers to it', () => {
   const scan = readPack({
     dangling: [
-      { name: 'legacy_discount', oldPath: 'app/models/cart.rb', oldLine: 12, language: 'ruby', stillDefined: false, callers: [{ id: 'n4', symbol: 'Checkout#total', path: 'app/services/checkout.rb', line: 30, text: 'cart.legacy_discount', test: false }] },
+      { name: 'legacy_discount', oldPath: 'app/models/cart.rb', oldLine: 12, language: 'ruby', stillDefined: false, callers: [{ id: 'n4', symbol: 'Checkout#total', path: 'app/services/checkout.rb', line: 30, text: 'cart.legacy_discount', test: false, resolution: 'static_candidate' }] },
       { name: 'moved', oldPath: 'app/models/cart.rb', oldLine: 20, stillDefined: true, callers: [] },
       { name: 'unused', oldPath: 'app/models/cart.rb', oldLine: 40, stillDefined: false, callers: [] },
       { symbol: 'already_in_contract_shape', path: 'lib/x.rb', references: [{ path: 'lib/y.rb', line: 2, text: 'already_in_contract_shape(1)' }] },
     ],
   })
   assert.deepEqual(scan.dangling, [
-    { symbol: 'legacy_discount', path: 'app/models/cart.rb', references: [{ path: 'app/services/checkout.rb', line: 30, text: 'cart.legacy_discount' }] },
+    { symbol: 'legacy_discount', path: 'app/models/cart.rb', oldLine: 12, references: [{ path: 'app/services/checkout.rb', line: 30, text: 'cart.legacy_discount', resolution: 'static_candidate' }] },
     { symbol: 'already_in_contract_shape', path: 'lib/x.rb', references: [{ path: 'lib/y.rb', line: 2, text: 'already_in_contract_shape(1)' }] },
   ])
 })
