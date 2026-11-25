@@ -17,6 +17,7 @@ export async function pullChecks({ target, head, gh, apiOf }: { target: PullTarg
   if (!target.host && !gh) return unknown('GitHub CLI is unavailable.')
   if (!FULL_SHA.test(head)) return unknown('An exact commit SHA is required.')
   const path = `repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/commits/${head}/check-runs?per_page=100`
+
   try {
     let stdout: string
     if (target.host) {
@@ -28,6 +29,7 @@ export async function pullChecks({ target, head, gh, apiOf }: { target: PullTarg
       if (result.kind !== 'done') return unknown(`GitHub checks could not be read (${result.kind}).`)
       stdout = result.stdout
     }
+
     // Reject unexpected responses rather than turn a partial/malformed result into apparent green CI.
     if (stdout.length > 2_000_000) return unknown(`${where} checks response exceeded the evidence limit.`)
     const data = JSON.parse(stdout)

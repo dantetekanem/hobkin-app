@@ -284,6 +284,7 @@ export function pullCheckout({
       const host = hostFor(target)
       const clone = host ? await hostClone(target, host) : null
       if (!clone || !(await has(clone.folder, head))) return null
+
       const { base } = pullRefs(target)
       await fetchInto(target, clone, [`+refs/heads/${baseBranch}:${base}`])
       return git(clone.folder, 'merge-base', base, head)

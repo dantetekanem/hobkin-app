@@ -177,6 +177,9 @@ function rangeOf(pull: PullTarget, head: string | null | undefined, base?: { sha
   return { head, tip, ref }
 }
 
+/** Whether a range seen before is the one its host says now, so where it starts still holds. */
+const sameRange = (seen: PullRange | undefined, now: PullRange) => seen?.head === now.head && seen.tip === now.tip && seen.ref === now.ref
+
 /**
  * A pull request: its title, description and branches read with GET requests only, through gh on GitHub or through
  * the API command of the code host it lives on, and its code from a checkout of it on this Mac, where the review's
@@ -229,9 +232,8 @@ export function pullSource({
       const head = answer.state === 'open' ? answer.head?.sha : null
       const key = reviewIdOf(pull)
       const range = rangeOf(pull, head, answer.base)
-      const seen = ranges.get(key)
       if (!range) ranges.delete(key)
-      else if (seen?.head !== range.head || seen.tip !== range.tip || seen.ref !== range.ref) ranges.set(key, range)
+      else if (!sameRange(ranges.get(key), range)) ranges.set(key, range)
       return head ?? null
     },
     async start(target, head) {
@@ -240,8 +242,9 @@ export function pullSource({
       if (!seen || seen.head !== head) return null
       if (seen.base) return seen.base
       if (pull.host) {
+        if (!checkout?.start || !seen.ref) return null
         // A named host is asked nothing more: its clone here fetches the branch it merges into and meets it with the head.
-        const base = (await checkout?.start?.(pull, { head, baseBranch: seen.ref! })) ?? null
+        const base = await checkout.start(pull, { head, baseBranch: seen.ref })
         if (base) seen.base = base
         return base
       }

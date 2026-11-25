@@ -44,11 +44,19 @@ test('missing gh, failures, timeouts, malformed payloads and thrown errors are u
 
 test("a named host's checks are read with one GET through its own API, and gh is never asked", async () => {
   const calls: ApiCall[] = []
-  const api: HostApi = async (call) => (calls.push(call), JSON.stringify({ total_count: 2, check_runs: [run(), run('completed', 'failure')] }))
+  const api: HostApi = async (call) => {
+    calls.push(call)
+    return JSON.stringify({ total_count: 2, check_runs: [run(), run('completed', 'failure')] })
+  }
   let asked = 0
-  const gh: GhCall = async () => ((asked += 1), { kind: 'missing' })
+  const gh: GhCall = async () => {
+    asked += 1
+    return { kind: 'missing' }
+  }
   const named = { ...target, host: 'corp' }
+
   const evidence = await pullChecks({ target: named, head, gh, apiOf: () => api })
+
   assert.deepEqual(calls, [{ path: `repos/owner/repo/commits/${head}/check-runs?per_page=100` }])
   assert.deepEqual([evidence.status, evidence.checks.map((check) => check.conclusion), asked], ['available', ['success', 'failure'], 0])
 

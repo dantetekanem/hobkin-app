@@ -1137,8 +1137,9 @@ export class Reviews {
 
     // One preparation for each commit: a review already made for it is used as it is, unless older rules drew its graph.
     const kept = refresh ? null : store.read(target, head)
+    const startsNow = kept && source.start ? await source.start(target, head) : null
     // A source that cannot say where the change starts now leaves the start the kept review was made from.
-    const base = (kept && source.start ? await source.start(target, head) : null) ?? kept?.review.change.base
+    const base = startsNow ?? kept?.review.change.base
     const cached = kept?.review.change.head === head && kept.review.change.base === base && kept.meta?.graph === GRAPH_RULES ? kept : null
     if (cached) {
       this.lookedStart.set(id, { head, start: cached.review.change.base, stale: false })
@@ -1748,11 +1749,20 @@ export class Reviews {
     if (!ways.mergeBy) throw new Unavailable(`${host} has no merge entry in the code host file, so hobkin does not know how to ask it to merge. Name its merge comment there.`)
     const read = async <Value>(path: string) => JSON.parse(await api({ path })) as Value
     const repo = `repos/${target.owner}/${target.repo}`
-    type Facts = [{ state?: string; draft?: boolean; mergeable?: boolean | null; mergeable_state?: string; head?: { sha?: string; ref?: string }; base?: { ref?: string }; user?: { login?: string } }, { default_branch?: string }]
-    let facts: Facts
+    type Pull = {
+      state?: string
+      draft?: boolean
+      mergeable?: boolean | null
+      mergeable_state?: string
+      head?: { sha?: string; ref?: string }
+      base?: { ref?: string }
+      user?: { login?: string }
+    }
+    type Settings = { default_branch?: string }
+    let facts: [Pull, Settings]
     try {
       // The default branch says where a stack ends. One that cannot be read leaves its layers unread, as on GitHub.
-      facts = await Promise.all([read<Facts[0]>(`${repo}/pulls/${target.number}`), read<Facts[1]>(repo).catch(() => ({}))])
+      facts = await Promise.all([read<Pull>(`${repo}/pulls/${target.number}`), read<Settings>(repo).catch((): Settings => ({}))])
     } catch (error) {
       throw new Unavailable(messageOf(error))
     }
@@ -1762,9 +1772,11 @@ export class Reviews {
     if (pull.mergeable === false || pull.mergeable_state === 'dirty') throw new Unavailable(`${name} has conflicts on ${host}: resolve them first.`)
     const current = pull.head?.sha
     if (!current) throw new Unavailable(`${host} did not say which commit ${name} is at, so its merge is not asked.`)
+
     const into = pull.base?.ref ?? null
     if (into) await this.layersUnder(target, { base: into, head: pull.head?.ref ?? null, defaultBranch: settings.default_branch ?? null })
-    const said = current !== at ? await this.pullMovedWords(target, at, current, into ?? 'its base branch') : null
+    const whatMoved = current !== at ? await this.pullMovedWords(target, at, current, into ?? 'its base branch') : null
+
     const opened = Boolean(pull.user?.login && ways.emails.includes(pull.user.login.toLowerCase()))
     const { post: written, said: checked, suggested } = await this.fixedPost(pullReviewPost(review, notes, opened ? 'comment' : 'approve', summary, loose))
     // A review with no line to place goes on the commit it asks to merge; lines stay on the commit they were written on.
@@ -1778,7 +1790,7 @@ export class Reviews {
         : [`Approve ${name} on ${host}, as you, through its API command, ${lineComments}.`, ...checked]),
       `Then post "${comment}" on it, which asks ${host} to merge it.`,
       ...(after ? [after] : []),
-      ...(said ? [said] : []),
+      ...(whatMoved ? [whatMoved] : []),
       // Not the branch it merges into: a stacked pull request's base is the one below it.
       `It asks at commit ${current.slice(0, 7)}: if ${name} moves before then, nothing more is posted.`,
     ]

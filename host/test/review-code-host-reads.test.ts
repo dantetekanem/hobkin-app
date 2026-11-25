@@ -24,7 +24,7 @@ function repository(t: Parameters<typeof temporaryDirectory>[0]) {
   const base = git('rev-parse', 'HEAD')
   writeFileSync(join(repo, 'app/cart.rb'), 'class Cart\n  def total = 1.round\nend\n')
   git('commit', '--quiet', '-am', 'Round')
-  return { repo, base, head: git('rev-parse', 'HEAD') }
+  return { repo, git, base, head: git('rev-parse', 'HEAD') }
 }
 
 test("a named host's pull request is read through its own API, fetched by its head branch, and placed by the user's address, with no call-graph scan where the host allows no checkout", async (t) => {
@@ -60,8 +60,15 @@ test("a named host's pull request is read through its own API, fetched by its he
 test("a named host's pull request asked for again at the same commit opens the review made before, though its host says nothing of where it starts", async (t) => {
   const { repo, base, head } = repository(t)
   const api: HostApi = async () => JSON.stringify({ state: 'open', title: 'Round the total', body: '', base: { ref: 'main' }, head: { ref: 'round', sha: head }, user: { login: 'dev' } })
-  const fetched: unknown[] = []
-  const checkout = { fetch: async (_pull: unknown, asked: unknown) => (fetched.push(asked), { repo, base }), repoFor: async () => repo, deleteBranch: async () => {} }
+  let reads = 0
+  const checkout = {
+    fetch: async () => {
+      reads += 1
+      return { repo, base }
+    },
+    repoFor: async () => repo,
+    deleteBranch: async () => {},
+  }
   const source = pullSource({ gh: async () => ({ kind: 'missing' }), apiOf: () => api, checkout, whoIsMe: async () => ({ viewer: null }) })
   const reviews = new Reviews({ store: reviewStore(temporaryDirectory(t)), sources: { change: source, pull: source }, work: () => ({ workAction: async () => ({}) }), card: () => null })
   t.after(() => reviews.close())
@@ -72,23 +79,29 @@ test("a named host's pull request asked for again at the same commit opens the r
   reviews.prepare(id)
   await reviews.settled(id)
   assert.equal(reviews.status(id).state, 'ready')
-  assert.equal(fetched.length, 1, 'read once: the second ask compares with the base of the review it made')
+  assert.equal(reads, 1, 'read once: the second ask compares with the base of the review it made')
 })
 
 test("a named host's pull request retargeted at the same commit says its review is outdated, and is drawn again from where it starts now", async (t) => {
-  const { repo, base, head: round } = repository(t)
-  // One more commit on top, so the pull request can start at either commit under it.
+  const { repo, git, base, head: round } = repository(t)
+  // One more commit on top, so the pull request can start at either commit under it: main's, or release's at Round.
   writeFileSync(join(repo, 'app/cart.rb'), 'class Cart\n  def total = 1.round(2)\nend\n')
-  execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-am', 'Two places'])
-  const head = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
-  const startOf: Record<string, string> = { main: base, release: round }
+  git('commit', '--quiet', '-am', 'Two places')
+  const head = git('rev-parse', 'HEAD')
+  const startOn = (branch: string) => (branch === 'release' ? round : base)
   let into = 'main'
   const api: HostApi = async () => JSON.stringify({ state: 'open', title: 'Round the total', body: '', base: { ref: into }, head: { ref: 'round', sha: head }, user: { login: 'dev' } })
   const fetched: string[] = []
   const asked: string[] = []
   const checkout = {
-    fetch: async (_pull: unknown, { baseBranch }: { baseBranch: string }) => (fetched.push(baseBranch), { repo, base: startOf[baseBranch]! }),
-    start: async (_pull: unknown, { baseBranch }: { baseBranch: string }) => (asked.push(baseBranch), startOf[baseBranch]!),
+    fetch: async (_pull: unknown, { baseBranch }: { baseBranch: string }) => {
+      fetched.push(baseBranch)
+      return { repo, base: startOn(baseBranch) }
+    },
+    start: async (_pull: unknown, { baseBranch }: { baseBranch: string }) => {
+      asked.push(baseBranch)
+      return startOn(baseBranch)
+    },
     repoFor: async () => repo,
     deleteBranch: async () => {},
   }
@@ -101,6 +114,7 @@ test("a named host's pull request retargeted at the same commit says its review 
 
   await reviews.lookAgain(id, () => 0)
   assert.deepEqual([reviews.status(id).stale, asked], [false, []], 'the range it was read over is known: nothing more is asked')
+
   into = 'release'
   await reviews.lookAgain(id, () => 65_000)
   assert.deepEqual([reviews.status(id).stale, reviews.status(id).startsAt, asked], [true, round, ['release']])
