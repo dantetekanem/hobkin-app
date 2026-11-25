@@ -705,7 +705,12 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     const chosenEnd = waiting || done !== undefined;
     if (!chosenEnd && assistant?.stopReason === 'toolUse') throw Error(stoppedMidStep([...calledLast]));
     if (!chosenEnd && (assistant?.stopReason !== 'stop' || !result.text.trim())) {
-      throw Error(`Pi did not finish a response (${assistant?.stopReason ?? 'missing'}).`);
+      // Only retain the known quota sentence, never the provider payload or paid fallback advice.
+      const quota = assistant?.stopReason === 'error' && typeof assistant.errorMessage === 'string'
+        ? assistant.errorMessage.match(/^Quota reached\. Please wait ((?:\d{1,3}h)?(?:\d{1,3}m)?\d{1,3}s)\.(?:\s|$)/)?.[1]
+        : undefined;
+      const reason = `Pi did not finish a response (${assistant?.stopReason ?? 'missing'})`;
+      throw Error(quota ? `${reason}: Quota reached; provider reported a wait of ${quota}.` : `${reason}.`);
     }
     if (extensionErrors.size) {
       const noted = [...extensionErrors].map(error => `- ${error}`).join('\n');

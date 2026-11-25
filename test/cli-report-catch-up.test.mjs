@@ -6,11 +6,13 @@ import { join } from 'node:path';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { catchUpIdle, readCatchUp, setCatchUp, startCatchUp, tickCatchUp } from '../src/cli/catch-up.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
-import { buildInvocation } from '../src/cli/harnesses.mjs';
+import { buildInvocation, runHarness } from '../src/cli/harnesses.mjs';
 import { main } from '../src/cli/main.mjs';
 import { saveShortReport } from '../src/cli/reports.mjs';
+import { setShortReports } from '../src/cli/short-reports.mjs';
 import { reportReadStates, Telemetry } from '../src/cli/telemetry.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
+import { fakePiRpc } from './helpers/fake-rpc-pi.mjs';
 
 const MINUTE = 60000;
 const STARTED = Date.parse('2026-11-01T00:00:00Z');
@@ -58,8 +60,9 @@ async function openHobkin(t, root, options = {}) {
   const { answer = writesCatchUp, now, catchUp = {} } = options;
   Telemetry.open(root, STARTED);
   setCatchUp(root, { daily: null, pileUp: null, ...catchUp });
-  const asked = [];
+  const asked = [], purposes = [];
   const runHarness = async request => {
+    purposes.push(request.purpose);
     if (request.purpose !== 'catch-up') throw Error(`Unexpected ${request.purpose} job.`);
     asked.push(request);
     return answer(request);
@@ -73,7 +76,7 @@ async function openHobkin(t, root, options = {}) {
   });
   t.after(() => app.close());
   await app.runner.tick();
-  return { app, asked };
+  return { app, asked, purposes };
 }
 
 /** A routine's run that finished with `text` as its report, listed once hobkin refreshes. */
@@ -244,6 +247,121 @@ test('a catch-up covers exactly the uncovered unread reports, once it has finish
   assert.equal(after.running, false);
   assert.equal(after.uncovered, 1, 'the report that came in during the run, and never the catch-up itself');
   assert.ok(Number.isFinite(Date.parse(after.lastAt)));
+});
+
+test('the incident replay keeps a worker failure separate from project tests and leaves the older backlog unread', { timeout: 20000 }, async t => {
+  const root = home(t);
+  const { app, asked, purposes } = await openHobkin(t, root);
+  const worker = 'session:hobkin-land-the-enemy-turn-6f09';
+  // Replay the terminal assistant message from the incident's persisted Pi session, without a provider call.
+  const pi = fakePiRpc({ script: { prompt(reply, _reject, _command, { emit }) {
+    reply({ disposition: 'started' });
+    emit({ type: 'agent_start' });
+    emit({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', content: [],
+      errorMessage: 'Quota reached. Please wait 37m13s. (Enable AI credits fallback with /antigravity.credits on) Next: switch models or try again after reset.',
+    } });
+    emit({ type: 'agent_settled' });
+  } } });
+  const harnessId = '80cf36b5-6b8b-47f0-9112-95d4ce9501d4';
+  const ended = await app.runtime.dispatch({ id: worker, kind: 'background', scheduleId: 'session.hobkin-land-the-enemy-turn-6f09', title: 'Land the enemy turn completion tests' }, () => runHarness({
+    id: harnessId, cwd: root, harness: 'pi', model: 'fixture/local', effort: 'medium', prompt: 'Replay incident', sessionFile: join(root, `${harnessId}.jsonl`), untilDone: true,
+  }, { spawnProcess: pi.spawnProcess }));
+  assert.equal(ended.status, 'failed');
+  assert.match(ended.result.error, /Quota reached/i);
+  const { reports } = await app.refresh();
+  const old = [
+    listed('old-blog', 10, 'Useful: CI skips 10 language-navigation regressions.', { title: 'Blog improvements' }),
+    listed('old-email', 20, 'Critical: A past payment needs attention.', { title: 'Email follow-ups' }),
+  ];
+  app.snapshot = { ...app.snapshot, reports: [...reports, ...old] };
+  savedView(root, app.snapshot.reports);
+  const printed = output();
+  assert.equal(await main(['reports', 'catch-up', '--home', root], printed), 0);
+  assert.match(JSON.parse(printed.text).message, /1 unread report\./);
+  tickCatchUp(root, app);
+  await catchUpIdle(root);
+  const caughtUp = (await app.refresh()).reports.find(({ scheduleId }) => scheduleId === 'catch-up');
+  assert.equal(caughtUp.outcome, 'completed');
+  assert.match(caughtUp.body, /^Blocked: 1 worker run failed/);
+  assert.ok(caughtUp.body.includes(`[Land the enemy turn completion tests](hobkin-report:${worker})`));
+  assert.match(caughtUp.body, /Quota reached[^\n]*37m13s/i);
+  assert.doesNotMatch(caughtUp.body, /credits fallback|antigravity\.credits/);
+  assert.match(caughtUp.body, /not a project test result/i);
+  assert.match(caughtUp.body, /2 older unread reports/);
+  assert.doesNotMatch(caughtUp.body, /Blog improvements|Email follow-ups|payment|language-navigation/);
+  assert.equal(asked.length, 0, 'a worker-failure-only catch-up cannot be reinterpreted by the model');
+  assert.deepEqual(purposes, [], 'not even the report editor receives the deterministic summary');
+  const states = reportReadStates(root);
+  assert.equal(states.get(worker), 'caught-up');
+  for (const { id } of old) assert.equal(states.has(id), false, 'older reports remain available and unread');
+});
+
+test('mixed catch-up preserves distinct hosted, unrun, and failed test evidence while reporting worker failure separately', { timeout: 20000 }, async t => {
+  const root = home(t);
+  const worker = 'session:worker';
+  const cases = [
+    ['hosted', 'Useful: RpsLeague PR #197, head 75d6f19: hosted JavaScript check passed; local tests not run.'],
+    ['unrun', 'Blocked: Local tests were not run (dependencies missing); no test result.'],
+    ['red', 'Critical: Local test on head def456 failed: enemy turn expected 2, got 1.'],
+  ];
+  const answer = request => {
+    const material = JSON.parse(request.prompt);
+    assert.deepEqual(new Set(material.reports.map(({ id }) => id)), new Set(cases.map(([id]) => id)));
+    for (const [id, text] of cases) assert.equal(material.reports.find(report => report.id === id).text, text);
+    assert.equal(material.reports.some(({ id }) => id === worker), false, 'the failed run is rendered separately');
+    assert.deepEqual(material.routines.map(({ routine }) => routine), ['hosted'], 'unrelated routine attention is not current evidence');
+    return { status: 'completed', cost: null, text: `Critical: A local test failed on head def456.\n\n## What happened\n\n${cases.map(([id, text]) => `- [${id}](hobkin-report:${id}): ${text}`).join('\n')}\n\nThe hosted check passed on 75d6f19. The local test failed on def456. The dependency problem prevented the other recorded run from producing any local test evidence; these distinct results must not be attributed to a different head.` };
+  };
+  const { app, asked, purposes } = await openHobkin(t, root, { answer });
+  setShortReports(root, true, STARTED);
+  await app.runtime.dispatch({ id: worker, kind: 'background', scheduleId: 'session.worker', title: 'Land test changes' }, async () => ({
+    status: 'failed', text: '', cost: null, error: 'Pi did not finish a response (error).',
+  }));
+  // Even a stale or mistaken short version cannot change the failed run's meaning.
+  saveShortReport(root, worker, 'Project tests failed.');
+  for (const [id, text] of cases) await finishRun(app, id, text, { scheduleId: id, title: id });
+  await app.refresh();
+  atomicJson(join(root, 'runtime', 'report-attention.json'), { schedules: [
+    { scheduleId: 'hosted', title: 'Hosted checks', reports: 5, read: 3 },
+    { scheduleId: 'unrelated', title: 'Stale unrelated routine', reports: 20, read: 0, ignored: true },
+  ] });
+
+  startCatchUp(root, app);
+  await catchUpIdle(root);
+  const caughtUp = (await app.refresh()).reports.find(({ scheduleId }) => scheduleId === 'catch-up');
+  await app.shortReports.idle();
+  assert.equal(asked.length, 1);
+  assert.deepEqual(purposes, ['catch-up'], 'the final summary is not rewritten by another model');
+  assert.equal(caughtUp.outcome, 'completed');
+  assert.ok(caughtUp.body.split(/\s+/).length > 100, 'a catch-up long enough to trigger the normal short-report editor');
+  assert.equal(caughtUp.short, undefined);
+  assert.match(caughtUp.body, /^Critical: A local test failed on head def456\./);
+  assert.match(caughtUp.body, /hosted JavaScript check passed; local tests not run/);
+  assert.match(caughtUp.body, /Local tests were not run .*no test result/);
+  assert.match(caughtUp.body, /Local test on head def456 failed: enemy turn expected 2, got 1/);
+  assert.match(caughtUp.body, /\[Land test changes\]\(hobkin-report:session:worker\)/);
+  assert.match(caughtUp.body, /not a project test result/i);
+  assert.doesNotMatch(caughtUp.body, /Project tests failed/);
+  assert.equal(reportReadStates(root).get(worker), 'caught-up');
+});
+
+test('automatic catch-ups leave an older-only backlog unread; a manual catch-up can still open it as historical', { timeout: 20000 }, async t => {
+  const root = home(t);
+  const { app, asked } = await openHobkin(t, root, { answer: request => {
+    const material = JSON.parse(request.prompt);
+    assert.equal(material.historical, true);
+    assert.deepEqual(material.reports.map(({ id }) => id), ['older']);
+    return writesCatchUp();
+  } });
+  app.snapshot = { ...app.snapshot, reports: [listed('older', 10, 'Critical: An earlier finding.')] };
+  assert.match(startCatchUp(root, app, { trigger: 'scheduled' }).message, /No recent unread reports/);
+  await catchUpIdle(root);
+  assert.equal(asked.length, 0);
+  assert.equal(reportReadStates(root).has('older'), false);
+  assert.match(startCatchUp(root, app).message, /1 unread report\./);
+  await catchUpIdle(root);
+  assert.equal(asked.length, 1);
+  assert.equal(reportReadStates(root).get('older'), 'caught-up');
 });
 
 test('a catch-up that fails covers nothing, and with nothing uncovered none starts', { timeout: 20000 }, async t => {

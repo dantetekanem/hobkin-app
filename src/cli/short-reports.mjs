@@ -121,6 +121,8 @@ export class ShortReports {
   /** The reports, each with its short version when it has one. Those a new report still needs are asked for in the background. */
   carry(reports) {
     const listed = reports.map(report => {
+      // A catch-up is already short. Its execution-failure wording must reach the reader unchanged.
+      if (report.scheduleId === 'catch-up') return report;
       const short = this.shortOf(report.id);
       return short ? { ...report, short } : report;
     });
@@ -146,7 +148,7 @@ export class ShortReports {
 
   want(reports) {
     if (this.closed) return;
-    const fresh = reports.filter(({ id, at, short }) => !short && typeof at === 'string' && !this.considered.has(id));
+    const fresh = reports.filter(({ id, at, short, scheduleId }) => scheduleId !== 'catch-up' && !short && typeof at === 'string' && !this.considered.has(id));
     if (!fresh.length) return;
     const { on, since } = readShortReports(this.root);
     if (!on) return;
