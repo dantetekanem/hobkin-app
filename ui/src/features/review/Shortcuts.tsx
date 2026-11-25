@@ -14,6 +14,23 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
       [['G'], 'The whole graph'],
       [['P'], 'Story: from its first step, the steps leading'],
       [['O'], 'Free Roam: the whole graph, nothing leading. Every arrow moves between nodes'],
+      [['I'], 'The code view: the change as a diff, file by file. Again to come back to the graph where it was'],
+    ],
+  },
+  {
+    title: 'The code view',
+    keys: [
+      [['↑', '↓'], 'In the files: the file above or below, its diff beside. In the diff: the changed line above or below'],
+      [['↵', '→'], 'From the files to the diff. ← goes back'],
+      [['⌥↑', '⌥↓'], 'Any line, the unchanged ones too'],
+      [['⇧↑', '⇧↓'], 'Select lines for a note, on one side. With ⌥ through unchanged lines too'],
+      [['J', 'K'], 'The next or previous group of changes'],
+      [['home', 'end'], 'The first and last changed line'],
+      [[']', '['], 'The next or previous file'],
+      [['U', '⇧U'], 'The next or previous file not seen'],
+      [['Z', 'R'], 'Mark the file seen, or take the mark off'],
+      [['V', 'E', 'F'], 'One column or two, more lines around the changes, the whole file'],
+      [['C', 'D'], 'A comment or a question on the selected lines, written under them. On lines with a note of that kind, open it'],
     ],
   },
   {

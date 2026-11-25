@@ -7,6 +7,9 @@ import { useTiers } from '@/features/tiers/store.ts'
 import { TierChoice } from '@/features/tiers/TiersLightbox.tsx'
 import { applyTiers, readTiers } from '@/lib/host/client.ts'
 import { useHasHost } from '@/lib/host/index.ts'
+import type { ReviewLook } from '@/features/review/state/look.ts'
+import { Choice } from './SettingsScreen.tsx'
+import { useSettings } from './store.ts'
 
 /** Said under a tier that has no model of its own, with where to give it one. */
 const FOLLOWED = {
@@ -14,8 +17,34 @@ const FOLLOWED = {
   background: 'This tier has no model of its own, so it uses the checks model. Set one in Change models.',
 } as const
 
+const LOOKS: readonly { value: ReviewLook; label: string }[] = [
+  { value: 'graph', label: 'Graph' },
+  { value: 'code', label: 'Code' },
+]
+
+const LOOK_SAYS: Record<ReviewLook, string> = {
+  graph: 'The change as a story of its parts and the wires between them, in Story or Free Roam.',
+  code: 'The change as a diff, file by file, with comments and questions on its lines.',
+}
+
+/** How a review opens (spec 071): Graph, the default, or Code. Kept in the window's settings; I moves between them inside a review. */
+function LookRow() {
+  const look = useSettings((state) => state.reviewView)
+  const setLook = useSettings((state) => state.setReviewView)
+  return (
+    <div role="group" aria-label="A review opens in" className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl bg-surface px-4 py-3">
+      <div className="min-w-[16rem] flex-1">
+        <h3 className="text-[15px] leading-tight font-semibold tracking-tight">A review opens in</h3>
+        <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">{LOOK_SAYS[look]}</p>
+      </div>
+      <Choice label="A review opens in" value={look} options={LOOKS} onChoose={(value) => setLook(value)} />
+      <p className="w-60 text-[12px] leading-snug text-muted-foreground">In a review, I moves between the two.</p>
+    </div>
+  )
+}
+
 /**
- * The two tiers an AI review runs on, set here in Settings (017-model-tiers): the Reviewer, which builds the review,
+ * How a review opens, Graph or Code, kept in the window (spec 071). Then the two tiers an AI review runs on, set here in Settings (017-model-tiers): the Reviewer, which builds the review,
  * and Quick, which checks it once. A choice is saved at once, in hobkin's own settings through the host, and the next
  * review uses it. The Models window sets the same two, beside the tiers' models.
  */
@@ -60,10 +89,11 @@ export function ReviewTile() {
       <section aria-label="Reviews" className="flex h-full flex-col gap-3 rounded-3xl bg-background p-5">
         <header>
           <h2 className="eyebrow">Reviews</h2>
-          <p className="mt-1 font-heading text-[20px] leading-tight font-semibold tracking-[-0.022em]">Which tier reviews a change</p>
-          <p className="mt-1 max-w-[70ch] text-[13px] text-muted-foreground">A review uses two tiers and no other. The next review uses what is chosen here.</p>
+          <p className="mt-1 font-heading text-[20px] leading-tight font-semibold tracking-[-0.022em]">How a change is reviewed</p>
+          <p className="mt-1 max-w-[70ch] text-[13px] text-muted-foreground">How a review opens, and the two tiers it runs on: a review uses those and no other. The next review uses what is chosen here.</p>
         </header>
         <div className="flex flex-col gap-2">
+          <LookRow />
           {REVIEW_ROLES.map((role) => {
             const info = REVIEW_ROLE_INFO[role]
             const runs = shownTier(view, review[role])
