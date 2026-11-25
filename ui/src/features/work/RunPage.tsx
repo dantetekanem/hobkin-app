@@ -1,6 +1,6 @@
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { answerAgent, questionOf, useAgent, type RunningAgent } from '@/app/running-agents.ts'
 import { holdStill, useStill } from '@/app/still.ts'
@@ -129,6 +129,11 @@ function ExchangeSteps({ agentId, hue, question, waiting, idle }: { agentId: str
   const still = useStill()
   const live = useHasHost()
   const allNotes = useAgentThreads((threads) => threads.notes[agentId])
+  // What the user said to it while it worked comes back from hobkin, for a page a reload or a hot update took it from.
+  // A host from before has no such read, and the page shows what it has.
+  useEffect(() => {
+    if (live) runCommand('agent.notes', { run: agentId }).then(({ notes: kept }) => useAgentThreads.getState().recall(agentId, kept), () => {})
+  }, [agentId, live])
   // What waits for the run's turn shows above the box until the turn reads it (`QueuedRows`).
   const notes = useMemo(() => allNotes?.filter((note) => !waitsForTurn(note)), [allNotes])
   const scroll = useFollow()

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { KeptNote } from '#shared/protocol/hobkins.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { TakenBack } from '#shared/commands/registry.ts'
 import type { Attachment } from '@/features/chat/draft.ts'
@@ -30,8 +31,20 @@ interface AgentThreads {
   send: (agentId: string, text: string, deliver: (noteId: string) => Promise<AgentSendResult>, images?: readonly Attachment[], queue?: AgentNote['queue']) => Promise<AgentSendResult>
   /** Notes the user took back into the box: they leave the page. */
   drop: (agentId: string, noteIds: readonly string[]) => void
+  /** What hobkin kept of the user's notes to a run (`agent.notes`), for those this window no longer has. */
+  recall: (agentId: string, kept: readonly KeptNote[]) => void
   sync: (snapshot: WireSnapshot) => void
 }
+
+/** A note as hobkin kept it, as the page would have it: read once its turn read it in, and waiting until then. */
+const fromKept = ({ noteId, text, at, queue, receivedAt }: KeptNote): AgentNote => ({
+  id: noteId,
+  text,
+  at,
+  ...(receivedAt === undefined ? { delivery: 'waiting' as const } : { delivery: 'received' as const, receivedAt }),
+  // An interrupting note began over at once, so it waits for nothing.
+  ...(queue === 'interrupt' ? {} : { queue }),
+})
 
 /**
  * Per-run messages survive canvas changes in this window, including pending commands and refusals.
@@ -66,6 +79,16 @@ export const useAgentThreads = create<AgentThreads>()((set, get) => ({
     const notes = get().notes[agentId]
     if (!notes || !noteIds.length) return
     set({ notes: { ...get().notes, [agentId]: notes.filter((note) => !noteIds.includes(note.id)) } })
+  },
+  // A reload or a hot update takes this window's copy. Each one comes back in the order it was sent; one the window still
+  // has keeps its own copy and images.
+  recall: (agentId, kept) => {
+    const notes = get().notes[agentId] ?? []
+    const known = new Set(notes.map((note) => note.id))
+    const back = kept.filter(({ noteId }) => !known.has(noteId)).map(fromKept)
+    if (!back.length) return
+    set({ notes: { ...get().notes, [agentId]: [...notes, ...back].sort((left, right) => left.at - right.at) } })
+    get().sync(hostStore.getState().snapshot)
   },
   sync: (snapshot) => {
     let changed = false

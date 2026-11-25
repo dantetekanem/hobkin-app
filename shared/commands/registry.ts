@@ -7,7 +7,7 @@ import { BUILT_IN_THEMES, paletteProblems } from '../protocol/appearance.ts'
 import type { CatchUpState } from '../protocol/reports.ts'
 import { KEPT_ASKED_MAX, KEPT_ID_PATTERN, KEPT_NAME_MAX, type KeptThemes } from '../protocol/theme-history.ts'
 import { DRAWING_MAX_BYTES, type CanvasContent, type CanvasSaved, type CanvasState } from '../protocol/canvas.ts'
-import { HOBKIN_CLAUDE_EFFORTS, HOBKIN_MESSAGE_MAX, HOBKIN_TELL_MAX, HOBKIN_TITLE_MAX, type HobkinConversation, type HobkinReach, type HobkinSummary } from '../protocol/hobkins.ts'
+import { HOBKIN_CLAUDE_EFFORTS, HOBKIN_MESSAGE_MAX, HOBKIN_TELL_MAX, HOBKIN_TITLE_MAX, type HobkinConversation, type HobkinReach, type HobkinSummary, type KeptNote } from '../protocol/hobkins.ts'
 import { CLAUDE_AGENT_KINDS, CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_PERMISSIONS, type ClaudeCodeState } from '../protocol/claude-code.ts'
 import { CLAUDE_LEVELS } from '../tiers/claude-code.ts'
 import { DIRECTIONS_MAX_BYTES, DIRECTIONS_MISSING, type DirectionsFile, type DirectionsSaved } from '../protocol/directions.ts'
@@ -1297,6 +1297,11 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ run: words(256) }, { additionalProperties: false }),
   },
+  'agent.notes': {
+    description: "Read what the user added to an agent's run while it worked, as hobkin keeps it on the run, oldest first: each note's id, words, when hobkin took it, how it waited and when the turn read it in. None for a run hobkin does not know. Read-only.",
+    runs: 'host',
+    args: Type.Object({ run: words(256) }, { additionalProperties: false }),
+  },
   'agent.change': {
     description:
       "Change the model or thinking level of an agent that is working, by its run's id, from the window's message box (/model, /effort). `model` is a full provider/model or a short name that only one model Pi can use matches. The agent takes it from its next step. Refused for a finished agent, hobkin's own conversation and an agent on Claude Code.",
@@ -1715,6 +1720,7 @@ export interface CommandResults {
   /** `unsent`: what a turn the message interrupted never read, for the message box. */
   'agent.say': { queued: boolean; unsent?: TakenBack[] }
   'agent.dequeue': { unsent: TakenBack[] }
+  'agent.notes': { notes: KeptNote[] }
   /** What the agent works on now, in words. */
   'agent.change': { message: string }
   /** The runtime took it. A refusal comes as the command's error, in the runtime's words. */

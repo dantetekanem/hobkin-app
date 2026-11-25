@@ -64,3 +64,13 @@ test("a durable hobkin's turn takes the message as the user chose, and gives bac
   const old = await runCommand(hobkinHandlers({ app: () => ({ hobkins: {} as DurableHobkins }), claudeMissing: async () => null, modelProblem: () => null }), 'hobkin.dequeue', { id: 'a1b2c3d4' })
   assert.equal(!old.ok && old.error.code, 'unavailable')
 })
+
+test("what the user added to a run while it worked comes back for its page, and a runtime from before has none", async () => {
+  const kept = [{ noteId: NOTE, text: 'Only weekdays', at: 5, queue: 'steer' as const, receivedAt: 6 }]
+  const runner: AgentsApp['runner'] = { messageCheck: async () => null, notesOf: async (runId) => (runId === 'once:recap' ? kept : []) }
+  const handlers = agentHandlers({ app: () => ({ workAction: async () => ({}), kill: async () => true, runner }), runs: () => RUNS })
+
+  assert.deepEqual(await runCommand(handlers, 'agent.notes', { run: 'once:recap' }), { ok: true, value: { notes: kept } })
+  assert.deepEqual(await runCommand(handlers, 'agent.notes', { run: 'once:other' }), { ok: true, value: { notes: [] } })
+  assert.deepEqual(await runCommand(agentsApp().handlers, 'agent.notes', { run: 'once:recap' }), { ok: true, value: { notes: [] } })
+})

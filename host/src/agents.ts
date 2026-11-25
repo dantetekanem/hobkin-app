@@ -1,4 +1,5 @@
 import type { ImageContent, TakenBack, TalkQueue } from 'hobkin/src/cli/application.mjs'
+import type { KeptNote } from '#shared/protocol/hobkins.ts'
 import { ENDED_SCHEDULE_STATES, type AgentSchedule } from '#shared/protocol/schedules.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
@@ -20,6 +21,8 @@ export interface AgentsApp {
     messageCheck(request: { scheduleId?: string; runId?: string; noteId?: string; message?: string; images?: ImageContent[]; queue?: TalkQueue }): Promise<unknown>
     /** What waits for a running check's turn, given back. Absent in a runtime from before. */
     takeBack?(request: { scheduleId: string; runId: string }): Promise<{ unsent: TakenBack[] }>
+    /** What the user added to a run while it worked, as its record keeps it. Absent in a runtime from before, which kept none. */
+    notesOf?(runId: string): Promise<KeptNote[]>
   }
   /** Absent in a runtime from before an agent could change its model while it works. */
   runtime?: { changeRun?(runId: string, change: { model?: string; effort?: string }): Promise<{ model: string | null; effort: string | null }> }
@@ -59,7 +62,7 @@ const STOPS = { 'for-now': 'later', 'not-approved': 'decline' } as const
 
 const messageOf = (result: unknown) => String((result as { message?: unknown } | null)?.message ?? '')
 
-export function agentHandlers({ app, runs, models, images: attached, schedules }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say' | 'agent.change' | 'agent.dequeue'> {
+export function agentHandlers({ app, runs, models, images: attached, schedules }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say' | 'agent.change' | 'agent.dequeue' | 'agent.notes'> {
   /**
    * The run, while it runs, or also while it waits for its time when `waits` says so (spec 053). hobkin's own
    * conversation is no agent: its turn stops from the input.
@@ -133,6 +136,10 @@ export function agentHandlers({ app, runs, models, images: attached, schedules }
         if (error instanceof Error && 'notQueued' in error && error.notQueued === true) throw new Unavailable(error.message)
         throw error
       }
+    },
+    'agent.notes': async ({ run: id }) => {
+      const { runner } = app()
+      return { notes: runner.notesOf ? await runner.notesOf(id) : [] }
     },
     'agent.dequeue': async ({ run: id }) => {
       const run = running(id, 'It has finished, so nothing waits for it.')

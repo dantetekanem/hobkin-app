@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
-import { useAgentThreads } from '../src/features/work/agent-threads.ts'
+import type { KeptNote } from '#shared/protocol/hobkins.ts'
+import { useAgentThreads, waitsForTurn } from '../src/features/work/agent-threads.ts'
 import { hostStore } from '../src/lib/host/client.ts'
 import { initialHostState } from '../src/lib/host/state.ts'
 
@@ -100,4 +101,38 @@ test('preview messages are explicitly local, not queued for a real agent', { tim
   useAgentThreads.setState({ notes: {} })
   await useAgentThreads.getState().send('sample', 'Preview', async () => ({ sent: true, local: true }))
   assert.equal(useAgentThreads.getState().notes.sample![0]!.delivery, 'local')
+})
+
+test('notes a page lost come back from what hobkin kept, each once, in the order they were sent, with their marks', { timeout: 1000 }, async () => {
+  hostStore.setState(initialHostState, true)
+  useAgentThreads.setState({ notes: {} })
+  const [weekdays, holidays, month] = ['1', '2', '3'].map((n) => `00000000-0000-4000-8000-00000000000${n}`)
+  // The page still has one of them, with its own key.
+  let own = ''
+  await useAgentThreads.getState().send('run', 'Then sum it up', async (noteId) => ((own = noteId), { sent: true }), undefined, 'follow-up')
+  const at = useAgentThreads.getState().notes.run![0]!.at
+  hostStore.setState({ snapshot: { runs: [{ id: 'run', title: 'Recap', state: 'running' }], steeringReceipts: { run: [{ noteId: holidays, at: at + 5 }] } } })
+  const kept: KeptNote[] = [
+    { noteId: weekdays, text: 'Only weekdays', at: at - 20, queue: 'steer', receivedAt: at - 10 },
+    { noteId: own, text: 'Then sum it up', at: at + 1, queue: 'follow-up' },
+    { noteId: holidays, text: 'And the holidays', at: at + 2, queue: 'steer' },
+    { noteId: month, text: 'Plan the month instead', at: at + 3, queue: 'interrupt' },
+  ]
+
+  useAgentThreads.getState().recall('run', kept)
+  const notes = useAgentThreads.getState().notes.run!
+  assert.deepEqual(notes.map((note) => [note.text, note.delivery, note.queue]), [
+    ['Only weekdays', 'received', 'steer'],
+    ['Then sum it up', 'waiting', 'follow-up'],
+    ['And the holidays', 'received', 'steer'],
+    ['Plan the month instead', 'waiting', undefined],
+  ])
+  assert.equal(notes[1]!.at, at, 'the page keeps its own copy')
+  assert.deepEqual(notes.map(waitsForTurn), [false, true, false, false], 'only the follow-up not read yet waits above the box')
+  useAgentThreads.getState().recall('run', kept)
+  assert.equal(useAgentThreads.getState().notes.run, notes, 'nothing new, the same notes')
+
+  // The run ended: what its turn never read says so.
+  hostStore.setState({ snapshot: { runs: [{ id: 'run', title: 'Recap', state: 'completed' }] } })
+  assert.deepEqual(useAgentThreads.getState().notes.run!.map((note) => note.delivery), ['received', 'unconfirmed', 'received', 'unconfirmed'])
 })
