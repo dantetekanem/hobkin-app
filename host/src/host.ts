@@ -276,7 +276,17 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     (opened ??= options.access
       ? options.access()
       : live
-        ? piModelAccess().then((pi) => withLauncher(pi, launcherModels))
+        ? (async () => {
+            const { loadConfig } = await import('hobkin/src/cli/config.mjs')
+            let config
+            try {
+              config = loadConfig(root)
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+            }
+            const pi = await piModelAccess({}, config?.launcher ? undefined : config?.providerExtensions)
+            return withLauncher(pi, launcherModels)
+          })()
         : scriptedModelAccess())
 
   // hobkin reaches the app through one tool, which runs the same commands a click does (`013-hobkin-access`).

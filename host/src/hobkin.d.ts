@@ -87,6 +87,7 @@ declare module 'hobkin/src/cli/application.mjs' {
   export interface HobkinConfig {
     main: { cwd: string; model: string | null; effort: string }
     launcher?: unknown
+    providerExtensions?: Record<string, string>
     [key: string]: unknown
   }
 
@@ -382,6 +383,14 @@ declare module 'hobkin/src/cli/home-lock.mjs' {
 declare module 'hobkin/src/cli/migration/admission.mjs' {
   /** The folder a home's data is in: the home itself, or the data folder of a home that was upgraded in place. */
   export function resolveDataRoot(root: string): string
+}
+
+declare module 'hobkin/src/cli/provider-extensions.mjs' {
+  export function loadProviderExtensions(
+    modelRuntime: unknown,
+    selection?: Record<string, string>,
+    options?: { cwd?: string; agentDir?: string },
+  ): Promise<unknown>
 }
 
 declare module 'hobkin/src/cli/config.mjs' {

@@ -171,9 +171,13 @@ export interface LiveModelAccess extends ModelAccess {
  * Pi's own model runtime, on Pi's own files: `~/.pi/agent/auth.json`, `models.json` and the environment, as `pi` and
  * the terminal app use them. Only `--live` opens this. `options` point it elsewhere, for tests.
  */
-export async function piModelAccess(options: Record<string, unknown> = {}): Promise<LiveModelAccess> {
+export async function piModelAccess(options: Record<string, unknown> = {}, providerExtensions?: Record<string, string>): Promise<LiveModelAccess> {
   const [pi, ai, keyVariables, defaults] = await Promise.all([loadPiCodingAgent(), loadPiAi(), loadPiKeyVariables(), loadPiDefaultModels()])
   const runtime = await pi.ModelRuntime.create({ allowModelNetwork: false, ...options })
+  if (providerExtensions && Object.keys(providerExtensions).length) {
+    const { loadProviderExtensions } = await import('hobkin/src/cli/provider-extensions.mjs')
+    await loadProviderExtensions(runtime, providerExtensions)
+  }
   // The id Pi gives this machine for OpenAI's sign-in, kept in Pi's settings as `hobkin login` does it.
   const settings = pi.SettingsManager.create(process.cwd(), pi.getAgentDir())
   const nameOf = (provider: string) => runtime.getProviders().find(({ id }) => id === provider)?.name ?? provider
