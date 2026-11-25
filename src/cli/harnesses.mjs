@@ -331,6 +331,24 @@ async function changeOn(child, change) {
   return { model: state?.model ? `${state.model.provider}/${state.model.id}` : null, effort: state?.thinkingLevel ?? null };
 }
 
+/**
+ * What Pi offers this process's session as slash commands, as its `get_commands` lists them: extension commands, prompt
+ * templates and skills (`skill:name`). Asking only reads; a command runs when its text is prompted.
+ */
+async function commandsOn(child) {
+  return (await child.request('get_commands'))?.commands ?? [];
+}
+
+/**
+ * The commands of a conversation that waits between turns, from the process kept for its next turn, or null when none
+ * is kept. One still starting ahead of the turn is waited for. The process stays kept.
+ */
+export async function keptCommands(sessionFile) {
+  await startingAhead.get(sessionFile)?.settled;
+  const kept = keptProcesses.get(sessionFile);
+  return kept ? commandsOn(kept.child) : null;
+}
+
 /** The model a started process is on, once it is seen to hold the thinking level and the model that were asked for. */
 function heldModel(request, state) {
   const effortHeld = workPurposes.includes(request.purpose)
@@ -481,6 +499,7 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     force: () => { if (holding) child.force(); },
     terminate: () => { if (holding) child.terminate(); },
     changeBinding: change => (holding ? changeOn(child, change) : Promise.reject(Error('Its turn has ended.'))),
+    commands: () => (holding ? commandsOn(child) : Promise.reject(Error('Its turn has ended.'))),
   };
   let assistant;
   let metrics;
@@ -640,8 +659,9 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       spawned = Date.now();
     }
     if (durable) child.closed.then(released.resolve);
-    // Whoever holds the handle can also change the run's model and thinking level while it works (`HobkinRuntime.changeRun`).
-    onControl(durable ? lease : Object.assign(Object.create(child), { changeBinding: change => changeOn(child, change) }));
+    // Whoever holds the handle can also change the run's model and thinking level while it works (`HobkinRuntime.changeRun`),
+    // and ask what Pi offers its session as slash commands (`HobkinRuntime.runCommands`).
+    onControl(durable ? lease : Object.assign(Object.create(child), { changeBinding: change => changeOn(child, change), commands: () => commandsOn(child) }));
   } catch (error) {
     child?.terminate();
     if (child) await child.closed;

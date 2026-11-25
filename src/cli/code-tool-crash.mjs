@@ -65,6 +65,7 @@ export const restartingAfterCodeToolCrash = run => async (request, options = {})
     force: () => current.force(),
     terminate: () => current.terminate(),
     changeBinding: change => current.changeBinding(change),
+    commands: () => current.commands(),
   };
   const attempt = asked => run(asked, {
     ...options,

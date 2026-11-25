@@ -4,7 +4,7 @@ import { isAbsolute, join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { canvasSkill, closeCanvas, readCanvases } from './canvas.mjs';
 import { loadConfig } from './config.mjs';
-import { bindingChange, closeKept } from './harnesses.mjs';
+import { bindingChange, closeKept, keptCommands } from './harnesses.mjs';
 import { turnRunId, turnSchedule } from './hobkin-ids.mjs';
 import { answerTell, takeTellRequests, TELL_MAX, TOO_LONG, TURN_HOME, TURN_TOKEN, turnToken } from './hobkin-tell.mjs';
 import { MAX_MESSAGE_BYTES } from './runtime.mjs';
@@ -530,7 +530,8 @@ export class Hobkins {
       mkdirSync(join(this.root, 'hobkins'), { recursive: true, mode: 0o700 });
       const start = this.processStart(record, { harness, model, effort });
       // What changed in hobkin's memories since its index was written goes ahead of the words, once (057-shared-memory).
-      const news = this.keptMemories(record).news();
+      // The user's slash command goes in as typed, so Pi runs it, and the news waits for the next turn.
+      const news = !from && asked.startsWith('/') ? null : this.keptMemories(record).news();
       news?.told();
       // A schedule's wake is its own block already (`scheduleWakeBlock`).
       const words = from && from.kind !== 'schedule' ? messageBlock(from, asked) : asked;
@@ -699,6 +700,17 @@ export class Hobkins {
     const record = live(await this.runtime.state(), id);
     if (record.state === 'waiting') this.warm(record);
     return { ok: true };
+  }
+
+  /**
+   * What Pi offers this hobkin's own session as slash commands: its turn in flight's process, or while it waits the
+   * process kept for its next turn (`keptCommands`), which its page starts. None while no process holds it; asking
+   * starts nothing.
+   */
+  async commands(id) {
+    const record = live(await this.runtime.state(), id);
+    if (record.state === 'working' && record.run) return this.runtime.runCommands(record.run);
+    return (await keptCommands(record.sessionFile)) ?? [];
   }
 
   /** The user looked at it, so this wait is never told. */

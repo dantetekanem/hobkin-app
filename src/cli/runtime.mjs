@@ -898,6 +898,20 @@ export class HobkinRuntime {
     });
   }
 
+  /**
+   * What Pi offers a working agent's own session as slash commands, from its process handle (`commands` in
+   * `harnesses.mjs`): extension commands, prompt templates and skills, as Pi's `get_commands` lists them.
+   */
+  async runCommands(runId) {
+    const active = this.active.get(runId);
+    if (!active || active.finished) throw Error('That agent is not working.');
+    if (active.request.kind === 'main') throw Error("That is hobkin's own conversation.");
+    if (!active.admitted) throw Error('That agent has not started yet.');
+    if (!active.transport || typeof active.transport.commands !== 'function') throw Error('Its process has not started yet.');
+    if (active.transportClosed) throw Error('Its process has closed.');
+    return active.transport.commands();
+  }
+
   async forceRun(runId, stop = { source: 'user', reason: 'Stopped from the agent view.' }) {
     const active = this.active.get(runId);
     if (!active?.admitted || active.request.kind === 'main') {

@@ -194,7 +194,7 @@ test("the run's process handle and its inbox reach whichever attempt is running"
   const forced = [];
   const child = name => {
     const closed = Promise.withResolvers();
-    return { name, closed: closed.promise, close: () => closed.resolve({ code: 0 }), force: () => forced.push(name), terminate() {}, changeBinding: async change => ({ name, ...change }) };
+    return { name, closed: closed.promise, close: () => closed.resolve({ code: 0 }), force: () => forced.push(name), terminate() {}, changeBinding: async change => ({ name, ...change }), commands: async () => [{ name }] };
   };
   const children = [child('first'), child('second')];
   const sent = [];
@@ -207,6 +207,7 @@ test("the run's process handle and its inbox reach whichever attempt is running"
       await send('steer');
       handle.force();
       assert.deepEqual(await handle.changeBinding({ effort: 'high' }), { name: 'second', effort: 'high' });
+      assert.deepEqual(await handle.commands(), [{ name: 'second' }]);
     }
     own.close();
     return own.name === 'first' ? { status: 'failed', error: crashed } : { status: 'completed', text: 'Done.' };
