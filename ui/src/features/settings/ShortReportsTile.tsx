@@ -22,7 +22,7 @@ export function ShortReportsTile() {
   const line = !hasHost ? 'hobkin keeps this switch, and the host is not connected.' : problem ?? 'Each short version is one call to the fast tier. Reports from before you turn it on stay as they are.'
 
   return (
-    <Tile name="Short reports" value={shortReportsValue(on)} className="col-span-6 @max-[820px]:col-span-2">
+    <Tile name="Short reports" value={shortReportsValue(on)} className="col-span-3 @max-[820px]:col-span-2">
       <label className="flex flex-1 items-start gap-3">
         <Switch
           checked={on === true}
