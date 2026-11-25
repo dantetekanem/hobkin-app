@@ -12,6 +12,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { useSplit, useSplitSizes } from '@/features/canvas-panel/use-board.ts'
 import { Arrivals, useArrival } from '@/features/agent-activity/arrive.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
+import { AgentSkillsLine } from '@/features/agent-activity/SkillsLine.tsx'
 import { AgentTaskList } from '@/features/agent-activity/TaskList.tsx'
 import { earlierRow, useNewest, withEarlier } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
@@ -179,9 +180,10 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
       <div className="flex shrink-0 justify-center px-[10%]">
         <TeamsStrip runs={[...turns.map((turn) => turn.run), hobkin?.run]} hue={hueOf(id)} runName={hobkin?.title ?? 'This hobkin'} variant="rows" className="pb-2" />
       </div>
-      {/* The tasks of the turn in flight, as one line that stays in sight above the conversation and opens over it. */}
-      <div className="relative z-10 mx-[10%] flex shrink-0">
+      {/* The tasks of the turn in flight, as one line that stays in sight above the conversation and opens over it, and the skills it loaded after them. */}
+      <div className="relative z-10 mx-[10%] flex shrink-0 gap-3">
         <AgentTaskList agentId={liveRun} hue={hueOf(id)} />
+        <AgentSkillsLine agentId={liveRun} hue={hueOf(id)} />
       </div>
       <Conversation
         id={id}

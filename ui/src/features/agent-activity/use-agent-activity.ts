@@ -5,6 +5,7 @@ import { useNow } from '@/features/chat/use-now.ts'
 import { doingOf, hasHost } from '@/lib/host/frame.ts'
 import { hostStore, useHasHost, useHost, useWatchJob, type HostState } from '@/lib/host/index.ts'
 import { sampleAt, sampleLength } from './sample.ts'
+import { sameSkills, skillsOf } from './skills.ts'
 import { doingNow, stepCount, type Doing } from './steps.ts'
 import { sameTasks, tasksOf, type AgentTask } from './tasks.ts'
 
@@ -243,6 +244,14 @@ const tasksFrom = (activity: AgentActivity | null) => (activity ? tasksOf(activi
 /** The agent's tasks, kept as they are until a task changes. */
 export function useAgentTasks(agentId: string | null): readonly AgentTask[] {
   return useAgentActivityOf(agentId, tasksFrom, { same: sameTasks })
+}
+
+const NO_SKILLS: readonly string[] = []
+const skillsFrom = (activity: AgentActivity | null) => (activity ? skillsOf(activity.entries) : NO_SKILLS)
+
+/** The skills the agent loaded, kept as they are until it loads another. */
+export function useAgentSkills(agentId: string | null): readonly string[] {
+  return useAgentActivityOf(agentId, skillsFrom, { same: sameSkills })
 }
 
 type Mood = ReturnType<typeof doingOf>['mood']

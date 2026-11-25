@@ -13,6 +13,7 @@ import { stepsOf } from '@/features/agent-activity/steps.ts'
 import { Arrivals } from '@/features/agent-activity/arrive.ts'
 import { glowIn, helpersGlow, liveIf } from '@/features/agent-activity/glow.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
+import { SkillsLine } from '@/features/agent-activity/SkillsLine.tsx'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
 import { Tasks } from '@/features/agent-activity/TaskList.tsx'
 import { lastStepTime, mainTimeOf, type EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
@@ -85,8 +86,9 @@ export function MainAgentScreen() {
       {children.length ? <Helpers helpers={children} /> : null}
       {/* Outside the steps' scroller, so it stays in sight as they scroll. Its list opens over them from this row. */}
       {head?.any ? (
-        <div className="relative z-10 mx-[10%] flex pb-2 empty:hidden">
+        <div className="relative z-10 mx-[10%] flex gap-3 pb-2 empty:hidden">
           <MainTasks />
+          <MainSkills />
         </div>
       ) : null}
       {head === null ? (
@@ -103,6 +105,11 @@ export function MainAgentScreen() {
 /** The main agent's tasks line, which draws again only when a task changes. */
 function MainTasks() {
   return <Tasks tasks={useMainTasks()} hue={HUE} />
+}
+
+/** The skills the main agent loaded, after its tasks. It reads every step, and its line draws again only for a new skill. */
+function MainSkills() {
+  return <SkillsLine entries={useMainSteps()} hue={HUE} />
 }
 
 /**

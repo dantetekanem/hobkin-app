@@ -17,6 +17,7 @@ import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { earlierRow, useNewest } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
+import { AgentSkillsLine } from '@/features/agent-activity/SkillsLine.tsx'
 import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
 import { AgentTaskList } from '@/features/agent-activity/TaskList.tsx'
 import { lastStepTime, useActivityPresence, useAgentActivity, useAgentGlance, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
@@ -138,6 +139,8 @@ export function AgentScreen() {
                     call is a step, so a run that has any is always read here. */}
                 <TeamsStrip runs={[agentId]} hue={agent.hue} runName={agent.title} variant="line" />
                 <HelpersStrip runId={agentId} hue={agent.hue} />
+                {/* Last, so it only adds at the row's end. */}
+                <AgentSkillsLine agentId={agentId} hue={agent.hue} />
               </motion.div>
             ) : null}
           </AnimatePresence>
