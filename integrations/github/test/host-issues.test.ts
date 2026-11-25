@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { runWorkCommand } from 'hobkin/src/cli/work/commands.mjs'
 import { addIssue } from 'hobkin/src/cli/work/issues.mjs'
-import { chooseProject } from 'hobkin/src/cli/work/store.mjs'
+import { chooseProject, updateItem } from 'hobkin/src/cli/work/store.mjs'
 import type { CommandOutcome } from '#host/commands.ts'
 import type { GhCall, GhOutcome } from '#host/review/gh.ts'
 import type { WorkApp } from '#host/work.ts'
@@ -138,7 +138,7 @@ test("each issue on the GitHub page carries the hobkin work filed for it, read f
   const read = withWork(github, work)
 
   assert.deepEqual(read.issues.map(({ number, work: filed }) => [number, filed]), [
-    [12, { slug, project: 'web', item: id, state: 'open', pr: null }],
+    [12, { slug, project: 'web', item: id, state: 'open', pr: null, deploy: null }],
     [13, null],
   ])
   assert.equal(withWork(github, work), read, 'nothing changed, so nothing is read again')
@@ -148,4 +148,14 @@ test("each issue on the GitHub page carries the hobkin work filed for it, read f
   assert.equal(withWork(github, { from: 'a newer refresh' }).issues[0]!.work?.state, 'done')
   assert.equal(withWork(github, null), github, "without hobkin's work, as before hobkin opens, the issues go as they are")
   assert.equal(issueWorkReader(() => { throw new Error('hobkin is still starting.') })(github, work), github, 'and a home that cannot be read changes nothing')
+})
+
+test("an issue whose work merged on a project that deploys carries where that deploy stands, which is why GitHub still lists it open", (t) => {
+  const { root, slug } = homeWithProject(t)
+  const { id } = addIssue(root, slug, { repo: 'acme/web', number: 12, title: 'Issue 12' })
+  // As hobkin's deploys.mjs marks a merge on a project that deploys.
+  updateItem(root, slug, id, { state: 'merged', pr: 'https://github.com/acme/web/pull/40', deploy: { state: 'waiting', at: '2026-11-24T02:04:14Z' } })
+  const github: GitHubState = { ...GITHUB_UNKNOWN, connection: 'connected', issues: [listed(12)] }
+
+  assert.deepEqual(issueWorkReader(() => root)(github, {}).issues[0]!.work, { slug, project: 'web', item: id, state: 'merged', pr: 'https://github.com/acme/web/pull/40', deploy: 'waiting' })
 })

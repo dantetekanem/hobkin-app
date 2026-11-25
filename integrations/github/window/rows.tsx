@@ -15,6 +15,7 @@ import {
   MessageSquareText,
   Minus,
   PenLine,
+  Rocket,
   Sparkles,
   UserRound,
   Waypoints,
@@ -390,6 +391,8 @@ const CHIP_ICON: Record<string, LucideIcon> = {
   'Merging after your yes': LoaderCircle,
   Finished: CircleDashed,
   'PR open': GitPullRequest,
+  'Merged, waits for deploy': Rocket,
+  Deploying: LoaderCircle,
   Done: CircleCheck,
   Declined: Ban,
   Dropped: Minus,
@@ -397,8 +400,18 @@ const CHIP_ICON: Record<string, LucideIcon> = {
 
 const CHIP = 'inline-flex h-7 items-center gap-1.5 rounded-full px-3 font-heading text-[13px] font-medium whitespace-nowrap'
 
-/** What a chip's tooltip says of the item hobkin filed for an issue. A merged one reads Done, so its tooltip says it merged. */
-const filedWords = ({ state, project, item }: IssueWork) => (state === 'merged' ? `Merged on ${project} as ${item}.` : `Filed on ${project} as ${item}.`)
+/**
+ * What a chip's tooltip says of the item hobkin filed for an issue. A merged one reads Done, so its tooltip says it merged, and one whose
+ * deploy is still to hold says why GitHub lists the issue open.
+ */
+function filedWords({ state, project, item, deploy }: IssueWork): string {
+  if (state !== 'merged') return `Filed on ${project} as ${item}.`
+  const merged = `Merged on ${project} as ${item}.`
+  return deploy && deploy !== 'live' ? `${merged} ${project} deploys, so hobkin closes the issue once a deploy that carries it held.` : merged
+}
+
+/** Its pull request's address, to open while it is open and once it merged. */
+const prShown = ({ state, pr }: IssueWork): string | null => (state === 'pr' || state === 'merged' ? pr : null)
 
 /**
  * The right of an issue's card: where its work stands, then Close issue. Every row is an open issue, so every row
@@ -430,6 +443,7 @@ function IssueWorkStanding({ issue, live }: { issue: GitHubIssue; live: boolean 
   if (work || added) {
     const chip = work ? issueChip(work, placeOnWork(shown, work.slug, work.item), added) : JUST_ADDED
     const why = added ? (said?.text ?? '') : filedWords(work!)
+    const pr = work ? prShown(work) : null
     const Icon = CHIP_ICON[chip.label] ?? CircleDot
     const face = (
       <>
@@ -454,13 +468,13 @@ function IssueWorkStanding({ issue, live }: { issue: GitHubIssue; live: boolean 
             {face}
           </span>
         )}
-        {work?.state === 'pr' && work.pr ? (
+        {pr ? (
           <a
-            href={work.pr}
+            href={pr}
             target="_blank"
             rel="noopener noreferrer"
             data-stop=""
-            onClick={(event) => openLink(event, work.pr!)}
+            onClick={(event) => openLink(event, pr)}
             className="text-[13px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
           >
             Open the PR

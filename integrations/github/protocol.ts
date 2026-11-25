@@ -47,6 +47,12 @@ export interface IssueWork {
   state: string
   /** Its pull request's address, once it has one. */
   pr: string | null
+  /**
+   * Where the deploy that carries a merged item stands, on a project that deploys: `waiting`, `deploying`, `regressed` or `live`. hobkin
+   * closes the issue only once that deploy held, so until then GitHub still lists it open. Null where nothing deploys it. A host older than
+   * this does not send it.
+   */
+  deploy?: string | null
 }
 
 /** A pull request on GitHub. The app's own shape for one, whichever integration read it. */
@@ -130,7 +136,7 @@ export function sampleGitHub(now: number, round = 0): GitHubState {
   /** Lines added and removed, and files, as GitHub counts them. The ones an AI review read say the same. */
   const size = (additions: number, deletions: number, changedFiles: number) => ({ additions, deletions, changedFiles })
   /** The hobkin item filed for an issue. Where the Work sample has the item, the ids are its own, so the issue opens its queue row or card. */
-  const filed = (slug: string, item: string, state: string, pr: string | null = null): { work: IssueWork } => ({ work: { slug, project: slug, item, state, pr } })
+  const filed = (slug: string, item: string, state: string, pr: string | null = null, deploy: string | null = null): { work: IssueWork } => ({ work: { slug, project: slug, item, state, pr, deploy } })
 
   const arriving = round % 2 === 1 ? [pull('api', 1194, 'Log the request id with every error', 1, { author: 'mira', review: 'waiting', checks: 'pending', ...size(22, 3, 2) })] : []
   return {
@@ -160,7 +166,8 @@ export function sampleGitHub(now: number, round = 0): GitHubState {
       // Its run left the user a note, so its card is under Left for you.
       issue('storefront', 463, 'A guest loses their cart on signing in', 300, { labels: ['bug', 'checkout'], assigned: true, ...filed('storefront', 'f41c07', 'branch') }),
       issue('api', 1168, 'Webhook deliveries are retried forever', 600, { labels: ['bug'], assigned: true, ...filed('billing-api', '5e7c21', 'branch') }),
-      issue('api', 1172, 'Rate limit headers are missing from 429 answers', 1450, { labels: ['bug'], assigned: true, authored: true, ...filed('billing-api', 'c41a77', 'merged') }),
+      // Merged on a project that deploys: the issue stays open until a deploy that carries it held.
+      issue('api', 1172, 'Rate limit headers are missing from 429 answers', 1450, { labels: ['bug'], assigned: true, authored: true, ...filed('billing-api', 'c41a77', 'merged', at('api', 'pull', 1171), 'waiting') }),
       issue('docs', 64, 'The quick start skips the install step', 4300, { labels: ['docs'], authored: true, ...filed('docs-site', '52d0f8', 'open') }),
       issue('docs', 58, 'The export command has no page of its own', 5200, { labels: ['docs'], authored: true, ...filed('docs-site', 'd0c5e1', 'done') }),
       issue('storefront', 455, 'Receipts ignore the dark theme', 13000, { labels: ['enhancement'], authored: true, work: null }),

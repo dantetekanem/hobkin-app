@@ -110,8 +110,16 @@ export function issueHandlers(seat: IssueSeat) {
 
 type Filed = ReturnType<ReturnType<typeof filedIssues>>
 
+/** Where the deploy that carries a merged item stands, as hobkin's `deploys.mjs` marks it on the item. Null where nothing deploys it. */
+const deployOf = (item: object): string | null => {
+  const state = (item as { deploy?: { state?: unknown } | null }).deploy?.state
+  return typeof state === 'string' ? state : null
+}
+
 const workOf = (filed: Filed): IssueWork | null =>
-  filed ? { slug: filed.project.slug, project: filed.project.name ?? filed.project.slug, item: filed.item.id, state: filed.item.state, pr: filed.item.pr ?? null } : null
+  filed
+    ? { slug: filed.project.slug, project: filed.project.name ?? filed.project.slug, item: filed.item.id, state: filed.item.state, pr: filed.item.pr ?? null, deploy: deployOf(filed.item) }
+    : null
 
 /**
  * The GitHub page's issues, each with the hobkin work filed for it, so a filed issue shows where its work stands on every load. hobkin's items

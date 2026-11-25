@@ -55,6 +55,16 @@ test('the other states say where the item stands, and a queued one opens its row
   assert.equal(issueChip(filed('open'), null).target, null)
 })
 
+test('merged work on a project that deploys says it waits for its deploy, since its issue stays open until a deploy that carries it holds', () => {
+  const merged = (deploy?: string | null) => issueChip({ ...filed('merged'), ...(deploy === undefined ? {} : { deploy }) }, null)
+  // Merged since the last deploy, or carried by one that regressed: the next calm deploy closes it.
+  for (const deploy of ['waiting', 'regressed']) assert.deepEqual(merged(deploy), { label: 'Merged, waits for deploy', tone: 'quiet', target: null }, deploy)
+  assert.deepEqual(merged('deploying'), { label: 'Deploying', tone: 'live', target: null })
+  // Live, a project that does not deploy, or a host older than the deploy field: the merge is the work done.
+  for (const deploy of ['live', null, undefined]) assert.equal(merged(deploy).label, 'Done', String(deploy))
+  assert.equal(issueChip({ ...filed('done'), deploy: 'waiting' }, null).label, 'Done', 'only a merge waits for a deploy')
+})
+
 test('right after Add to queue it says Added to queue, until its item moves on from the queue', () => {
   assert.equal(JUST_ADDED.label, 'Added to queue')
   assert.equal(issueChip(filed('open'), { on: 'queue' }, true).label, 'Added to queue')
@@ -90,8 +100,8 @@ test('the sample shows every chip, one issue with nothing filed, and every chip 
     'Approve its change',
     'Declined',
     'Done',
-    'Done',
     'In queue',
+    'Merged, waits for deploy',
     'Read its note',
     'Working',
   ])
