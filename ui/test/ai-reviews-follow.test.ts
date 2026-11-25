@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
 import { followReviewList } from '../src/features/work/review-list-follow.ts'
+import { reviewStarted } from '../src/features/work/review-started.ts'
 
 const HEAD = 'f3a9c1e7'.padEnd(40, '0')
 const RUNNING: ReviewListItem = { id: 'pr:acme/web/12', kind: 'pull', title: 'Tighten the login form', project: 'acme/web', head: HEAD, state: 'ready', phase: null, error: null, assessment: { state: 'running', head: HEAD, percent: 40 }, updatedAt: '2026-11-12T12:00:00.000Z' }
@@ -101,4 +102,22 @@ test('asked to look now, the list is read at once and not ten seconds later, so 
   await answered()
   assert.equal(host.asked, 2)
   follow.stop()
+})
+
+test('a review started anywhere in this window has every list read at once, and a stopped list reads nothing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = hostWith([READY])
+  const shown: string[] = []
+  const follow = followReviewList({ run: host.run, onList: (list) => shown.push(list.reviews[0]?.assessment?.state ?? 'none'), onError: () => {} })
+  await answered()
+
+  host.reviews = [RUNNING]
+  reviewStarted('change:storefront:a1')
+  await answered()
+  assert.deepEqual(shown, ['ready', 'running'], 'read at once, not on its next turn')
+
+  follow.stop()
+  reviewStarted('change:storefront:a1')
+  await answered()
+  assert.equal(host.asked, 2)
 })

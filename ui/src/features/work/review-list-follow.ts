@@ -1,11 +1,12 @@
 import type { ReviewList } from '#shared/review/status.ts'
 import { isActive } from './ai-reviews.ts'
+import { onAnyReviewStarted } from './review-started.ts'
 
 /**
  * Following the host's list of AI reviews (`review.list`) while a screen shows it: asked at once, again every second
- * while a review runs, so its percent moves, and every three otherwise, so what changed elsewhere (a review that
- * started, a merge that landed) shows without a wait. Without
- * React, so it is tested alone; the screens' hook around it is `use-review-list.ts`.
+ * while a review runs, so its percent moves, and every three otherwise, so what changed elsewhere (a merge that landed,
+ * a review the host started) shows without a wait. A review started anywhere in this window has it asked at once.
+ * Without React, so it is tested alone; the screens' hook around it is `use-review-list.ts`.
  */
 
 const ASK_WHILE_RUNNING_MS = 1_000
@@ -39,16 +40,20 @@ export function followReviewList({ run, onList, onError }: { run: () => Promise<
     timer = setTimeout(() => void ask(), running ? ASK_WHILE_RUNNING_MS : ASK_OTHERWISE_MS)
   }
 
+  const askNow = () => {
+    if (stopped) return
+    clearTimeout(timer)
+    void ask()
+  }
+
   void ask()
+  const stopHearing = onAnyReviewStarted(askNow)
   return {
-    askNow() {
-      if (stopped) return
-      clearTimeout(timer)
-      void ask()
-    },
+    askNow,
     stop() {
       stopped = true
       clearTimeout(timer)
+      stopHearing()
     },
   }
 }
