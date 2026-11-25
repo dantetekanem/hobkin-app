@@ -35,6 +35,8 @@ const MOST_ENDED_RUNS = 20;
 const MOST_MESSAGES = 12;
 const MOST_JSON_BYTES = 8 * 1024 * 1024;
 const SESSION_TAIL_BYTES = 256 * 1024;
+const MODEL_CHARS = 120;
+const LEVEL_CHARS = 20;
 // A run never seen running in a refresh, and this old, has ended.
 const UNSEEN_MS = 30000;
 
@@ -147,6 +149,9 @@ export class TeamsAgents {
         name,
         task: cut(args.prompt, 2000) ?? '',
         modelSlot: cut(agent.modelSlot ?? args.model_slot ?? call.args.defaults?.model_slot, 60),
+        // What teams chose for it, as its result names it. A harness's are null there: its record says them, if anything.
+        model: cut(agent.model, MODEL_CHARS),
+        thinking: cut(agent.thinking, LEVEL_CHARS),
         state,
         endedAt: state === 'failed' ? shared.startedAt : undefined,
       }));
@@ -284,6 +289,8 @@ export class TeamsAgents {
       name: row.name,
       task: row.task || facts?.prompt || '',
       modelSlot: row.modelSlot,
+      model: row.model ?? facts?.ranOn?.model,
+      thinking: row.thinking ?? facts?.ranOn?.thinking,
       state,
       phase,
       startedAt: row.startedAt,
@@ -408,6 +415,7 @@ export class TeamsAgents {
       facts.set(row.key, {
         report: report && { status: report.status, createdAt: report.createdAt, summary: cut(report.summary, 400) },
         member: member && { isActive: member.isActive },
+        ranOn: member && ranOn(member),
         prompt: cut(member?.prompt ?? report?.metadata?.initialPrompt, 2000),
         runtime: ownRuntime ? fields({
           activeToolName: cut(runtime.activeToolName, 80),
@@ -480,6 +488,25 @@ function slotsOf(group) {
   const members = Array.isArray(group?.members) ? group.members : [];
   const named = members.filter(member => nameOf(member?.name) && typeof member.status === 'string');
   return new Map(named.map(member => [member.name, member.status]));
+}
+
+/**
+ * The model and thinking level teams started a member on, as its record says: an agent in Pi has its own fields, and
+ * Claude Code run as an external harness has the `--model` and `--effort` its profile passes. Another harness's
+ * arguments are not read, so what it runs on is left out.
+ */
+function ranOn(member) {
+  const harness = member.externalHarness;
+  const args = harness?.kind === 'claude' && Array.isArray(harness.args) ? harness.args : [];
+  const flag = name => {
+    const at = args.findIndex(arg => arg === name || (typeof arg === 'string' && arg.startsWith(`${name}=`)));
+    if (at === -1) return undefined;
+    return args[at] === name ? args[at + 1] : args[at].slice(name.length + 1);
+  };
+  return fields({
+    model: cut(member.model, MODEL_CHARS) ?? cut(flag('--model'), MODEL_CHARS),
+    thinking: cut(member.thinking, LEVEL_CHARS) ?? cut(flag('--effort'), LEVEL_CHARS),
+  });
 }
 
 /** A JSON file teams wrote, with when it was last written. Missing, too big or broken is nothing. */

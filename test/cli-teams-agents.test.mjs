@@ -112,6 +112,45 @@ test("a run's own spawn calls give each agent its name, task, status and times",
   ]);
 });
 
+test("each agent says the model and thinking level teams started it on, from its spawn result or teams' record of it", async t => {
+  const time = clock();
+  const dir = folder(t);
+  const claude = { name: 'write-critical', kind: 'claude', command: '/bin/claude', args: ['--model', 'claude-opus-5-5', '--effort=max'], instructions: '' };
+  const codex = { name: 'pane', kind: 'codex', command: '/bin/codex', args: ['--model', 'gpt-x'], instructions: '' };
+  session(dir, 'abc', { members: [
+    member('scout', 10_100, 'run-1', { model: 'openai-codex/gpt-6-luna', thinking: 'max' }),
+    member('fixer', 10_100, 'run-2', { modelSlot: 'write-critical', backendType: 'external-harness', externalHarness: claude }),
+    member('pane', 10_100, 'run-3', { backendType: 'external-harness', externalHarness: codex }),
+  ] });
+  const teams = layer(dir, time);
+  teams.observe('r1', started('swarm', 'spawn_swarm_agents', { agents: [{ name: 'alpha', prompt: 'A' }, { name: 'beta', prompt: 'B' }] }));
+  teams.observe('r1', ended('swarm', 'spawn_swarm_agents', { session: 'session-abc', spawned: [
+    { name: 'alpha', model: 'anthropic/claude-sonnet-5', thinking: 'high' },
+    { name: 'beta', queued: true, model: 'openai-codex/gpt-6-luna', thinking: null },
+  ] }));
+  for (const name of ['scout', 'fixer', 'pane']) {
+    teams.observe('r1', started(`call-${name}`, 'spawn_agent', { name, prompt: name }));
+    teams.observe('r1', ended(`call-${name}`, 'spawn_agent', { name, session: 'session-abc', model: null, thinking: null }));
+  }
+  const ranOn = () => view(teams.snapshot().r1, ['name', 'model', 'thinking']);
+
+  assert.deepEqual(ranOn(), [
+    { name: 'alpha', model: 'anthropic/claude-sonnet-5', thinking: 'high' },
+    { name: 'scout', model: undefined, thinking: undefined },
+    { name: 'fixer', model: undefined, thinking: undefined },
+    { name: 'pane', model: undefined, thinking: undefined },
+    { name: 'beta', model: 'openai-codex/gpt-6-luna', thinking: undefined },
+  ], 'the spawn result names what teams chose, and a level it left out stays out');
+  await teams.read();
+  assert.deepEqual(ranOn(), [
+    { name: 'alpha', model: 'anthropic/claude-sonnet-5', thinking: 'high' },
+    { name: 'scout', model: 'openai-codex/gpt-6-luna', thinking: 'max' },
+    { name: 'fixer', model: 'claude-opus-5-5', thinking: 'max' },
+    { name: 'pane', model: undefined, thinking: undefined },
+    { name: 'beta', model: 'openai-codex/gpt-6-luna', thinking: undefined },
+  ], "teams' record fills in the rest: a Pi agent's own fields, Claude Code's flags, and no other harness's");
+});
+
 test('a wake from a group that delivers each report as it comes ends only the agents its file says have settled', async t => {
   const time = clock();
   const dir = folder(t);
