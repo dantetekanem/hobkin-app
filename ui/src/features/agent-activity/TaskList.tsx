@@ -19,8 +19,11 @@ const NO_TASKS: readonly AgentTask[] = []
 /** The list never reaches the bottom of the transcript: the newest step and the way back to it stay in view. */
 const LEAVE = 56
 const LEAST_ROOM = 96
-/** The most room the row of positions takes in the bar, and how many fit it before they pack closer. */
-const TRACK_MOST = 84
+/**
+ * The room the row of positions takes in the bar, the same however many tasks there are, so the line keeps its width
+ * as tasks arrive and nothing beside it moves. How many fit it before they pack closer.
+ */
+const TRACK_ROOM = 84
 const LONG_TRACK = 16
 /** The widest the count gets up to 99 tasks, kept with tabular numbers, so the line keeps its width as tasks finish. */
 const COUNT_ROOM = '00 of 00 tasks'
@@ -146,21 +149,21 @@ function TaskBar({ tasks, hue }: { tasks: readonly AgentTask[]; hue: number }) {
 
 /**
  * A position for every task, as the review's step pager has for its steps: the finished ones filled in the agent's
- * color, the one worked on now wide and breathing, the rest faint. The wide one moves along by layout animation,
+ * color, the one worked on now twice as wide and breathing, the rest faint. They share one room of a fixed width. The wide one moves along by layout animation,
  * which Motion plays as a transform. Drawn again only when a task changes.
  */
 const Track = memo(function Track({ tasks, still }: { tasks: readonly AgentTask[]; still: boolean }) {
   // A long list packs its positions closer, in one row, as the pager does.
   const long = tasks.length > LONG_TRACK
   return (
-    <span className="flex shrink-0 items-center overflow-hidden" style={{ width: Math.min(TRACK_MOST, tasks.length * 7 + 8), gap: long ? 1 : 2 }} aria-hidden="true">
+    <span className="flex shrink-0 items-center overflow-hidden" style={{ width: TRACK_ROOM, gap: long ? 1 : 2 }} aria-hidden="true">
       {tasks.map((task) => (
         <motion.span
           key={task.id}
           layout={!still}
           transition={spring.pill}
           style={{ borderRadius: 999 }}
-          className={cn('relative h-1 overflow-hidden', task.state === 'now' ? 'flex-[0_0_12px]' : 'max-w-1.5 min-w-px flex-1')}
+          className={cn('relative h-1 min-w-px overflow-hidden', task.state === 'now' ? 'flex-[2_1_0%]' : 'flex-1')}
         >
           <span className="absolute inset-0 bg-border-strong/40" />
           <motion.span className="absolute inset-0" initial={false} animate={{ opacity: task.state === 'queued' ? 0 : 1 }} transition={tween.enter}>
