@@ -326,7 +326,8 @@ function scriptsOf(entries: readonly ActivityEntry[]): Map<string, string> {
 /** The group a single call makes on its own. */
 function groupOf(entry: ActivityEntry, options: ReadOptions): Group {
   const kind = STEP_OF[familyOf(entry.name)]
-  return kind === 'change' ? { kind, entries: [entry], path: pathOf(entry, options.cwd) } : { kind, entries: [entry] }
+  if (kind === 'change') return { kind, entries: [entry], path: pathOf(entry, options.cwd) }
+  return { kind, entries: [entry] }
 }
 
 /**
@@ -517,16 +518,17 @@ export function exchangeOf(entries: readonly ActivityEntry[], notes: readonly No
   const waiting = [...notes].sort((left, right) => left.at - right.at)
   const scripts = scriptsOf(entries)
   const runOfScript = new Map<string, ActivityEntry[]>()
-  const parts: (ActivityEntry[] | Note)[] = []
   let run: ActivityEntry[] = []
-  parts.push(run)
+  // The runs and the messages between them, in order. A run is made into steps once every call has joined its script.
+  const parts: (ActivityEntry[] | Note)[] = [run]
   for (const entry of entries) {
     const script = scripts.get(entry.id)
-    const held = script === undefined ? undefined : runOfScript.get(script)
-    if (held) {
-      held.push(entry)
+    const scriptRun = script === undefined ? undefined : runOfScript.get(script)
+    if (scriptRun) {
+      scriptRun.push(entry)
       continue
     }
+
     const seen = entry.at ?? options.seenAt(entry.id) ?? -Infinity
     while (waiting.length && waiting[0]!.at < seen) {
       parts.push(waiting.shift()!)
@@ -537,7 +539,11 @@ export function exchangeOf(entries: readonly ActivityEntry[], notes: readonly No
     if (script === entry.id) runOfScript.set(entry.id, run)
   }
   parts.push(...waiting)
-  return parts.flatMap((part): ExchangeItem[] => (Array.isArray(part) ? stepsOf(part, options) : [{ kind: 'note', key: `note:${part.id}`, note: part }]))
+
+  return parts.flatMap((part): ExchangeItem[] => {
+    if (Array.isArray(part)) return stepsOf(part, options)
+    return [{ kind: 'note', key: `note:${part.id}`, note: part }]
+  })
 }
 
 /**

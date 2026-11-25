@@ -31,11 +31,23 @@ const TOOLS = [
 /** The script's call `n` (from 1), as Pi numbers a nested call: `<script call id>/<n>`. */
 function inner(n: number, state: ActivityEntry['state'] = 'completed', parent = 'tool:script'): ActivityEntry {
   const tool = TOOLS[(n - 1) % TOOLS.length]!
-  return { id: `tool:script/${n}`, kind: 'tool', name: tool.name, state, input: JSON.stringify(tool.input(n)), output: state === 'failed' ? 'Command exited with code 1' : `out ${n}`, parent, at: 1 + n }
+  return {
+    id: `tool:script/${n}`,
+    kind: 'tool',
+    name: tool.name,
+    state,
+    input: JSON.stringify(tool.input(n)),
+    output: state === 'failed' ? 'Command exited with code 1' : `out ${n}`,
+    parent,
+    at: 1 + n,
+  }
 }
 
 const twenty = Array.from({ length: 20 }, (_, index) => inner(index + 1, index === 6 ? 'failed' : 'completed'))
 const later: ActivityEntry = { id: 'tool:later', kind: 'tool', name: 'bash', state: 'completed', input: '{"command":"ls"}', output: '', at: 40 }
+
+/** What the block's closed row says of the script and the calls it made. */
+const said = (entry: ActivityEntry, calls: readonly ActivityEntry[] = [], ended = false) => codemodeText(codemodeWords(codemodeOf(entry, ended, calls)))
 
 const codemode = (steps: readonly Step[]) => {
   const step = steps.find((candidate) => candidate.kind === 'codemode')
@@ -57,16 +69,17 @@ test("a script's twenty tool calls are its block's, in order, each the step it m
 
 test("the block counts its script's tool calls and the ones that failed", () => {
   const model = codemodeOf(script(), false, twenty)
-  const words = codemodeWords(model)
 
-  assert.equal(codemodeText(words), '20 tool calls, 1 failed: bash · 4 read, 4 bash, 4 grep, 4 edit, 4 lint')
+  assert.equal(said(script(), twenty), '20 tool calls, 1 failed: bash · 4 read, 4 bash, 4 grep, 4 edit, 4 lint')
   assert.equal(codemodeWarning(model), 'The script finished. Of its 20 tool calls, 1 failed.')
 })
 
 test('while the script runs, the count grows with each call that arrives', () => {
   const running = [inner(1), inner(2, 'running')]
-  assert.equal(codemodeText(codemodeWords(codemodeOf(script('running'), false, running))), '2 tool calls so far · read, bash')
-  assert.equal(codemodeText(codemodeWords(codemodeOf(script('running'), false, [...running, inner(3, 'running')]))), '3 tool calls so far · read, bash, grep')
+  const oneMore = [...running, inner(3, 'running')]
+
+  assert.equal(said(script('running'), running), '2 tool calls so far · read, bash')
+  assert.equal(said(script('running'), oneMore), '3 tool calls so far · read, bash, grep')
 
   const block = codemode(stepsOf([script('running'), ...running]))
   assert.equal(block.state, 'running')
@@ -74,11 +87,14 @@ test('while the script runs, the count grows with each call that arrives', () =>
 })
 
 test("a call still running when the script ended did not finish, and one the script's report says was cancelled is counted so", () => {
-  const stopped = codemodeOf(script('running'), true, [inner(1), inner(2, 'running')])
-  assert.equal(codemodeText(codemodeWords(stopped)), 'stopped · 2 tool calls, 1 did not finish · read, bash')
+  assert.equal(said(script('running'), [inner(1), inner(2, 'running')], true), 'stopped · 2 tool calls, 1 did not finish · read, bash')
 
-  const reported = script('completed', { codemode: { calls: [{ id: 'script/1', name: 'read', args: '', status: 'ok' }, { id: 'script/2', name: 'bash', args: '', status: 'cancelled' }] } })
-  assert.equal(codemodeText(codemodeWords(codemodeOf(reported, false, [inner(1), inner(2, 'failed')]))), '2 tool calls, 1 did not finish · read, bash')
+  const calls = [
+    { id: 'script/1', name: 'read', args: '', status: 'ok' as const },
+    { id: 'script/2', name: 'bash', args: '', status: 'cancelled' as const },
+  ]
+  const cancelledFailedEntry = [inner(1), inner(2, 'failed')]
+  assert.equal(said(script('completed', { codemode: { calls } }), cancelledFailedEntry), '2 tool calls, 1 did not finish · read, bash')
 })
 
 test("the script's report lists only what has no step of its own: a model call, never a tool call still starting", () => {
@@ -90,16 +106,19 @@ test("the script's report lists only what has no step of its own: a model call, 
   const model = codemodeOf(script('running', { codemode: { calls } }), false, [inner(1)])
 
   assert.deepEqual(model.listed?.map((call) => call.name), ['classify'])
-  assert.equal(codemodeText(codemodeWords(model)), '2 tool calls so far · read, classify')
+  assert.equal(said(script('running', { codemode: { calls } }), [inner(1)]), '2 tool calls so far · read, classify')
 })
 
 test('with no call of its own in the feed, the block counts and lists what the script reported, as before', () => {
-  const calls = [{ id: 'script/1', name: 'read', args: '', status: 'ok' as const }, { id: 'script/2', name: 'bash', args: '', status: 'error' as const }]
-  const model = codemodeOf(script('completed', { codemode: { calls } }))
+  const calls = [
+    { id: 'script/1', name: 'read', args: '', status: 'ok' as const },
+    { id: 'script/2', name: 'bash', args: '', status: 'error' as const },
+  ]
+  const reported = script('completed', { codemode: { calls } })
 
-  assert.deepEqual(model.listed?.map((call) => call.name), ['read', 'bash'])
-  assert.equal(codemodeText(codemodeWords(model)), '2 tool calls, 1 failed: bash · read, bash')
-  assert.deepEqual(codemode(stepsOf([script('completed', { codemode: { calls } })])).calls, [])
+  assert.deepEqual(codemodeOf(reported).listed?.map((call) => call.name), ['read', 'bash'])
+  assert.equal(said(reported), '2 tool calls, 1 failed: bash · read, bash')
+  assert.deepEqual(codemode(stepsOf([reported])).calls, [])
 })
 
 test('a call made inside a call of the script is the block\'s too, and a call another tool made, or whose script is gone, is a step of its own', () => {
@@ -114,7 +133,10 @@ test('a call made inside a call of the script is the block\'s too, and a call an
 })
 
 test("a message the user sent while the script ran goes after its block, and the script's calls stay in it", () => {
-  const items = exchangeOf([script('completed', { at: 1 }), { ...inner(1), at: 3 }, { ...inner(2), at: 4 }, { ...later, at: 5 }], [{ id: 'n', text: 'also check the tests', at: 2 }], { seenAt: () => undefined })
+  const entries = [script('completed', { at: 1 }), { ...inner(1), at: 3 }, { ...inner(2), at: 4 }, { ...later, at: 5 }]
+  const sentDuringScript = { id: 'n', text: 'also check the tests', at: 2 }
+
+  const items = exchangeOf(entries, [sentDuringScript], { seenAt: () => undefined })
 
   assert.deepEqual(items.map((item) => item.kind), ['codemode', 'note', 'shell'])
   assert.equal(codemode(items.filter((item): item is Step => item.kind !== 'note')).calls.length, 2)

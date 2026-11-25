@@ -39,15 +39,26 @@ export function codemodeOf(entry: ActivityEntry, ended = false, calls: readonly 
   let source = entry.input ?? ''
   try { const args = JSON.parse(source); if (typeof args?.code === 'string') source = args.code } catch { /* Raw model-facing source is also valid. */ }
   const state = stateOf(entry, ended)
-  const asEnded = (status: CallStatus | 'unknown') => (status === 'running' && state !== 'running' ? 'unknown' : status)
-  const reported: Operation[] | undefined = metadata?.calls.map((call, ordinal) => ({ ...call, key: `${entry.id}:${ordinal}`, status: asEnded(call.status) }))
+  const asEnded = (status: Operation['status']) => (status === 'running' && state !== 'running' ? 'unknown' : status)
+  const reported = metadata?.calls.map((call, ordinal): Operation => ({
+    ...call,
+    key: `${entry.id}:${ordinal}`,
+    status: asEnded(call.status),
+  }))
   const base = { state, source, output: entry.output ?? '', metadata }
   if (!calls.length) return { ...base, operations: reported, listed: reported }
 
-  const named = new Map(reported?.map((call) => [`tool:${call.id}`, call]))
-  const own: Operation[] = calls.map((call) => ({ key: call.id, id: call.id.slice('tool:'.length), name: call.name ?? 'tool', args: '', status: asEnded(named.get(call.id)?.status ?? STATUS_OF[call.state ?? 'completed']) }))
-  const ids = new Set(calls.map((call) => call.id))
-  const listed = (reported ?? []).filter((call) => !ids.has(`tool:${call.id}`) && !call.id.endsWith('/?'))
+  // The report names a call by its id without `tool:`.
+  const reportedByEntry = new Map(reported?.map((call) => [`tool:${call.id}`, call]))
+  const own = calls.map((call): Operation => ({
+    key: call.id,
+    id: call.id.slice('tool:'.length),
+    name: call.name ?? 'tool',
+    args: '',
+    status: asEnded(reportedByEntry.get(call.id)?.status ?? STATUS_OF[call.state ?? 'completed']),
+  }))
+  const ownEntries = new Set(calls.map((call) => call.id))
+  const listed = (reported ?? []).filter((call) => !ownEntries.has(`tool:${call.id}`) && !call.id.endsWith('/?'))
   return { ...base, operations: [...own, ...listed], listed }
 }
 
