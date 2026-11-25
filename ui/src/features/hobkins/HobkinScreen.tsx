@@ -37,7 +37,7 @@ import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, waitsForTurn, withReceipts, type Delivery, type PageRow, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
 import { ContinueButton, imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
-import { CONTINUE_WORDS, waitingRows, withoutTakenBack, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
+import { CONTINUE_WORDS, waitingRows, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
 import { useTalkControls } from '@/features/work/use-talk-controls.ts'
 import { endingOf, pressEndOf, takeBackEnd, useEnding } from './end.ts'
 import { engineLabel, stateLabel } from './rules.ts'
@@ -650,26 +650,13 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
     empty: !text && images.attachments.length === 0,
     queued: rows.length > 0,
     send: (words, queue) => void send(words, queue),
-    takeBack: () => void takeBack(),
+    setDraft,
+    dropNotes: onTakenBack,
+    setProblem,
   })
 
   if (!talkOpen(state)) {
     return <p className="shrink-0 px-[10%] pt-2 pb-6 text-center text-[13px] text-muted-foreground">This hobkin has ended. Its conversation stays on disk.</p>
-  }
-
-  /** What waits for the turn comes back into the box, ahead of what is being typed, and its notes leave the page. */
-  const giveBack = (unsent: Parameters<typeof withoutTakenBack>[1]) => {
-    if (!unsent.length) return
-    setDraft((now) => withoutTakenBack(now, unsent).draft)
-    onTakenBack(withoutTakenBack('', unsent).noteIds)
-  }
-
-  const takeBack = async () => {
-    try {
-      giveBack(await controls.talk.takeBack())
-    } catch (error) {
-      setProblem(message(error))
-    }
   }
 
   // `words` are sent in place of the draft, which stays: Continue. `queue` is how they wait for the turn in flight; an
@@ -713,7 +700,7 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
       const handles = attached.flatMap(({ handle }) => (handle ? [handle] : []))
       const said = await controls.talk.say({ text, noteId, images: handles, ...sentAtArg(hostStore.getState(), at), ...(queue ? { queue } : {}) })
       onSent({ text, at, run: said.run, started: said.started, noteId, ...pictures, ...(waits && !said.started ? { queue: waits } : {}) })
-      giveBack(said.unsent)
+      controls.giveBack(said.unsent)
     } catch (error) {
       setProblem(message(error))
       // Nothing was sent: the words and images come back to the box, unless the user has written or attached again.

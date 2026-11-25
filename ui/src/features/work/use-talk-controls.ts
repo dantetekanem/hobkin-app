@@ -6,7 +6,8 @@ import { STOP_ARMED_MS, stopKey } from '../chat/stop-key.ts'
 import { armedAt, type ArmedStop } from '../chat/stop-turn.ts'
 import { executionKey } from './actions.ts'
 import { runExecution, useExecution } from './store.ts'
-import { agentTalk, CONTINUE_WORDS, stoppedTurn, talkTurn, type AgentTalk, type TalkAgent, type TalkQueue } from './talk.ts'
+import type { TakenBack } from '#shared/commands/registry.ts'
+import { agentTalk, CONTINUE_WORDS, draftWithTakenBack, stoppedTurn, takenNoteIds, talkTurn, type AgentTalk, type TalkAgent, type TalkQueue } from './talk.ts'
 
 /** What the page's box does when a key or the button asks: its own way of sending and taking back, so its rows stay right. */
 export interface TalkBox {
@@ -18,8 +19,12 @@ export interface TalkBox {
   queued: boolean
   /** Sends `words`, or the draft without them, waiting for the turn in flight as `queue` says. */
   send: (words?: string, queue?: TalkQueue) => void
-  /** Brings what waits for the turn back into the box. */
-  takeBack: () => void
+  /** Changes the box's words, as React's setter does. */
+  setDraft: (update: (draft: string) => string) => void
+  /** The page's notes that came back into the box leave the page, by their ids. */
+  dropNotes: (noteIds: readonly string[]) => void
+  /** Says under the box why something did not happen. */
+  setProblem: (problem: string) => void
 }
 
 export interface TalkControls {
@@ -34,6 +39,10 @@ export interface TalkControls {
   stopped: boolean
   stop: () => void
   force: () => void
+  /** Pi's Alt+Up: what waits for the turn comes back into the box, ahead of what is being typed. */
+  takeBack: () => Promise<void>
+  /** Puts what a turn gave back unread into the box, as a message that interrupted it does. */
+  giveBack: (unsent: readonly TakenBack[]) => void
   /** The keys the box shares with the main chat. True when the key was used; Escape with no turn running is left to the page. */
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean
 }
@@ -72,6 +81,19 @@ export function useTalkControls(agent: TalkAgent, box: TalkBox): TalkControls {
     if (target) void runExecution(target, 'force')
   }
 
+  const giveBack = (unsent: readonly TakenBack[]) => {
+    if (!unsent.length) return
+    box.setDraft((draft) => draftWithTakenBack(draft, unsent))
+    box.dropNotes(takenNoteIds(unsent))
+  }
+  const takeBack = async () => {
+    try {
+      giveBack(await talk.takeBack())
+    } catch (error) {
+      box.setProblem(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing || event.defaultPrevented) return false
     const bare = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
@@ -106,7 +128,7 @@ export function useTalkControls(agent: TalkAgent, box: TalkBox): TalkControls {
         box.send(CONTINUE_WORDS)
         break
       case 'dequeue':
-        box.takeBack()
+        void takeBack()
         break
       case 'nothing':
         break
@@ -114,5 +136,5 @@ export function useTalkControls(agent: TalkAgent, box: TalkBox): TalkControls {
     return true
   }
 
-  return { talk, working, stopping, stopArmed: armedSince !== null, stopped, stop, force, onKeyDown }
+  return { talk, working, stopping, stopArmed: armedSince !== null, stopped, stop, force, takeBack, giveBack, onKeyDown }
 }

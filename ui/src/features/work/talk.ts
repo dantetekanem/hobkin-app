@@ -118,10 +118,8 @@ export function waitingRows(notes: readonly WaitingNote[]): QueuedRow[] {
   return notes.flatMap((note) => (note.waiting && note.queue ? [{ key: note.id, queue: note.queue, text: note.text }] : []))
 }
 
-/** The box once what was given back is in it, ahead of what is being typed, and the notes that leave the page with it. */
-export function withoutTakenBack(draft: string, unsent: readonly TakenBack[]): { draft: string; noteIds: string[] } {
-  return {
-    draft: draftAfterStop(unsent.map(({ text }) => text), draft),
-    noteIds: unsent.flatMap(({ noteId }) => (noteId ? [noteId] : [])),
-  }
-}
+/** The box once what was given back is in it, ahead of what is being typed. */
+export const draftWithTakenBack = (draft: string, unsent: readonly TakenBack[]): string => draftAfterStop(unsent.map(({ text }) => text), draft)
+
+/** The page's notes that came back into the box, by their ids: they leave the page. */
+export const takenNoteIds = (unsent: readonly TakenBack[]): string[] => unsent.flatMap(({ noteId }) => (noteId ? [noteId] : []))

@@ -31,7 +31,7 @@ import { agentsFrom, sameFields } from '@/lib/host/frame.ts'
 import { runCommand, useHasHost, useHost, useHostEqual } from '@/lib/host/index.ts'
 import { useAgentThreads, waitsForTurn, type AgentNote } from './agent-threads.ts'
 import { imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
-import { waitingRows, withoutTakenBack, type TalkAgent, type TalkQueue } from './talk.ts'
+import { waitingRows, type TalkAgent, type TalkQueue } from './talk.ts'
 import { useTalkControls } from './use-talk-controls.ts'
 import { AgentWaits } from './AgentWaits.tsx'
 import { DeliveryMark } from './DeliveryMark.tsx'
@@ -716,7 +716,9 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
     empty: !draft.trim() && images.attachments.length === 0,
     queued: rows.length > 0,
     send: (words, queue) => void send(words, queue),
-    takeBack: () => void takeBack(),
+    setDraft,
+    dropNotes: (noteIds) => useAgentThreads.getState().drop(agentId, noteIds),
+    setProblem,
   })
   const box = useRef<HTMLFormElement | null>(null)
   const input = useRef<HTMLTextAreaElement | null>(null)
@@ -731,21 +733,6 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
     setSaid,
     onSent: (words) => useAgentThreads.getState().say(agentId, words),
   })
-
-  /** What waits for the turn comes back into the box, ahead of what is being typed, and its notes leave the page. */
-  const giveBack = (unsent: Parameters<typeof withoutTakenBack>[1]) => {
-    if (!unsent.length) return
-    setDraft((now) => withoutTakenBack(now, unsent).draft)
-    useAgentThreads.getState().drop(agentId, withoutTakenBack('', unsent).noteIds)
-  }
-
-  const takeBack = async () => {
-    try {
-      giveBack(await controls.talk.takeBack())
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error))
-    }
-  }
 
   // `queue` is how the words wait for the turn in flight. An interrupting message starts a turn of its own, so it waits for none.
   const send = async (words?: string, queue?: TalkQueue) => {
@@ -776,7 +763,7 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
     const handles = attached.flatMap(({ handle }) => (handle ? [handle] : []))
     const waits = controls.working && queue !== 'interrupt' ? (queue ?? 'steer') : undefined
     const result = await sendNote(agentId, text, (noteId) => sayToAgent(agentId, text, { live, noteId, images: handles, ...(queue ? { queue } : {}) }), attached, waits)
-    if (result.sent && result.unsent) giveBack(result.unsent)
+    if (result.sent && result.unsent) controls.giveBack(result.unsent)
     if (!result.sent) {
       // hobkin lets go of images that did not reach the agent. The note still shows them.
       releaseImages(attached)

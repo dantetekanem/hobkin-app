@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { HobkinSummary } from '../../shared/protocol/hobkins.ts'
 import type { StopControlTarget } from '../../shared/protocol/snapshot.ts'
-import { agentTalk, stoppedTurn, talkTurn, waitingRows, withoutTakenBack } from '../src/features/work/talk.ts'
+import { agentTalk, draftWithTakenBack, stoppedTurn, takenNoteIds, talkTurn, waitingRows } from '../src/features/work/talk.ts'
 import { initialHostState, type HostState } from '../src/lib/host/state.ts'
 
 const control = (runId: string): StopControlTarget => ({ kind: 'run', runId, parentId: null, rootId: runId, label: 'Run', canStop: true, canForce: true })
@@ -66,8 +66,8 @@ test('what waits for the turn shows as rows until the turn reads it, and comes b
   ]
 
   assert.deepEqual(waitingRows(notes).map(({ key, queue, text }) => [key, queue, text]), [['a', 'steer', 'Only weekdays'], ['b', 'follow-up', 'Then sum it up']])
-  assert.deepEqual(withoutTakenBack('half a thought', [{ noteId: 'a', text: 'Only weekdays' }, { text: 'Then sum it up' }]), {
-    draft: 'Only weekdays\n\nThen sum it up\n\nhalf a thought',
-    noteIds: ['a'],
-  })
+  const unsent = [{ noteId: 'a', text: 'Only weekdays' }, { text: 'Then sum it up' }]
+
+  assert.equal(draftWithTakenBack('half a thought', unsent), 'Only weekdays\n\nThen sum it up\n\nhalf a thought')
+  assert.deepEqual(takenNoteIds(unsent), ['a'])
 })
