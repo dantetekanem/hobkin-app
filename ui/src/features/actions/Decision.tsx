@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowUpRight, ExternalLink, MessagesSquare, Waypoints } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, ExternalLink, MessagesSquare, Waypoints, X } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useStops } from '@/app/stops.ts'
@@ -7,6 +7,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import type { Answer } from '@/features/questions/queue.ts'
 import { timeOf, waited } from '@/features/reports/time.ts'
 import { cn } from '@/lib/utils.ts'
+import { canDismiss, dismissesKey } from './dismiss.ts'
 import { discussesKey } from './discuss.ts'
 import { answersOf, type WaitingRow } from './items.ts'
 import { KIND } from './kinds.ts'
@@ -31,6 +32,8 @@ interface OpenItemProps {
   onOpenElsewhere?: (row: WaitingRow) => void
   /** Puts the item on the next message to hobkin, to talk it over. It answers nothing. */
   onDiscuss: (row: WaitingRow) => void
+  /** Dismisses the item with hobkin's own dismissal. It answers nothing. */
+  onDismiss: (row: WaitingRow) => void
 }
 
 /**
@@ -38,7 +41,7 @@ interface OpenItemProps {
  * from that list slides its card in from the side it lies on. Up and Down walk the controls, Enter presses, Escape
  * goes back to the list.
  */
-export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch, onClose, onAnswer, onReview, reads = false, onOpenElsewhere, onDiscuss }: OpenItemProps) {
+export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch, onClose, onAnswer, onReview, reads = false, onOpenElsewhere, onDiscuss, onDismiss }: OpenItemProps) {
   const root = useRef<HTMLDivElement | null>(null)
   useStops(root)
 
@@ -52,6 +55,10 @@ export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch
     else if (discussesKey({ key: event.key, shift: event.shiftKey }, event.target instanceof HTMLInputElement)) {
       const listed = event.target.closest<HTMLElement>('[data-side-row]')?.dataset.sideRow
       onDiscuss(rows.find((each) => each.id === listed) ?? row)
+    } else if (dismissesKey({ key: event.key, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey }, event.target instanceof HTMLInputElement)) {
+      // As Backspace deletes a report: the item that has the keyboard, the open one or one in the list beside it.
+      const listed = event.target.closest<HTMLElement>('[data-side-row]')?.dataset.sideRow
+      onDismiss(rows.find((each) => each.id === listed) ?? row)
     } else return
     event.preventDefault()
   }
@@ -70,7 +77,7 @@ export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch
       <div className="relative min-h-0 overflow-hidden rounded-[28px]">
         <AnimatePresence initial={false} custom={step}>
           <motion.div key={row.id} custom={step} variants={slides} initial="enter" animate="center" exit="exit" className="absolute inset-0">
-            <Card row={row} sample={sample} now={now} onClose={onClose} onAnswer={onAnswer} onReview={onReview} reads={reads} onOpenElsewhere={onOpenElsewhere} onDiscuss={onDiscuss} />
+            <Card row={row} sample={sample} now={now} onClose={onClose} onAnswer={onAnswer} onReview={onReview} reads={reads} onOpenElsewhere={onOpenElsewhere} onDiscuss={onDiscuss} onDismiss={onDismiss} />
           </motion.div>
         </AnimatePresence>
       </div>
@@ -115,9 +122,10 @@ const flat = (text: string) => text.replace(/\s+/g, ' ').trim()
 /**
  * One item as a whole decision: who asks and since when, the whole question, what changed and why it is the user's,
  * then its answers in words, hobkin's pick marked with its reason, and the user's own words where hobkin takes them.
- * A number answers at once. Discuss, first among its buttons, talks it over with hobkin and answers nothing.
+ * A number answers at once. Discuss, first among its buttons, talks it over with hobkin, and Dismiss after it takes the item
+ * away unanswered. Neither answers anything.
  */
-function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onOpenElsewhere, onDiscuss }: Pick<OpenItemProps, 'row' | 'sample' | 'now' | 'onClose' | 'onAnswer' | 'onReview' | 'reads' | 'onOpenElsewhere' | 'onDiscuss'>) {
+function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onOpenElsewhere, onDiscuss, onDismiss }: Pick<OpenItemProps, 'row' | 'sample' | 'now' | 'onClose' | 'onAnswer' | 'onReview' | 'reads' | 'onOpenElsewhere' | 'onDiscuss' | 'onDismiss'>) {
   const back = useRef<HTMLButtonElement | null>(null)
   const titleId = useId()
   const [words, setWords] = useState('')
@@ -129,6 +137,7 @@ function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onOpenElse
   const summary = row.item ? '' : (row.question.tldr?.trim() ?? '')
   const why = row.question.why ?? row.item?.why ?? null
   const pick = row.question.recommended
+  const dismisses = canDismiss(row)
 
   // Opening hands the keyboard to the card, so its keys work at once.
   useEffect(() => {
@@ -218,6 +227,13 @@ function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onOpenElse
               Discuss
               <Kbd>r</Kbd>
             </Button>
+            {dismisses ? (
+              <Button variant="ghost" size="sm" data-stop="" onClick={() => onDismiss(row)}>
+                <X aria-hidden="true" />
+                Dismiss
+                <Kbd>⌫</Kbd>
+              </Button>
+            ) : null}
             {row.branch ? (
               <Button variant="outline" size="sm" data-stop="" onClick={() => onReview(row)}>
                 <Waypoints aria-hidden="true" />
@@ -240,7 +256,7 @@ function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onOpenElse
           </p>
 
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-            {[...(choices.length ? [[`1–${choices.length}`, 'answer']] : []), ['r', 'discuss'], ['↑ ↓', 'move'], ['enter', 'press'], ['esc', 'back']].map(([keys, does]) => (
+            {[...(choices.length ? [[`1–${choices.length}`, 'answer']] : []), ['r', 'discuss'], ...(dismisses ? [['⌫', 'dismiss']] : []), ['↑ ↓', 'move'], ['enter', 'press'], ['esc', 'back']].map(([keys, does]) => (
               <span key={keys} className="flex items-center gap-1">
                 <Kbd>{keys}</Kbd> {does}
               </span>

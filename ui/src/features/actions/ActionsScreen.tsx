@@ -26,6 +26,8 @@ import { finishedReviewId } from '@/features/review/entry.ts'
 import { answerSample, startAnswering, stopAnswering, useActionItems, useWaitingRows } from './store.ts'
 import { readsHere } from './read.ts'
 import { discussesKey, discussItem } from './discuss.ts'
+import { dismissesKey } from './dismiss.ts'
+import { dismissItem } from './dismiss-item.ts'
 import { useWorkView } from '@/features/work/store.ts'
 
 /**
@@ -177,6 +179,16 @@ export function ActionsScreen() {
   const openElsewhere = (row: WaitingRow) => {
     if (row.opens) openWhereHandled(row.opens)
   }
+  /** Dismissed with hobkin's own dismissal, unanswered: it leaves as it is deleted, and the keyboard goes to the row that takes its place. */
+  const dismiss = (row: WaitingRow) => {
+    const list = shown.current
+    const at = list.findIndex((each) => each.id === row.id)
+    if (!dismissItem(row, say)) return
+    setLeaving('deleted')
+    const next = (list[at + 1] ?? list[at - 1])?.id ?? null
+    if (row.id === openId) close(next)
+    else if (!openId) focusLater(next)
+  }
 
   const askSample = () => {
     if (!useActionItems.getState().sample) return
@@ -209,6 +221,13 @@ export function ActionsScreen() {
     if (discussesKey({ key: event.key, shift: event.shiftKey }, false)) {
       const row = shown.current.find((each) => each.id === card.dataset.item)
       if (row) discuss(row)
+      event.preventDefault()
+      return
+    }
+    // As Backspace deletes a report on Reports: the item on this card is dismissed.
+    if (dismissesKey({ key: event.key }, false)) {
+      const row = shown.current.find((each) => each.id === card.dataset.item)
+      if (row) dismiss(row)
       event.preventDefault()
       return
     }
@@ -256,6 +275,7 @@ export function ActionsScreen() {
                   onReview={review}
                   onOpenElsewhere={openElsewhere}
                   onDiscuss={discuss}
+                  onDismiss={dismiss}
                 />
               ))}
             </AnimatePresence>
@@ -265,7 +285,7 @@ export function ActionsScreen() {
             <p className="text-[12px] text-muted-foreground">
               {sample
                 ? "Sample data. hobkin's own items show here once the host is connected."
-                : 'Enter opens an item to answer, or opens it where it is handled. r talks it over with hobkin. Right reaches its buttons and links.'}
+                : 'Enter opens an item to answer, or opens it where it is handled. r talks it over with hobkin, and Backspace dismisses it. Right reaches its buttons and links.'}
             </p>
             {sample ? (
               <Button variant="ghost" size="sm" data-stop="" data-sample-question="" onClick={askSample}>
@@ -293,6 +313,7 @@ export function ActionsScreen() {
             reads={readsHere(open, workOn)}
             onOpenElsewhere={openElsewhere}
             onDiscuss={discuss}
+            onDismiss={dismiss}
           />
         ) : null}
       </AnimatePresence>

@@ -6,6 +6,7 @@ import { rowLayout } from '@/features/reports/list-motion.ts'
 import { timeOf, waited } from '@/features/reports/time.ts'
 import { cn } from '@/lib/utils.ts'
 import type { WaitingRow } from './items.ts'
+import { ItemMenu } from './ItemMenu.tsx'
 import { KIND } from './kinds.ts'
 
 interface ItemCardProps {
@@ -25,6 +26,8 @@ interface ItemCardProps {
   onOpenElsewhere?: (row: WaitingRow) => void
   /** Puts it on the next message to hobkin, to talk it over. */
   onDiscuss: (row: WaitingRow) => void
+  /** Dismisses it with hobkin's own dismissal, from its "⋯". */
+  onDismiss: (row: WaitingRow) => void
 }
 
 const OPENS_IN = { reports: 'Opens in Reports', work: 'Opens in Work' } as const
@@ -32,9 +35,9 @@ const OPENS_IN = { reports: 'Opens in Reports', work: 'Opens in Work' } as const
 /**
  * One thing waiting on the user: what kind it is and who asks, the one line that says what it is, and its
  * choices in words, with hobkin's pick marked. The whole card is one button that opens its whole decision, or
- * opens it where hobkin handles it. Its own controls (links, Review, Discuss) sit on top, and Right reaches them.
+ * opens it where hobkin handles it. Its own controls (links, Review, Discuss, its "⋯") sit on top, and Right reaches them.
  */
-export function ItemCard({ row, now, variants, order, reads = false, onAsk, onReview, onOpenElsewhere, onDiscuss }: ItemCardProps) {
+export function ItemCard({ row, now, variants, order, reads = false, onAsk, onReview, onOpenElsewhere, onDiscuss, onDismiss }: ItemCardProps) {
   const { label, icon: Icon } = KIND[row.kind]
   const at = timeOf(row.at)
   const choices = row.question.choices
@@ -129,7 +132,7 @@ export function ItemCard({ row, now, variants, order, reads = false, onAsk, onRe
             ))}
           </p>
         </div>
-        {/* Discuss is on every card, last on the right, so it is always in the same place. */}
+        {/* Discuss and the "⋯" are on every card, last on the right, so they are always in the same place. */}
         <div className="flex shrink-0 items-center gap-1.5 self-center">
           {row.branch ? (
             <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" onClick={() => onReview(row)} className="pointer-events-auto">
@@ -149,6 +152,7 @@ export function ItemCard({ row, now, variants, order, reads = false, onAsk, onRe
             <MessagesSquare aria-hidden="true" />
             Discuss
           </Button>
+          <ItemMenu row={row} action={action} onAsk={onAsk} onReview={onReview} onDiscuss={onDiscuss} onDismiss={onDismiss} />
         </div>
       </div>
     </motion.li>
