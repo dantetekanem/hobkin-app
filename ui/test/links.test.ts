@@ -47,6 +47,7 @@ test('a click is caught for a file anywhere, and for the web only in the Mac win
   assert.equal(decideLink({ href: 'https://example.com', file: null }, mac), 'system')
   assert.equal(decideLink({ href: 'HTTP://example.com', file: null }, mac), 'system')
   assert.equal(decideLink({ href: 'mailto:a@b.c', file: null }, mac), 'system')
+  assert.equal(decideLink({ href: 'slack://channel?team=T0000&id=C0000', file: null }, mac), 'system', 'the Slack app opens it')
   // In a browser tab, or with no host to ask, the link works as a link does.
   assert.equal(decideLink({ href: 'https://example.com', file: null }, { inMacWindow: false, hasHost: true }), 'default')
   assert.equal(decideLink({ href: 'https://example.com', file: null }, { inMacWindow: true, hasHost: false }), 'default')

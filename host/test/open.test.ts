@@ -7,11 +7,11 @@ import { imageTypeOf } from '../src/image-type.ts'
 import { openableUrl, openInSystem } from '../src/open.ts'
 import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
 
-test('only http, https and mailto addresses are openable', () => {
-  for (const url of ['https://example.com/a?b=1', 'http://example.com', 'mailto:someone@example.com']) {
+test('only http, https, mailto and slack addresses are openable', () => {
+  for (const url of ['https://example.com/a?b=1', 'http://example.com', 'mailto:someone@example.com', 'slack://channel?team=T0000&id=C0000']) {
     assert.equal(openableUrl(url).href, new URL(url).href, url)
   }
-  for (const url of ['file:///etc/hosts', 'javascript:alert(1)', 'ftp://example.com', 'data:text/html,x', '-a Calculator', '/Applications/Calculator.app', 'https://', 'not a url']) {
+  for (const url of ['file:///etc/hosts', 'javascript:alert(1)', 'ftp://example.com', 'data:text/html,x', '-a Calculator', '/Applications/Calculator.app', 'https://', 'not a url', 'slack:']) {
     assert.throws(() => openableUrl(url), url)
   }
 })
@@ -35,12 +35,14 @@ test('system.open opens only what the opener is handed, and refuses other addres
 
   assert.deepEqual(await client.run('system.open', { url: 'https://example.com/docs' }), { ok: true })
   assert.deepEqual(await client.run('system.open', { url: 'mailto:a@example.com' }), { ok: true })
-  assert.deepEqual(opened, ['https://example.com/docs', 'mailto:a@example.com'])
+  // A Slack link opens the Slack app, which the Mac hands `slack:` addresses to.
+  assert.deepEqual(await client.run('system.open', { url: 'slack://channel?team=T0000&id=C0000' }), { ok: true })
+  assert.deepEqual(opened, ['https://example.com/docs', 'mailto:a@example.com', 'slack://channel?team=T0000&id=C0000'])
   for (const url of ['file:///etc/hosts', 'javascript:alert(1)', 'ftp://example.com/x', '/Applications/Calculator.app', 'https://']) {
     const refused = await client.command('system.open', { url })
     assert.equal(refused.ok, false, url)
   }
-  assert.equal(opened.length, 2, 'nothing else was opened')
+  assert.equal(opened.length, 3, 'nothing else was opened')
 })
 
 test('a host with no opener opens nothing', { timeout: 30000 }, async (t) => {

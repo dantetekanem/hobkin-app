@@ -1,6 +1,7 @@
 /**
  * One place that catches link clicks for the whole app (_specs/027-links-and-files). The Mac window's web view
- * opens no window for a link, so there the host opens the address in the system browser. No JSX here.
+ * opens no window for a link, so there the host opens the address in the system browser, or a `slack:` one in the
+ * Slack app. No JSX here.
  */
 
 export interface LinkEnvironment {
@@ -28,7 +29,7 @@ export type LinkDecision = 'file' | 'app' | 'system' | 'default'
 export function decideLink({ href, file, meta = false }: LinkTarget, { inMacWindow, hasHost }: LinkEnvironment): LinkDecision {
   // With no host to open it, the viewer says why it cannot.
   if (file) return meta && hasHost ? 'app' : 'file'
-  if (inMacWindow && hasHost && href && /^(https?:\/\/|mailto:)/i.test(href)) return 'system'
+  if (inMacWindow && hasHost && href && /^(https?:\/\/|mailto:|slack:\/\/)/i.test(href)) return 'system'
   return 'default'
 }
 

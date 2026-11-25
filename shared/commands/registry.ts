@@ -647,9 +647,9 @@ export const COMMANDS = {
     outside: true,
   },
   'system.open': {
-    description: 'Open a web or mail address (http, https or mailto) in the Mac\'s default app for it, such as a link clicked in the chat.',
+    description: 'Open a web, mail or Slack address (http, https, mailto or slack) in the Mac\'s default app for it, such as a link clicked in the chat. A slack address opens the Slack app.',
     runs: 'host',
-    args: Type.Object({ url: Type.String({ pattern: '^(https?://|mailto:)\\S', maxLength: 4096 }) }, { additionalProperties: false }),
+    args: Type.Object({ url: Type.String({ pattern: '^(https?://|mailto:|slack://)\\S', maxLength: 4096 }) }, { additionalProperties: false }),
   },
   'canvas.show': {
     description:
