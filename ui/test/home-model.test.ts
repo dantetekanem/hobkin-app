@@ -473,6 +473,11 @@ test('stack ranks dated decisions oldest first, keeps untimed source order, and 
   assert.doesNotMatch(model.stack.find(card => card.kind === 'review')?.reason ?? '', /ago|minute|hour/)
 })
 
+test('the stack keeps a card of each integration, so a second code host is not hidden behind the first', () => {
+  const model = homeModel(input({ contributions: [forge({ waiting: [2, 1] }), forge({ waiting: [7], failing: [8] }), forge({ failing: [9] })] }))
+  assert.deepEqual(model.stack.filter(card => card.kind === 'integration').map(card => card.id), ['forge:2', 'forge:7', 'forge:9'])
+})
+
 test('stack keeps newest recent unread problems and request ahead of own failing checks', () => {
   const contributions = [forge({ waiting: [1], failing: [2] })]
   const model = homeModel(input({ reports: [report('old', 5000), report('new', 1000), report('read', 0), report('expired', 8 * 86400000), report('future', -1000)], read: new Set(['read']), contributions }))
