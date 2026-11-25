@@ -15,13 +15,16 @@ export interface WorkflowSeat {
 
 const NO_WORKFLOWS = "hobkin's runtime in this host has no workflows yet."
 
+/** The runtime's refusal, passed on as the command's, in its own words. */
+const refused = (error: unknown): never => {
+  throw new Unavailable(error instanceof Error ? error.message : String(error))
+}
+
 /** The application's call to start a workflow, or the reason it cannot. */
 export function startOf(app: Pick<HobkinApplication, 'startWorkflow'>): (id: string, input?: unknown) => Promise<{ run: string }> {
   const { startWorkflow } = app
   if (typeof startWorkflow !== 'function') throw new Unavailable(NO_WORKFLOWS)
-  return (id, input) => startWorkflow.call(app, id, input).catch((error: unknown) => {
-    throw new Unavailable(error instanceof Error ? error.message : String(error))
-  })
+  return (id, input) => startWorkflow.call(app, id, input).catch(refused)
 }
 
 export function workflowHandlers({ app }: WorkflowSeat): Pick<HostHandlers, 'workflow.run' | 'workflow.enable'> {
@@ -34,7 +37,7 @@ export function workflowHandlers({ app }: WorkflowSeat): Pick<HostHandlers, 'wor
       try {
         return await setWorkflowEnabled.call(current, id, on)
       } catch (error) {
-        throw new Unavailable(error instanceof Error ? error.message : String(error))
+        return refused(error)
       }
     },
   }

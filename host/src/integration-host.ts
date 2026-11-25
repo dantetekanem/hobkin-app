@@ -414,7 +414,7 @@ export class IntegrationHost {
     this.tell((part) => part.onToolCall?.(call), `onToolCall failed for ${call.name}`)
   }
 
-  /** A pull request that merged through the app. */
+  /** A pull request that left the open ones: merged through the app, or merged or closed elsewhere as the host saw it. */
   merged(pull: Merged): void {
     this.tell((part) => part.onMerged?.(pull), 'onMerged failed')
   }
