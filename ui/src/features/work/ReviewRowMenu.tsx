@@ -24,11 +24,11 @@ export interface ReviewRowMenuItem {
  * move along it, Enter does the one under focus and Escape closes it. An item that returns true keeps the menu open, as
  * one that waits for its second press does.
  */
-export const ReviewRowMenu = memo(function ReviewRowMenu({ label, items }: { label: string; items: readonly ReviewRowMenuItem[] }) {
+export const ReviewRowMenu = memo(function ReviewRowMenu({ label, items, title = 'Everything this review can do' }: { label: string; items: readonly ReviewRowMenuItem[]; title?: string }) {
   const [open, setOpen] = useState(false)
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" data-stop="" aria-label={label} title="Everything this review can do" className="shrink-0 text-muted-foreground" />}>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" data-stop="" aria-label={label} title={title} className="shrink-0 text-muted-foreground" />}>
         <Ellipsis aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-auto min-w-56">

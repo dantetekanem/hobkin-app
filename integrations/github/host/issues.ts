@@ -86,12 +86,13 @@ async function afterClosing(closed: string, seat: IssueSeat, issue: IssueRef): P
 export function issueHandlers(seat: IssueSeat) {
   const { app, root, gh, refreshGitHub = async () => {} } = seat
   return {
-    'github.issue.add': async ({ repo, number }: IssueRef): Promise<GitHubResults['github.issue.add']> => {
+    // With `again`, Work on it again: hobkin files a follow-up once the work before it is finished.
+    'github.issue.add': async ({ repo, number, again }: IssueRef & { again?: true }): Promise<GitHubResults['github.issue.add']> => {
       if (!gh) throw new Unavailable('This host does not run gh, so the issue cannot be read and nothing was added. Start the host with --github to add issues.')
       const project = await projectOfRepo(root(), repo)
       if (!project) throw new Unavailable(`No hobkin project is github.com/${repo}. Add it on the Work screen first.`)
       const issue = issueFrom(await ghText(gh, ['issue', 'view', String(number), '--repo', repo, '--json', ISSUE_FIELDS]), repo, number)
-      const said = (await app().workAction('issue', project.slug, issue)) as { message?: unknown } | null
+      const said = (await app().workAction('issue', project.slug, again ? { ...issue, again } : issue)) as { message?: unknown } | null
       return { message: String(said?.message ?? '') }
     },
     // Only ever the user's word, given twice on the GitHub page. The issue closes first; hobkin's item for it follows, and never undoes the close.

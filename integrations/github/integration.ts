@@ -25,9 +25,9 @@ export default defineIntegration({
     },
     'github.issue.add': {
       description:
-        "Add a GitHub issue to hobkin's work queue, by its repository `owner/name` and its number: the host finds the hobkin project whose repository is github.com/owner/name, reads the issue through gh, only reading, and files it with hobkin's own `issue` work action, first in the queue. A bug label makes it a fix, a security label security work. Adding it again changes nothing and says so. Refused with the reason when no hobkin project is that repository.",
+        "Add a GitHub issue to hobkin's work queue, by its repository `owner/name` and its number: the host finds the hobkin project whose repository is github.com/owner/name, reads the issue through gh, only reading, and files it with hobkin's own `issue` work action, first in the queue. A bug label makes it a fix, a security label security work. Adding it again changes nothing and says so. With `again: true`, once the work hobkin filed for the issue last is finished, hobkin files a follow-up item for it (\"Follow-up: …\"), first in the queue; while that work is still open, running or waiting, nothing changes and hobkin says so. Refused with the reason when no hobkin project is that repository.",
       runs: 'host',
-      args: Type.Object({ repo, number }, { additionalProperties: false }),
+      args: Type.Object({ repo, number, again: Type.Optional(Type.Literal(true)) }, { additionalProperties: false }),
     },
     'github.issue.close': {
       description:
@@ -44,7 +44,7 @@ export default defineIntegration({
 /** What each command answers. */
 export interface GitHubResults {
   'github.refresh': GitHubState
-  /** What hobkin said: the issue was added, or it was already filed. */
+  /** What hobkin said: the issue was added, or it was already filed; with `again`, the follow-up it filed, or that the work is still under way. */
   'github.issue.add': { message: string }
   /** What was done, in plain words: the issue closed on GitHub, and what hobkin said of its item, when it had one to decline. */
   'github.issue.close': { message: string }

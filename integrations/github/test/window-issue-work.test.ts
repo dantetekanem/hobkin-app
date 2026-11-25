@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { sampleGitHub, type IssueWork } from '../protocol.ts'
 import type { FinishedGroupName, WorkState } from '#shared/protocol/work.ts'
-import { issueChip, JUST_ADDED, placeOnWork, type WorkPlace } from '../window/issue-work.ts'
+import { issueChip, issueMenu, JUST_ADDED, placeOnWork, workAgain, type WorkPlace } from '../window/issue-work.ts'
 import { sampleWork } from '../../../ui/src/features/work/sample.ts'
 
 const filed = (state: string, pr: string | null = null): IssueWork => ({ slug: 'storefront', project: 'storefront', item: 'caa304', state, pr })
@@ -64,6 +64,27 @@ test('merged work on a project that deploys says it waits for its deploy, since 
   // Live, a project that does not deploy, or a host older than the deploy field: the merge is the work done.
   for (const deploy of ['live', null, undefined]) assert.equal(merged(deploy).label, 'Done', String(deploy))
   assert.equal(issueChip({ ...filed('done'), deploy: 'waiting' }, null).label, 'Done', 'only a merge waits for a deploy')
+})
+
+test('an issue whose work is finished can be worked on again: the one action once that work is over, in the menu while it waits for a yes', () => {
+  const again = (state: string) => workAgain(filed(state))
+
+  for (const state of ['merged', 'done', 'declined', 'dropped']) assert.equal(again(state), 'action', state)
+  // On a branch or in a PR its chip leads to the yes it waits for; hobkin still takes a follow-up.
+  for (const state of ['branch', 'pr']) assert.equal(again(state), 'menu', state)
+  // hobkin refuses while the work is in the queue, running or waiting, so the row never offers it then.
+  for (const state of ['open', 'stuck', 'doing', 'waiting', 'noted']) assert.equal(again(state), null, state)
+  assert.equal(workAgain(null), null, 'with nothing filed it is Add to queue')
+})
+
+test("an issue's menu holds everything its row can do, filing or working on it again first and closing it last", () => {
+  const menu = (work: IssueWork | null, rest: { added?: boolean; onWork?: boolean; pr?: boolean } = {}) => issueMenu(work, { added: false, onWork: false, pr: false, ...rest })
+
+  assert.deepEqual(menu(null), ['add', 'github', 'close'])
+  assert.deepEqual(menu(null, { added: true }), ['github', 'close'], 'just added, before the host says which item hobkin filed')
+  assert.deepEqual(menu(filed('merged'), { pr: true }), ['again', 'pr', 'github', 'close'])
+  assert.deepEqual(menu(filed('pr'), { onWork: true, pr: true }), ['again', 'work', 'pr', 'github', 'close'])
+  assert.deepEqual(menu(filed('doing'), { onWork: true }), ['work', 'github', 'close'])
 })
 
 test('right after Add to queue it says Added to queue, until its item moves on from the queue', () => {

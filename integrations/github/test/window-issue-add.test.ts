@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { addedWords, SAMPLE_ADDED } from '../window/issue-add.ts'
+import { addedWords, SAMPLE_ADDED, SAMPLE_AGAIN } from '../window/issue-add.ts'
 
 test('with no host, Add to queue answers in sample words and nothing reaches hobkin', async () => {
   let sent = 0
@@ -15,6 +15,17 @@ test("with a host, Add to queue sends github.issue.add by repository and number 
   const words = await addedWords({ repo: 'acme/web', number: 12 }, { live: true, add: async (args) => { seen.push(args); return { message: 'Added.' } } })
   assert.equal(words, 'Added.')
   assert.deepEqual(seen, [{ repo: 'acme/web', number: 12 }])
+})
+
+test('Work on it again sends the same command with again: true, and with no host says in sample words what hobkin would do', async () => {
+  const seen: unknown[] = []
+  const add = async (args: unknown) => (seen.push(args), { message: 'Added a follow-up.' })
+
+  assert.equal(await addedWords({ repo: 'acme/web', number: 12 }, { live: true, again: true, add }), 'Added a follow-up.')
+  assert.deepEqual(seen, [{ repo: 'acme/web', number: 12, again: true }])
+  assert.equal(await addedWords({ repo: 'acme/web', number: 12 }, { live: false, again: true, add }), SAMPLE_AGAIN)
+  assert.match(SAMPLE_AGAIN, /^This is sample data, so nothing reached hobkin\./)
+  assert.equal(seen.length, 1)
 })
 
 test("a refusal from hobkin rejects with its reason", async () => {

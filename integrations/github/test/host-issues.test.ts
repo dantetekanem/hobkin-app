@@ -90,6 +90,25 @@ test('what the host hands hobkin is what hobkin files: once, as a fix for a bug 
   assert.deepEqual(items.map(({ kind, title }) => [kind, title]), [['fix', 'Login fails after a password reset']])
 })
 
+test('Work on it again hands hobkin the issue with again, and hobkin files a follow-up once the work before it is finished, never while it is open', async (t) => {
+  const { root, slug } = homeWithProject(t)
+  const { app, calls } = fakeHobkin({ issue: (project, value) => addIssue(root, String(project), value as Parameters<typeof addIssue>[2]) })
+  const handlers = await partFor({ app, root, gh: fakeGh(answered(ISSUE)).gh })
+  const first = messageOf(await run(handlers, 'github.issue.add', { repo: 'acme/web', number: 12 }))
+  const [, id] = first.match(/ as ([0-9a-f]{6})\./) ?? assert.fail(first)
+
+  const whileOpen = messageOf(await run(handlers, 'github.issue.add', { repo: 'acme/web', number: 12, again: true }))
+  updateItem(root, slug, id!, { state: 'merged', pr: 'https://github.com/acme/web/pull/40' })
+  const followUp = messageOf(await run(handlers, 'github.issue.add', { repo: 'acme/web', number: 12, again: true }))
+
+  assert.equal((calls[1]![2] as { again?: unknown }).again, true, 'the host passes again on to hobkin')
+  assert.equal((calls[0]![2] as { again?: unknown }).again, undefined, 'and only when the user asked for it')
+  assert.match(whileOpen, /^acme\/web#12 is still in work on web as [0-9a-f]{6}, open\. Nothing changed\.$/)
+  assert.match(followUp, /^Added a follow-up on acme\/web#12 to web as [0-9a-f]{6}\. It goes first in the queue/)
+  const items = (await runWorkCommand(root, ['items', slug])) as { title: string }[]
+  assert.deepEqual(items.map(({ title }) => title).toSorted(), ['Follow-up: Login fails after a password reset', 'Login fails after a password reset'])
+})
+
 test('with no hobkin project for the repository, Add to queue is refused with the reason, and neither gh nor hobkin is asked', async (t) => {
   const { root } = homeWithProject(t)
   const { app, calls } = fakeHobkin()
@@ -116,9 +135,9 @@ test('a host that never runs gh refuses, a gh that cannot read the issue says wh
   assert.deepEqual(calls, [])
 })
 
-test('Add to queue takes a repository as owner/name and an issue number, and nothing else', () => {
-  for (const args of [{ repo: 'acme/web', number: 1 }, { repo: 'Acme-Org/web.site_2', number: 99 }]) assert.equal(takes('github.issue.add', args), true, JSON.stringify(args))
-  for (const args of [{ repo: 'acme', number: 1 }, { repo: '-x/web', number: 1 }, { repo: 'acme/web', number: 0 }, { repo: 'acme/web', number: 1.5 }, { repo: 'acme/web', number: 1, title: 'x' }, { repo: 'acme/web' }]) {
+test('Add to queue takes a repository as owner/name, an issue number and again: true for a follow-up, and nothing else', () => {
+  for (const args of [{ repo: 'acme/web', number: 1 }, { repo: 'Acme-Org/web.site_2', number: 99 }, { repo: 'acme/web', number: 1, again: true }]) assert.equal(takes('github.issue.add', args), true, JSON.stringify(args))
+  for (const args of [{ repo: 'acme', number: 1 }, { repo: '-x/web', number: 1 }, { repo: 'acme/web', number: 0 }, { repo: 'acme/web', number: 1.5 }, { repo: 'acme/web', number: 1, title: 'x' }, { repo: 'acme/web' }, { repo: 'acme/web', number: 1, again: 'yes' }]) {
     assert.equal(takes('github.issue.add', args), false, JSON.stringify(args))
   }
 })

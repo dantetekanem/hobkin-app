@@ -4,9 +4,10 @@ import { run } from './commands.ts'
 
 /**
  * Add to queue on an issue's row: hobkin files the issue on the project whose repository it is in, first in the queue
- * (`github.issue.add`). The row's `place` shows it under way and keeps what hobkin said, as Work's own actions do.
+ * (`github.issue.add`). With `again`, Work on it again: the same command files a follow-up once the work before it is finished. The
+ * row's `place` shows it under way and keeps what hobkin said, as Work's own actions do.
  */
-export async function addIssueToQueue(issue: { repo: string; number: number }, { live, place }: { live: boolean; place: string }): Promise<Said> {
+export async function addIssueToQueue(issue: { repo: string; number: number }, { live, place, again = false }: { live: boolean; place: string; again?: boolean }): Promise<Said> {
   const { busy, forget, note } = useWorkUi.getState()
   if (busy[place]) return { tone: 'refused', text: 'This is already under way.' }
 
@@ -15,7 +16,7 @@ export async function addIssueToQueue(issue: { repo: string; number: number }, {
 
   let said: Said
   try {
-    said = { tone: 'done', text: await addedWords(issue, { live, add: (args) => run('github.issue.add', args) }) }
+    said = { tone: 'done', text: await addedWords(issue, { live, again, add: (args) => run('github.issue.add', args) }) }
   } catch (error) {
     said = { tone: 'refused', text: error instanceof Error ? error.message : String(error) }
   }

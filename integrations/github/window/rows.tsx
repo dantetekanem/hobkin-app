@@ -16,6 +16,7 @@ import {
   Minus,
   PenLine,
   Rocket,
+  RotateCcw,
   Sparkles,
   UserRound,
   Waypoints,
@@ -43,8 +44,9 @@ import { runCommand } from '@/lib/host/index.ts'
 import { openAddress, openLink } from '@/lib/open-link.ts'
 import type { ChecksState, GitHubIssue, ReviewState } from '../protocol.ts'
 import { cn } from '@/lib/utils.ts'
-import { CLOSE_CONFIRM_MS, CLOSE_REASONS, closeIssueAs, closeWarning, createIssueClose, type CloseCommand } from './issue-close.ts'
-import { issueChip, JUST_ADDED, placeOnWork, type ChipTone } from './issue-work.ts'
+import { ReviewRowMenu, type ReviewRowMenuItem } from '@/features/work/ReviewRowMenu.tsx'
+import { CLOSE_CONFIRM_MS, CLOSE_REASONS, closeIssueAs, closeWarning, createIssueClose, type CloseCommand, type IssueClose } from './issue-close.ts'
+import { issueChip, issueMenu, JUST_ADDED, placeOnWork, workAgain, type ChipTone, type IssueChip, type IssueMenuItem } from './issue-work.ts'
 import { addIssueToQueue } from './add-to-queue.ts'
 import { run } from './commands.ts'
 import { openPullRequestReview } from './review.ts'
@@ -417,83 +419,123 @@ function filedWords({ state, project, item, deploy }: IssueWork): string {
 const prShown = ({ state, pr }: IssueWork): string | null => (state === 'pr' || state === 'merged' ? pr : null)
 
 /**
- * The right of an issue's card: where its work stands, then Close issue. Every row is an open issue, so every row
- * can be closed.
+ * The right of an issue's card: where its work stands, with the ⋯ menu of everything the row can do, then Close issue.
+ * Every row is an open issue, so every row can be closed.
  */
 function IssueStanding({ issue, live }: { issue: GitHubIssue; live: boolean }) {
+  const close = useIssueClose(issue, live)
   return (
     <div className="relative z-10 flex w-[260px] max-w-full shrink-0 flex-col items-start gap-3">
-      <IssueWorkStanding issue={issue} live={live} />
-      <CloseIssue issue={issue} live={live} />
+      <IssueWorkStanding issue={issue} live={live} close={close} />
+      <CloseIssue issue={issue} flow={close} />
     </div>
   )
+}
+
+/** What the ⋯ menu of an issue's row calls each thing it does. */
+const MENU_LABELS: Record<IssueMenuItem, string> = {
+  add: 'Add to queue',
+  again: 'Work on it again',
+  work: 'Open it on Work',
+  pr: 'Open the PR',
+  github: 'Open on GitHub',
+  close: 'Close issue',
 }
 
 /**
  * Where an issue's work stands: Add to queue while hobkin has nothing filed for it, and then a chip that says what it
  * waits on. Right after Add to queue the chip says so, with hobkin's whole answer in its tooltip. A chip whose item the
- * Work screen shows opens it there, where the user can act on it, and a PR's chip comes with the PR's link. A refusal
- * says why, in a line or two.
+ * Work screen shows opens it there, where the user can act on it, and a PR's chip comes with the PR's link. Once that
+ * work is over, Work on it again files a follow-up, and what hobkin answers shows under it. A refusal says why, in a
+ * line or two. The ⋯ menu at the end of the first line holds every action the row has.
  */
-function IssueWorkStanding({ issue, live }: { issue: GitHubIssue; live: boolean }) {
+function IssueWorkStanding({ issue, live, close }: { issue: GitHubIssue; live: boolean; close: IssueClose }) {
   const place = `issue:${issue.url}`
   const busy = useWorkUi((state) => Boolean(state.busy[place]))
   const said = useWorkUi((state) => state.said[place])
   const { work: shown } = useWorkView()
   const added = said?.tone === 'done'
   const { work } = issue
+  // What Work on it again said is kept under the item it followed up, so the follow-up reaching the page takes its line away.
+  const againAt = `issue-again:${issue.url}:${work?.item ?? ''}`
+  const filingAgain = useWorkUi((state) => Boolean(state.busy[againAt]))
+  const again = useWorkUi((state) => state.said[againAt])
+  const armed = useStore(close, (state) => state.armed)
+  // Once hobkin filed the follow-up, which reaches the page with its next view, it is not offered twice.
+  const offer = again?.tone === 'done' ? null : workAgain(work)
 
-  if (work || added) {
-    const chip = work ? issueChip(work, placeOnWork(shown, work.slug, work.item), added) : JUST_ADDED
-    const why = added ? (said?.text ?? '') : filedWords(work!)
-    const pr = work ? prShown(work) : null
-    const Icon = CHIP_ICON[chip.label] ?? CircleDot
-    const face = (
-      <>
-        <Icon className="size-3.5" aria-hidden="true" />
-        {chip.label}
-      </>
-    )
-    return (
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        {chip.target ? (
-          <button
-            type="button"
-            data-stop=""
-            title={`${why} Opens it on the Work screen.`}
-            onClick={() => openOnWork(chip.target!)}
-            className={cn(CHIP, CHIP_TONE[chip.tone], 'outline-offset-2 transition-opacity duration-[160ms] ease-[ease] hover:opacity-80')}
-          >
-            {face}
-          </button>
-        ) : (
-          <span title={why} className={cn(CHIP, CHIP_TONE[chip.tone])}>
-            {face}
-          </span>
-        )}
-        {pr ? (
-          <a
-            href={pr}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-stop=""
-            onClick={(event) => openLink(event, pr)}
-            className="text-[13px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-          >
-            Open the PR
-          </a>
-        ) : null}
-      </div>
-    )
+  const chip = work ? issueChip(work, placeOnWork(shown, work.slug, work.item), added) : added ? JUST_ADDED : null
+  const pr = work ? prShown(work) : null
+  const addToQueue = () => void addIssueToQueue(issue, { live, place })
+  const workOnItAgain = () => void addIssueToQueue(issue, { live, place: againAt, again: true })
+
+  const actions: Record<IssueMenuItem, ReviewRowMenuItem['onSelect']> = {
+    add: addToQueue,
+    again: workOnItAgain,
+    work: () => openOnWork(chip!.target!),
+    pr: () => openAddress(pr!),
+    github: () => openAddress(issue.url),
+    // As the button under it: the first press asks for a second, in the same place, and the menu stays open for it.
+    close: async () => {
+      const first = !close.getState().armed
+      await close.press()
+      return first
+    },
   }
+  const menu = issueMenu(work, { added, onWork: Boolean(chip?.target), pr: Boolean(pr) }).map(
+    (key): ReviewRowMenuItem => ({
+      key,
+      label: key === 'close' && armed ? 'Click again to close' : MENU_LABELS[key],
+      onSelect: actions[key],
+      destructive: key === 'close',
+      ruleBefore: key === 'close',
+      disabled: (key === 'add' && busy) || (key === 'again' && (filingAgain || !offer)),
+    }),
+  )
 
   return (
-    <div className="flex flex-col items-start gap-2">
-      <Button variant="outline" data-stop="" disabled={busy} focusableWhenDisabled onClick={() => void addIssueToQueue(issue, { live, place })}>
-        <ListPlus aria-hidden="true" />
-        {busy ? 'Adding…' : 'Add to queue'}
-      </Button>
-      {said ? (
+    <div className="flex w-full flex-col items-start gap-2">
+      <div className="flex w-full items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
+          {chip ? (
+            <WorkChip chip={chip} why={added ? (said?.text ?? '') : filedWords(work!)} />
+          ) : (
+            <Button variant="outline" data-stop="" disabled={busy} focusableWhenDisabled onClick={addToQueue}>
+              <ListPlus aria-hidden="true" />
+              {busy ? 'Adding…' : 'Add to queue'}
+            </Button>
+          )}
+          {pr ? (
+            <a
+              href={pr}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-stop=""
+              onClick={(event) => openLink(event, pr)}
+              className="text-[13px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Open the PR
+            </a>
+          ) : null}
+        </div>
+        <ReviewRowMenu label={`Everything ${issue.repo}#${issue.number} can do`} title="Everything this issue can do" items={menu} />
+      </div>
+      {offer === 'action' ? (
+        <Button variant="outline" data-stop="" disabled={filingAgain} focusableWhenDisabled onClick={workOnItAgain}>
+          <RotateCcw aria-hidden="true" />
+          {filingAgain ? 'Filing…' : 'Work on it again'}
+        </Button>
+      ) : null}
+      {again ? (
+        <p
+          role={again.tone === 'refused' ? 'alert' : 'status'}
+          title={again.text}
+          className={cn('line-clamp-2 text-[13px] leading-snug', again.tone === 'refused' ? 'text-bad-fg' : 'text-muted-foreground')}
+        >
+          {again.text}
+        </p>
+      ) : null}
+      {said && !added ? (
         <p role="alert" title={said.text} className="line-clamp-2 text-[13px] leading-snug text-bad-fg">
           {said.text}
         </p>
@@ -502,9 +544,49 @@ function IssueWorkStanding({ issue, live }: { issue: GitHubIssue; live: boolean 
   )
 }
 
+/** The chip of an issue's filed work. One whose item the Work screen shows opens it there. */
+function WorkChip({ chip, why }: { chip: IssueChip; why: string }) {
+  const Icon = CHIP_ICON[chip.label] ?? CircleDot
+  const face = (
+    <>
+      <Icon className="size-3.5" aria-hidden="true" />
+      {chip.label}
+    </>
+  )
+  if (!chip.target) {
+    return (
+      <span title={why} className={cn(CHIP, CHIP_TONE[chip.tone])}>
+        {face}
+      </span>
+    )
+  }
+  return (
+    <button
+      type="button"
+      data-stop=""
+      title={`${why} Opens it on the Work screen.`}
+      onClick={() => openOnWork(chip.target!)}
+      className={cn(CHIP, CHIP_TONE[chip.tone], 'outline-offset-2 transition-opacity duration-[160ms] ease-[ease] hover:opacity-80')}
+    >
+      {face}
+    </button>
+  )
+}
+
 const REASON = 'inline-flex h-6 items-center rounded-full px-2.5 font-heading text-[12.5px] font-medium whitespace-nowrap outline-offset-2 transition-colors duration-[160ms] ease-[ease]'
 
 const closeOnHost: CloseCommand = (args) => run('github.issue.close', args)
+
+/** One issue's Close issue, for its button and its menu. The close reads the issue and the host as they are when it is confirmed, not as they were when the row appeared. */
+function useIssueClose(issue: GitHubIssue, live: boolean): IssueClose {
+  const latest = useRef({ issue, live })
+  useEffect(() => {
+    latest.current = { issue, live }
+  })
+  const [flow] = useState(() => createIssueClose({ close: (reason) => closeIssueAs(reason, { ...latest.current, command: closeOnHost }) }))
+  useEffect(() => () => flow.dispose(), [flow])
+  return flow
+}
 
 /**
  * Close issue, confirmed in place as a verdict in Review is (`issue-close.ts`): the first click turns the button into
@@ -513,16 +595,8 @@ const closeOnHost: CloseCommand = (args) => run('github.issue.close', args)
  * host's gh; Escape, leaving the button or the ten seconds running out take the first click back. With no host it
  * answers that this is sample data.
  */
-function CloseIssue({ issue, live }: { issue: GitHubIssue; live: boolean }) {
+function CloseIssue({ issue, flow }: { issue: GitHubIssue; flow: IssueClose }) {
   const still = useStill()
-  // The close reads the issue and the host as they are when it is confirmed, not as they were when the row appeared.
-  const latest = useRef({ issue, live })
-  useEffect(() => {
-    latest.current = { issue, live }
-  })
-  const [flow] = useState(() => createIssueClose({ close: (reason) => closeIssueAs(reason, { ...latest.current, command: closeOnHost }) }))
-  useEffect(() => () => flow.dispose(), [flow])
-
   const { armed, choice: reason, busy, said } = useStore(flow)
   const label = busy ? 'Closing…' : armed ? 'Click again to close' : 'Close issue'
   const warning = armed ? closeWarning(issue.work) : null

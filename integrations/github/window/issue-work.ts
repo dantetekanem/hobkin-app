@@ -64,6 +64,36 @@ const MERGED_UNTIL_DEPLOYED: Record<string, { label: string; tone: ChipTone }> =
   deploying: { label: 'Deploying', tone: 'live' },
 }
 
+/**
+ * hobkin files an issue once more, as a follow-up of its own, once the work it filed for it last is finished: on a branch, in a PR, merged,
+ * done, declined or dropped (`addIssue` with `again` in hobkin's `work/issues.mjs`). While that work is in the queue, running or waiting, it refuses.
+ */
+const FINISHED = new Set(['branch', 'pr', 'merged', 'done', 'declined', 'dropped'])
+/** Of those, the work that is over. On a branch or in a PR it still waits for the user's yes, which its chip leads to. */
+const OVER = new Set(['merged', 'done', 'declined', 'dropped'])
+
+/** Whether the issue can be worked on again now: as the row's one action once its work is over, or from its menu. Null while it cannot. */
+export function workAgain(work: IssueWork | null | undefined): 'action' | 'menu' | null {
+  if (!work || !FINISHED.has(work.state)) return null
+  return OVER.has(work.state) ? 'action' : 'menu'
+}
+
+export type IssueMenuItem = 'add' | 'again' | 'work' | 'pr' | 'github' | 'close'
+
+/**
+ * Everything an issue's row can do, for its ⋯ menu, in order: file it, or have it worked on again; go to its work on the Work screen or
+ * to its PR; open it on GitHub; close it. `added`: the user added it in this window and the host has not said which item hobkin filed.
+ */
+export function issueMenu(work: IssueWork | null | undefined, { added, onWork, pr }: { added: boolean; onWork: boolean; pr: boolean }): IssueMenuItem[] {
+  const items: IssueMenuItem[] = []
+  if (!work && !added) items.push('add')
+  if (workAgain(work)) items.push('again')
+  if (onWork) items.push('work')
+  if (pr) items.push('pr')
+  items.push('github', 'close')
+  return items
+}
+
 /** Right after Add to queue, before the host says which item hobkin filed. */
 export const JUST_ADDED: IssueChip = { label: 'Added to queue', tone: 'ok', target: null }
 
