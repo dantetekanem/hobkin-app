@@ -1,8 +1,11 @@
 import { ChevronDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useId, useRef, useState, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { holdStill, useStill } from '@/app/still.ts'
+// The line's glow is the tasks line's own (`aa-glow`).
+import '@/features/agent-activity/agent-activity.css'
 import { useDrop } from '@/features/agent-activity/drop.ts'
+import { glowIn, liveIf, teamsGlow } from '@/features/agent-activity/glow.ts'
 import { useRoom } from '@/features/agent-activity/TaskList.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
@@ -76,9 +79,10 @@ export function TeamsStripView({ agents, open, onOpen, hue, runName, variant, cl
 
 /**
  * The agents in one line, as the tasks line beside it reads: their faces, how many, and who leads, such as
- * "2 agents · running: test-gate, observability". A click opens every one under it, with what it was asked, how it
- * stands and its times, and the same again closes it; Escape inside closes it too. A row opens that agent read only.
- * It shares its place under the header with the tasks list, so opening one closes the other.
+ * "2 agents · running: test-gate, observability". It is as wide as its words, up to 22rem, and its border breathes
+ * while one of them is working (glow.ts). A click opens every one under it, with what it was asked, how it stands and
+ * its times, and the same again closes it; Escape inside closes it too. A row opens that agent read only. It shares
+ * its place under the header with the tasks list, so opening one closes the other.
  */
 function TeamsLine({ agents, hue, now, summary, onOpen, sheet, className }: { agents: readonly ShownTeamsAgent[]; hue: number; now: number; summary: string; onOpen: (element: HTMLElement, agent: string) => void; sheet: ReactNode; className?: string }) {
   const still = useStill()
@@ -86,6 +90,7 @@ function TeamsLine({ agents, hue, now, summary, onOpen, sheet, className }: { ag
   const bar = useRef<HTMLButtonElement>(null)
   const panelId = useId()
   const line = teamsLine(agents)
+  const live = teamsGlow(agents)
 
   const toggle = () => {
     if (open && document.getElementById(panelId)?.contains(document.activeElement)) bar.current?.focus({ preventScroll: true })
@@ -94,7 +99,7 @@ function TeamsLine({ agents, hue, now, summary, onOpen, sheet, className }: { ag
 
   return (
     <div
-      className={cn('flex w-[22rem] min-w-0 shrink items-center', className)}
+      className={cn('flex min-w-0 max-w-[22rem] items-center', className)}
       onKeyDown={(event) => {
         if (!open || event.key !== 'Escape') return
         event.preventDefault()
@@ -109,12 +114,14 @@ function TeamsLine({ agents, hue, now, summary, onOpen, sheet, className }: { ag
         aria-controls={open ? panelId : undefined}
         aria-label={`${summary}. ${open ? 'Hide' : 'Show'} every agent.`}
         onClick={toggle}
+        {...liveIf(live)}
+        style={glowIn(hue)}
         // Its own transform at rest, for a press to spring back to. With none, Motion takes scale(0) as the rest and
         // the line vanishes once it is clicked.
         initial={false}
         animate={{ transform: 'scale(1)' }}
         whileTap={holdStill({ transform: 'scale(0.97)', transition: { duration: 0.14 } }, still)}
-        className="flex h-7 w-full min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-1.5 pl-2 text-[12px] outline-none transition-colors duration-[160ms] ease-[ease] hover:bg-secondary focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
+        className="aa-glow flex h-7 min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-1.5 pl-2 text-[12px] outline-none transition-colors duration-[160ms] ease-[ease] hover:bg-secondary focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
       >
         <span className="flex shrink-0 items-center" aria-hidden="true">
           {agents.slice(0, FACES).map((agent, index) => (
@@ -127,7 +134,7 @@ function TeamsLine({ agents, hue, now, summary, onOpen, sheet, className }: { ag
         <span className="shrink-0 text-muted-foreground" aria-hidden="true">
           ·
         </span>
-        <span className="min-w-0 flex-1 truncate text-left">
+        <span className="min-w-0 truncate text-left">
           <span className={cn(line.lead === 'failed' ? 'text-bad-fg' : 'text-muted-foreground')}>{line.lead}: </span>
           <span className="font-medium">{line.names}</span>
           {line.more ? <span className="text-muted-foreground"> +{line.more}</span> : null}
@@ -167,13 +174,22 @@ function AgentRow({ agent, hue, now, onOpen }: { agent: ShownTeamsAgent; hue: nu
   )
 }
 
-/** Every agent under the line, as the tasks list hangs under its own: what each was asked, how it stands and its times. */
+/**
+ * Every agent under the line, as the tasks list hangs under its own: what each was asked, how it stands and its times.
+ * It opens under the line's left end, at most 28rem wide, as the tasks list does, moved left only as far as the row
+ * needs to hold it whole.
+ */
 function AgentsPanel({ id, agents, hue, now, onOpen, still }: { id: string; agents: readonly ShownTeamsAgent[]; hue: number; now: number; onOpen: (element: HTMLElement, agent: string) => void; still: boolean }) {
   const outer = useRef<HTMLDivElement>(null)
   const room = useRoom(outer)
+  const lineLeft = useLineLeft(outer)
   return (
-    // Spans the row the line sits in, so the list stands under it, where the tasks list would.
-    <div ref={outer} className="pointer-events-none absolute inset-x-0 top-full z-20 mt-2 flex justify-center">
+    // Spans the row the line sits in, so the list stands under it within the row.
+    <div
+      ref={outer}
+      className="pointer-events-none absolute inset-x-0 top-full z-20 mt-2 flex"
+      style={{ paddingLeft: `max(0px, min(${lineLeft}px, 100% - 28rem))` }}
+    >
       <motion.div
         id={id}
         role="region"
@@ -182,7 +198,7 @@ function AgentsPanel({ id, agents, hue, now, onOpen, still }: { id: string; agen
         initial={holdStill({ opacity: 0, transform: 'translateY(-6px) scale(0.96)' }, still)}
         animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.sheet, opacity: tween.enter } }, still)}
         exit={holdStill({ opacity: 0, transform: 'translateY(-4px) scale(0.96)', transition: tween.exit }, still)}
-        className="pointer-events-auto flex w-full max-w-[34rem] origin-top flex-col overflow-hidden rounded-[18px] border border-border bg-popover text-popover-foreground shadow-panel"
+        className="pointer-events-auto flex w-full max-w-[28rem] origin-top-left flex-col overflow-hidden rounded-[18px] border border-border bg-popover text-popover-foreground shadow-panel"
       >
         <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
           <span className="text-[13px] font-medium">Teams agents</span>
@@ -198,4 +214,14 @@ function AgentsPanel({ id, agents, hue, now, onOpen, still }: { id: string; agen
       </motion.div>
     </div>
   )
+}
+
+/** Where the line that holds the list starts in its row, read as the list opens. */
+function useLineLeft(list: RefObject<HTMLElement | null>): number {
+  const [left, setLeft] = useState(0)
+  useLayoutEffect(() => {
+    const line = list.current?.parentElement
+    if (line) setLeft(line.offsetLeft)
+  }, [list])
+  return left
 }
