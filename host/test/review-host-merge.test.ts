@@ -4,6 +4,7 @@ import { test, type TestContext } from 'node:test'
 import type { ReviewTarget } from '#shared/review/ids.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import type { ApiCall, HostApi } from '../src/review/code-hosts.ts'
+import type { Moved } from '../src/review/landing.ts'
 import { Reviews } from '../src/review/reviews.ts'
 import { pullSource } from '../src/review/sources.ts'
 import { reviewStore } from '../src/review/store.ts'
@@ -19,8 +20,15 @@ const noGh = async () => {
   throw new Error('gh is never asked for a named host')
 }
 
+/** Another open pull request of the repository, as a layer of a stack: its own branch, and the one it merges into. */
+interface Layer {
+  number: number
+  head: string
+  base: string
+}
+
 /** A user's own pull request on a named host, as a stand-in host keeps it, and the reviews over it. */
-function corp(t: TestContext, { author = 'me@example.invalid', draft = false, mergeable = true as boolean | null, mergeBy = MERGE_BY as typeof MERGE_BY | null, moveOnPost = null as string | null, bases = [] as number[], ways = true } = {}) {
+function corp(t: TestContext, { author = 'me@example.invalid', draft = false, mergeable = true as boolean | null, mergeBy = MERGE_BY as typeof MERGE_BY | null, moveOnPost = null as string | null, bases = [] as number[], ways = true, base = 'main', layers = [] as Layer[], moved = null as Moved | null } = {}) {
   const store = reviewStore(temporaryDirectory(t))
   store.write(target, sample, files, { preparedAt: '2026-11-19T12:00:00.000Z', storyBy: 'host', owner: { author, mine: true } })
   const host = { state: 'open', head: sample.change.head }
@@ -29,7 +37,7 @@ function corp(t: TestContext, { author = 'me@example.invalid', draft = false, me
     calls.push(call)
     const { method = 'GET', path } = call
     if (path === 'repos/acme/shop/pulls/7' && method === 'GET') {
-      return JSON.stringify({ state: host.state, draft, mergeable, head: { sha: host.head, ref: 'round', repo: { full_name: 'acme/shop' } }, base: { ref: 'main', repo: { full_name: 'acme/shop' } }, user: { login: author } })
+      return JSON.stringify({ state: host.state, draft, mergeable, head: { sha: host.head, ref: 'round', repo: { full_name: 'acme/shop' } }, base: { ref: base, repo: { full_name: 'acme/shop' } }, user: { login: author } })
     }
     if (path === 'repos/acme/shop/pulls/7' && method === 'PATCH') return (host.state = 'closed'), '{}'
     if (path === 'repos/acme/shop/pulls/7/reviews') {
@@ -39,7 +47,11 @@ function corp(t: TestContext, { author = 'me@example.invalid', draft = false, me
     if (path === 'repos/acme/shop/issues/7/comments') return '{}'
     if (path === 'repos/acme/shop') return JSON.stringify({ default_branch: 'main' })
     if (path === 'repos/acme/shop/branches/round') return JSON.stringify({ protected: false })
-    if (path.startsWith('repos/acme/shop/pulls?state=open&head=')) return JSON.stringify(host.state === 'open' ? [{ number: 7 }] : [])
+    if (path.startsWith('repos/acme/shop/pulls?state=open&head=')) {
+      const branch = decodeURIComponent(path.slice(path.indexOf('head=') + 5)).replace(/^acme:/, '')
+      if (branch === 'round') return JSON.stringify(host.state === 'open' ? [{ number: 7 }] : [])
+      return JSON.stringify(layers.filter((layer) => layer.head === branch).map(({ number, head, base }) => ({ number, head: { ref: head, repo: { full_name: 'acme/shop' } }, base: { ref: base } })))
+    }
     if (path.startsWith('repos/acme/shop/pulls?state=open&base=')) return JSON.stringify(bases.map((number) => ({ number })))
     throw new Error(`HTTP 404: ${method} ${path}`)
   }
@@ -54,6 +66,7 @@ function corp(t: TestContext, { author = 'me@example.invalid', draft = false, me
     apiOf: () => api,
     hostWays: () => (ways ? { merge: true, mergeBy, emails: ['me@example.invalid'], deleteBranch: async (ref: string, sha: string) => void deleted.push([ref, sha]) } : null),
     onMerged: (merged) => void told.push(merged),
+    ...(moved ? { pullMoved: async () => moved } : {}),
     now: () => 1000,
   })
   t.after(() => reviews.close())
@@ -107,6 +120,20 @@ test("on a pull request an agent opened because the user asked, approve and merg
   const shown = await moving.reviews.preview(id, 'approve-merge', '')
   await assert.rejects(moving.reviews.verdict(id, 'approve-merge', '', shown.confirm), /^Error: Your comment went on corp, but acme\/shop#7 moved to fffffff before its merge was asked, so the merge comment was not posted\.$/)
   assert.deepEqual(moving.writes().map(([, path]) => path), ['repos/acme/shop/pulls/7/reviews'])
+})
+
+test("approve and merge on a named host's layer over open pull requests is refused before anything is sent, naming them in order", async (t) => {
+  const { reviews, writes } = corp(t, { base: 's2', layers: [{ number: 5, head: 's1', base: 'main' }, { number: 6, head: 's2', base: 's1' }] })
+  await assert.rejects(reviews.preview(id, 'approve-merge', ''), /#7 is layer 3 of 3: merge #5 and #6 first/)
+  await assert.rejects(reviews.verdict(id, 'approve-merge', '', 'any'), /#7 is layer 3 of 3: merge #5 and #6 first/)
+  assert.deepEqual(writes(), [])
+})
+
+test("approve and merge on a named host says what landed on the pull request since its review, before the merge comment is asked", async (t) => {
+  const { reviews, host } = corp(t, { moved: { rebased: false, same: false, subjects: ['Round to cents'] } })
+  host.head = NEWER
+  const preview = await reviews.preview(id, 'approve-merge', '')
+  assert.deepEqual(preview.lines.slice(-2), ['Since this review it gained 1 commit: "Round to cents".', 'It asks at commit fffffff: if acme/shop#7 moves before then, nothing more is posted.'])
 })
 
 test('a draft, a conflict, a closed pull request and a host with no merge entry are refused before anything is sent; approve alone is refused on the user’s own there', async (t) => {

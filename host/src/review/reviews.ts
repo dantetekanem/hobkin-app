@@ -1728,7 +1728,8 @@ export class Reviews {
    * Approve and merge on the user's own pull request on a named host, the way that host merges: the review goes first,
    * as a comment on a pull request the user opened (their own approval counts for nothing there) and as an approval on
    * one an agent opened because they asked, then the comment that asks the host to merge it, at the commit shown.
-   * Refused, before anything is sent, for a draft, a conflict, one no longer open, or a host with no merge entry.
+   * Refused, before anything is sent, for a draft, a conflict, one no longer open, a layer of a stack over open pull
+   * requests, or a host with no merge entry. What landed on it since the review is said before the merge is asked.
    */
   private async hostMergePlan({ target, name, review, notes, summary, loose, at, token }: {
     target: PullTarget
@@ -1745,17 +1746,25 @@ export class Reviews {
     const api = this.apiFor(target)
     if (!ways?.merge || !api) throw new Unavailable(`hobkin may not merge on ${host}, as its code host file says.`)
     if (!ways.mergeBy) throw new Unavailable(`${host} has no merge entry in the code host file, so hobkin does not know how to ask it to merge. Name its merge comment there.`)
-    let pull: { state?: string; draft?: boolean; mergeable?: boolean | null; mergeable_state?: string; head?: { sha?: string }; user?: { login?: string } }
+    const read = async <Value>(path: string) => JSON.parse(await api({ path })) as Value
+    const repo = `repos/${target.owner}/${target.repo}`
+    type Facts = [{ state?: string; draft?: boolean; mergeable?: boolean | null; mergeable_state?: string; head?: { sha?: string; ref?: string }; base?: { ref?: string }; user?: { login?: string } }, { default_branch?: string }]
+    let facts: Facts
     try {
-      pull = JSON.parse(await api({ path: `repos/${target.owner}/${target.repo}/pulls/${target.number}` })) as typeof pull
+      // The default branch says where a stack ends. One that cannot be read leaves its layers unread, as on GitHub.
+      facts = await Promise.all([read<Facts[0]>(`${repo}/pulls/${target.number}`), read<Facts[1]>(repo).catch(() => ({}))])
     } catch (error) {
       throw new Unavailable(messageOf(error))
     }
+    const [pull, settings] = facts
     if (pull.state !== 'open') throw new Unavailable(`${name} is not open on ${host}, so there is nothing to merge.`)
     if (pull.draft) throw new Unavailable(`${name} is a draft on ${host}: mark it ready for review first.`)
     if (pull.mergeable === false || pull.mergeable_state === 'dirty') throw new Unavailable(`${name} has conflicts on ${host}: resolve them first.`)
     const current = pull.head?.sha
     if (!current) throw new Unavailable(`${host} did not say which commit ${name} is at, so its merge is not asked.`)
+    const into = pull.base?.ref ?? null
+    if (into) await this.layersUnder(target, { base: into, head: pull.head?.ref ?? null, defaultBranch: settings.default_branch ?? null })
+    const said = current !== at ? await this.pullMovedWords(target, at, current, into ?? 'its base branch') : null
     const opened = Boolean(pull.user?.login && ways.emails.includes(pull.user.login.toLowerCase()))
     const { post: written, said: checked, suggested } = await this.fixedPost(pullReviewPost(review, notes, opened ? 'comment' : 'approve', summary, loose))
     // A review with no line to place goes on the commit it asks to merge; lines stay on the commit they were written on.
@@ -1769,6 +1778,7 @@ export class Reviews {
         : [`Approve ${name} on ${host}, as you, through its API command, ${lineComments}.`, ...checked]),
       `Then post "${comment}" on it, which asks ${host} to merge it.`,
       ...(after ? [after] : []),
+      ...(said ? [said] : []),
       // Not the branch it merges into: a stacked pull request's base is the one below it.
       `It asks at commit ${current.slice(0, 7)}: if ${name} moves before then, nothing more is posted.`,
     ]
@@ -1865,13 +1875,13 @@ export class Reviews {
   }
 
   /**
-   * A layer of a stack merges after the ones under it: GitHub merges them together or refuses, so a pull request whose
-   * base is another open pull request's branch is refused here, naming the layers under it, before anything is sent.
-   * A read that fails says nothing, and GitHub has its own say.
+   * A layer of a stack merges after the ones under it, on GitHub, which merges them together or refuses, and on a named
+   * host alike: a pull request whose base is another open pull request's branch is refused here, naming the layers under
+   * it, before anything is sent. A read that fails says nothing, and the host has its own say.
    */
   private async layersUnder(target: PullTarget, { base, head, defaultBranch }: { base: string; head: string | null; defaultBranch: string | null }): Promise<void> {
     const api = this.apiFor(target)
-    if (!api || target.host || !head || !defaultBranch || base === defaultBranch) return
+    if (!api || !head || !defaultBranch || base === defaultBranch) return
     let layers
     try {
       layers = await pullLayers(api, { owner: target.owner, repo: target.repo, base, head, defaultBranch })
