@@ -421,50 +421,53 @@ test('each engine runs a turn on its own model and thinking', async t => {
   assert.equal((await app.refresh()).hobkins.length, 4);
 });
 
-test('an unseen wait wakes the main agent once, and a seen one never', async t => {
+// The user, 2026-11-25: "durable conversations should NOT be shared with the main agent".
+test("a durable hobkin's turn never wakes the main agent by itself, whoever started it, and a look marks its wait seen", async t => {
   const h = fixture(t);
   let clock = Date.parse('2026-03-01T10:00:00Z');
   const turns = fakeTurns();
   const app = await h.openApp({ runHarness: turns.runHarness, now: () => clock });
   t.after(() => app.close());
-  const unseen = await app.hobkins.start({ text: 'Bump the lockfile.', cwd: h.folder, engine: { kind: 'tier', tier: 'fast' }, title: 'Lockfile' });
-  const looked = await app.hobkins.start({ text: 'Rename the module.', cwd: h.folder, engine: { kind: 'tier', tier: 'fast' }, title: 'Rename' });
+  const fast = { kind: 'tier', tier: 'fast' };
+  const users = await app.hobkins.start({ text: 'Bump the lockfile.', cwd: h.folder, engine: fast, title: 'Lockfile' });
   answer(await turns.nth(0), 'Bumped 3 packages. One needs your call: pin react 18 or move to 19?');
-  answer(await turns.nth(1), 'Renamed.');
-  await waitingNow(app, unseen.id);
-  await waitingNow(app, looked.id);
-  assert.deepEqual(await app.hobkins.seen(looked.id), { ok: true });
-  assert.equal((await app.hobkins.read(looked.id)).hobkin.waiting.seen, true);
+  const scheduled = await app.hobkins.start({ cwd: h.folder, engine: fast, title: 'CI watch' });
+  await app.hobkins.wake(scheduled.id, { text: '<hobkin-schedule>\n{}\n</hobkin-schedule>', from: { kind: 'schedule', id: 'checks', title: 'Checks' } });
+  answer(await turns.nth(1), 'Checks still running: 3 of 7 passed.');
+  const mains = await app.hobkins.start({ cwd: h.folder, engine: fast, title: 'Docs' });
+  await app.hobkins.tell(mains.id, { text: 'Which branch are you on?' });
+  answer(await turns.nth(2), 'On fix/docs.');
+  for (const { id } of [users, scheduled, mains]) await waitingNow(app, id);
+  assert.deepEqual(await app.hobkins.seen(users.id), { ok: true });
+  assert.equal((await app.hobkins.read(users.id)).hobkin.waiting.seen, true);
+  assert.equal((await app.hobkins.read(scheduled.id)).hobkin.waiting.seen, false);
   const sent = t.mock.method(app.runtime, 'send');
 
-  clock += 19000;
-  await app.tickWakes();
-  assert.equal(sent.mock.callCount(), 0, 'the user has 20 seconds to look');
-
-  clock += 1000;
+  clock += 60 * 60000;
   await app.tickWakes();
   await app.runtime.idle();
-  assert.equal(sent.mock.callCount(), 1);
-  const [brief] = sent.mock.calls[0].arguments;
-  assert.match(brief, /^<hobkin-wake>\n/);
-  assert.deepEqual(JSON.parse(brief.split('\n')[1]), { hobkins: [{ id: unseen.id, title: 'Lockfile', status: 'completed', said: 'Bumped 3 packages. One needs your call: pin react 18 or move to 19?' }] });
+  assert.equal(sent.mock.callCount(), 0);
+});
 
-  clock += 60000;
-  await app.tickWakes();
-  await app.runtime.idle();
-  assert.equal(sent.mock.callCount(), 1, 'a wait is told once, and a seen one never');
-  assert.equal((await app.refresh()).messages.some(message => message.role === 'user' && /hobkin-wake/.test(message.content)), false, 'Chat shows only the answer');
+test('a turn the main hobkin started and answered with hobkin tell main reaches the main agent once, as that message', async t => {
+  const h = fixture(t);
+  let clock = Date.parse('2026-03-01T10:00:00Z');
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness, now: () => clock });
+  t.after(() => app.close());
+  const { id } = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'tier', tier: 'fast' }, title: 'Docs' });
+  await app.hobkins.tell(id, { text: 'Which branch are you on?' });
+  const call = await turns.nth(0);
+  await tell(app, h.root, { HOBKIN_TURN: tokenOf(call) }, ['main', 'On fix/docs.']);
+  answer(call, 'On fix/docs. I told the main hobkin.');
+  await waitingNow(app, id);
 
-  // The next wait is a wait of its own.
-  await app.hobkins.say(unseen.id, { text: 'Move to 19.' });
-  answer(await turns.nth(2), 'Moved to 19.');
-  await until(async () => (await app.hobkins.read(unseen.id)).hobkin.last?.said === 'Moved to 19.');
-  clock += 20000;
   await app.tickWakes();
-  await app.runtime.idle();
-  assert.equal(sent.mock.callCount(), 2);
-  assert.match(sent.mock.calls[1].arguments[0], /Moved to 19\./);
-  assert.doesNotMatch(sent.mock.calls[1].arguments[0], /Rename/);
+  await mainDone(app);
+  clock += 60 * 60000;
+  await app.tickWakes();
+  await mainDone(app);
+  assert.deepEqual(wakesIn(app).map(wake => wake.messages?.map(({ from, text }) => ({ from, text }))), [[{ from: id, text: 'On fix/docs.' }]]);
 });
 
 test('ending stops the turn and keeps the conversation, and a forty-ninth is refused', async t => {
@@ -600,11 +603,10 @@ test("the main agent's message tool neither lists nor reaches a hobkin's turn", 
   await waitingNow(app, id);
 });
 
-test('a message sent as a turn starts reaches that turn, and a wake that fails is not tried again at once', async t => {
+test('a message sent as a turn starts reaches that turn', async t => {
   const h = fixture(t);
-  let clock = Date.parse('2026-03-01T10:00:00Z');
   const turns = fakeTurns();
-  const app = await h.openApp({ runHarness: turns.runHarness, now: () => clock });
+  const app = await h.openApp({ runHarness: turns.runHarness });
   t.after(() => app.close());
 
   // The words arrive before the turn's run is even admitted: they wait for it, and are not held until it ends.
@@ -615,28 +617,12 @@ test('a message sent as a turn starts reaches that turn, and a wake that fails i
   assert.deepEqual(call.heard, ['Dry run first.']);
   answer(call, 'The dry run passes.');
   await waitingNow(app, id);
-
-  // The main agent cannot take the wake, as with a sign-in that ran out. hobkin waits before it tries again.
-  const sent = t.mock.method(app.runtime, 'send', async () => { throw Error('No API key found.'); });
-  clock += 20000;
-  await app.tickWakes();
-  assert.equal(sent.mock.callCount(), 1);
-  clock += 1000;
-  await app.tickWakes();
-  clock += 60000;
-  await app.tickWakes();
-  assert.equal(sent.mock.callCount(), 1, 'not again within five minutes');
-  clock += 5 * 60000;
-  await app.tickWakes();
-  assert.equal(sent.mock.callCount(), 2, 'then once more');
-  assert.equal((await app.hobkins.read(id)).hobkin.waiting.seen, false);
 });
 
-test('a hobkin started with no message waits untold, and its first message is its first turn and gives it its name', async t => {
+test('a hobkin started with no message waits, seen, and its first message is its first turn and gives it its name', async t => {
   const h = fixture(t);
-  let clock = Date.parse('2026-03-01T10:00:00Z');
   const turns = fakeTurns();
-  const app = await h.openApp({ runHarness: turns.runHarness, now: () => clock });
+  const app = await h.openApp({ runHarness: turns.runHarness });
   t.after(() => app.close());
 
   const started = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } });
@@ -649,13 +635,6 @@ test('a hobkin started with no message waits untold, and its first message is it
     [fresh.hobkin.title, fresh.hobkin.state, fresh.hobkin.turns, fresh.hobkin.run, fresh.hobkin.last, fresh.hobkin.waiting?.seen],
     ['New hobkin', 'waiting', 0, null, null, true],
   );
-
-  // Nothing happened yet, so there is nothing for the main agent to tell.
-  const sent = t.mock.method(app.runtime, 'send');
-  clock += 60000;
-  await app.tickWakes();
-  assert.equal(sent.mock.callCount(), 0);
-  sent.mock.restore();
 
   // Its first message is its first turn, and names it.
   const text = 'Find out why the nightly export is slow\nIt takes an hour now.';
@@ -984,11 +963,10 @@ test("the user's words start a fresh count for the turn they reach, in Chat or o
   await assert.rejects(tell(app, h.root, asTurn(rebuilding), ['main', 'Rebuilt.']), TOO_MANY);
 });
 
-test("answering one hobkin is not held back by another hobkin's count in the same wake, and a wait carries its count", async t => {
+test("answering one hobkin is not held back by another hobkin's count in the same wake", async t => {
   const h = fixture(t);
-  let clock = Date.parse('2026-03-01T10:00:00Z');
   const turns = fakeTurns();
-  const app = await h.openApp({ runHarness: turns.runHarness, now: () => clock });
+  const app = await h.openApp({ runHarness: turns.runHarness });
   t.after(() => app.close());
 
   // One and Helper pass three messages, the last to the main hobkin, so One's count is spent.
@@ -1012,17 +990,8 @@ test("answering one hobkin is not held back by another hobkin's count in the sam
   await assert.rejects(app.hobkins.tell(one.id, { text: 'Thanks.' }), TOO_MANY);
   release();
   await mainDone(app);
-
-  // Helper's turn came from One's count, so its wait, told to the main hobkin, carries that count.
   answer(checking, 'Checked.');
   await waitingNow(app, helper.id);
-  clock += 20000;
-  const again = holdMain(h);
-  await app.tickWakes();
-  assert.deepEqual(wakesIn(app).at(-1), { hobkins: [{ id: helper.id, title: 'Helper', status: 'completed', said: 'Checked.' }] });
-  await assert.rejects(app.hobkins.tell(helper.id, { text: 'Thanks.' }), TOO_MANY);
-  again();
-  await mainDone(app);
 });
 
 test("inside a durable hobkin's turn, remember, remind, decide, action and session say to use hobkin tell", async t => {

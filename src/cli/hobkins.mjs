@@ -32,8 +32,6 @@ import { answerRequest, takeRequests } from './hobkin-tell.mjs';
 export const MOST_HOBKINS = 48;
 export const MESSAGE_MAX = 32768;
 export const TITLE_MAX = 120;
-/** How long a wait can go unseen before the main agent hears of it. */
-export const UNSEEN_MS = 20000;
 const MADE_TITLE_MAX = 60;
 const SAID_MAX = 600;
 // A note to a running job is at most this long (`HobkinRunner.messageCheck`).
@@ -294,8 +292,7 @@ export class Hobkins {
         Object.assign(record, {
           state: 'waiting', run: null,
           last: cutOff(run) ? { status: 'interrupted', said: CUT_OFF, at } : lastOf(run, at),
-          // The turn's count stays with the wait, so the main agent told of it spends from the same count.
-          waiting: { since: at, seen: false, told: false, count: record.count ?? null },
+          waiting: { since: at, seen: false },
         });
       }
     });
@@ -334,8 +331,8 @@ export class Hobkins {
         ...(asked
           // The user's words start a fresh count of messages between hobkins.
           ? { turns: 1, run: turnRunId(id, 1), state: 'working', waiting: null, count: randomUUID() }
-          // Nothing has happened, so there is nothing to look at and nothing to tell.
-          : { turns: 0, run: null, state: 'waiting', waiting: { since: createdAt, seen: true, told: true } }),
+          // Nothing has happened, so there is nothing to look at.
+          : { turns: 0, run: null, state: 'waiting', waiting: { since: createdAt, seen: true } }),
       };
       return hobkins[id];
     });
@@ -569,8 +566,7 @@ export class Hobkins {
       Object.assign(record, {
         state: 'waiting', run: null,
         last: stopping ? { status: 'interrupted', said: CUT_OFF, at } : lastOf(run, at),
-        // The turn's count stays with the wait, so the main agent told of it spends from the same count.
-        waiting: { since: at, seen: false, told: false, count: record.count ?? null },
+        waiting: { since: at, seen: false },
         ...(typeof run?.result?.sessionId === 'string' ? { engineSession: run.result.sessionId } : {}),
       });
     });
@@ -713,7 +709,7 @@ export class Hobkins {
     return (await keptCommands(record.sessionFile)) ?? [];
   }
 
-  /** The user looked at it, so this wait is never told. */
+  /** The user looked at it, so the window stops marking this wait. */
   async seen(id) {
     live(await this.runtime.state(), id);
     await this.change(hobkins => {
@@ -732,37 +728,6 @@ export class Hobkins {
       .sort((a, b) => a.hobkin.turn - b.hobkin.turn)
       .map(turnOf);
     return { hobkin: summaryOf(record), turns };
-  }
-
-  /** Waits nobody looked at in 20 seconds and the main agent has not heard of. */
-  due(now) {
-    return Object.values(this.records)
-      .filter(record => {
-        const { waiting } = record;
-        return record.state === 'waiting'
-          && waiting
-          && !waiting.seen
-          && !waiting.told
-          && now - Date.parse(waiting.since) >= UNSEEN_MS;
-      })
-      .map(record => ({
-        id: record.id,
-        title: record.title,
-        status: record.last?.status ?? 'completed',
-        said: record.last?.said ?? '',
-        since: record.waiting.since,
-        count: record.waiting.count ?? null,
-      }));
-  }
-
-  /** Each wait is told once. A newer wait is a wait of its own. */
-  told(waits) {
-    return this.change(hobkins => {
-      for (const { id, since } of waits) {
-        const record = hobkins[id];
-        if (record?.state === 'waiting' && record.waiting?.since === since) record.waiting.told = true;
-      }
-    });
   }
 
   /**
@@ -789,7 +754,7 @@ export class Hobkins {
   }
 
   /**
-   * The counts the main agent's message to `to` may spend. A turn woken for messages or waits holds each sender's count:
+   * The counts the main agent's message to `to` may spend. A turn woken for messages holds each sender's count:
    * an answer to one of them spends that sender's, so another's spent count never holds it back, and a message to anyone
    * else spends whichever has most left. A turn the user's words started or reached holds a fresh count of its own, and
    * so does a message from no turn at all, as from the window.
@@ -803,11 +768,11 @@ export class Hobkins {
     return from[to]?.length ? from[to] : woken.length ? woken : [own];
   }
 
-  /** The id of a main turn hobkin is about to start for these messages or waits, holding each sender's count. */
-  mainTurnFor(items) {
+  /** The id of a main turn hobkin is about to start for these messages, holding each sender's count. */
+  mainTurnFor(messages) {
     const turn = randomUUID();
     const from = {};
-    for (const item of items) if (item.count) (from[item.from ?? item.id] ??= []).push(item.count);
+    for (const message of messages) if (message.count) (from[message.from] ??= []).push(message.count);
     this.mainChain = { turn, from, own: randomUUID() };
     return turn;
   }

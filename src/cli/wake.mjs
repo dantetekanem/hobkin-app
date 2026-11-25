@@ -24,9 +24,6 @@ export const scheduledBrief = failures => brief({ scheduled: failures.slice(0, M
 /** Work the user chose on a card that work mode cannot start, for the agent to hand to a session of its own. */
 export const handOffBrief = jobs => brief({ handOff: jobs });
 
-/** Durable hobkins that stopped and wait on a user who has not looked, for the agent to tell the user about. */
-export const hobkinsBrief = hobkins => brief({ hobkins: hobkins.map(({ id, title, status, said }) => ({ id, title, status, said })) });
-
 /**
  * Jobs the agent handed out that ended a turn without saying they are done, usually to ask the user something
  * (072-jobs-live-until-done): each by its title, the routine id `message_check` reaches it on, and what it said.

@@ -38,7 +38,7 @@ import { AgentScheduleRunner } from './agent-schedule-runner.mjs';
 import { scheduledText, scheduleWakeBlock } from './agent-schedules.mjs';
 import { isTurnRunId } from './hobkin-ids.mjs';
 import { tierBinding } from './tiers.mjs';
-import { agentSchedulesBrief, failureKey, handOffBrief, hobkinsBrief, isQuietScheduledRun, isWakeBrief, jobsBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
+import { agentSchedulesBrief, failureKey, handOffBrief, isQuietScheduledRun, isWakeBrief, jobsBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { Hobkins, hobkinSummaries } from './hobkins.mjs';
 import { answerRequest, takeRequests, tellRequests, turnToken } from './hobkin-tell.mjs';
 import { SCHEDULE_ENVIRONMENT, SCHEDULE_REQUESTS, scheduleAskedHere } from './agent-schedule-command.mjs';
@@ -1647,14 +1647,6 @@ export class HobkinApplication {
       return this.runtime.send(messagesBrief(messages), this.hobkins.mainTurnFor(messages)).then(() => this.hobkins.heardByMain(messages))
         .catch(error => { if (error?.message !== MAIN_BUSY) this.messagesWakeAfter = this.now() + HOBKIN_WAKE_RETRY_MS; })
         .finally(() => { this.waking = false; });
-    }
-    // A durable hobkin that stopped while nobody looked, told once for each wait. A wake that does not go, as with a
-    // sign-in that ran out, is tried again only after five minutes, so a main agent that cannot answer is not asked every tick.
-    const waits = this.now() >= (this.hobkinWakeAfter ?? 0) ? this.hobkins.due(this.now()) : [];
-    if (waits.length) {
-      this.waking = true;
-      return this.runtime.send(hobkinsBrief(waits), this.hobkins.mainTurnFor(waits)).then(() => this.hobkins.told(waits))
-        .catch(() => { this.hobkinWakeAfter = this.now() + HOBKIN_WAKE_RETRY_MS; }).finally(() => { this.waking = false; });
     }
     // What the main agent's own schedules found, as soon as it is free (056-agent-schedules). One that does not go, as
     // with a sign-in that ran out, is tried again after five minutes.

@@ -43,7 +43,7 @@ When you need the user, say exactly what you need, a choice, a fact or a yes, an
 
 ${filing(root, { when: 'once it is ready' })}
 `;
-const KEPT = "It starts as a durable hobkin of its own in hobkin's list, under the title you gave it. When a turn ends it stays and waits for the user, with no limit. The user talks to it there, and only the user ends it. You hear when it waits, as with any durable hobkin.";
+const KEPT = "It starts as a durable hobkin of its own in hobkin's list, under the title you gave it. When a turn ends it stays and waits for the user, with no limit. The user talks to it there, and only the user ends it. Its conversation stays there: you hear only what it sends you with hobkin tell.";
 
 // A brief can hold a whole conversation, and only a short line fits in the job's first message.
 function saveBrief(root, name, brief, ending) {
