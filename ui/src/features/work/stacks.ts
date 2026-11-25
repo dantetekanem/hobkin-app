@@ -67,7 +67,14 @@ export const placeOf = (stack: StackPlace): string => `${stack.layer} of ${stack
  * layer it sits on, so only its label, for a screen reader, says that in words.
  */
 export function layerLine({ stack, title }: { stack: StackPlace; title: string }): { place: string; title: string; label: string } {
-  return { place: placeOf(stack), title, label: `Layer ${placeOf(stack)}: ${title}, on layer ${stack.layer - 1}` }
+  const place = placeOf(stack)
+  const under = stack.layer - 1
+
+  return {
+    place,
+    title,
+    label: `Layer ${place}: ${title}, on layer ${under}`,
+  }
 }
 
 /** The stack's one quiet heading: how many layers and what they are of. Its whole card names the project. */

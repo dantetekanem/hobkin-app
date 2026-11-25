@@ -50,7 +50,13 @@ export function ReviewStack({ entry, draw }: { entry: StackEntry; draw: DrawLaye
             }
             // A layer's line is never the first, and draws its arrow in front of itself.
             const words = layerLine({ stack: layer.place, title: layer.row.item.title })
-            return <Fragment key={id}>{draw(layer, { place: words.place, label: words.label, opened: open.has(id), onToggle: () => toggle(id) })}</Fragment>
+            const line: LineOf = {
+              place: words.place,
+              label: words.label,
+              opened: open.has(id),
+              onToggle: () => toggle(id),
+            }
+            return <Fragment key={id}>{draw(layer, line)}</Fragment>
           })}
         </ul>
       </div>
