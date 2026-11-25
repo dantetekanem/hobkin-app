@@ -2,6 +2,7 @@
   "name": "hobkin",
   "version": "0.1.7",
   "private": true,
+  "license": "MIT",
   "packageManager": "pnpm@11.12.0",
   "type": "module",
   "description": "A chat-first CLI agent with recurring Pi checks, work mode and a persistent Pi conversation.",
