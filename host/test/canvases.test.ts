@@ -66,8 +66,14 @@ function assertDrawingHeaders(response: Response, bytes: Buffer) {
   assert.doesNotMatch(policy, /allow-same-origin/)
 }
 
+/**
+ * Waits for something the folder watch reports. These tests check that a change arrives, not how fast: under the
+ * whole suite's load the Mac can hold a watch event for seconds, so the wait is generous and a pass still returns at once.
+ */
+const WATCH_WAIT_MS = 15_000
+
 async function until(check: () => boolean, what: string) {
-  for (let waited = 0; waited < 3000; waited += 25) {
+  for (let waited = 0; waited < WATCH_WAIT_MS; waited += 25) {
     if (check()) return
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
