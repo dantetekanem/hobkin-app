@@ -235,6 +235,10 @@ test('a message to a waiting hobkin starts a turn on the same conversation, and 
   const noteId = '00000000-0000-4000-8000-000000000001';
   assert.deepEqual(await app.hobkins.say(id, { text: 'Name it orders_by_day.', noteId }), { started: false, queued: true, run: `hobkin:${id}:2` });
   assert.deepEqual(second.heard, [`[hobkin-note:${noteId}]\nName it orders_by_day.`]);
+  // Queued is not read. Once the turn's Pi reads the words in, the snapshot has a receipt for the note, under the turn's run.
+  assert.equal((await app.refresh()).steeringReceipts[`hobkin:${id}:2`], undefined);
+  second.options.onEvent({ type: 'message_end', message: { role: 'user', content: [{ type: 'text', text: second.heard[0] }] } });
+  assert.deepEqual((await app.refresh()).steeringReceipts[`hobkin:${id}:2`]?.map(receipt => receipt.noteId), [noteId]);
   assert.equal(turns.calls.length, 2, 'no second turn starts while one runs');
   await assert.rejects(app.hobkins.say(id, { text: 'x'.repeat(5000) }), /at most 4096/);
 
