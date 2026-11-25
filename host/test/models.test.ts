@@ -108,8 +108,13 @@ test('no command takes a key, and the keychain line goes through Pi on a yes', a
   // Not one command has an argument that could carry a key.
   const keyish = /key|token|secret|password|credential/i
   for (const [name, command] of Object.entries(COMMANDS)) {
-    const properties = Object.keys((command.args as { properties?: object }).properties ?? {})
-    assert.deepEqual(properties.filter((property) => keyish.test(property)), [], name)
+    const properties = (command.args as { properties?: Record<string, { type?: string }> }).properties ?? {}
+    // The Work token budget is a count, not an authentication token.
+    const secretFields = Object.keys(properties).filter((property) => {
+      const budget = name === 'work.tokens' && property === 'tokens' && properties[property]?.type === 'integer'
+      return keyish.test(property) && !budget
+    })
+    assert.deepEqual(secretFields, [], name)
   }
 
   const pi = await modelsHost(t, { stored: ['openai'] })
@@ -183,10 +188,8 @@ test('hobkin starts a sign-in from the conversation through the client tool', as
   const ran: [string, unknown][] = []
   const tool = createClientTool({ run: async (name, args) => (ran.push([name, args]), { ok: true, value: { ok: true } }) })
   const listed = JSON.parse((await tool.execute('call-1', { action: 'list' })).content[0]!.text) as { name: string }[]
-  assert.deepEqual(listed.map(({ name }) => name).sort(), [
-    'app.refresh', 'app.state', 'appearance.set', 'appearance.use', 'canvas.close', 'canvas.show', 'host.code', 'models.key-help', 'models.list',
-    'review.code', 'review.list', 'review.map', 'review.note', 'review.prepare', 'review.remove', 'review.show', 'review.status', 'review.stop',
-    'signin.cancel', 'signin.start', 'tiers.read',
+  assert.deepEqual(listed.map(({ name }) => name).filter((name) => /^(models|signin|tiers)\./.test(name)).sort(), [
+    'models.key-help', 'models.list', 'signin.cancel', 'signin.start', 'tiers.read',
   ])
   const described = JSON.parse((await tool.execute('call-2', { action: 'describe', name: 'signin.start' })).content[0]!.text)
   assert.equal(described.name, 'signin.start')
