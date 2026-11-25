@@ -139,6 +139,16 @@ const messageTime = message => {
   const time = typeof value === 'number' ? value : Date.parse(value ?? '');
   return Number.isFinite(time) ? time : null;
 };
+// The conversation as the model read it, each message timed for placing Chat's own lines among them. A message queued for a turn keeps
+// the time it was sent and is read once the reply before it ends, so it is placed no earlier than the message read before it.
+const inReadOrder = messages => {
+  let latest = null;
+  return messages.map(message => {
+    const time = messageTime(message);
+    if (time !== null) latest = Math.max(latest ?? time, time);
+    return { message, time: time === null ? null : latest };
+  });
+};
 const DISCOVERY_POST = 'notice:work-discovery:';
 const isOwnPost = message => message.role === 'notice' || message.id?.startsWith('notice:');
 
@@ -797,9 +807,9 @@ export class HobkinApplication {
       noticeIds.add(id);
     }
     const messages = foldFinishedLines([
-      ...visibleChatMessages(this.runtime.messages()).map(chatMessage),
-      ...notices,
-    ].map((message, index) => ({ message, index, time: messageTime(message) }))
+      ...inReadOrder(visibleChatMessages(this.runtime.messages()).map(chatMessage)),
+      ...notices.map(message => ({ message, time: messageTime(message) })),
+    ].map((entry, index) => ({ ...entry, index }))
       .sort((left, right) => {
         if (left.time === null) return right.time === null ? left.index - right.index : -1;
         if (right.time === null) return 1;

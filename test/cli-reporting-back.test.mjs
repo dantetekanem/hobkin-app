@@ -834,3 +834,25 @@ test('Continue goes on after a turn the user stopped, as their own word, and onl
     await app.close();
   }
 });
+
+test('Chat keeps the conversation in the order the model read it, and puts each line by its time', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    const at = iso => Date.parse(`2026-01-02T08:00:${iso}Z`);
+    const reply = (text, second) => ({ role: 'assistant', content: [{ type: 'text', text }], stopReason: 'stop', timestamp: at(second) });
+    // A message queued for a turn keeps the time it was sent, and the model reads it once the reply before it ends.
+    t.mock.method(app.runtime, 'messages', () => [
+      { role: 'user', content: 'Plan the week', timestamp: at('00') },
+      reply('Here is a plan', '10'),
+      { role: 'user', content: 'Then sum it up', timestamp: at('05') },
+      reply('In short', '20'),
+    ]);
+    recordCardAction(h.root, { id: 'between', did: 'did something', line: 'A line between the replies.' }, at('15'));
+
+    const said = (await app.refresh()).messages.map(({ role, content }) => `${role}: ${content}`);
+    assert.deepEqual(said, ['user: Plan the week', 'assistant: Here is a plan', 'user: Then sum it up', 'system: A line between the replies.', 'assistant: In short']);
+  } finally {
+    await app.close();
+  }
+});
