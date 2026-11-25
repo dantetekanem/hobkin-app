@@ -1,4 +1,4 @@
-import { targetOfReviewId } from '#shared/review/ids.ts'
+import { pullOfReview, reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import type { Place } from '../features/main-agent/mind.ts'
 import { isPartScreen } from '../integration/screens.ts'
 import { depth } from './overlays.ts'
@@ -152,15 +152,21 @@ export function modelName(spec: string): string {
   return (spec.split('/').at(-1) ?? spec).replace(/\.tla$/, '')
 }
 
-/** The title a review is known by: its finished change's, or its pull request's. Undefined when neither is known here. */
+/**
+ * The title a review is known by: its finished change's, or its pull request's, found by its page on the code host the
+ * review is on. Undefined when neither is known here.
+ */
 export function reviewTitleOf(
   id: string,
   changes: readonly { slug: string; item: string; title: string }[],
-  pulls: readonly { repo: string; number: number; title: string }[],
+  pulls: readonly { url: string; title: string }[],
 ): string | undefined {
   const target = targetOfReviewId(id)
   if (!target) return undefined
   if (target.kind === 'change') return changes.find(({ slug, item }) => slug === target.slug && item === target.item)?.title
-  const repo = `${target.owner}/${target.repo}`
-  return pulls.find((pull) => pull.repo.toLowerCase() === repo && pull.number === target.number)?.title
+  const name = reviewIdOf(target)
+  return pulls.find((pull) => {
+    const page = pullOfReview(pull.url)
+    return page !== null && reviewIdOf(page) === name
+  })?.title
 }

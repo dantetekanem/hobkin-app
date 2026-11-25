@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { PullRequest } from '#shared/protocol/pulls.ts'
 import type { FinishedChange, MergingRow } from '#shared/protocol/work.ts'
+import { learnCodeHosts } from '#shared/review/ids.ts'
 import type { ReviewListItem } from '#shared/review/status.ts'
 import { rowsOf, type ReviewRow } from '../src/features/work/ai-reviews.ts'
 import { orderRows } from '../src/features/work/review-list.ts'
@@ -141,4 +142,18 @@ test('a stack that hobkin and the pull requests both know is never two frames, a
   const stacks = stacksOf(rows([changeReview(1), changeReview(2), changeReview(3), changeReview(4), pullReview(1), pullReview(2)]), place)
   assert.equal(stacks.length, 1)
   assert.equal(oneRowPerLayer(rows([changeReview(1), pullReview(1), changeReview(2), pullReview(2)]), place).length, 2)
+})
+
+test('a pull request on a named code host and one on GitHub with the same repository and number are two layers, never one', () => {
+  learnCodeHosts([{ name: 'forge', web: 'https://code.example.invalid' }])
+  try {
+    const onHost = open(196, 'other', 'main', { url: 'https://code.example.invalid/DanteTekanem/rpsleague/pull/196', head: head(1196) })
+    // GitHub's #196 sits on #195. The code host's #196 is in no stack.
+    const place = placeLookup([], [open(195, 'menu-1', 'main'), open(196, 'menu-2', 'menu-1'), onHost])
+    const onGitHub = reviewOf(196, { head: null })
+    const hostReview = item('pr:forge:dantetekanem/rpsleague/196', { kind: 'pull', project: 'dantetekanem/rpsleague', head: null })
+    assert.deepEqual(rows([onGitHub, hostReview]).map((row) => place(row)?.layer ?? null), [2, null])
+  } finally {
+    learnCodeHosts([])
+  }
 })

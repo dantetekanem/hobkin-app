@@ -1,6 +1,6 @@
 import type { PullRequest } from '#shared/protocol/pulls.ts'
 import type { FinishedChange, MergingRow, StackPlace } from '#shared/protocol/work.ts'
-import { pullOfReview, targetOfReviewId } from '#shared/review/ids.ts'
+import { pullOfReview, reviewIdOf } from '#shared/review/ids.ts'
 import { pullStacks } from '#shared/review/pull-stacks.ts'
 import { layerReviewId } from '../review/stack-strip.ts'
 import type { ReviewRow } from './ai-reviews.ts'
@@ -31,13 +31,17 @@ interface Node {
   merging?: MergingRow
 }
 
-const pullKey = (repo: string, number: number) => `${repo.toLowerCase()}#${number}`
-
-/** The key of the pull request an address names, or null when it is none. */
+/**
+ * The key of the pull request a page or a review's name names: its review's name, which holds its code host when that is
+ * not GitHub, so two hosts' pull requests with one repository and number stay two. Null when it names none.
+ */
 function keyOfAddress(address: string | null | undefined): string | null {
-  const target = address ? targetOfReviewId(address) : null
-  return target?.kind === 'pull' ? pullKey(`${target.owner}/${target.repo}`, target.number) : null
+  const target = address ? pullOfReview(address) : null
+  return target ? reviewIdOf(target) : null
 }
+
+/** A listed pull request's key, from its page. A page on a code host this window has not learned yet is its own key. */
+const keyOfPull = (pull: PullRequest): string => keyOfAddress(pull.url) ?? pull.url
 
 const branchOf = (node: Node): string | null => node.change?.branch ?? node.merging?.branch ?? null
 
@@ -53,7 +57,7 @@ function nodesOf(changes: readonly FinishedChange[], pulls: readonly PullRequest
   for (const pull of new Map(pulls.map((one) => [one.url, one])).values()) {
     const node: Node = { pull }
     nodes.push(node)
-    byKey.set(pullKey(pull.repo, pull.number), node)
+    byKey.set(keyOfPull(pull), node)
     if (pull.head && !byHead.has(pull.head)) byHead.set(pull.head, node)
     if (pull.headBranch) byBranch.set(pull.headBranch, [...(byBranch.get(pull.headBranch) ?? []), node])
   }
@@ -166,14 +170,13 @@ export function placeLookup(changes: readonly FinishedChange[], pulls: readonly 
       if (node.change.head && !byHead.has(node.change.head)) byHead.set(node.change.head, node)
     }
     if (node.pull) {
-      byPull.set(pullKey(node.pull.repo, node.pull.number), node)
+      byPull.set(keyOfPull(node.pull), node)
       if (node.pull.head && !byHead.has(node.pull.head)) byHead.set(node.pull.head, node)
     }
   }
 
   const nodeOf = ({ item }: ReviewRow): Node | undefined => {
-    const target = pullOfReview(item.id)
-    const key = target ? pullKey(`${target.owner}/${target.repo}`, target.number) : null
+    const key = keyOfAddress(item.id)
     return byReview.get(item.id) ?? (key ? byPull.get(key) : undefined) ?? (item.head ? byHead.get(item.head) : undefined)
   }
   const placeOf = ((row: ReviewRow) => {
