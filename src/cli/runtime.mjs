@@ -514,7 +514,11 @@ export class HobkinRuntime {
   mainActivity() { return this.mainFeed?.snapshot() ?? []; }
   get mainBusy() { return Boolean(this.main && this.busySessions.has(this.main.sessionId)); }
   /** The main turn the user stopped, by its run id, while no turn has started since in the same conversation: what Continue goes on with. */
-  get stoppedTurn() { return this.stopped && this.stopped.session === this.main && !this.mainTurn ? this.stopped.turn : null; }
+  get stoppedTurn() {
+    const stopped = this.stopped;
+    if (!stopped || stopped.session !== this.main || this.mainTurn) return null;
+    return stopped.turn;
+  }
   sessionReady(sessionId) { return !this.closing && !this.fault && !this.busySessions.has(sessionId); }
   /** Whether a new turn would start at once. `send` steers a live turn instead, and Pi refuses a prompt during compaction. */
   get mainFree() {
