@@ -256,6 +256,32 @@ test("a durable hobkin's wake starts a turn while it waits and is steered into t
   assert.equal((await app.refresh()).agentSchedules[0].endedWhy, 'its agent ended');
 });
 
+test("a schedule a durable hobkin's turn makes with its tool is the hobkin's own, by its id, and stays listed through its later turns", async t => {
+  const h = home(t);
+  const calls = [];
+  const app = await h.open({ runHarness: async (request, options) => {
+    if (request.purpose !== 'durable' || request.warm) return request.warm ? { status: 'warmed' } : notHere;
+    return heldCall(calls, request, options);
+  } });
+  const { id } = await app.hobkins.start({ text: 'Watch the changes.', cwd: h.root, engine: { kind: 'tier', tier: 'mid' }, title: 'Change watcher' });
+  await until(() => calls.length === 1);
+  // What `hobkin_schedule` does over the turn's bridge: the turn's own handler makes it.
+  calls[0].options.schedules.make({ name: 'Watch the changes', command: 'git status --short', every: '5m', note: 'Say what changed.' });
+  const listed = async () => (await app.refresh()).agentSchedules.map(({ name, owner, ownerTitle }) => [name, owner, ownerTitle]);
+  const owned = [['Watch the changes', { kind: 'hobkin', id }, 'Change watcher']];
+  assert.deepEqual(await listed(), owned, 'during the turn that made it');
+
+  calls[0].end.resolve({ status: 'completed', text: 'Watching.', cost: null });
+  await until(async () => (await app.hobkins.read(id)).hobkin.state === 'waiting');
+  await app.hobkins.say(id, { text: 'Anything yet?' });
+  await until(() => calls.length === 2);
+  assert.notEqual(calls[1].request.id, calls[0].request.id, 'a later turn is a run of its own');
+  assert.deepEqual(await listed(), owned, 'during a later turn');
+  calls[1].end.resolve({ status: 'completed', text: 'Nothing yet.', cost: null });
+  await until(async () => (await app.hobkins.read(id)).hobkin.state === 'waiting');
+  assert.deepEqual(await listed(), owned, 'after it');
+});
+
 test('a reset ends the main chat\'s schedules, and a wake not delivered before a restart is delivered after it', async t => {
   const h = home(t);
   let app = await h.open({ runHarness: async () => notHere });
