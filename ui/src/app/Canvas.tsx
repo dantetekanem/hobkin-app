@@ -25,6 +25,7 @@ import { HobkinScreen } from '@/features/hobkins/HobkinScreen.tsx'
 import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import { NotWiredYet } from './NotWiredYet.tsx'
 import { dragLeft, useDragEdge } from './drag-edge.ts'
+import { keepAgentPreview } from './keep-agent.ts'
 import { ScreenBoundary } from './ScreenBoundary.tsx'
 import { PAGE_TOP } from './screen-layout.ts'
 import { ScreenMenu } from './ScreenMenu.tsx'
@@ -211,6 +212,8 @@ export function Canvas() {
       transition={growth}
       // A click in the canvas is as good as stepping into it with the keyboard.
       onPointerDown={engageCanvas}
+      // A click on an agent previewed from the agents list keeps it open, before the list lets the keyboard go.
+      onPointerDownCapture={keepAgentPreview}
     >
       {/* The empty top of the canvas, around the menu, is a title bar: it drags the window and a double-click zooms it.
           It never starts a text selection, which the Mac window would paint as a band of the selection color. */}
