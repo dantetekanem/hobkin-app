@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
-import { progressOf, taskLine, tasksOf, type AgentTask } from '../src/features/agent-activity/tasks.ts'
+import { progressOf, taskCount, tasksOf, type AgentTask } from '../src/features/agent-activity/tasks.ts'
 
 // Entries as hobkin keeps them (src/cli/job-activity.mjs): the arguments as indented JSON, the result's text only.
 const call = (id: string, name: string, args: object, output: string, state: ActivityEntry['state'] = 'completed'): ActivityEntry => ({
@@ -98,7 +98,7 @@ test('a task started is the one worked on now, and a finished one is done', () =
 test('an appended task takes its place in the execution queue the tool printed', () => {
   const tasks = tasksOf(run)
   assert.deepEqual(brief(tasks), ['1 done Read the protocol specs', '2 now Write the landscape report', '4 queued Post-process the completed change and verify', '3 queued Verify and record protocols.md'])
-  assert.deepEqual(progressOf(tasks), { done: 1, total: 4, now: [tasks[1]], next: tasks[2] })
+  assert.deepEqual(progressOf(tasks), { done: 1, total: 4 })
 })
 
 test('the queue reordered by a prepended task, and by a later list, is the order shown', () => {
@@ -183,7 +183,7 @@ test('a finish that lists what is still open settles the whole queue, and finish
   const all = tasksOf([...run, prepended, waiting, ...finish, complete, cleared])
   assert.equal(all.length, 5)
   assert.ok(all.every((task) => task.state === 'done'))
-  assert.deepEqual(progressOf(all), { done: 5, total: 5, now: [] })
+  assert.deepEqual(progressOf(all), { done: 5, total: 5 })
 })
 
 test('a stopped task waits again, and a wait keeps it the one worked on', () => {
@@ -237,14 +237,11 @@ test('each task keeps the description it was given, and a later one replaces it'
   assert.equal(tasksOf([created, next]).find((task) => task.id === '2')!.description, 'Only what the test needs.')
 })
 
-test('the tasks read as one line: how many are done, then the one in progress, the next one, or that all are done', () => {
-  assert.equal(taskLine(progressOf(tasksOf(run))).text, '1 of 4 tasks · in progress: Write the landscape report')
-  assert.equal(taskLine(progressOf(tasksOf([plan]))).text, '0 of 3 tasks · next: Read the protocol specs')
+test('the tasks line counts how many are done of how many, and one task is a task', () => {
+  assert.equal(taskCount(progressOf(tasksOf(run))), '1 of 4 tasks')
+  assert.equal(taskCount(progressOf(tasksOf([plan]))), '0 of 3 tasks')
   const done = tasksOf([plan, ...['1', '2', '3'].map((id) => call(`f${id}`, 'task_update', { taskId: id, status: 'completed' }, `Updated task #${id} status`))])
-  assert.equal(taskLine(progressOf(done)).text, '3 of 3 tasks · all done')
-  // One task is a task, two in progress name the first and count the other, and a task known by its number is named by it.
+  assert.equal(taskCount(progressOf(done)), '3 of 3 tasks')
   const one = call('u1', 'task_update', { taskId: '7', status: 'in_progress' }, 'Updated task #7 status')
-  assert.equal(taskLine(progressOf(tasksOf([one]))).text, '0 of 1 task · in progress: Task 7')
-  const both = tasksOf([plan, start('u1', '1'), start('u2', '2')])
-  assert.deepEqual(taskLine(progressOf(both)), { count: '0 of 3 tasks', lead: 'in progress', title: 'Read the protocol specs', more: 1, text: '0 of 3 tasks · in progress: Read the protocol specs +1' })
+  assert.equal(taskCount(progressOf(tasksOf([one]))), '0 of 1 task')
 })

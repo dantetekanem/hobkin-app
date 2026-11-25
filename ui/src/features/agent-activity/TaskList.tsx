@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils.ts'
 import './agent-activity.css'
 import { useDrop } from './drop.ts'
 import { taskListKey, type TaskKeyPress } from './task-keys.ts'
-import { progressOf, sameTasks, taskLine, tasksOf, titleOf, type AgentTask, type TaskLine, type TaskProgress, type TaskState } from './tasks.ts'
+import { progressOf, sameTasks, taskCount, tasksOf, titleOf, type AgentTask, type TaskProgress, type TaskState } from './tasks.ts'
 import { useAgentTasks } from './use-agent-activity.ts'
 
 const NO_TASKS: readonly AgentTask[] = []
@@ -21,6 +21,8 @@ const LEAST_ROOM = 96
 /** The most room the row of positions takes in the bar, and how many fit it before they pack closer. */
 const TRACK_MOST = 84
 const LONG_TRACK = 16
+/** The widest the count gets up to 99 tasks, kept with tabular numbers, so the line keeps its width as tasks finish. */
+const COUNT_ROOM = '00 of 00 tasks'
 
 const pressOf = (event: { key: string; code: string; ctrlKey: boolean; altKey: boolean; metaKey: boolean; shiftKey: boolean }): TaskKeyPress => ({
   key: event.key,
@@ -46,10 +48,9 @@ function toggleList(root: HTMLElement | null, bar: HTMLButtonElement | null): vo
 }
 
 /**
- * The agent's tasks (tasks.ts) in one line, held in place while its steps scroll by: a position for every task, how
- * many are done of how many and the one in progress, or the next one, or that all are done, such as "2 of 5 tasks ·
- * in progress: Write the report". Its task tool calls are not drawn as steps (steps.ts, `tasksOnLine`): this is where
- * they show. A click on the line or Enter on it opens every task under it, in the order they run, with its state and
+ * The agent's tasks (tasks.ts) in one short line, held in place while its steps scroll by: a position for every task
+ * and how many are done of how many, "2 of 5 tasks". Its task tool calls are not drawn as steps (steps.ts,
+ * `tasksOnLine`): this is where they show. A click on the line or Enter on it opens every task under it, in the order they run, with its state and
  * its description, and the same again closes it. Control+Option+T does the same from anywhere on the screen
  * (task-keys.ts), and Escape inside closes it. It opens over the transcript and leaves its bottom in view, so it takes
  * no room from it. Nothing shows for an agent that keeps no tasks.
@@ -75,7 +76,7 @@ export const Tasks = memo(TaskBar)
 function TaskBar({ tasks, hue }: { tasks: readonly AgentTask[]; hue: number }) {
   const still = useStill()
   const progress = useMemo(() => progressOf(tasks), [tasks])
-  const line = useMemo(() => taskLine(progress), [progress])
+  const count = taskCount(progress)
   const any = tasks.length > 0
   const open = useDrop((state) => state.open === 'tasks') && any
   const root = useRef<HTMLDivElement>(null)
@@ -106,7 +107,7 @@ function TaskBar({ tasks, hue }: { tasks: readonly AgentTask[]; hue: number }) {
   return (
     <div
       ref={root}
-      className="flex w-[34rem] min-w-0 shrink items-center not-first:ml-3"
+      className="flex min-w-0 items-center not-first:ml-3"
       style={{ '--tasks-tint': `oklch(0.62 0.11 ${hue})` } as CSSProperties}
       onKeyDown={(event) => {
         if (taskListKey(pressOf(event), { open, inList: true }) !== 'close') return
@@ -119,21 +120,17 @@ function TaskBar({ tasks, hue }: { tasks: readonly AgentTask[]; hue: number }) {
         type="button"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
-        aria-label={`${line.text}. ${open ? 'Hide' : 'Show'} every task.`}
+        aria-label={`${count}. ${open ? 'Hide' : 'Show'} every task.`}
         onClick={toggle}
         initial={arrivedLater.current ? holdStill({ opacity: 0, transform: 'translateY(8px) scale(0.96)' }, still) : false}
         animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.rise, opacity: tween.enter } }, still)}
         whileTap={holdStill({ transform: 'translateY(0px) scale(0.97)', transition: { duration: 0.14 } }, still)}
-        className="flex h-7 w-full min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-1.5 pl-2.5 text-[12px] outline-none transition-colors duration-[160ms] ease-[ease] hover:bg-secondary focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
+        className="flex h-7 min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-1.5 pl-2.5 text-[12px] outline-none transition-colors duration-[160ms] ease-[ease] hover:bg-secondary focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
       >
         <Track tasks={tasks} still={still} />
         <span className="shrink-0 text-muted-foreground tabular-nums">
-          <Count value={line.count} still={still} />
+          <Count value={count} room={COUNT_ROOM} still={still} />
         </span>
-        <span className="shrink-0 text-muted-foreground" aria-hidden="true">
-          ·
-        </span>
-        <NowWords progress={progress} line={line} still={still} />
         <ChevronDown className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]', open && 'rotate-180')} aria-hidden="true" />
       </motion.button>
       <AnimatePresence>{open ? <Panel key="panel" id={panelId} tasks={tasks} progress={progress} still={still} /> : null}</AnimatePresence>
@@ -169,43 +166,13 @@ const Track = memo(function Track({ tasks, still }: { tasks: readonly AgentTask[
   )
 })
 
-/**
- * The task the line names: the one in progress, or the next one, or that all are done. A new one takes the place of
- * the last by rising into it. The two share the grid's one cell, so the swap adds no style sheet to the page, as
- * popLayout does; the swaps of `Count` and `Mark` work the same way.
- */
-function NowWords({ progress, line, still }: { progress: TaskProgress; line: TaskLine; still: boolean }) {
-  const named = progress.now[0] ?? progress.next
-  const key = named ? `${line.lead}:${named.id}` : 'done'
-  return (
-    <span className="relative grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] text-left">
-      <AnimatePresence initial={false}>
-        <motion.span
-          key={key}
-          initial={holdStill({ opacity: 0, transform: 'translateY(8px)' }, still)}
-          animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: tween.enter } }, still)}
-          exit={holdStill({ opacity: 0, transform: 'translateY(-6px)', transition: tween.exit }, still)}
-          className="col-start-1 row-start-1 block min-w-0 truncate"
-        >
-          {line.title ? (
-            <>
-              <span className="text-muted-foreground">{line.lead}: </span>
-              <span className={cn(line.lead === 'in progress' && 'font-medium')}>{line.title}</span>
-              {line.more ? <span className="text-muted-foreground"> +{line.more}</span> : null}
-            </>
-          ) : (
-            <span className="font-medium">{line.lead}</span>
-          )}
-        </motion.span>
-      </AnimatePresence>
-    </span>
-  )
-}
-
-/** Words that change by sliding: the old ones leave upward as the new ones rise in. */
-function Count({ value, still }: { value: number | string; still: boolean }) {
+/** Words that change by sliding: the old ones leave upward as the new ones rise in. They keep the width of `room`. */
+function Count({ value, room, still }: { value: number | string; room: string; still: boolean }) {
   return (
     <span className="relative inline-grid overflow-hidden tabular-nums">
+      <span className="invisible col-start-1 row-start-1" aria-hidden="true">
+        {room}
+      </span>
       <AnimatePresence initial={false}>
         <motion.span
           key={value}

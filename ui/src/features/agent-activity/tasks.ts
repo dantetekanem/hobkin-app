@@ -430,10 +430,6 @@ export function tasksOf(entries: readonly ActivityEntry[]): AgentTask[] {
 export interface TaskProgress {
   done: number
   total: number
-  /** The tasks being worked on now, in the order they run. */
-  now: AgentTask[]
-  /** The first one still waiting. */
-  next?: AgentTask
 }
 
 /** Two lists that say the same, so what draws them can keep the one it has. */
@@ -455,39 +451,16 @@ export function sameTasks(left: readonly AgentTask[], right: readonly AgentTask[
 }
 
 export function progressOf(tasks: readonly AgentTask[]): TaskProgress {
-  const next = tasks.find((task) => task.state === 'queued')
-  return {
-    done: tasks.filter((task) => task.state === 'done').length,
-    total: tasks.length,
-    now: tasks.filter((task) => task.state === 'now'),
-    ...(next ? { next } : {}),
-  }
+  return { done: tasks.filter((task) => task.state === 'done').length, total: tasks.length }
 }
 
 /** A task's title, or its number while only that is known. */
 export const titleOf = (task: AgentTask): string => task.title || `Task ${task.id}`
 
-/** The tasks in one line, in parts so each can be drawn in its own weight. */
-export interface TaskLine {
-  /** How many are done of how many: "2 of 5 tasks". */
-  count: string
-  lead: 'in progress' | 'next' | 'all done'
-  /** The task the line names: the first in progress, or else the next one. */
-  title?: string
-  /** How many more are in progress beside the one named. */
-  more: number
-  /** The whole line: "2 of 5 tasks · in progress: Post-process the completed change and verify". */
-  text: string
-}
-
-/** The tasks in one line: how many are done of how many, then the one in progress, or else the next one, or that all are done. */
-export function taskLine(progress: TaskProgress): TaskLine {
-  const count = `${progress.done} of ${progress.total} ${progress.total === 1 ? 'task' : 'tasks'}`
-  const now = progress.now[0]
-  const named = now ?? progress.next
-  const lead = now ? 'in progress' : named ? 'next' : 'all done'
-  const more = Math.max(0, progress.now.length - 1)
-  const title = named ? titleOf(named) : undefined
-  const text = `${count} · ${lead}${title ? `: ${title}${more ? ` +${more}` : ''}` : ''}`
-  return { count, lead, ...(title ? { title } : {}), more, text }
+/**
+ * The tasks line's words: how many are done of how many, "2 of 5 tasks". Which one is in progress shows in the list
+ * under it; the user asked on 2026-11-24 for the line to stop at the count.
+ */
+export function taskCount(progress: TaskProgress): string {
+  return `${progress.done} of ${progress.total} ${progress.total === 1 ? 'task' : 'tasks'}`
 }
