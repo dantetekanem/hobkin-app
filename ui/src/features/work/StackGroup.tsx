@@ -1,12 +1,12 @@
-import { ArrowDown, ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useStill } from '@/app/still.ts'
 import { finishedReviewId } from '@/features/review/entry.ts'
 import { rowLayout, type Leaving } from '@/features/reports/list-motion.ts'
-import { cn } from '@/lib/utils.ts'
 import { gradeBlockOf } from './change-list.ts'
 import { Grades } from './Grades.tsx'
+import { LayerArrow } from './LayerArrow.tsx'
 import { ReviewBadge } from './parts.tsx'
 import { RowMenu } from './RowMenu.tsx'
 import { useChangeActions } from './row-actions.ts'
@@ -18,8 +18,9 @@ import { useChangeReview } from './use-change-review.ts'
 
 /**
  * A stack on Work (_specs/060-make-it-a-stack): one group under one quiet line, its layers bottom first. The lowest
- * layer here is the whole card. Each layer above is one line that a press opens to its whole card, under the line, and
- * presses closed again. The card is drawn by the caller, so it keeps every choice the runtime gave that layer.
+ * layer here is the whole card. Each layer above is one line, with an arrow in front from the layer under it, that a
+ * press opens to its whole card, under the line, and presses closed again. The card is drawn by the caller, so it keeps
+ * every choice the runtime gave that layer.
  */
 
 type StackEntry = Extract<Entry, { kind: 'stack' }>
@@ -56,34 +57,20 @@ export function StackGroup({ entry, live, variants, order, leaving, onRowsLeft, 
 
   return (
     <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
-      {/* One stack, one frame, quieter than the layers in it: the layer that lands first, then each one over it, an arrow between each and the next. */}
+      {/* One stack, one frame, quieter than the layers in it: the layer that lands first, then each one over it. */}
       <div role="group" aria-label={headingOf(entry)} className="flex flex-col gap-1.5 rounded-[28px] bg-foreground/[0.025] p-1.5 pt-3">
         <p className="px-5 text-[12.5px] leading-snug font-medium text-muted-foreground">{headingOf(entry)}</p>
-        <ul className="relative flex flex-col">
+        <ul className="relative flex flex-col gap-2">
           <AnimatePresence mode="popLayout" custom={leaving} onExitComplete={onRowsLeft}>
-            {entry.layers.flatMap((layer, index) => {
+            {entry.layers.map((layer) => {
               const place = placeOf(layer.change.stack!)
-              const drawn = layer === wholeLayerOf(entry) ? (
-                drawCard(layer, place, true)
-              ) : (
-                <LayerRow key={layer.change.key} layer={layer} live={live} lowest={lowest} onLeaving={onLeaving} opened={open.has(layer.change.key)} onToggle={() => toggle(layer.change.key)} variants={variants} drawCard={() => drawCard(layer, place, false)} />
-              )
-              if (index === 0) return [drawn]
-              return [<LandsThen key={`then:${layer.change.key}`} />, drawn]
+              if (layer === wholeLayerOf(entry)) return drawCard(layer, place, true)
+              return <LayerRow key={layer.change.key} layer={layer} live={live} lowest={lowest} onLeaving={onLeaving} opened={open.has(layer.change.key)} onToggle={() => toggle(layer.change.key)} variants={variants} drawCard={() => drawCard(layer, place, false)} />
             })}
           </AnimatePresence>
         </ul>
       </div>
     </motion.li>
-  )
-}
-
-/** The arrow from one layer to the one that lands after it. */
-function LandsThen() {
-  return (
-    <li aria-hidden="true" className="flex h-5 items-center pl-[30px] text-muted-foreground/70">
-      <ArrowDown className="size-3.5" />
-    </li>
   )
 }
 
@@ -121,28 +108,30 @@ function LayerRow({ layer, live, lowest, onLeaving, opened, onToggle, variants, 
 
   return (
     <motion.li layout={still ? false : 'position'} variants={variants} custom={-1} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
-      <div
-        data-work-item=""
-        data-work-main=""
-        data-stop=""
-        data-layer={change.key}
-        tabIndex={-1}
-        role="button"
-        aria-expanded={opened}
-        aria-label={`${line.place}: ${line.title}, ${line.lands}. ${opened ? 'Enter closes it.' : 'Enter opens it.'}`}
-        onKeyDown={onKeyDown}
-        onClick={onClick}
-        className={cn('pressable flex min-h-11 scroll-mt-[124px] scroll-mb-6 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl bg-background/60 px-4 py-2 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2')}
-      >
-        <Grades block={block} lowest={lowest} />
-        <span className="w-9 shrink-0 text-[12px] font-medium text-muted-foreground tabular-nums">{line.place}</span>
-        <span className="min-w-0 flex-1 basis-40 truncate text-[13.5px] leading-snug font-medium">{line.title}</span>
-        <ReviewBadge status={assessment} />
-        <span className="hidden shrink-0 text-[12px] text-muted-foreground sm:inline">{line.lands}</span>
-        <RowMenu change={change} live={live} actions={actions} reviewing={underWay(assessment)} />
-        <Chevron aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+      <div className="flex items-center">
+        <LayerArrow />
+        <div
+          data-work-item=""
+          data-work-main=""
+          data-stop=""
+          data-layer={change.key}
+          tabIndex={-1}
+          role="button"
+          aria-expanded={opened}
+          aria-label={`${line.label}. ${opened ? 'Enter closes it.' : 'Enter opens it.'}`}
+          onKeyDown={onKeyDown}
+          onClick={onClick}
+          className="pressable flex min-h-11 min-w-0 flex-1 scroll-mt-[124px] scroll-mb-6 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl bg-background/60 px-4 py-2 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2"
+        >
+          <Grades block={block} lowest={lowest} />
+          <span className="w-9 shrink-0 text-[12px] font-medium text-muted-foreground tabular-nums">{line.place}</span>
+          <span title={line.title} className="min-w-0 flex-1 basis-40 truncate text-[13.5px] leading-snug font-medium">{line.title}</span>
+          <ReviewBadge status={assessment} />
+          <RowMenu change={change} live={live} actions={actions} reviewing={underWay(assessment)} />
+          <Chevron aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+        </div>
       </div>
-      <ul className="mt-2 empty:mt-0">
+      <ul className="mt-2 ml-7 empty:mt-0">
         <AnimatePresence initial={false} custom={'filtered' satisfies Leaving}>
           {opened ? drawCard() : null}
         </AnimatePresence>

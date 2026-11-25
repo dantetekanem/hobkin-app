@@ -165,12 +165,13 @@ function Size({ size }: { size: NonNullable<PullEntry['size']> }) {
   )
 }
 
-/** "Layer 2 of 3": a pull request's place in its stack, counted from the bottom, of the layers the page lists. */
+/** "2 of 3": a pull request's place in its stack, counted from the bottom, of the layers the page lists. A screen reader hears "Layer 2 of 3". */
 export function LayerBadge({ place }: { place: StackPlace }) {
   return (
     <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-surface-2 px-2 font-heading text-[12px] font-medium whitespace-nowrap text-foreground tabular-nums [&_svg]:size-3.5">
       <Layers aria-hidden="true" className="text-muted-foreground" />
-      Layer {place.layer} of {place.of}
+      <span className="sr-only">Layer </span>
+      {place.layer} of {place.of}
     </span>
   )
 }

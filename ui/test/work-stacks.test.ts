@@ -43,7 +43,7 @@ test('a stack of two is a stack too, and two stacks stay two', () => {
   assert.deepEqual(keys(merge!.entries), ['stack:A[a1,a2]', 'stack:B[b1,b2]'])
 })
 
-test('the lowest layer here is the whole card, so a stack whose bottom left keeps one; the others are lines that say their place, their title and what they land after', () => {
+test('the lowest layer here is the whole card, so a stack whose bottom left keeps one; the others are lines that say their place and their title, and say the layer they sit on to a screen reader', () => {
   const l1 = change('l1', { layer: 1 }), l2 = change('l2', { layer: 2 }), l3 = change('l3', { layer: 3 }, { title: 'Cover the turn limits' })
   const whole = arrange([group('merge', [l3, l1, l2])])[0]!.entries[0]!
   assert.ok(whole.kind === 'stack')
@@ -51,7 +51,7 @@ test('the lowest layer here is the whole card, so a stack whose bottom left keep
   const bottomGone = arrange([group('merge', [l3, l2])])[0]!.entries[0]!
   assert.ok(bottomGone.kind === 'stack')
   assert.equal(wholeLayerOf(bottomGone)?.change.key, l2.key)
-  assert.deepEqual(layerLine({ stack: l3.stack!, title: l3.title }), { place: '3 of 5', title: 'Cover the turn limits', lands: 'lands after 2' })
+  assert.deepEqual(layerLine({ stack: l3.stack!, title: l3.title }), { place: '3 of 5', title: 'Cover the turn limits', label: 'Layer 3 of 5: Cover the turn limits, on layer 2' })
 })
 
 test('the heading says how many layers and what they are of; the whole card under it names the project', () => {

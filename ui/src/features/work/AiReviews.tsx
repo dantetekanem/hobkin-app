@@ -22,6 +22,7 @@ import { buildButton, canReviewAgain, canReviewNow, nothingChanged, repoWordsOf,
 import { GRADE_WORDS, orderRows, placedRows, setKeyOf, stateNews, stateWords } from './review-list.ts'
 import { offersStory, sortStory, waitingRows, type StackOf } from './review-story.ts'
 import { entriesOf, oneRowPerLayer, placeLookup, projectEntries, projectLookup, stackLookupOf, type ListEntry } from './review-stacks.ts'
+import { LayerArrow } from './LayerArrow.tsx'
 import { ReviewStack, type LineOf } from './ReviewStack.tsx'
 import { clickPressesRow } from './row-press.ts'
 import { useStory } from './story-store.ts'
@@ -406,17 +407,16 @@ function LayerLine({ row, line, news, menu }: { row: ReviewRow; line: LineOf; ne
       tabIndex={-1}
       role="button"
       aria-expanded={line.opened}
-      aria-label={`${line.place}: ${row.item.title}, ${line.lands}. ${line.opened ? 'Enter closes it.' : 'Enter opens it.'}`}
+      aria-label={`${line.label}. ${line.opened ? 'Enter closes it.' : 'Enter opens it.'}`}
       onKeyDown={onKeyDown}
       onClick={onClick}
-      className="pressable flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl bg-background/60 px-4 py-2 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2"
+      className="pressable flex min-h-11 min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl bg-background/60 px-4 py-2 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2"
     >
       <RatePlace row={row} />
       <span className="w-9 shrink-0 text-[12px] font-medium text-muted-foreground tabular-nums">{line.place}</span>
-      <span className="min-w-0 flex-1 basis-40 truncate text-[13.5px] leading-snug font-medium">{row.item.title}</span>
+      <span title={row.item.title} className="min-w-0 flex-1 basis-40 truncate text-[13.5px] leading-snug font-medium">{row.item.title}</span>
       {news && row.needs ? <span className={cn(TAG, row.state.kind === 'failed' && 'bg-bad/15 text-bad-fg')}>{news}</span> : null}
       {row.merge ? <span className={cn(TAG, 'bg-bad/15 text-bad-fg')}>Did not merge</span> : null}
-      <span className="hidden shrink-0 text-[12px] text-muted-foreground sm:inline">{line.lands}</span>
       {menu}
       <Chevron aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
     </div>
@@ -538,8 +538,11 @@ function Card({ row, live, onAgain, line, at = null }: { row: ReviewRow; live: b
   if (!line) return whole
   return (
     <li className="flex flex-col">
-      <LayerLine row={row} line={line} news={news} menu={menu} />
-      {line.opened ? <ul className="mt-2">{whole}</ul> : null}
+      <div className="flex items-center">
+        <LayerArrow />
+        <LayerLine row={row} line={line} news={news} menu={menu} />
+      </div>
+      {line.opened ? <ul className="mt-2 ml-7">{whole}</ul> : null}
     </li>
   )
 }

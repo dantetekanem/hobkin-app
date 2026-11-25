@@ -62,9 +62,12 @@ export const wholeLayerOf = (entry: Extract<Entry, { kind: 'stack' }>): Placed |
 /** "2 of 5", beside a layer's title. */
 export const placeOf = (stack: StackPlace): string => `${stack.layer} of ${stack.of}`
 
-/** What a layer above the bottom says on its line: its place, its title, and the layer it lands after. */
-export function layerLine({ stack, title }: { stack: StackPlace; title: string }): { place: string; title: string; lands: string } {
-  return { place: placeOf(stack), title, lands: `lands after ${stack.layer - 1}` }
+/**
+ * What a layer above the bottom says on its line: its place and its title. The arrow in front of the line shows the
+ * layer it sits on, so only its label, for a screen reader, says that in words.
+ */
+export function layerLine({ stack, title }: { stack: StackPlace; title: string }): { place: string; title: string; label: string } {
+  return { place: placeOf(stack), title, label: `Layer ${placeOf(stack)}: ${title}, on layer ${stack.layer - 1}` }
 }
 
 /** The stack's one quiet heading: how many layers and what they are of. Its whole card names the project. */

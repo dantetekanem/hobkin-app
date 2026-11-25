@@ -24,7 +24,7 @@ const TONE: Record<BadgeTone, string> = {
 const sampleKey = (changes: readonly FinishedChange[]) => (changes.find((change) => change.stack?.layer === 3) ?? changes.find((change) => change.stack))?.key ?? null
 
 /**
- * Where this review stands in its stack, between the place line and the title of the panel: "Layer 2 of 5", a step for
+ * Where this review stands in its stack, between the place line and the title of the panel: "2 of 5", a step for
  * each layer with its review's state, and the layer under and over. Nothing is drawn, and no room kept, for a review
  * that is no layer of a stack.
  */
@@ -67,7 +67,8 @@ function StripRow({ strip, live, onSample }: { strip: Strip; live: boolean; onSa
       <div className="flex h-7 items-center gap-1">
         <span className="mr-0.5 inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-background px-2 font-heading text-[12px] font-medium whitespace-nowrap text-muted-foreground tabular-nums [&_svg]:size-3.5">
           <Layers aria-hidden="true" />
-          Layer {strip.at} of {strip.of}
+          <span className="sr-only">Layer </span>
+          {strip.at} of {strip.of}
         </span>
         <Arrow label="The layer under" keys="{" layer={strip.under} onGo={go}>
           <ChevronLeft />
