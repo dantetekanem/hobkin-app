@@ -26,16 +26,20 @@ const turn = ({ x, y }: Point): Point => ({ x: y, y: x })
 export function wireCurve(source: Point, target: Point, flow: GraphFlow = 'left-to-right'): WireCurve {
   const down = flow === 'top-to-bottom'
   const offset = down ? reach(turn(source), turn(target)) : reach(source, target)
-  const [one, two] = down
+  // Where the curve heads as it leaves its source, and where it comes from as it arrives at its target.
+  const [leaving, arriving] = down
     ? [{ x: source.x, y: source.y + offset }, { x: target.x, y: target.y - offset }]
     : [{ x: source.x + offset, y: source.y }, { x: target.x - offset, y: target.y }]
   const pointAt = (t: number): Point => {
     const u = 1 - t
     const [a, b, c, d] = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t]
-    return { x: a * source.x + b * one.x + c * two.x + d * target.x, y: a * source.y + b * one.y + c * two.y + d * target.y }
+    return {
+      x: a * source.x + b * leaving.x + c * arriving.x + d * target.x,
+      y: a * source.y + b * leaving.y + c * arriving.y + d * target.y,
+    }
   }
   return {
-    d: `M${source.x} ${source.y}C${one.x} ${one.y} ${two.x} ${two.y} ${target.x} ${target.y}`,
+    d: `M${source.x} ${source.y}C${leaving.x} ${leaving.y} ${arriving.x} ${arriving.y} ${target.x} ${target.y}`,
     pointAt,
     middle: pointAt(0.5),
   }

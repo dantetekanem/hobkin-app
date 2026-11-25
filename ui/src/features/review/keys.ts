@@ -213,7 +213,7 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
   const { flow } = session.view
   const pressed = ARROWS[key]
   // What the arrow does is what its turn does on the graph that reads left to right.
-  const direction = pressed && turnedArrow(pressed, flow)
+  const direction = pressed ? turnedArrow(pressed, flow) : undefined
   if (pressed && direction && (shift || roam || direction === 'up' || direction === 'down')) {
     const from = session.pointed ?? session.focus[0] ?? null
     // Along the graph, the focus follows a wire to the node it connects to, because connection matters more than

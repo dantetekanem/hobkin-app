@@ -4,8 +4,14 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { ARROW, turnedArrow, type Direction } from './graph/navigate.ts'
 import { useSession } from './state/context.tsx'
 
+/** Keys of the review that do one thing, and what they do. */
+interface KeyGroup {
+  title: string
+  keys: [keys: string[], does: string][]
+}
+
 /** The keys of the review, grouped the way a reviewer uses them, with the arrows of a graph that reads `flow`. */
-const groupsOf = (flow: GraphFlow): { title: string; keys: [keys: string[], does: string][] }[] => {
+function groupsOf(flow: GraphFlow): KeyGroup[] {
   const arrow = (direction: Direction) => ARROW[turnedArrow(direction, flow)]
   const down = flow === 'top-to-bottom'
   return [

@@ -451,7 +451,12 @@ export function zoneRect(rects: readonly Rect[]): Rect {
 /** The box around rects with the room `frame` keeps on each side of it. */
 function framed(rects: readonly Rect[], frame: Room['frame']): Rect {
   const box = boundsOf(rects)
-  return { x: box.x - frame.left, y: box.y - frame.top, width: box.width + frame.left + frame.right, height: box.height + frame.top + frame.bottom }
+  return {
+    x: box.x - frame.left,
+    y: box.y - frame.top,
+    width: box.width + frame.left + frame.right,
+    height: box.height + frame.top + frame.bottom,
+  }
 }
 
 /** The region of each zone, from where its nodes stand, in the order its first node comes. A node with no zone has none. */
@@ -494,10 +499,19 @@ const ACROSS: Room = {
   frame: { top: ZONE_FRAME.head, right: ZONE_FRAME.pad, bottom: ZONE_FRAME.pad, left: ZONE_FRAME.pad },
 }
 
+/** A card's size turned a quarter: as tall as it is wide. */
+const turned = ({ width, height }: { width: number; height: number }) => ({ width: height, height: width })
+
 /** The room of the graph that reads top to bottom, before it is turned back: each card and region turned a quarter. */
 const TURNED: Room = {
-  size: Object.fromEntries(Object.entries(NODE_SIZE).map(([kind, { width, height }]) => [kind, { width: height, height: width }])) as Sizes,
-  cell: { width: CELL.height, height: CELL.width },
+  size: {
+    criterion: turned(NODE_SIZE.criterion),
+    test: turned(NODE_SIZE.test),
+    code: turned(NODE_SIZE.code),
+    file: turned(NODE_SIZE.file),
+    context: turned(NODE_SIZE.context),
+  },
+  cell: turned(CELL),
   frame: { top: ZONE_FRAME.pad, right: ZONE_FRAME.pad, bottom: ZONE_FRAME.pad, left: ZONE_FRAME.head },
 }
 

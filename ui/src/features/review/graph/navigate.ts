@@ -11,6 +11,9 @@ type Placed = Pick<ReviewNode, 'id' | 'kind' | 'position'>
 
 const middle = (node: Placed) => ({ x: node.position.x + NODE_SIZE[node.kind].width / 2, y: node.position.y + NODE_SIZE[node.kind].height / 2 })
 
+/** Each arrow turned over the diagonal, as the graph that reads top to bottom is. */
+const TURNED: Record<Direction, Direction> = { right: 'down', down: 'right', left: 'up', up: 'left' }
+
 /**
  * The arrow that does on a graph of `flow` what `direction` does on the graph that reads left to right, and the other
  * way round. Top to bottom turns the graph over its diagonal, and its arrows with it: Down does what Right does (the next
@@ -19,7 +22,6 @@ const middle = (node: Placed) => ({ x: node.position.x + NODE_SIZE[node.kind].wi
 export function turnedArrow(direction: Direction, flow: GraphFlow): Direction {
   return flow === 'top-to-bottom' ? TURNED[direction] : direction
 }
-const TURNED: Record<Direction, Direction> = { right: 'down', down: 'right', left: 'up', up: 'left' }
 
 /**
  * The order a graph of `flow` is read in: column by column from the left, each from its top, or on a graph that reads
