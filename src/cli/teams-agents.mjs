@@ -497,16 +497,20 @@ function slotsOf(group) {
  */
 function ranOn(member) {
   const harness = member.externalHarness;
-  const args = harness?.kind === 'claude' && Array.isArray(harness.args) ? harness.args : [];
-  const flag = name => {
-    const at = args.findIndex(arg => arg === name || (typeof arg === 'string' && arg.startsWith(`${name}=`)));
-    if (at === -1) return undefined;
-    return args[at] === name ? args[at + 1] : args[at].slice(name.length + 1);
-  };
+  const claudeArgs = harness?.kind === 'claude' && Array.isArray(harness.args) ? harness.args : [];
   return fields({
-    model: cut(member.model, MODEL_CHARS) ?? cut(flag('--model'), MODEL_CHARS),
-    thinking: cut(member.thinking, LEVEL_CHARS) ?? cut(flag('--effort'), LEVEL_CHARS),
+    model: cut(member.model, MODEL_CHARS) ?? cut(flagValue(claudeArgs, '--model'), MODEL_CHARS),
+    thinking: cut(member.thinking, LEVEL_CHARS) ?? cut(flagValue(claudeArgs, '--effort'), LEVEL_CHARS),
   });
+}
+
+/** What a command line gives a flag, as `--flag value` or `--flag=value`. */
+function flagValue(args, flag) {
+  for (const [index, arg] of args.entries()) {
+    if (arg === flag) return args[index + 1];
+    if (typeof arg === 'string' && arg.startsWith(`${flag}=`)) return arg.slice(flag.length + 1);
+  }
+  return undefined;
 }
 
 /** A JSON file teams wrote, with when it was last written. Missing, too big or broken is nothing. */
