@@ -158,12 +158,15 @@ const withoutLiveCounts = ({ tokensToday, tokensCached, tokensThisHour, running,
   ...status,
   running: running?.map(({ tokens, cached, ...run }) => run),
 });
+/** A running job that lives until it is done and sits idle between turns says so, with when it went idle (072-jobs-live-until-done). */
+function idleFields(run, idle) {
+  if (run.status !== 'running' || !idle) return {};
+  return { idle: true, idleSince: idle.since };
+}
 
 const BUSY_RETRY_MS = 100;
 // Events that come together go out as one publish this long after the first, and a rebuild is asked for this soon too.
 const REFRESH_DELAY_MS = 25;
-/** A running job that lives until it is done and sits idle between turns says so, with when it went idle. */
-const idleFields = (run, idle) => (run.status === 'running' && idle ? { idle: true, idleSince: idle.since } : {});
 // The window shows growing words every 100 ms, so activity goes out no oftener than this.
 const ACTIVITY_EVERY_MS = 100;
 // How long hobkin waits before it tries again to tell the main agent of a durable hobkin, after a try that failed.
@@ -842,7 +845,6 @@ export class HobkinApplication {
           // A run that waits says until when and why, and every run that waited says how many times (053-run-waits).
           ...(run.status === WAITING ? { waitUntil: run.wait?.until, waitNote: run.wait?.note } : {}),
           ...(run.wait ? { waits: run.wait.waits } : {}),
-          // A living job between turns: its process waits for a message, so it is idle, not working (072-jobs-live-until-done).
           ...idleFields(run, this.runner?.idle?.get(run.id)),
         })),
       ],

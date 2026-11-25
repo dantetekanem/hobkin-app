@@ -52,7 +52,7 @@ const issueKey = ({ repo, number }) => `${ISSUE_KEY}${repo.toLowerCase()}#${numb
 const named = ({ repo, number }) => `${repo}#${number}`;
 // Each time the user has an issue worked on again is an item of its own, under the issue's key and the count of times it was filed.
 const againKey = (issue, times) => `${issueKey(issue)}:again:${times}`;
-const isFor = issue => ({ key }) => key === issueKey(issue) || key?.startsWith(`${issueKey(issue)}:again:`);
+const isWorkOn = issue => ({ key }) => key === issueKey(issue) || key?.startsWith(`${issueKey(issue)}:again:`);
 // Work on an issue that has not finished yet: in the queue, running or waiting to.
 const unfinished = [...runnableStates, 'waiting'];
 
@@ -66,7 +66,9 @@ export function filedIssues(root) {
   const rank = ({ state }) => (STATE_ORDER.includes(state) ? STATE_ORDER.indexOf(state) : STATE_ORDER.length);
   for (const project of readProjects(root).toSorted((left, right) => rank(right) - rank(left))) {
     for (const item of readItems(root, project.slug)) {
-      if (item.key?.startsWith(ISSUE_KEY)) filed.set(item.issue ? issueKey(item.issue) : item.key, { project, item });
+      if (!item.key?.startsWith(ISSUE_KEY)) continue;
+      // A follow-up's key is its own, so it is found by the issue it names. Items come in the order they were filed.
+      filed.set(item.issue ? issueKey(item.issue) : item.key, { project, item });
     }
   }
   return issue => filed.get(issueKey(issue)) ?? null;
@@ -94,16 +96,21 @@ function issueOf({ repo, number, title, body, url, labels } = {}) {
   return { repo, number, title: heading, body: plainBody(body), url: link, labels };
 }
 
-/** `earlier` is the work on the issue before this, its items in the order they were filed, for a follow-up. */
+/** How a follow-up's brief begins: the issue it follows up, and what the work before it came to. */
+function followUpLine(issue, latest) {
+  const where = latest.pr ? `, in ${latest.pr}` : '';
+  return `Follow-up on ${named(issue)}. The earlier work on it, ${latest.id}, is ${latest.state}${where}.`;
+}
+
+/** `earlier` is the work on the issue before this, its items in the order they were filed. With any, this is a follow-up. */
 function fileIssue(root, slug, issue, now, earlier = []) {
   const { repo, number, title, body, url, labels } = issue;
-  const last = earlier.at(-1);
-  const followUp = last && `Follow-up on ${named(issue)}. The earlier work on it, ${last.id}, is ${last.state}${last.pr ? `, in ${last.pr}` : ''}.`;
+  const latest = earlier.at(-1);
   return fileItem(root, slug, {
-    key: last ? againKey(issue, earlier.length + 1) : issueKey(issue),
+    key: latest ? againKey(issue, earlier.length + 1) : issueKey(issue),
     kind: kindOf(labels),
-    title: last ? `Follow-up: ${title}` : title,
-    brief: [followUp, title, body, url].filter(Boolean).join('\n\n'),
+    title: latest ? `Follow-up: ${title}` : title,
+    brief: [latest && followUpLine(issue, latest), title, body, url].filter(Boolean).join('\n\n'),
     issue: { repo, number, url },
   }, now);
 }
@@ -117,13 +124,13 @@ export function addIssue(root, reference, value, now = Date.now()) {
   const issue = issueOf(value);
   if (!issue) throw Error('An issue needs its repository as owner/name, its number and its title.');
   const { slug } = project;
-  const earlier = readItems(root, slug).filter(isFor(issue));
-  const before = earlier.at(-1);
-  if (before && value.again !== true) {
-    return reply(`${named(issue)} is already filed on ${nameOf(project)} as ${before.id}, ${before.state}. Nothing changed.`, { slug, id: before.id });
+  const earlier = readItems(root, slug).filter(isWorkOn(issue));
+  const latest = earlier.at(-1);
+  if (latest && value.again !== true) {
+    return reply(`${named(issue)} is already filed on ${nameOf(project)} as ${latest.id}, ${latest.state}. Nothing changed.`, { slug, id: latest.id });
   }
-  if (before && unfinished.includes(before.state)) {
-    return reply(`${named(issue)} is still in work on ${nameOf(project)} as ${before.id}, ${before.state}. Nothing changed.`, { slug, id: before.id });
+  if (latest && unfinished.includes(latest.state)) {
+    return reply(`${named(issue)} is still in work on ${nameOf(project)} as ${latest.id}, ${latest.state}. Nothing changed.`, { slug, id: latest.id });
   }
 
   const filed = fileIssue(root, slug, issue, now, earlier);
@@ -131,7 +138,7 @@ export function addIssue(root, reference, value, now = Date.now()) {
   const next = project.state === 'chosen'
     ? 'It goes first in the queue, after anything picked before it.'
     : `Nothing runs until ${nameOf(project)} is taken.`;
-  const added = before ? `Added a follow-up on ${named(issue)}` : `Added "${filed.title}" from ${named(issue)}`;
+  const added = latest ? `Added a follow-up on ${named(issue)}` : `Added "${filed.title}" from ${named(issue)}`;
   return reply(`${added} to ${nameOf(project)} as ${filed.id}. ${next}`, { slug, id: filed.id });
 }
 

@@ -41,10 +41,12 @@ function scriptedModel(session, calls, prompts = []) {
   };
 }
 
-function writeSkill(root, name, frontMatter, body) {
+/** A skill's folder with its SKILL.md. One `userOnly` is marked so that only the user may start it. */
+function writeSkill(root, { name, description, body, userOnly = false }) {
   const folder = join(root, 'skills', name);
+  const frontMatter = [`name: ${name}`, `description: ${description}`, ...(userOnly ? ['disable-model-invocation: true'] : [])];
   mkdirSync(folder, { recursive: true });
-  writeFileSync(join(folder, 'SKILL.md'), `---\nname: ${name}\n${frontMatter}---\n${body}`);
+  writeFileSync(join(folder, 'SKILL.md'), `---\n${frontMatter.join('\n')}\n---\n${body}`);
   return folder;
 }
 
@@ -54,9 +56,14 @@ async function piWithSkills(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const agentDir = join(root, 'agent');
   isolatePiHome(t, agentDir);
-  const humanizer = writeSkill(root, 'humanizer', 'description: Rewrite text so it reads as a person wrote it.\n',
-    '# Humanizer\n\nRead `patterns.md` in this folder first.\n');
-  const userOnly = writeSkill(root, 'release', 'description: Cut a release.\ndisable-model-invocation: true\n', '# Release\n');
+
+  const humanizer = writeSkill(root, {
+    name: 'humanizer',
+    description: 'Rewrite text so it reads as a person wrote it.',
+    body: '# Humanizer\n\nRead `patterns.md` in this folder first.\n',
+  });
+  const release = writeSkill(root, { name: 'release', description: 'Cut a release.', body: '# Release\n', userOnly: true });
+
   const models = await ModelRuntime.create({
     authPath: join(root, 'auth.json'), modelsPath: null, modelsStorePath: join(root, 'models.json'),
     allowModelNetwork: false, refreshOnCreate: false,
@@ -65,10 +72,11 @@ async function piWithSkills(t) {
   models.streamSimple = () => { throw Error('No provider call allowed'); };
   models.hasConfiguredAuth = () => false;
   models.checkAuth = async () => ({ available: true });
+
   const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
   const resourceLoader = new DefaultResourceLoader({
     cwd: root, agentDir, settingsManager, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    additionalSkillPaths: [join(humanizer, 'SKILL.md'), join(userOnly, 'SKILL.md')],
+    additionalSkillPaths: [join(humanizer, 'SKILL.md'), join(release, 'SKILL.md')],
     extensionFactories: [loadSkill],
   });
   await resourceLoader.reload();
@@ -104,9 +112,9 @@ test('load_skill refuses a name it is not offered, and names the skills it can l
 
   await session.prompt('Load what you need.', { preflightResult() {} });
 
-  const results = toolResults(session);
-  assert.equal(results.length, 2);
-  for (const [result, name] of [[results[0], 'tla-plus'], [results[1], 'release']]) {
+  const [unknown, userOnly, ...rest] = toolResults(session);
+  assert.deepEqual(rest, []);
+  for (const [result, name] of [[unknown, 'tla-plus'], [userOnly, 'release']]) {
     assert.equal(result.isError, true);
     assert.match(textOf(result), new RegExp(`No skill named "${name}"`));
     assert.match(textOf(result), /You can load: humanizer\./);
@@ -138,13 +146,21 @@ test('every Pi run hobkin starts with tools loads load_skill, and the main chat 
   for (const purpose of [undefined, 'work-do', 'durable']) await run({ ...base, purpose });
   await run({ ...base, untilDone: true });
 
-  assert.equal(started.length, 4);
-  for (const job of started) assert.ok(job.extensions.includes(loadSkillExtension), `a ${job.purpose ?? 'routine'} run loads load_skill`);
-  assert.ok(started[3].extensions.includes(doneExtension), 'the living job is one');
+  const [routine, work, durable, living, ...rest] = started;
+  assert.deepEqual(rest, []);
+  for (const [job, kind] of [[routine, 'routine'], [work, 'work'], [durable, 'durable'], [living, 'living']]) {
+    assert.ok(job.extensions.includes(loadSkillExtension), `a ${kind} run loads load_skill`);
+  }
+  assert.ok(living.extensions.includes(doneExtension), 'the living job is one');
 
   const registered = [];
-  const handlers = {};
-  hobkin({ registerTool: tool => registered.push(tool.name), on: (name, handler) => { handlers[name] = handler; }, getActiveTools: () => [], setActiveTools() {} });
+  const mainChatPi = {
+    registerTool: tool => registered.push(tool.name),
+    on() {},
+    getActiveTools: () => [],
+    setActiveTools() {},
+  };
+  hobkin(mainChatPi);
   assert.ok(registered.includes('load_skill'));
   assert.ok(HOBKIN_BRIDGE_TOOLS.includes('load_skill'), "the main chat's exact tool list expects it");
 });

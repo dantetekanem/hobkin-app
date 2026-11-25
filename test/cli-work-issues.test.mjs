@@ -98,39 +98,65 @@ test('the work filed for an issue is found by the issue, in any case, with its p
   assert.equal(filedFor({ repo: 'acme/web', number: 12 }), null, 'the same number on another repository');
 });
 
-test('an issue worked on again is filed once more as a follow-up that keeps the issue, and the issue is found by its newest work', t => {
+// Working on an issue again: the issue the user had worked on once, and the item hobkin filed for it, read back.
+const loginAfterReset = { title: 'Login fails after a password reset', body: 'Steps.' };
+const workOnAgain = (root, number = 12) => addIssue(root, 'api', issue(number, { ...loginAfterReset, again: true }));
+const itemOf = (root, id) => readItems(root, 'api').find(item => item.id === id);
+
+test('an issue worked on again while its work is still open changes nothing, and says so', t => {
   const { root } = home(t);
   taken(root, 'api');
-  const reset = { title: 'Login fails after a password reset', body: 'Steps.' };
-  const first = addIssue(root, 'api', issue(12, reset));
-  assert.equal(addIssue(root, 'api', issue(12, { ...reset, again: true })).message,
-    `acme/api#12 is still in work on api as ${first.id}, open. Nothing changed.`);
+  const first = addIssue(root, 'api', issue(12, loginAfterReset));
+
+  const again = workOnAgain(root);
+
+  assert.equal(again.message, `acme/api#12 is still in work on api as ${first.id}, open. Nothing changed.`);
+  assert.deepEqual(readItems(root, 'api').map(({ id }) => id), [first.id]);
+});
+
+test('an issue whose work is finished, worked on again, is filed as a follow-up that keeps the issue, and the issue is found by it', t => {
+  const { root } = home(t);
+  taken(root, 'api');
+  const first = addIssue(root, 'api', issue(12, loginAfterReset));
   updateItem(root, 'api', first.id, { state: 'merged', pr: 'https://example.invalid/pull/3' });
 
-  const again = addIssue(root, 'api', issue(12, { ...reset, again: true }));
+  const again = workOnAgain(root);
 
-  const followUp = readItems(root, 'api').find(item => item.id === again.id);
   assert.notEqual(again.id, first.id);
   assert.equal(again.message, `Added a follow-up on acme/api#12 to api as ${again.id}. It goes first in the queue, after anything picked before it.`);
-  assert.deepEqual({ title: followUp.title, brief: followUp.brief, kind: followUp.kind, issue: followUp.issue, state: followUp.state }, {
+  const { title, brief, kind, issue: filedFor, state } = itemOf(root, again.id);
+  assert.deepEqual({ title, brief, kind, issue: filedFor, state }, {
     title: 'Follow-up: Login fails after a password reset',
-    brief: `Follow-up on acme/api#12. The earlier work on it, ${first.id}, is merged, in https://example.invalid/pull/3.\n\n`
-      + 'Login fails after a password reset\n\nSteps.\n\nhttps://github.com/acme/api/issues/12',
+    brief: [
+      `Follow-up on acme/api#12. The earlier work on it, ${first.id}, is merged, in https://example.invalid/pull/3.`,
+      'Login fails after a password reset',
+      'Steps.',
+      'https://github.com/acme/api/issues/12',
+    ].join('\n\n'),
     kind: 'improvement',
     issue: { repo: 'acme/api', number: 12, url: 'https://github.com/acme/api/issues/12' },
     state: 'open',
   });
   assert.equal(readMode(root).queueNext.at(-1), `item:api:${again.id}`);
   assert.equal(filedIssues(root)({ repo: 'acme/api', number: 12 }).item.id, again.id);
+});
 
-  updateItem(root, 'api', again.id, { state: 'done' });
-  const third = addIssue(root, 'api', issue(12, { ...reset, again: true }));
-  assert.equal(new Set([first.id, again.id, third.id]).size, 3, 'each time is an item of its own');
-  assert.match(readItems(root, 'api').find(item => item.id === third.id).brief, new RegExp(`^Follow-up on acme/api#12\\. The earlier work on it, ${again.id}, is done\\.\\n\\n`));
+test('each time an issue is worked on again is an item of its own, and one never filed is filed as it always is', t => {
+  const { root } = home(t);
+  taken(root, 'api');
+  const first = addIssue(root, 'api', issue(12, loginAfterReset));
+  updateItem(root, 'api', first.id, { state: 'merged' });
+  const second = workOnAgain(root);
+  updateItem(root, 'api', second.id, { state: 'done' });
+
+  const third = workOnAgain(root);
+  const fresh = workOnAgain(root, 13);
+
+  assert.equal(new Set([first.id, second.id, third.id]).size, 3);
+  assert.match(itemOf(root, third.id).brief, new RegExp(`^Follow-up on acme/api#12\\. The earlier work on it, ${second.id}, is done\\.\\n\\n`));
   assert.equal(filedIssues(root)({ repo: 'acme/api', number: 12 }).item.id, third.id);
-
-  const fresh = addIssue(root, 'api', issue(13, { again: true }));
-  assert.equal(readItems(root, 'api').find(item => item.id === fresh.id).key, 'gh-issue:acme/api#13', 'an issue never filed is filed as it always is');
+  assert.equal(itemOf(root, fresh.id).key, 'gh-issue:acme/api#13');
+  assert.equal(itemOf(root, fresh.id).title, 'Login fails after a password reset');
 });
 
 test('an issue is a fix when labeled a bug, security work when labeled security, and an improvement otherwise', t => {
