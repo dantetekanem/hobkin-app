@@ -100,9 +100,10 @@ export class AgentScheduleRunner {
   save() {
     const now = this.now();
     // An ended schedule shows for an hour and leaves the store a day after it ended, its runs with it.
-    const kept = this.schedules.filter(schedule => isLive(schedule) || now - Date.parse(schedule.endedAt) < KEPT_AFTER_END_MS);
-    if (kept.length !== this.schedules.length) forgetRuns(this.root, this.schedules.filter(schedule => !kept.includes(schedule)).map(schedule => schedule.id));
-    this.schedules = kept;
+    const stays = schedule => isLive(schedule) || now - Date.parse(schedule.endedAt) < KEPT_AFTER_END_MS;
+    const gone = this.schedules.filter(schedule => !stays(schedule));
+    if (gone.length) forgetRuns(this.root, gone.map(schedule => schedule.id));
+    this.schedules = this.schedules.filter(stays);
     try {
       if (this.schedules.length || this.pending.length || existsSync(join(this.root, STORE))) {
         atomicJson(join(this.root, STORE), { version: 1, schedules: this.schedules, wakes: this.pending });
@@ -396,7 +397,9 @@ export class AgentScheduleRunner {
 
   /** One owner's schedules with their runs, for its conversation: every one the store still has, ended ones too. */
   runs(owner) {
-    return this.schedules.filter(schedule => sameOwner(schedule.owner, owner)).map(schedule => scheduleRunsView(schedule, runsOf(this.root, schedule)));
+    return this.schedules
+      .filter(schedule => sameOwner(schedule.owner, owner))
+      .map(schedule => scheduleRunsView(schedule, runsOf(this.root, schedule)));
   }
 
   /** Resolves once no command runs. */

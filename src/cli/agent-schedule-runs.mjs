@@ -78,7 +78,8 @@ export function keepRun(root, schedule) {
 
 /** A schedule's runs, oldest first: those its file keeps, or its history while it has no file. */
 export function runsOf(root, schedule) {
-  return (ID.test(schedule.id) && readRuns(root, schedule.id)) || fromHistory(schedule);
+  const kept = ID.test(schedule.id) ? readRuns(root, schedule.id) : null;
+  return kept ?? fromHistory(schedule);
 }
 
 /** The files of schedules that left the store. One that cannot be removed is left. */
@@ -88,7 +89,7 @@ export function forgetRuns(root, ids) {
     try {
       rmSync(fileOf(root, id), { force: true });
     } catch {
-      // It is tried again by nobody, and holds at most one schedule's runs.
+      // A file left behind holds one schedule's runs, and nothing reads it once its schedule is gone.
     }
   }
 }
