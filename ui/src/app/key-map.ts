@@ -41,8 +41,6 @@ export interface KeyContext {
   outOfMenu: readonly string[]
   /** The keyboard is in a text field: an input, a textarea, the prompt editor, anything editable. */
   typing?: boolean
-  /** The agent screen shows a durable hobkin's page (`034-durable-hobkins`). */
-  hobkinPage?: boolean
   /** The canvas that has the keyboard (its area, its drawing or its controls in the menu): whose it is and what it shows. */
   board?: { owner: string; kind: 'page' | 'drawing' } | null
   /**
@@ -72,8 +70,7 @@ export type KeyAction =
   | { do: 'toggle-nerd-stats' }
   | { do: 'toggle-mind' }
   | { do: 'toggle-blocks' }
-  | { do: 'end-hobkin' }
-  | { do: 'force-stop' }
+  | { do: 'end-agent' }
   | { do: 'go-back' }
   | { do: 'go-forward' }
   | { do: 'close-canvas'; owner: string }
@@ -151,17 +148,16 @@ export function resolveKey(press: KeyPress, context: KeyContext): KeyAction | nu
     if (context.screen !== 'agent' && context.screen !== 'mind') return null
     return context.inOverlay && context.zone !== 'canvas' ? null : { do: 'toggle-blocks' }
   }
-  // Control+X presses End on a durable hobkin's page: once it asks, twice it ends the hobkin. On any other agent's page it
-  // presses Force Stop: once it asks, twice it force stops the run. From the page, its talk box or the agents list; never
-  // from the main message input or while a dialog has the keyboard.
+  // Control+X presses End on an agent's page: once it asks, twice it ends a durable hobkin or force stops a run. From the
+  // page, its talk box or the agents list; never from the main message input or while a dialog has the keyboard.
   if (press.ctrl && !press.meta && !press.alt && !press.shift && press.code === 'KeyX') {
     if (context.screen !== 'agent' || context.inOverlay || context.zone === 'input') return null
-    return context.hobkinPage ? { do: 'end-hobkin' } : { do: 'force-stop' }
+    return { do: 'end-agent' }
   }
   if (context.inOverlay) return null
 
   // Control+Tab and Control+Shift+Tab move right and left through the menu's tabs, as in a browser, from anywhere. On an
-  // agent's page, a durable hobkin's too, they move to the next and the previous agent instead, as the agents list orders them.
+  // agent's page they move to the next and the previous agent instead, as the agents list orders them.
   if (press.ctrl && !press.meta && !press.alt && press.key === 'Tab') {
     if (context.screen === 'agent') return { do: 'switch-agent', step: press.shift ? -1 : 1 }
     const screen = besideTab(context.screens, context.screen, press.shift ? -1 : 1)

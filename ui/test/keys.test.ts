@@ -3,7 +3,6 @@ import { test } from 'node:test'
 import { besideAgent, resolveEscape, resolveKey, type KeyContext } from '../src/app/key-map.ts'
 import { walkScreens } from '../src/app/screens.ts'
 import { pressEnd } from '../src/features/hobkins/conversation.ts'
-import { forceStopStep } from '../src/features/work/actions.ts'
 import { withFixturePart } from './integration-fixture.ts'
 
 withFixturePart()
@@ -107,12 +106,12 @@ test("control o opens or closes every block of the steps on an agent's screen an
   }
 })
 
-test('Control+X asks to end a durable hobkin, and again ends it', () => {
+test('Control+X is End on every agent page: once it asks, twice it ends a durable hobkin or force stops a run', () => {
   const press = { key: 'x', code: 'KeyX', ctrl: true }
-  const page = { screen: 'agent', hobkinPage: true } as const
+  const page = { screen: 'agent' } as const
   // From its page, its talk box or the agents list.
   for (const zone of ['canvas', 'agents', 'other'] as const) {
-    assert.deepEqual(resolveKey(press, context({ ...page, zone, typing: zone === 'canvas' })), { do: 'end-hobkin' }, zone)
+    assert.deepEqual(resolveKey(press, context({ ...page, zone, typing: zone === 'canvas' })), { do: 'end-agent' }, zone)
   }
   // One press and the same state as a click on End: the first asks, a second while it asks ends it, and none while it ends.
   assert.equal(pressEnd('no'), 'ask')
@@ -129,31 +128,6 @@ test('Control+X asks to end a durable hobkin, and again ends it', () => {
   for (const other of [{ ctrl: false }, { meta: true }, { alt: true }, { shift: true }, { code: 'KeyC' }]) {
     assert.equal(resolveKey({ ...press, ...other }, context({ ...page, zone: 'canvas' })), null, JSON.stringify(other))
   }
-})
-
-test("Control+X force stops any other agent's run, asking first", () => {
-  const press = { key: 'x', code: 'KeyX', ctrl: true }
-  const page = { screen: 'agent' } as const
-  // From its page, its talk box or the agents list, as End on a durable hobkin's page.
-  for (const zone of ['canvas', 'agents', 'other'] as const) {
-    assert.deepEqual(resolveKey(press, context({ ...page, zone, typing: zone === 'canvas' })), { do: 'force-stop' }, zone)
-  }
-  assert.deepEqual(resolveKey(press, context({ ...page, hobkinPage: true, zone: 'canvas' })), { do: 'end-hobkin' }, "a durable hobkin's page keeps End")
-  assert.equal(resolveKey(press, context({ ...page, zone: 'canvas', inOverlay: true })), null, 'a dialog or list in the page')
-  assert.equal(resolveKey(press, context({ ...page, zone: 'input' })), null, 'the main message input')
-
-  // The same press as Force Stop: the first asks, and a second while the page asks about this run forces it.
-  const run = 'session:review'
-  const live = { runId: run, canForce: true, pending: false }
-  const question = (id: string, mode?: 'stop' | 'force') => ({ id, title: 'Review', project: 'storefront', kind: 'run', ...(mode ? { mode } : {}) })
-  assert.equal(forceStopStep({ ...live, asking: null }), 'ask')
-  assert.equal(forceStopStep({ ...live, asking: question(run, 'force') }), 'force')
-  assert.equal(forceStopStep({ ...live, asking: question(run) }), 'ask', 'a Stop question becomes the Force Stop one')
-  assert.notEqual(forceStopStep({ ...live, asking: question('work:other:1', 'force') }), 'force', "another run's question is not confirmed")
-  // Nothing while it is being forced, or once it cannot be forced, as a finished run cannot.
-  assert.equal(forceStopStep({ ...live, pending: true, asking: question(run, 'force') }), null)
-  assert.equal(forceStopStep({ ...live, canForce: false, asking: null }), null)
-  assert.equal(forceStopStep({ ...live, canForce: false, asking: question(run, 'force') }), null)
 })
 
 test('command enter goes to the message input from anywhere, and leaves the key to the input and to overlays', () => {
@@ -343,7 +317,7 @@ test('escape that nothing used leaves a screen that is open only for now', () =>
 })
 
 const MAIN_BOARD = { owner: 'main', kind: 'drawing' } as const
-const SPLIT = { screen: 'agent', hobkinPage: true, canvasShowing: { owner: '0123abcd', agent: 'talk' } } as const
+const SPLIT = { screen: 'agent', canvasShowing: { owner: '0123abcd', agent: 'talk' } } as const
 
 test('escape closes the canvas that has the keyboard: its area, its drawing or its controls in the menu', () => {
   assert.deepEqual(resolveEscape(context({ zone: 'canvas', screen: 'canvas', board: MAIN_BOARD }), false), { do: 'close-canvas', owner: 'main' })
@@ -399,7 +373,6 @@ test('on an agent’s page control tab and control shift tab move to the next an
     assert.deepEqual(resolveKey(right, onAgent), { do: 'switch-agent', step: 1 }, `from ${zone}`)
     assert.deepEqual(resolveKey(left, onAgent), { do: 'switch-agent', step: -1 }, `from ${zone}`)
   }
-  assert.deepEqual(resolveKey(right, context({ screen: 'agent', hobkinPage: true })), { do: 'switch-agent', step: 1 }, 'a durable hobkin is an agent too')
   assert.equal(resolveKey(right, context({ screen: 'agent', zone: 'other', inOverlay: true })), null, 'a dialog keeps it')
 })
 

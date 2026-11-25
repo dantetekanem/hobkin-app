@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { HobkinSummary } from '../../shared/protocol/hobkins.ts'
 import type { StopControlTarget } from '../../shared/protocol/snapshot.ts'
-import { agentTalk, draftWithTakenBack, stoppedTurn, takenNoteIds, talkTurn, waitingRows } from '../src/features/work/talk.ts'
+import { agentTalk, draftWithTakenBack, endTarget, stoppedTurn, takenNoteIds, talkTurn, waitingRows } from '../src/features/work/talk.ts'
 import { initialHostState, type HostState } from '../src/lib/host/state.ts'
 
 const control = (runId: string): StopControlTarget => ({ kind: 'run', runId, parentId: null, rootId: runId, label: 'Run', canStop: true, canForce: true })
@@ -21,6 +21,21 @@ test("a run's turn and a durable hobkin's are stopped the same way, through the 
   assert.equal(talkTurn(working, { kind: 'run', run: 'once:recap' })?.runId, 'once:recap')
   assert.equal(talkTurn(working, { kind: 'hobkin', id: 'a1b2c3d4' })?.runId, 'hobkin:a1b2c3d4:2')
   assert.equal(talkTurn(live({ hobkins: [hobkin({})] }), { kind: 'hobkin', id: 'a1b2c3d4' }), undefined, 'a waiting hobkin has nothing to stop')
+})
+
+test('End is one control for every agent: a durable hobkin the host has is ended, and a run is force stopped while it can be', () => {
+  const state = live({ stopControls: { home: '/h', epoch: 'e', targets: [control('once:recap'), control('hobkin:a1b2c3d4:2')] }, hobkins: [hobkin({ state: 'working', run: 'hobkin:a1b2c3d4:2' })] })
+
+  assert.deepEqual(endTarget(state, 'hobkin:a1b2c3d4'), { kind: 'hobkin', id: 'a1b2c3d4' }, 'the hobkin, never only its turn')
+  assert.deepEqual(endTarget(live({ hobkins: [hobkin({})] }), 'hobkin:a1b2c3d4'), { kind: 'hobkin', id: 'a1b2c3d4' }, 'a waiting hobkin ends too')
+  const run = endTarget(state, 'once:recap')
+  assert.equal(run?.kind === 'run' ? run.control.runId : null, 'once:recap', 'a run is force stopped through its own control')
+
+  assert.equal(endTarget(live({}), 'hobkin:a1b2c3d4'), null, 'a hobkin the host does not have')
+  assert.equal(endTarget(state, 'once:other'), null, 'a run with no control, as once it has finished')
+  const unforced = live({ stopControls: { home: '/h', epoch: 'e', targets: [{ ...control('once:recap'), canForce: false }] } })
+  assert.equal(endTarget(unforced, 'once:recap'), null, 'a run that cannot be forced')
+  assert.equal(endTarget({ ...state, link: 'lost' }, 'once:recap'), null, 'the host is gone')
 })
 
 test('a durable hobkin whose last turn the user stopped can be continued; a stopped run has ended', () => {

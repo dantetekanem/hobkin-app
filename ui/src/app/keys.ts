@@ -1,15 +1,13 @@
 import { useEffect } from 'react'
-import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import { useBlocks } from '@/features/agent-activity/blocks.ts'
 import { boardAt, canvasShowingNow, closeCanvasFromKeys, mainCanvasInMenu, saveCanvas } from '@/features/canvas-panel/controls.ts'
 import { useChat } from '@/features/chat/chat-store.ts'
-import { pressEndOf } from '@/features/hobkins/end.ts'
 import { agentGroups } from '@/features/hobkins/list.ts'
 import { useNewHobkin } from '@/features/hobkins/store.ts'
 import { toggleMind } from '@/features/main-agent/route.ts'
 import { useNerdStats } from '@/features/settings/nerd-stats-store.ts'
 import { useSettings } from '@/features/settings/store.ts'
-import { pressForceStopOf } from '@/features/work/force-stop.ts'
+import { pressEndOf } from '@/features/work/end-agent.ts'
 import { focusAgentsDock } from './AgentsDock.tsx'
 import { answerNext, runningAgents } from './running-agents.ts'
 import { besideAgent, keyboardHomeFor, resolveEscape, resolveKey, type KeyAction, type KeyContext, type Zone } from './key-map.ts'
@@ -71,7 +69,7 @@ function safely<T>(read: () => T, otherwise: T): T {
 const typingIn = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea, select'))
 
 function contextOf(target: EventTarget | null): KeyContext {
-  const { screen, veil, openAgent } = useView.getState()
+  const { screen, veil } = useView.getState()
   return {
     zone: zoneOf(target),
     messageEmpty: (messageInput()?.value.length ?? 0) === 0,
@@ -84,7 +82,6 @@ function contextOf(target: EventTarget | null): KeyContext {
     asking: safely(() => runningAgents().some((agent) => agent.asks), false),
     outOfMenu: useSettings.getState().screensOutOfMenu,
     typing: typingIn(target),
-    hobkinPage: screen === 'agent' && hobkinOfAgent(openAgent) !== null,
     board: safely(() => boardAt(target), null),
     canvasShowing: safely(() => canvasShowingNow(), null),
   }
@@ -193,14 +190,9 @@ function perform(action: KeyAction): boolean {
     case 'toggle-blocks':
       useBlocks.getState().toggleAll()
       return true
-    case 'end-hobkin': {
-      // The same press as End on the page: the first asks, the next ends it.
-      const id = hobkinOfAgent(view.openAgent)
-      return id ? pressEndOf(id) : false
-    }
-    case 'force-stop':
-      // The same press as Force Stop on the page: the first asks, the next force stops the run.
-      return pressForceStopOf(view.openAgent)
+    case 'end-agent':
+      // The same press as End on the page: the first asks, the next ends a durable hobkin or force stops a run.
+      return pressEndOf(view.openAgent)
     case 'reload':
       location.reload()
       return true

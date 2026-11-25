@@ -1,16 +1,14 @@
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { HOBKIN_MESSAGE_MAX, HOBKIN_TITLE_MAX, hobkinAgentId, hobkinOfAgent, type HobkinConversation, type HobkinSummary } from '#shared/protocol/hobkins.ts'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
-import { AGENT_PAGE_TOP } from '@/app/screen-layout.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Pals } from '@/avatar/Pals.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
-import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { useSplit, useSplitSizes } from '@/features/canvas-panel/use-board.ts'
+import { useSplit } from '@/features/canvas-panel/use-board.ts'
 import { Arrivals, useArrival } from '@/features/agent-activity/arrive.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { AgentLines } from '@/features/agent-activity/AgentLines.tsx'
@@ -25,7 +23,9 @@ import type { Attachment } from '@/features/chat/draft.ts'
 import { MessageText } from '@/features/chat/markdown.ts'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
 import { useModelChoices } from '@/features/tiers/models.ts'
-import { AgentStopControl, upToAgents, walkSteps } from '@/features/work/AgentScreen.tsx'
+import { focusNewestStep, upToAgents, walkSteps } from '@/features/work/agent-keys.ts'
+import { RunPart, RunTalk } from '@/features/work/RunPage.tsx'
+import { StopAsk, useStopResult } from '@/features/work/StopAsk.tsx'
 import { useAgentImages } from '@/features/work/agent-images.ts'
 import { useAgentImageInput } from '@/features/work/use-agent-image-input.ts'
 import { doingOf, folderName, hasHost, hueOf } from '@/lib/host/frame.ts'
@@ -39,7 +39,7 @@ import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, waitsForTur
 import { ContinueButton, imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
 import { CONTINUE_WORDS, waitingRows, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
 import { useTalkControls } from '@/features/work/use-talk-controls.ts'
-import { endingOf, pressEndOf, takeBackEnd, useEnding } from './end.ts'
+import { PageHeader, PartFrame } from './PageHeader.tsx'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
 import { useConversation, useMarkSeen, usePageShown } from './use-conversation.ts'
@@ -49,43 +49,50 @@ import { AgentSlashOver } from '@/features/work/AgentSlashOver.tsx'
 import { DeliveryMark } from '@/features/work/DeliveryMark.tsx'
 
 /**
- * A durable hobkin's page: the agent screen for the agent id `hobkin:<id>` (`034-durable-hobkins`). Its name, folder,
- * what it runs on and whether it works or waits; then its conversation, each turn's message and answer, with the steps of
- * the turn in flight drawn as any agent's are (`021-agent-rendering`); and the talk box, always there until it is ended.
+ * Every agent's page, the one the frame opens for the agent screen (`034-durable-hobkins`, `021-agent-rendering`): a
+ * durable hobkin's, `hobkin:<id>`, and a run's. Its face, name, where it works and how it stands, with End; its lines;
+ * then its conversation, with the steps of the turn in flight drawn as any agent's are; and the talk box. A durable
+ * hobkin's conversation is each turn's message and answer, and it lives on after each turn until it is ended. A run's is
+ * its steps, and it ends with its work (`RunPage.tsx`). The user, 2026-11-25: "the UI of durable is much better, that
+ * should be the only UI".
  *
- * Moving to another durable hobkin, its own pieces cross-fade, as an agent's do. Stop and the talk box stay in place.
+ * Moving to another agent, durable or not, its own pieces cross-fade and the talk box stays in place.
  *
- * While its canvas is open the page forms a split with it (`040-canvas-board`): the page takes the chat's place and
- * the canvas the right side. The agents list is covered then, so the page's keys no longer lead to it.
+ * While a durable hobkin's canvas is open the page forms a split with it (`040-canvas-board`): the page takes the chat's
+ * place and the canvas the right side. The agents list is covered then, so the page's keys no longer lead to it.
  */
 export function HobkinScreen() {
-  // A screen on its way out keeps showing its own hobkin while the next one arrives, and the split it had.
+  // A screen on its way out keeps showing its own agent while the next one arrives, and the split it had.
   const present = useIsPresent()
   const openAgent = useView((view) => view.openAgent)
   const kept = useRef(openAgent)
   if (present) kept.current = openAgent
-  const id = hobkinOfAgent(kept.current)
+  const agentId = kept.current
+  const id = hobkinOfAgent(agentId)
   const notes = useSentNotes()
   const splitOwner = useSplit()?.owner ?? null
   const keptSplit = useRef(false)
   if (present) keptSplit.current = id !== null && splitOwner === id
   const split = keptSplit.current
-  const sizes = useSplitSizes()
 
   return (
     <div className="relative flex h-full flex-col" onKeyDown={split ? undefined : upToAgents}>
       {/* Where the chat's header was, the window is dragged by the top of the page. */}
       {split ? <div data-tauri-drag-region className="select-none-chrome absolute inset-x-0 top-0 z-10 h-12" /> : null}
-      {id ? <StopTurn id={id} shift={split ? sizes.canvasWidth : 0} /> : null}
+      {id ? <TurnStopAsk id={id} /> : agentId ? <StopAsk key={agentId} runId={agentId} /> : null}
       <div className="relative min-h-0 flex-1">
-        {/* Propagated, so a page leaving with its screen counts as gone, as an agent's does. */}
+        {/* Propagated, so a page leaving with its screen counts as gone. */}
         <AnimatePresence initial={false} propagate>
-          {id ? <Part key={id} id={id} split={split} sent={notes.sent[id] ?? NO_NOTES} sending={notes.sending[id] ?? null} /> : null}
+          {id ? (
+            <Part key={agentId} id={id} split={split} sent={notes.sent[id] ?? NO_NOTES} sending={notes.sending[id] ?? null} />
+          ) : agentId ? (
+            <RunPart key={agentId} agentId={agentId} />
+          ) : null}
         </AnimatePresence>
       </div>
       {id ? (
         <Talk
-          key={id}
+          key={agentId}
           id={id}
           split={split}
           sent={notes.sent[id] ?? NO_NOTES}
@@ -94,6 +101,8 @@ export function HobkinScreen() {
           onSent={(note) => notes.add(id, note)}
           onTakenBack={(noteIds) => notes.drop(id, noteIds)}
         />
+      ) : agentId ? (
+        <RunTalk key={agentId} agentId={agentId} />
       ) : null}
     </div>
   )
@@ -153,38 +162,13 @@ function useHobkin(id: string): { hobkin: HobkinSummary | undefined; state: Page
   return { hobkin, state, connected, fresh: firstMessageNext({ hobkin, started }) }
 }
 
-/** The split's spring: it forms on the screens' spring and undoes on their exit spring. */
-const splitSpring = (split: boolean) => (split ? spring.screen : spring.screenExit)
-
-/**
- * Stop for the turn in flight: the one an agent's screen has for its run. While the hobkin waits there is nothing to stop.
- * In the split it keeps its place at the window's top right, over the canvas, while the page narrows under it (`shift`).
- * Only the split forming or undoing moves it, on the split's spring; a resize puts it straight there.
- */
-function StopTurn({ id, shift }: { id: string; shift: number }) {
-  const still = useStill()
+/** A stop of the turn in flight asked from the agents list asks on the page first. While the hobkin waits there is nothing to stop. */
+function TurnStopAsk({ id }: { id: string }) {
   const run = useHost((state) => state.snapshot.hobkins?.find((summary) => summary.id === id)?.run ?? null)
-  const inSplit = shift > 0
-  const was = useRef(inSplit)
-  const turned = inSplit !== was.current
-  useEffect(() => {
-    was.current = inSplit
-  })
-  const transition = still || !turned ? { duration: 0 } : splitSpring(inSplit)
-  // As wide as the page, so Stop lays out as it always has, and no taller than nothing, so it covers nothing around Stop.
-  return run ? (
-    <motion.div className="absolute inset-x-0 top-0 z-10" initial={false} animate={{ x: shift }} transition={transition}>
-      <AgentStopControl key={run} agentId={run} />
-    </motion.div>
-  ) : null
+  return run ? <StopAsk key={run} runId={run} /> : null
 }
 
-const RISE_IN = {
-  initial: { opacity: 0, transform: 'translateY(22px) scale(0.96)' },
-  animate: { opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.rise, opacity: tween.enter } },
-} as const
-
-/** The hobkin's own pieces: its header and its conversation. Leaving, it takes no keyboard and no pointer. */
+/** The hobkin's own pieces: its header, its lines and its conversation. Leaving, they take no keyboard and no pointer. */
 function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: readonly SentNote[]; sending: SendingNote | null }) {
   const present = useIsPresent()
   const { hobkin, state, connected, fresh } = useHobkin(id)
@@ -206,13 +190,7 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
   const mood = hobkin?.state === 'working' ? stepsMood : 'idle'
 
   return (
-    <motion.div
-      className="absolute inset-0 flex flex-col"
-      inert={!present}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1, transition: tween.enter }}
-      exit={{ opacity: 0, transition: tween.exit }}
-    >
+    <PartFrame>
       <Header id={id} hobkin={hobkin} state={state} mood={mood} split={split} />
       {/* Its tasks, teams agents, helpers and loaded skills from all the turns hobkin holds, in sight above the
           conversation, each opening over it: every agent's page has the same lines. */}
@@ -226,185 +204,42 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
         // A hobkin with no turn yet has no conversation to read: the page waits for its first message.
         loading={state === 'live' && read === null && !problem && !fresh}
       />
-    </motion.div>
+    </PartFrame>
   )
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
-/**
- * Its face, its name (renamed in place), its folder, what it runs on and whether it works; and End, which asks once.
- * Control+X presses End too (`end.ts`), so the key and the button share the ask.
- *
- * Its top leaves room for the floating menu above it. In the split the menu is over the canvas and the page is where the
- * chat is, so it leaves room for the window's own buttons and a drag strip instead.
- */
+/** What End says it does to a durable hobkin, after the question. */
+const HOBKIN_END = 'Its turn stops and it leaves the list. Its conversation stays on disk.'
+
+/** The hobkin's header: its face, its name, renamed in place, its folder, what it runs on and whether it works. */
 function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: HobkinSummary | undefined; state: PageState; mood: ReturnType<typeof doingOf>['mood']; split: boolean }) {
-  const still = useStill()
-  const top = split ? 56 : AGENT_PAGE_TOP
   const models = useModelChoices()
-  const [naming, setNaming] = useState<string | null>(null)
-  const [renamed, setRenamed] = useState<string | null>(null)
-  const ending = useEnding((store) => endingOf(store, id))
-  const endProblem = useEnding((store) => (store.id === id ? store.problem : null))
-  const [renameProblem, setProblem] = useState<string | null>(null)
-  const problem = endProblem ?? renameProblem
-  const nameButton = useRef<HTMLButtonElement | null>(null)
-  // Leaving the page takes the ask back, as it always has.
-  useEffect(() => () => takeBackEnd(id, false), [id])
-  /** The name being typed, read once: Enter and the blur as the field goes must not both send it. */
-  const draft = useRef<string | null>(null)
-  const title = renamed !== null && renamed !== hobkin?.title ? renamed : hobkin?.title
-  const shownTitle = title ?? (state === 'starting' ? 'Starting the new hobkin' : 'This hobkin has ended')
-
-  const beginRename = (current: string) => {
-    draft.current = current
-    setNaming(current)
-  }
-
-  const stopRenaming = () => {
-    draft.current = null
-    setNaming(null)
-    requestAnimationFrame(() => nameButton.current?.focus({ preventScroll: true }))
-  }
-
-  const rename = async () => {
-    if (draft.current === null) return
-    const next = draft.current.trim()
-    stopRenaming()
-    if (!hobkin || !next || next === hobkin.title) return
-    setProblem(null)
-    setRenamed(next)
-    try {
-      await runCommand('hobkin.rename', { id, title: next })
-    } catch (error) {
-      setRenamed(null)
-      setProblem(message(error))
-    }
-  }
-
-  const pressEnd = () => {
-    setProblem(null)
-    pressEndOf(id)
-  }
-  const stopAsking = () => takeBackEnd(id, true)
   const onClaudeCode = useOnClaudeCode(id, hobkin)
-
+  const status = useStopResult(hobkin?.run ?? null)
+  const title = hobkin?.title ?? (state === 'starting' ? 'Starting the new hobkin' : 'This hobkin has ended')
+  const rename = useMemo(() => ({ max: HOBKIN_TITLE_MAX, send: async (next: string) => void (await runCommand('hobkin.rename', { id, title: next })) }), [id])
   return (
-    <motion.div
-      className="flex flex-col gap-2 px-[10%] pb-3"
-      initial={{ ...holdStill(RISE_IN.initial, still), paddingTop: top }}
-      animate={{
-        ...holdStill(RISE_IN.animate, still),
-        paddingTop: top,
-        transition: { ...RISE_IN.animate.transition, paddingTop: still ? { duration: 0 } : splitSpring(split) },
-      }}
-    >
-      <div className="flex items-center gap-3">
-        {/* On Claude Code the crab pal stands beside the face, and while it waits long they fall asleep together. */}
-        {onClaudeCode ? (
+    <PageHeader
+      agentId={hobkinAgentId(id)}
+      split={split}
+      face={
+        // On Claude Code the crab pal stands beside the face, and while it waits long they fall asleep together.
+        onClaudeCode ? (
           <Pals id={id} hue={hueOf(id)} size={48} mood={mood} working={hobkin?.state === 'working'} restingSince={hobkin?.waiting ? Date.parse(hobkin.waiting.since) : undefined} />
         ) : (
           <AgentHood hue={hueOf(id)} size={48} mood={mood} working={hobkin?.state === 'working'} />
-        )}
-        <div className="min-w-0 flex-1">
-          {naming !== null ? (
-            <input
-              autoFocus
-              aria-label="Name"
-              value={naming}
-              maxLength={HOBKIN_TITLE_MAX}
-              onChange={(event) => {
-                draft.current = event.target.value
-                setNaming(event.target.value)
-              }}
-              onBlur={() => void rename()}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  void rename()
-                } else if (event.key === 'Escape') {
-                  // The rename is let go, and the screen stays.
-                  event.preventDefault()
-                  stopRenaming()
-                }
-              }}
-              className="w-full rounded-lg bg-surface-2 px-2 py-0.5 font-heading text-[20px] font-semibold tracking-[-0.022em] outline-none select-text"
-            />
-          ) : (
-            <h2 className="truncate font-heading text-[20px] font-semibold tracking-[-0.022em]">
-              {hobkin ? (
-                <button
-                  ref={nameButton}
-                  type="button"
-                  title="Rename"
-                  onClick={() => beginRename(title ?? '')}
-                  className="max-w-full truncate rounded-lg px-2 py-0.5 -mx-2 text-left transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2"
-                >
-                  {shownTitle}
-                </button>
-              ) : (
-                shownTitle
-              )}
-            </h2>
-          )}
-          {hobkin ? (
-            <p className="truncate text-[13px] text-muted-foreground" title={hobkin.cwd}>
-              {folderName(hobkin.cwd)} · {engineLabel(hobkin.engine, models)} · {stateLabel(hobkin.state)}
-            </p>
-          ) : null}
-        </div>
-        {hobkin && ending === 'no' ? (
-          <Button data-end-hobkin={id} variant="ghost" size="sm" onClick={pressEnd}>
-            End <Kbd>⌃X</Kbd>
-          </Button>
-        ) : null}
-      </div>
-      <AnimatePresence initial={false}>
-        {hobkin && ending !== 'no' ? (
-          <motion.div
-            key="end"
-            role="group"
-            aria-label={`End ${shownTitle}`}
-            className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-surface-2 px-4 py-3"
-            initial={holdStill({ opacity: 0, transform: 'translateY(-8px) scale(0.98)' }, still)}
-            animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: spring.alive }, still)}
-            exit={holdStill({ opacity: 0, transform: 'translateY(-6px) scale(0.98)', transition: tween.exit }, still)}
-            onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
-              if (event.key !== 'Escape' || ending === 'busy') return
-              event.preventDefault()
-              stopAsking()
-            }}
-          >
-            <p className="min-w-0 flex-1 basis-60 text-[13.5px] leading-snug">
-              <span className="font-medium">End {shownTitle}?</span>{' '}
-              <span className="text-muted-foreground">Its turn stops and it leaves the list. Its conversation stays on disk.</span>
-            </p>
-            <Button variant="destructive" size="sm" disabled={ending === 'busy'} onClick={pressEnd}>
-              End it <Kbd>⌃X</Kbd>
-            </Button>
-            <Button data-end-keep={id} variant="ghost" size="sm" disabled={ending === 'busy'} onClick={stopAsking}>
-              Keep it
-            </Button>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-      {problem ? (
-        <p role="alert" className="text-[12px] text-bad-fg">
-          {problem}
-        </p>
-      ) : null}
-    </motion.div>
+        )
+      }
+      title={title}
+      rename={hobkin ? rename : undefined}
+      line={hobkin ? `${folderName(hobkin.cwd)} · ${engineLabel(hobkin.engine, models)} · ${stateLabel(hobkin.state)}` : null}
+      lineTitle={hobkin?.cwd}
+      end={hobkin ? { ready: true, why: HOBKIN_END } : null}
+      status={status}
+    />
   )
-}
-
-/** The newest step, from the talk box with Up. False when there is nothing to walk. */
-function focusNewestStep(input: Element): boolean {
-  const list = input.closest('[data-canvas-screen]')?.querySelector<HTMLElement>('[data-agent-exchange]')
-  const steps = list ? [...list.querySelectorAll<HTMLElement>(':scope > [data-step]')] : []
-  const newest = steps.at(-1)
-  newest?.focus()
-  return Boolean(newest)
 }
 
 /** A row of the conversation, or the row that reads the live turn's older steps from its run's saved session. */

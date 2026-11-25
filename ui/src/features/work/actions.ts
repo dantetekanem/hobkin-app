@@ -88,7 +88,7 @@ export function startupReceiptText(receipt: StartupForceReceipt): string {
   return `Force: fence ${receipt.fence.status}; captured closure ${receipt.closure.status}; opening ${receipt.opening.status}; outer cleanup ${receipt.cleanup.status}; persistence ${receipt.persistence.status}; detached cleanup ${receipt.detachedCleanup}; queue recovery ${receipt.queueRecovery}.`
 }
 export function receiptText(receipt: StopExecutionReceipt): string {
-  return `${receipt.mode === 'force' ? 'Force' : 'Stop'}: cancellation ${receipt.stop.status}; captured closure ${receipt.closure.status}; descendants ${receipt.descendants.status} (${receipt.descendants.cleanupScope}); detached cleanup ${receipt.descendants.detachedCleanup}.${receipt.message ? ` ${receipt.message}` : ''}`
+  return `${receipt.mode === 'force' ? 'End' : 'Stop'}: cancellation ${receipt.stop.status}; captured closure ${receipt.closure.status}; descendants ${receipt.descendants.status} (${receipt.descendants.cleanupScope}); detached cleanup ${receipt.descendants.detachedCleanup}.${receipt.message ? ` ${receipt.message}` : ''}`
 }
 
 export interface ExecutionResult {

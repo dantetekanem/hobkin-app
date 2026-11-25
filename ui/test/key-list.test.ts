@@ -36,8 +36,7 @@ test('each frame key in the list resolves in the key map', () => {
   assert.ok(KEY_LIST.some((entry) => entry.keys === '⌃O'), '⌃O is listed')
   assert.ok(resolveKey({ key: 'o', code: 'KeyO', ctrl: true }, { ...context, screen: 'agent' }), "⌃O does something on an agent's screen")
   assert.ok(KEY_LIST.some((entry) => entry.keys === '⌃X'), '⌃X is listed')
-  assert.ok(resolveKey({ key: 'x', code: 'KeyX', ctrl: true }, { ...context, screen: 'agent', hobkinPage: true, zone: 'canvas' }), "⌃X does something on a durable hobkin's page")
-  assert.ok(resolveKey({ key: 'x', code: 'KeyX', ctrl: true }, { ...context, screen: 'agent', zone: 'canvas' }), "⌃X does something on any other agent's page")
+  assert.ok(resolveKey({ key: 'x', code: 'KeyX', ctrl: true }, { ...context, screen: 'agent', zone: 'canvas' }), "⌃X does something on an agent's page")
 })
 
 test('the canvas keys are listed for the canvas, and each does something there', () => {

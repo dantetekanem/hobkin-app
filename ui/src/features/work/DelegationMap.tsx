@@ -316,7 +316,7 @@ function OwnedExecutionRow({ target, source, active, result, pending }: { target
               disabled={!(mode === 'force' ? target.canForce : target.canStop) || pending[executionKey(target, mode)]}
               onClick={(event) => ask(mode, event.currentTarget)}
             >
-              {mode === 'force' ? 'Force Stop' : 'Stop Agent'}
+              {mode === 'force' ? 'End' : 'Stop Agent'}
             </Button>
           ))}
         </span>
@@ -334,7 +334,7 @@ function OwnedExecutionRow({ target, source, active, result, pending }: { target
           }
         }}
       >
-        <p className="min-w-0 flex-1 text-[12.5px]">{question.mode === 'force' ? 'Force Stop' : 'Stop'} this exact execution? Detached cleanup remains unknown.</p>
+        <p className="min-w-0 flex-1 text-[12.5px]">{question.mode === 'force' ? 'End' : 'Stop'} this exact execution? Detached cleanup remains unknown.</p>
         <Button ref={first} variant="ghost" size="sm" onClick={() => answer(false)}>
           Cancel
         </Button>

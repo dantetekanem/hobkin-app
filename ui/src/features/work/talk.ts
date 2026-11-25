@@ -1,4 +1,5 @@
 import type { CommandArgs, CommandResults, TakenBack } from '#shared/commands/registry.ts'
+import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import type { HostState } from '../../lib/host/state.ts'
 import { draftAfterStop } from '../chat/outbox.ts'
 import { executionTargets, type ExecutionControl } from './actions.ts'
@@ -89,6 +90,20 @@ export function talkTurn(state: Pick<HostState, 'link' | 'home' | 'owner' | 'sna
   const run = turnRun(state, agent)
   if (run === null) return undefined
   return executionTargets(state).find((target) => target.kind === 'run' && target.runId === run && target.canStop)
+}
+
+/** What End ends on an agent's page: a durable hobkin, or a run, which End force stops. */
+export type EndTarget = { kind: 'hobkin'; id: string } | { kind: 'run'; control: ExecutionControl }
+
+/**
+ * What End and Control+X end for an agent, by the id the window names it with: a durable hobkin the host has, never
+ * only its turn, or a run while the host can force stop it. Null when there is nothing to end, as once a run has finished.
+ */
+export function endTarget(state: Pick<HostState, 'link' | 'home' | 'owner' | 'snapshot' | 'epoch'>, agentId: string): EndTarget | null {
+  const hobkin = hobkinOfAgent(agentId)
+  if (hobkin !== null) return state.snapshot.hobkins?.some((summary) => summary.id === hobkin) ? { kind: 'hobkin', id: hobkin } : null
+  const control = executionTargets(state).find((target) => target.kind === 'run' && target.runId === agentId && target.canForce)
+  return control ? { kind: 'run', control } : null
 }
 
 /** The agent's last turn is one the user stopped and nothing has started since, so it can go on. A run ends when it is stopped. */

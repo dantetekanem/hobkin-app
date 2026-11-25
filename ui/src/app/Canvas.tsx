@@ -9,7 +9,6 @@ import { useNeedsSignIn } from '@/features/signin/SignInGate.tsx'
 import { useHasHost } from '@/lib/host/index.ts'
 import { SignInScreen } from '@/features/signin/SignInScreen.tsx'
 import { agentEntry, entryTransition } from '@/features/work/agent-entry.ts'
-import { AgentScreen } from '@/features/work/AgentScreen.tsx'
 import { MainAgentScreen } from '@/features/main-agent/MainAgentScreen.tsx'
 import { WorkScreen } from '@/features/work/WorkScreen.tsx'
 import { WorldScreen } from '@/features/work/WorldScreen.tsx'
@@ -22,7 +21,6 @@ import { CanvasScreen } from '@/features/canvas-panel/CanvasScreen.tsx'
 import { useSplit, useSplitSizes } from '@/features/canvas-panel/use-board.ts'
 import { useCanvasPlace } from '@/features/canvas-panel/use-place.ts'
 import { HobkinScreen } from '@/features/hobkins/HobkinScreen.tsx'
-import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import { NotWiredYet } from './NotWiredYet.tsx'
 import { dragLeft, useDragEdge } from './drag-edge.ts'
 import { keepAgentPreview } from './keep-agent.ts'
@@ -69,7 +67,7 @@ const SCREEN_VIEWS: Record<CoreScreenId, ComponentType> = {
   skills: SkillsScreen,
   extensions: ExtensionsScreen,
   memory: MemoryScreen,
-  agent: AgentScreen,
+  agent: HobkinScreen,
   mind: MainAgentScreen,
   review: ReviewScreen,
   settings: SettingsScreen,
@@ -132,7 +130,7 @@ function useGrowth(split: boolean, enteringAgent: boolean, still: boolean): Tran
 }
 
 /**
- * How far a durable hobkin's page is inset from the right, to give its split's canvas the room. The split forming or
+ * How far an agent's page is inset from the right, to give a durable hobkin's split canvas the room. The split forming or
  * undoing on the page moves it on the split's spring; arriving on the page, a resize or Still put it straight there. A
  * page on its way out keeps the width it had, as everything else on it does.
  */
@@ -174,9 +172,8 @@ export function Canvas() {
   const still = useStill()
   const enteringAgent = screen === 'agent' && !needsModel
   const travelOf: Travel = { ...motionOf, still, agent: enteringAgent }
-  // A durable hobkin is an agent with a page of its own (034-durable-hobkins). Moving between it and an agent travels.
-  const durable = enteringAgent && hobkinOfAgent(openAgent) !== null
-  const View = needsModel ? SignInScreen : durable ? HobkinScreen : SCREEN_VIEWS[screen as CoreScreenId] ?? partScreen(screen)?.component ?? WorkScreen
+  // Every agent has the same page, a durable hobkin's and a run's (034-durable-hobkins).
+  const View = needsModel ? SignInScreen : SCREEN_VIEWS[screen as CoreScreenId] ?? partScreen(screen)?.component ?? WorkScreen
   const splitNow = useSplit()
   const split = needsModel ? null : splitNow
   const sizes = useSplitSizes()
@@ -185,12 +182,13 @@ export function Canvas() {
   // The main canvas moves the view, unless the right side covers the chat right then.
   useCanvasPlace({ covered: grow > 0, split: split ? { owner: split.owner, revision: split.canvas.revision } : null })
   const growth = useGrowth(split !== null, enteringAgent, still)
-  const pageInset = usePageInset(durable, split !== null, sizes.canvasWidth, still)
+  const pageInset = usePageInset(enteringAgent, split !== null, sizes.canvasWidth, still)
   // While the split grows the right side over the chat, what floats over the canvas moves back by as much.
   const shift = split ? grow : 0
   const dragEdge = useDragEdge((state) => state.edge)
   // Each agent has a key of its own, which focus and the keys go by. The agents share one section, though: moving from
-  // one agent to the next keeps the canvas and its controls in place, and only the agent's own pieces change on it.
+  // one agent to the next, a durable hobkin or a run, keeps the canvas and its controls in place, and only the agent's
+  // own pieces change on it.
   // Each project's page is its own too, so going from one project to another travels.
   const project = useView((view) => view.project)
   const key = needsModel
@@ -200,7 +198,7 @@ export function Canvas() {
       : screen === 'project'
         ? `project:${project}`
         : screen
-  const section = enteringAgent ? (durable ? 'hobkin' : 'agent') : key
+  const section = enteringAgent ? 'agent' : key
 
   return (
     <motion.main
@@ -229,7 +227,7 @@ export function Canvas() {
       {needsModel ? null : <ScreenMenu shift={shift} transition={growth} />}
       {/* Every page starts at the same height under the menu and the trail, whatever the menu shows (screen-layout.ts). */}
       <div className="relative grid h-full overflow-hidden rounded-l-[26px] bg-surface shadow-float" style={PAGE_START}>
-        {/* A durable hobkin's canvas in its split. Before the screens, so the page's own top-right control shows over it. */}
+        {/* A durable hobkin's canvas in its split, drawn before the screens. */}
         <AnimatePresence initial={false}>
           {split ? <CanvasPane key="split" owner={split.owner} width={sizes.canvasWidth} /> : null}
         </AnimatePresence>
@@ -243,8 +241,8 @@ export function Canvas() {
             exit="exit"
             tabIndex={-1}
             data-canvas-screen={key}
-            // A durable hobkin's page narrows to the chat's place while its canvas is open beside it.
-            style={section === 'hobkin' ? { marginRight: pageInset } : undefined}
+            // An agent's page narrows to the chat's place while a durable hobkin's canvas is open beside it.
+            style={section === 'agent' ? { marginRight: pageInset } : undefined}
             className="col-start-1 row-start-1 min-h-0 min-w-0 rounded-l-[26px] outline-none will-change-transform"
           >
             <ScreenBoundary of={key}>
