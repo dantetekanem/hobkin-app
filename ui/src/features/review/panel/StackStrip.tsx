@@ -165,9 +165,10 @@ function Arrow({ label, keys, layer, onGo, children }: { label: string; keys: st
 }
 
 /** "2 of 5", before the title of a row that lists a layer's review. Nothing for a review that is no layer. */
-export function LayerPlace({ reviewId, head }: { reviewId: string; head?: string | null }) {
+export function LayerPlace({ reviewId, head, at }: { reviewId: string; head?: string | null; /** The place a frame of the list gives this layer, which counts the pull requests too: it wins over hobkin's own. */ at?: string | null }) {
   const { work } = useWorkView()
-  const place = useMemo(() => layerPlaceOf((work?.finished ?? []).flatMap((group) => group.changes), reviewId, head), [work, reviewId, head])
+  const own = useMemo(() => layerPlaceOf((work?.finished ?? []).flatMap((group) => group.changes), reviewId, head), [work, reviewId, head])
+  const place = at ?? own
   if (!place) return null
   return (
     <span title="A layer of a stack, which lands after the layers under it" className="mr-2 inline-flex h-5 items-center gap-1 rounded-full bg-surface-2 px-2 align-[1px] font-heading text-[11px] font-medium whitespace-nowrap text-muted-foreground tabular-nums [&_svg]:size-3">

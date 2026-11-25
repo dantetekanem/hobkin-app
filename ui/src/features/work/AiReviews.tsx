@@ -25,6 +25,7 @@ import { entriesOf, oneRowPerLayer, placeLookup, projectEntries, projectLookup, 
 import { ReviewStack, type LineOf } from './ReviewStack.tsx'
 import { clickPressesRow } from './row-press.ts'
 import { useStory } from './story-store.ts'
+import { placeOf as placeWords } from './stacks.ts'
 import { usePullRequests } from '@/integration/use-pulls.ts'
 import { useWorkView } from './store.ts'
 import { DeployWhy, GradeChip, ReviewBadge, ReviewProgress, SectionHeading, Segmented } from './parts.tsx'
@@ -169,7 +170,7 @@ function Project({ project, words, entries, count, live, onAgain }: { project: s
           entry.kind === 'row' ? (
             <Card key={entry.row.item.id} row={entry.row} live={live} onAgain={onAgain} line={null} />
           ) : (
-            <ReviewStack key={entry.id} entry={entry} draw={({ row }, line) => <Card row={row} live={live} onAgain={onAgain} line={line} />} />
+            <ReviewStack key={entry.id} entry={entry} draw={({ row, place }, line) => <Card row={row} live={live} onAgain={onAgain} line={line} at={placeWords(place)} />} />
           ),
         )}
       </ul>
@@ -412,7 +413,7 @@ function LayerLine({ row, line, news, menu }: { row: ReviewRow; line: LineOf; ne
 }
 
 /** `line`: the row is a layer above the lowest in a stack, so it is one line until it is opened. Null for a row that is whole. */
-function Card({ row, live, onAgain, line }: { row: ReviewRow; live: boolean; onAgain: () => void; line: LineOf | null }) {
+function Card({ row, live, onAgain, line, at = null }: { row: ReviewRow; live: boolean; onAgain: () => void; line: LineOf | null; /** The place its stack's frame gives it, as "2 of 5". */ at?: string | null }) {
   const { item, state } = row
   const Kind = item.kind === 'pull' ? GitPullRequest : GitBranch
   // Who its pull request is from: its own, or the one a finished change opened. The host is asked once for each review,
@@ -469,7 +470,7 @@ function Card({ row, live, onAgain, line }: { row: ReviewRow; live: boolean; onA
           <span className="flex min-w-[15rem] flex-1 flex-col gap-1.5">
             <span className="flex items-start gap-3">
               <span className="min-w-0 flex-1 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">
-                <LayerPlace reviewId={item.id} head={item.head} />
+                <LayerPlace reviewId={item.id} head={item.head} at={at} />
                 {item.title}
               </span>
               <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">

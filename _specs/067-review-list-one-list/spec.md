@@ -52,7 +52,10 @@ The user, 2026-11-24, looking at four full cards of the rpsleague stack: "does t
 - Why: pull requests opened outside hobkin are not named by the item, so a layer was listed twice, once as `change:rpsleague:<item>` and once as `pr:dantetekanem/rpsleague/<n>`, and the list said "41 changes wait for you".
 - A pull request review is listed under the hobkin project whose `repo` (`owner/name`, not case sensitive) is its repository, so one project has one heading. A pull request in no known project keeps `owner/name`.
 - Every count follows the rows shown: the offer ("N changes wait for you"), the order control, each heading (a stack's layers counted one by one) and the story's queue.
-- Known gap: a layer whose pull request matches no finished change (no pull request address, no common head commit) is not in the frame and stays a row of its own. Reading a stack from the pull requests' base and head branches would close it, and needs the list to carry them.
+- A pull request that matches no finished change takes its place from the user's open pull requests (`pullStacks`, `shared/review/pull-stacks.ts`: a pull request whose base branch is another's head branch sits on it), so a stack opened outside hobkin is one frame too. The list reads them from the GitHub part's slice the window already holds: no new host command and no polling.
+- One stack is one frame. A change and a pull request are the same layer when the pull request is the one the change opened, is at its commit, or is on its branch; a stack of hobkin's and a stack of pull requests are the same stack when a layer or a branch joins them (a change's branch is a pull request's head or its base). A frame that holds pull requests is numbered by the pull requests' order, for every layer in it: hobkin counts a layer the user said merge to out of its own stack, so its numbers and the pull requests' disagree, and two numberings in one frame would make "2 of 3" and "3 of 5" sit side by side. A layer of hobkin's with no pull request sits just under the pull request that is based on its branch, else beside its neighbours in hobkin's own stack. Never two frames for one stack, never a layer twice.
+- A layer the user already said merge to (a finished change with a waiting merge, listed in the work's `merging`) has no row, so the frame draws it as one quiet line, "merging", in its place, with its place and title and nothing to press. It is read through its pull request or its branch; a merge no pull request or branch joins to a stack has no line. If that merge failed, its own row is shown and the line is not drawn beside it.
+- Work's own stack frame is unchanged: it draws hobkin's finished changes only.
 
 ### The tab
 
@@ -78,6 +81,7 @@ The user, 2026-11-24, looking at four full cards of the rpsleague stack: "does t
 ## Acceptance
 
 - A6. A stack of two layers or more is one frame with its layers bottom first, in every order; a layer is never listed twice; a pull request sits under its project; counts follow the rows shown.
+- A6b. A stack of pull requests with no change of hobkin is one frame; a mixed stack is one frame, numbered by the pull requests' order; a layer said merge to is a quiet "merging" line in its place.
 - A7. The tab has one number and no category words.
 - A1. No heading says Running, Ready, Failed or Asked to merge. Each project has a heading with its count.
 - A2. A row says Reviewing only while its review runs or is prepared; a row that waits says Waits its turn with how many are ahead.
