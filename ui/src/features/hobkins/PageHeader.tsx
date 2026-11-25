@@ -15,6 +15,13 @@ import { spring, tween } from '@/lib/motion.ts'
 /** The split's spring: it forms on the screens' spring and undoes on their exit spring. */
 export const splitSpring = (split: boolean) => (split ? spring.screen : spring.screenExit)
 
+/**
+ * The page's side gutter, set as `--page-gutter` on the whole page (`HobkinScreen.tsx`) and read by its header, lines,
+ * conversation and talk box: a tenth of the page each side, or in the split, where the page takes the chat's place and
+ * width, the chat's own 16px. Each is one calc of both units, so it travels from one to the other on the split's spring.
+ */
+export const pageGutter = (split: boolean) => (split ? 'calc(0% + 16px)' : 'calc(10% + 0px)')
+
 const RISE_IN = {
   initial: { opacity: 0, transform: 'translateY(22px) scale(0.96)' },
   animate: { opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.rise, opacity: tween.enter } },
@@ -117,7 +124,7 @@ export function PageHeader({ agentId, split, face, title, rename, line, lineTitl
 
   return (
     <motion.div
-      className="flex flex-col gap-2 px-[10%] pb-3"
+      className="flex flex-col gap-2 px-[var(--page-gutter,10%)] pb-3"
       initial={{ ...holdStill(RISE_IN.initial, still), paddingTop: top }}
       animate={{
         ...holdStill(RISE_IN.animate, still),
@@ -159,7 +166,9 @@ export function PageHeader({ agentId, split, face, title, rename, line, lineTitl
                   type="button"
                   title="Rename"
                   onClick={() => beginRename(shownTitle)}
-                  className="max-w-full truncate rounded-lg px-2 py-0.5 -mx-2 text-left transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2"
+                  // In the split, where the page has the chat's width, a long name is cut only at the end of its room:
+                  // the padding its hover shows passes the edge instead of taking room from the name.
+                  className={`${split ? 'max-w-[calc(100%+1rem)]' : 'max-w-full'} truncate rounded-lg px-2 py-0.5 -mx-2 text-left transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2`}
                 >
                   {shownTitle}
                 </button>

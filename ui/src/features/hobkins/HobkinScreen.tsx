@@ -43,7 +43,7 @@ import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, waitsForTur
 import { ContinueButton, imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
 import { CONTINUE_WORDS, waitingRows, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
 import { useTalkControls } from '@/features/work/use-talk-controls.ts'
-import { PageHeader, PartFrame } from './PageHeader.tsx'
+import { PageHeader, pageGutter, PartFrame, splitSpring } from './PageHeader.tsx'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
 import { useConversation, useMarkSeen, usePageShown } from './use-conversation.ts'
@@ -78,9 +78,17 @@ export function HobkinScreen() {
   const keptSplit = useRef(false)
   if (present) keptSplit.current = id !== null && splitOwner === id
   const split = keptSplit.current
+  const still = useStill()
 
   return (
-    <div className="relative flex h-full flex-col" onKeyDown={split ? undefined : upToAgents}>
+    // In the split the page's gutter is the chat's, and it travels there with the split (`pageGutter`).
+    <motion.div
+      className="relative flex h-full flex-col"
+      onKeyDown={split ? undefined : upToAgents}
+      initial={false}
+      animate={{ '--page-gutter': pageGutter(split) }}
+      transition={still ? { duration: 0 } : splitSpring(split)}
+    >
       {/* Where the chat's header was, the window is dragged by the top of the page. */}
       {split ? <div data-tauri-drag-region className="select-none-chrome absolute inset-x-0 top-0 z-10 h-12" /> : null}
       {id ? <TurnStopAsk id={id} /> : agentId ? <StopAsk key={agentId} runId={agentId} /> : null}
@@ -108,7 +116,7 @@ export function HobkinScreen() {
       ) : agentId ? (
         <RunTalk key={agentId} agentId={agentId} />
       ) : null}
-    </div>
+    </motion.div>
   )
 }
 
@@ -221,7 +229,7 @@ function Part({ id, split, sent, sending, recall }: PartProps) {
       <Header id={id} hobkin={hobkin} state={state} mood={mood} split={split} />
       {/* Its tasks, teams agents, helpers and loaded skills from all the turns hobkin holds, in sight above the
           conversation, each opening over it: every agent's page has the same lines. */}
-      <AgentLines agentId={hobkinAgentId(id)} hue={hueOf(id)} name={hobkin?.title ?? 'This hobkin'} className="mx-[10%]" />
+      <AgentLines agentId={hobkinAgentId(id)} hue={hueOf(id)} name={hobkin?.title ?? 'This hobkin'} className="mx-[var(--page-gutter,10%)]" />
       <Conversation
         id={id}
         turns={turns}
@@ -340,7 +348,7 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
     <div
       ref={scroll.scroller}
       onScroll={scroll.onScroll}
-      className="scroll-quiet relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-[10%] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
+      className="scroll-quiet relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-[var(--page-gutter,10%)] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
     >
       <ol ref={scroll.content} data-agent-exchange onKeyDown={walkSteps} aria-label="The conversation" className="mt-auto flex flex-col gap-3 pt-2 pb-3">
         {newest.earlier ? <EarlierSteps row={{ kind: 'held', count: newest.earlier }} onMore={newest.more} /> : null}
@@ -536,7 +544,7 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
   })
 
   if (!talkOpen(state)) {
-    return <p className="shrink-0 px-[10%] pt-2 pb-6 text-center text-[13px] text-muted-foreground">This hobkin has ended. Its conversation stays on disk.</p>
+    return <p className="shrink-0 px-[var(--page-gutter,10%)] pt-2 pb-6 text-center text-[13px] text-muted-foreground">This hobkin has ended. Its conversation stays on disk.</p>
   }
 
   // `words` are sent in place of the draft, which stays: Continue. `queue` is how they wait for the turn in flight; an
@@ -596,7 +604,7 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
   const placeholder = images.dropping ? 'Drop the image to attach it' : fresh && !working ? 'What should it do first?' : label
 
   return (
-    <div className="shrink-0 px-[10%] pt-2 pb-2">
+    <div className="shrink-0 px-[var(--page-gutter,10%)] pt-2 pb-2">
       <QueuedRows rows={rows} className="pl-4" />
       <form
         ref={box}
