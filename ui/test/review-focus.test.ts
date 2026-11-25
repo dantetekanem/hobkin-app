@@ -5,7 +5,7 @@ import type { Review, ReviewNode } from '#shared/review/types.ts'
 import { focusLevels, hoverLevels, hoverShown } from '../src/features/review/graph/levels.ts'
 import { nodeAlongWire, nodeToward } from '../src/features/review/graph/navigate.ts'
 import { pressKey } from '../src/features/review/keys.ts'
-import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
+import { applyMemory, createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
 import { followCursor, shownPlaces } from '../src/features/review/state/cursor.ts'
 import { createSession } from '../src/features/review/state/session.ts'
 import { backToStep, focusNode, focusOf, goToStep, leaveFocus, offPath, startStory, stepFrom } from '../src/features/review/story/story.ts'
@@ -298,6 +298,81 @@ test('Shift with the arrows follows a wire to the node it connects to', () => {
   assert.equal(nodeAlongWire(sample.nodes, sample.edges, 'A1', 'left'), null)
   assert.equal(nodeAlongWire(sample.nodes, sample.edges, idOf('searchingTool'), 'right'), null)
   assert.equal(nodeAlongWire(sample.nodes, sample.edges, connectMain, 'right'), doingAfter)
+})
+
+test('top to bottom, each arrow turns with the graph: what Right did is on Down, and what Down did is on Right', () => {
+  const effects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
+  const open = (flow?: 'left-to-right' | 'top-to-bottom') => createSession(sample, createReviewMemory(memoryStorage()), null, flow ? { flow } : {})
+  const press = (session: ReturnType<typeof open>, key: string, shift = false) => pressKey(session.getState(), { key, shift, alt: false }, effects)
+  assert.equal(open().getState().view.flow, 'left-to-right', 'a review reads left to right unless it is asked otherwise')
+  const down = open('top-to-bottom')
+  assert.equal(down.getState().view.flow, 'top-to-bottom')
+
+  // Down and Space go to the next step, as Right and Space do left to right, and Up to the one before.
+  assert.equal(press(down, 'ArrowDown'), true)
+  assert.equal(down.getState().story.step, 1)
+  assert.equal(press(down, ' '), true)
+  assert.equal(down.getState().story.step, 2)
+  assert.equal(press(down, 'ArrowUp'), true)
+  assert.equal(down.getState().story.step, 1)
+
+  // Right and Left move to the node beside, as Down and Up move to the node below and above left to right.
+  const { nodes, edges } = down.getState().view
+  const from = down.getState().focus[0]!
+  const beside = nodeToward(nodes, from, 'right', 'top-to-bottom')
+  assert.ok(beside, 'the sample has a node beside the second step')
+  assert.equal(press(down, 'ArrowRight'), true)
+  assert.deepEqual([down.getState().story.step, down.getState().pointed], [1, beside], 'Right walks across, and steps nothing')
+
+  // Shift with Down follows a wire this node sends, and Shift with Up one it receives, nearest across.
+  const at = down.getState().pointed!
+  const sent = nodeAlongWire(nodes, edges, at, 'right', 'top-to-bottom') ?? nodeToward(nodes, at, 'down', 'top-to-bottom')
+  assert.equal(press(down, 'ArrowDown', true), true)
+  assert.equal(down.getState().pointed, sent)
+
+  // Left to right the keys are as they were: Right steps, Down walks to the node below.
+  const across = open('left-to-right')
+  assert.equal(press(across, 'ArrowRight'), true)
+  assert.equal(across.getState().story.step, 1)
+  const below = nodeToward(across.getState().view.nodes, across.getState().focus[0]!, 'down')
+  assert.equal(press(across, 'ArrowDown'), true)
+  assert.deepEqual([across.getState().story.step, across.getState().pointed], [1, below])
+})
+
+test('an open review turns to read top to bottom at once, on the step it was on, and the camera frames it again', () => {
+  const memory = createReviewMemory(memoryStorage())
+  const session = createSession(sample, memory)
+  session.getState().step(1)
+  session.getState().step(1)
+  const before = session.getState()
+  session.getState().setFlow('top-to-bottom')
+  const after = session.getState()
+  assert.equal(after.view.flow, 'top-to-bottom')
+  assert.deepEqual(after.view.nodes.map((node) => node.position), applyMemory(sample, memory.getState().of(sample), undefined, 'top-to-bottom').nodes.map((node) => node.position), 'laid out top to bottom')
+  assert.deepEqual([after.story.step, after.focus], [before.story.step, before.focus], 'on the step it was on')
+  assert.deepEqual([after.move.key, after.move.kind, after.move.travel], [before.move.key + 1, 'whole', null], 'one move, framed again, with no wire to ride')
+  // The same flow again changes nothing, and back to left to right lays it out as it was.
+  session.getState().setFlow('top-to-bottom')
+  assert.equal(session.getState().move.key, after.move.key)
+  session.getState().setFlow('left-to-right')
+  assert.deepEqual(session.getState().view.nodes.map((node) => node.position), before.view.nodes.map((node) => node.position))
+})
+
+test('top to bottom, a walk starts at the top left, and a wire is followed to the end nearest across', () => {
+  const placed = [
+    { id: 'route', kind: 'context' as const, position: { x: 400, y: 0 } },
+    { id: 'near', kind: 'code' as const, position: { x: 380, y: 400 } },
+    { id: 'far', kind: 'code' as const, position: { x: 0, y: 260 } },
+    { id: 'left', kind: 'code' as const, position: { x: 0, y: 600 } },
+  ]
+  const wires = [{ from: 'route', to: 'near' }, { from: 'route', to: 'far' }]
+  // The first row is read first, so the walk starts on the route, not on the node furthest left.
+  assert.equal(nodeToward(placed, null, 'down', 'top-to-bottom'), 'route')
+  assert.equal(nodeToward(placed, null, 'down'), 'far', 'left to right, the first column is read first')
+  // Of the two the route sends, the one under it, though the other is higher up.
+  assert.equal(nodeAlongWire(placed, wires, 'route', 'right', 'top-to-bottom'), 'near')
+  assert.equal(nodeAlongWire(placed, wires, 'route', 'right'), 'far', 'left to right, the one nearest in height')
+  assert.equal(nodeAlongWire(placed, wires, 'near', 'left', 'top-to-bottom'), 'route')
 })
 
 function keyboard() {

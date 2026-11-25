@@ -34,7 +34,8 @@ function FinderBox() {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const field = useRef<HTMLInputElement>(null)
-  const hits = useMemo(() => findNodes(nodes, query, 8), [nodes, query])
+  const { flow } = view
+  const hits = useMemo(() => findNodes(nodes, query, 8, flow), [flow, nodes, query])
   const chosen = hits[Math.min(active, hits.length - 1)]
   // It stays in the middle of what the steps panel, the outline and the proof leave uncovered, under the frame's menu.
   const place = useTransform(() => `translateX(${uncoveredMiddle(rig)}px)`)

@@ -1,7 +1,9 @@
 /**
  * The order things arrive in when a review opens for the first time: zone by zone (spec 055), each zone's region with
- * its first node and its columns from left to right, with each wire drawing after the nodes it joins have landed.
+ * its first node and its columns from left to right, with each wire drawing after the nodes it joins have landed. On a
+ * graph that reads top to bottom its ranks are rows, and they arrive from the top.
  */
+import type { GraphFlow, Point } from '#shared/review/layout.ts'
 import type { ReviewEdge, ReviewNode } from '#shared/review/types.ts'
 
 export interface EntrancePlan {
@@ -36,22 +38,24 @@ export const ENTRANCE = {
 
 type Arriving = Pick<ReviewNode, 'id' | 'position'> & Partial<Pick<ReviewNode, 'zone'>>
 
-export function planEntrance(nodes: readonly Arriving[], edges: readonly Pick<ReviewEdge, 'id' | 'from' | 'to'>[]): EntrancePlan {
+export function planEntrance(nodes: readonly Arriving[], edges: readonly Pick<ReviewEdge, 'id' | 'from' | 'to'>[], flow: GraphFlow = 'left-to-right'): EntrancePlan {
+  // Where a node stands as the graph is read: `x` along it, rank by rank, and `y` across a rank.
+  const at = (node: Arriving): Point => (flow === 'top-to-bottom' ? { x: node.position.y, y: node.position.x } : node.position)
   // Zones arrive in the order they stand, from the left and then from the top, so a zone of tests under its code comes
   // after it. Columns are told by where the nodes sit, so nodes the reviewer moved arrive with the column they are in now.
   const byZone = new Map<string, Arriving[]>()
   for (const node of nodes) byZone.set(node.zone ?? '', [...(byZone.get(node.zone ?? '') ?? []), node])
-  const corner = (members: readonly Arriving[]) => [Math.min(...members.map((node) => node.position.x)), Math.min(...members.map((node) => node.position.y))] as const
+  const corner = (members: readonly Arriving[]) => [Math.min(...members.map((node) => at(node).x)), Math.min(...members.map((node) => at(node).y))] as const
   const zones = [...byZone].sort(([, a], [, b]) => corner(a)[0] - corner(b)[0] || corner(a)[1] - corner(b)[1])
 
   const delays: Record<string, number> = {}
   const starts: Record<string, number> = {}
   let column = 0
   for (const [zone, members] of zones) {
-    const columns = [...new Set(members.map((node) => node.position.x))].sort((a, b) => a - b)
+    const columns = [...new Set(members.map((node) => at(node).x))].sort((a, b) => a - b)
     starts[zone] = ENTRANCE.lead + column * ENTRANCE.column
     for (const x of columns) {
-      const rows = members.filter((node) => node.position.x === x).sort((a, b) => a.position.y - b.position.y)
+      const rows = members.filter((node) => at(node).x === x).sort((a, b) => at(a).y - at(b).y)
       const step = Math.min(ENTRANCE.row, ENTRANCE.columnSpread / Math.max(1, rows.length - 1))
       rows.forEach((node, row) => (delays[node.id] = ENTRANCE.lead + column * ENTRANCE.column + row * step))
       column += 1

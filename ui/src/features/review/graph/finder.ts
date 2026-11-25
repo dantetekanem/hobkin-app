@@ -1,9 +1,11 @@
 /**
  * The finder: any node of the graph by its name, its path, its acceptance id or its kind.
  * Every word typed must match. The start of a name counts most, then the start of a word in it,
- * then anywhere in it, then its letters in order.
+ * then anywhere in it, then its letters in order. Matches that score the same come in the order the graph is read.
  */
+import type { GraphFlow } from '#shared/review/layout.ts'
 import type { NodeKind, ReviewNode } from '#shared/review/types.ts'
+import { readingOrder } from './navigate.ts'
 
 export interface FinderHit {
   id: string
@@ -71,8 +73,8 @@ function wordScore(node: Pick<ReviewNode, 'id' | 'kind' | 'title' | 'subtitle'>,
 
 type Findable = Pick<ReviewNode, 'id' | 'kind' | 'title' | 'subtitle' | 'position'>
 
-export function findNodes(nodes: readonly Findable[], query: string, limit = 8): FinderHit[] {
-  const reading = [...nodes].sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y)
+export function findNodes(nodes: readonly Findable[], query: string, limit = 8, flow: GraphFlow = 'left-to-right'): FinderHit[] {
+  const reading = [...nodes].sort(readingOrder(flow))
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   if (words.length === 0) return reading.slice(0, limit).map((node) => ({ id: node.id, score: 0, marks: [] }))
   const hits: (FinderHit & { order: number })[] = []

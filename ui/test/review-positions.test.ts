@@ -60,3 +60,22 @@ test('positions saved for the layout before zones are dropped once, and a node m
   assert.deepEqual(positionOf(sample, storage, node.id), { x: 40, y: 60 }, 'a place saved on the zones layout is kept')
   assert.deepEqual(positionOf(sample, storage, node.id), { x: 40, y: 60 }, 'and kept again: it is dropped only once')
 })
+
+test('a node moved on the graph that reads one way stays where the layout has it on the graph that reads the other', () => {
+  const storage = memoryStorage()
+  const memory = createReviewMemory(storage)
+  const node = sample.nodes[3]!
+  const placed = (flow: 'left-to-right' | 'top-to-bottom') => applyMemory(sample, createReviewMemory(storage).getState().of(sample), undefined, flow).nodes.find((each) => each.id === node.id)!.position
+  const [across, down] = [placed('left-to-right'), placed('top-to-bottom')]
+  assert.notDeepEqual(across, down, 'the two flows lay the node out in two places')
+
+  memory.getState().moveNode(sample, node.id, { x: 70, y: 90 }, 'top-to-bottom')
+  assert.deepEqual(placed('top-to-bottom'), { x: 70, y: 90 }, 'kept for the graph it was moved on')
+  assert.deepEqual(placed('left-to-right'), across, 'and not on the other')
+  memory.getState().moveNode(sample, node.id, { x: 10, y: 20 })
+  assert.deepEqual([placed('left-to-right'), placed('top-to-bottom')], [{ x: 10, y: 20 }, { x: 70, y: 90 }], 'a move with no flow said is on the graph that reads left to right')
+
+  // Putting the layout back forgets the moves on both.
+  memory.getState().resetLayout(sample)
+  assert.deepEqual([placed('left-to-right'), placed('top-to-bottom')], [across, down])
+})

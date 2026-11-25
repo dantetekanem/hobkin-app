@@ -472,7 +472,7 @@ function layoutFolded(arranged: Arranged, nodes: readonly ReviewNode[], plan: Fo
     .filter((edge) => edge.from !== edge.to && kept.has(edge.from) && kept.has(edge.to))
 
   const blocks = plan.open.map((id) => ({ at: id, ids: plan.shown[id]! }))
-  return layoutZones(nodes, wires, arranged.zones, blocks, arranged.docks)
+  return layoutZones(nodes, wires, arranged.zones, blocks, arranged.docks, arranged.flow)
 }
 
 /**

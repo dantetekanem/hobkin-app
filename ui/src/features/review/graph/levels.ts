@@ -2,7 +2,7 @@
  * How present each node and wire is, given what is focused and what the pointer is over.
  * Pure, so the levels of a step can be tested without drawing anything.
  */
-import { NODE_SIZE } from '#shared/review/layout.ts'
+import { NODE_SIZE, type GraphFlow } from '#shared/review/layout.ts'
 import type { ReviewEdge, ReviewNode, StoryStep } from '#shared/review/types.ts'
 import { drawnTrail } from './trail.ts'
 
@@ -50,6 +50,8 @@ export interface Graph {
   nodes: readonly (Pick<ReviewNode, 'id' | 'kind' | 'change' | 'position'> & Partial<Pick<ReviewNode, 'title' | 'entry' | 'lifecycle'>>)[]
   edges: readonly Pick<ReviewEdge, 'id' | 'from' | 'to' | 'kind'>[]
   story?: readonly Pick<StoryStep, 'focus' | 'travel'>[]
+  /** Which way the graph reads, left to right unless it says: wires to changed code nearest across it are kept first. */
+  flow?: GraphFlow
   foldOf?: Readonly<Record<string, string>>
   groupOf?: Readonly<Record<string, string>>
 }
@@ -133,9 +135,11 @@ function levelsOf(graph: Graph, focus: readonly string[]): Levels<NodeLevel, Wir
   }
   const unchanged = (id: string) => isUnchanged(nodeOf.get(id))
   const across = (edge: Edge, id: string) => (edge.from === id ? edge.to : edge.from)
+  // Across the graph: in height on a graph that reads left to right, from side to side on one that reads top to bottom.
+  const [aside, extent] = graph.flow === 'top-to-bottom' ? (['x', 'width'] as const) : (['y', 'height'] as const)
   const middle = (id: string) => {
     const node = nodeOf.get(id)
-    return node ? node.position.y + NODE_SIZE[node.kind].height / 2 : 0
+    return node ? node.position[aside] + NODE_SIZE[node.kind][extent] / 2 : 0
   }
   const apart = (edge: Edge, id: string) => Math.abs(middle(across(edge, id)) - middle(id))
   /** Where the review lists the far end of the wire. The host lists the life cycle most telling first. */

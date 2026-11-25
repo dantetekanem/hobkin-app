@@ -4,10 +4,12 @@
  * No React here, so the whole of a session can be driven from a test or, later, from a command.
  */
 import { createStore, type StoreApi } from 'zustand/vanilla'
+import type { GraphFlow } from '#shared/review/layout.ts'
 import type { Review, ReviewNode } from '#shared/review/types.ts'
 import { storyOrder } from '../diff/files.ts'
 import { FOCUS_BUDGET, isFoldGroup, NO_FOCUS, type FocusState } from '../graph/focus.ts'
 import { focusLevels, hoverLevels, type HoverLevel, type Levels, type NodeLevel, type WireLevel } from '../graph/levels.ts'
+import { readingOrder } from '../graph/navigate.ts'
 import { countNotes, noteTarget, type Note, type NoteCounts, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
 import { commitDigits, NO_DIGITS, pressDigit } from '../story/digits.ts'
 import { goBack, goForward, NO_HISTORY, recordFocus, type FocusEntry, type FocusHistory } from '../story/history.ts'
@@ -37,7 +39,7 @@ export interface Session {
   view: ReviewView
   nodeOf: ReadonlyMap<string, ReviewNode>
   edgeOf: ReadonlyMap<string, ViewEdge>
-  /** Which pins of each node have a wire: `in` on the left, `out` on the right. */
+  /** Which pins of each node have a wire: `in` on the left, `out` on the right, or at the top and the bottom top to bottom. */
   pins: Readonly<Record<string, { in: boolean; out: boolean }>>
   story: StoryState
   /** The nodes in focus now. Empty when the whole graph is shown. */
@@ -245,6 +247,11 @@ export interface Session {
    * and the graph's story follows along.
    */
   setLook(look: ReviewLook): void
+  /**
+   * Lays the graph out to read left to right or top to bottom (spec 006), as the window's settings choose. The reviewer
+   * stays on what they were on, and the camera frames it again where it now stands.
+   */
+  setFlow(flow: GraphFlow): void
   /** Shows a file in the code view, its cursor on `at` when given. A selection on another file goes. */
   showFile(fileId: string, at?: DiffAt | null): void
   /** Z in the code view: marks every changed part of the review in a file seen, or takes the marks off when all are. False when it has none. */
@@ -361,14 +368,17 @@ function keptPlace(graph: Placed, kept: SessionPlace): { story: StoryState; hist
 /**
  * A session on a review. `kept` is where the reviewer was when they left it for another page (`place.ts`): the session
  * comes back there, as long as the review at this commit still has it. `opens.look` is the look the window's settings
- * open reviews in; a place kept wins over it.
+ * open reviews in; a place kept wins over it. `opens.flow` is the way the settings lay the graph out, left to right
+ * unless it says.
  */
-export function createSession(opened: Review, memory: StoreApi<MemoryState>, kept: SessionPlace | null = null, opens: { look?: ReviewLook } = {}): SessionStore {
+export function createSession(opened: Review, memory: StoreApi<MemoryState>, kept: SessionPlace | null = null, opens: { look?: ReviewLook; flow?: GraphFlow } = {}): SessionStore {
   /** The review on screen: the one opened, then each newer copy of it taken in (`adopt`). */
   let review = opened
   /** Which of its groups are open. Kept here too, so the view can be worked out before the store holds it. */
   let fold: FocusState = kept?.fold ?? NO_FOCUS
-  const viewNow = () => applyMemory(review, memory.getState().of(review), fold)
+  /** Which way the graph reads. The view carries it too (`view.flow`). */
+  let flow: GraphFlow = opens.flow ?? 'left-to-right'
+  const viewNow = () => applyMemory(review, memory.getState().of(review), fold, flow)
   /** Each node's mark, and the nodes whose marks the memory holds (`seen.ts`). */
   let marks = marksOf(review.nodes)
   const seenNow = (): ReadonlySet<string> => {
@@ -752,7 +762,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         markSeen([testId])
         return true
       },
-      moveNode: (nodeId, position) => memory.getState().moveNode(review, nodeId, position),
+      moveNode: (nodeId, position) => memory.getState().moveNode(review, nodeId, position, flow),
       decideWire: (edgeId, decision) => memory.getState().decideWire(review, edgeId, decision),
       resetLayout: () => memory.getState().resetLayout(review),
       startAsk: (text) => {
@@ -906,9 +916,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
           get().reach(needsYou.id)
           return true
         }
-        const [first] = view.nodes
-          .filter((node) => node.zone === zone.id)
-          .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y)
+        const [first] = view.nodes.filter((node) => node.zone === zone.id).sort(readingOrder(view.flow))
         get().focusOn(first!.id)
         return true
       },
@@ -956,6 +964,12 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         set({ mode, look: 'graph', code: null, selection: null, finder: false })
         // Its start, as a fresh one: nothing to go back to from before it.
         apply(modeStart(graph(), get().story, mode), mode === 'roam' ? 'whole' : 'jump', undefined, NO_HISTORY)
+      },
+      setFlow: (next) => {
+        if (next === flow) return
+        flow = next
+        refold(fold)
+        get().refit()
       },
       setLook: (look) => {
         const before = get()
@@ -1058,7 +1072,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       store.setState({ notes, counts: countNotes(notes) })
     }
     if (now.seen !== known.seen) takeSeen()
-    const moved = now.positions !== known.positions || now.wires !== known.wires
+    const moved = now.positions !== known.positions || now.topToBottomPositions !== known.topToBottomPositions || now.wires !== known.wires
     known = now
     if (!moved) return
     const view = viewNow()

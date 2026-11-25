@@ -7,6 +7,7 @@
  */
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { persist, type PersistStorage, type StateStorage, type StorageValue } from 'zustand/middleware'
+import type { GraphFlow } from '#shared/review/layout.ts'
 import type { Review, ReviewEdge, ReviewNode } from '#shared/review/types.ts'
 import type { ReviewNotes } from '#shared/review/status.ts'
 import { arrange, isTestGroup, type Arranged, type ViewStep } from '../graph/arrange.ts'
@@ -47,7 +48,10 @@ export interface NoteDraft {
 export const LAYOUT_VERSION = 2
 
 export interface ReviewMemory {
+  /** Where the reviewer moved nodes on the graph that reads left to right. */
   positions: Record<string, Point>
+  /** Where they moved nodes on the graph that reads top to bottom: the same node stands elsewhere there. */
+  topToBottomPositions: Record<string, Point>
   /** The layout the positions were made for (`LAYOUT_VERSION`). */
   layout: number
   wires: Record<string, WireDecision>
@@ -87,7 +91,9 @@ export interface MemoryState {
   reviewMode: ReviewMode
 
   of(review: Review): ReviewMemory
-  moveNode(review: Review, nodeId: string, position: Point): void
+  /** Keeps where a node was moved to on the graph that reads `flow`, left to right unless it says. */
+  moveNode(review: Review, nodeId: string, position: Point, flow?: GraphFlow): void
+  /** Puts every moved node back where the layout has it, in both flows. */
   resetLayout(review: Review): void
   decideWire(review: Review, edgeId: string, decision: WireDecision | null): void
   saveProgress(review: Review, progress: StoredProgress): void
@@ -111,7 +117,10 @@ export interface MemoryState {
   markSeen(review: Review, marks: readonly string[], seen: boolean): void
 }
 
-const EMPTY: ReviewMemory = { positions: {}, layout: LAYOUT_VERSION, wires: {}, progress: null, opened: false, notes: [], draft: null, seen: null }
+const EMPTY: ReviewMemory = { positions: {}, topToBottomPositions: {}, layout: LAYOUT_VERSION, wires: {}, progress: null, opened: false, notes: [], draft: null, seen: null }
+
+/** The record of the nodes moved on the graph that reads `flow`. */
+const MOVED_ON = { 'left-to-right': 'positions', 'top-to-bottom': 'topToBottomPositions' } as const satisfies Record<GraphFlow, keyof ReviewMemory>
 const STORAGE_NAME = 'hobkin-client-review'
 
 /** A review prepared again from another head is another review, so its key carries the fingerprint of its bytes. */
@@ -127,10 +136,13 @@ const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filt
 /** Storage can hold anything: an older version, a hand edit. Read it without trusting its shape. */
 function readMemory(value: unknown): ReviewMemory {
   if (!isRecord(value)) return EMPTY
-  const positions: Record<string, Point> = {}
   const sameLayout = value.layout === LAYOUT_VERSION
-  for (const [id, point] of Object.entries(sameLayout && isRecord(value.positions) ? value.positions : {})) {
-    if (isPoint(point)) positions[id] = { x: point.x, y: point.y }
+  const pointsOf = (saved: unknown): Record<string, Point> => {
+    const points: Record<string, Point> = {}
+    for (const [id, point] of Object.entries(sameLayout && isRecord(saved) ? saved : {})) {
+      if (isPoint(point)) points[id] = { x: point.x, y: point.y }
+    }
+    return points
   }
 
   const wires: Record<string, WireDecision> = {}
@@ -152,7 +164,8 @@ function readMemory(value: unknown): ReviewMemory {
     : null
 
   return {
-    positions,
+    positions: pointsOf(value.positions),
+    topToBottomPositions: pointsOf(value.topToBottomPositions),
     layout: LAYOUT_VERSION,
     wires,
     progress,
@@ -327,12 +340,13 @@ export function createReviewMemory(storage: StateStorage = memoryStorage(), { ev
           reviewMode: 'story',
 
           of: (review) => get().reviews[memoryKey(review)] ?? EMPTY,
-          moveNode: (review, nodeId, position) => {
+          moveNode: (review, nodeId, position, flow = 'left-to-right') => {
             // A card of folded tests is drawn like any node, so it can be moved like one.
             if (!isPoint(position) || !(review.nodes.some((node) => node.id === nodeId) || isTestGroup(nodeId))) return
-            update(review, (memory) => ({ ...memory, positions: { ...memory.positions, [nodeId]: { x: Math.round(position.x), y: Math.round(position.y) } } }))
+            const moved = MOVED_ON[flow]
+            update(review, (memory) => ({ ...memory, [moved]: { ...memory[moved], [nodeId]: { x: Math.round(position.x), y: Math.round(position.y) } } }))
           },
-          resetLayout: (review) => update(review, (memory) => ({ ...memory, positions: {} })),
+          resetLayout: (review) => update(review, (memory) => ({ ...memory, positions: {}, topToBottomPositions: {} })),
           decideWire: (review, edgeId, decision) => {
             // Only a wire the model proposed is the reviewer's to confirm or remove.
             if (review.edges.find((edge) => edge.id === edgeId)?.certainty !== 'model') return
@@ -454,7 +468,7 @@ export interface ViewEdge extends ReviewEdge {
  * Each review is arranged once, from all its wires, so removing a proposed wire never moves a node. A review whose nodes
  * say what they ask of the reviewer is drawn in Focus (`graph/focus.ts`): its safe nodes fold into group cards.
  */
-export interface ReviewView extends Pick<Folded, 'hidden' | 'groups' | 'groupOf' | 'covers' | 'stepOf' | 'plan' | 'foldOf' | 'zones' | 'zoneOf'> {
+export interface ReviewView extends Pick<Folded, 'hidden' | 'groups' | 'groupOf' | 'covers' | 'stepOf' | 'plan' | 'foldOf' | 'zones' | 'zoneOf' | 'flow'> {
   nodes: ReviewNode[]
   edges: ViewEdge[]
   /** Proposed wires the reviewer removed. They are not drawn, and they can be brought back. */
@@ -463,21 +477,21 @@ export interface ReviewView extends Pick<Folded, 'hidden' | 'groups' | 'groupOf'
   story: ViewStep[]
 }
 
-const arranged = new WeakMap<Review, Arranged>()
-function arrangedOf(review: Review): Arranged {
-  let shape = arranged.get(review)
-  if (!shape) arranged.set(review, (shape = arrange(review)))
-  return shape
+const arranged = new WeakMap<Review, Partial<Record<GraphFlow, Arranged>>>()
+function arrangedOf(review: Review, flow: GraphFlow): Arranged {
+  let shapes = arranged.get(review)
+  if (!shapes) arranged.set(review, (shapes = {}))
+  return (shapes[flow] ??= arrange(review, flow))
 }
 
 /** The review folded as Focus has it open, kept for the few ways it was open lately: each is worked out once. */
 const folds = new WeakMap<Review, Map<string, Folded>>()
 const KEPT_FOLDS = 16
-function foldedOf(review: Review, focus: FocusState): Folded {
-  const shape = arrangedOf(review)
+function foldedOf(review: Review, focus: FocusState, flow: GraphFlow): Folded {
+  const shape = arrangedOf(review, flow)
   // A review that says nothing of attention folds nothing, however it is asked, but the zones the reviewer folded.
   const state = hasAttention(review.nodes) ? focus : { ...NO_FOCUS, ...(focus.zones ? { zones: focus.zones } : {}) }
-  const key = `${state.opened.join(' ')}|${state.pinned.join(' ')}|${(state.zones ?? []).join(' ')}`
+  const key = `${flow}|${state.opened.join(' ')}|${state.pinned.join(' ')}|${(state.zones ?? []).join(' ')}`
   let kept = folds.get(review)
   if (!kept) folds.set(review, (kept = new Map()))
   let folded = kept.get(key)
@@ -491,16 +505,20 @@ function foldedOf(review: Review, focus: FocusState): Folded {
   return folded
 }
 
-/** The review as the reviewer left it: moved nodes in their new places, removed wires gone, confirmed wires solid. */
-export function applyMemory(review: Review, memory: ReviewMemory, focus: FocusState = NO_FOCUS): ReviewView {
-  const { nodes, edges, story, ...shape } = foldedOf(review, focus)
+/**
+ * The review as the reviewer left it: moved nodes in their new places, removed wires gone, confirmed wires solid. Laid
+ * out to read `flow`, left to right unless it says, with the nodes moved on that graph.
+ */
+export function applyMemory(review: Review, memory: ReviewMemory, focus: FocusState = NO_FOCUS, flow: GraphFlow = 'left-to-right'): ReviewView {
+  const { nodes, edges, story, ...shape } = foldedOf(review, focus, flow)
+  const moved = memory[MOVED_ON[flow]]
   const removed = review.edges.filter((edge) => edge.certainty === 'model' && memory.wires[edge.id] === 'removed')
   const gone = new Set(removed.map((edge) => edge.id))
   const drawn = edges.filter((edge) => edge.members.some((id) => !gone.has(id)))
   const kept = new Set(drawn.map((edge) => edge.id))
   return {
     ...shape,
-    nodes: nodes.map((node) => (memory.positions[node.id] ? { ...node, position: memory.positions[node.id]! } : node)),
+    nodes: nodes.map((node) => (moved[node.id] ? { ...node, position: moved[node.id]! } : node)),
     edges: drawn.map(({ members: _members, ...edge }) => {
       const decision = edge.certainty === 'model' ? memory.wires[edge.id] : undefined
       return { ...edge, proposed: edge.certainty === 'model' && decision !== 'confirmed', ...(decision ? { decision } : {}) }

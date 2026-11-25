@@ -1,6 +1,8 @@
 /**
  * The review's keys. Tab belongs to the frame everywhere, so inside the review the rule is the terminal's:
- * Left and Right change the step, Up and Down move between nodes, Enter opens the code and closes it again.
+ * Left and Right change the step, Up and Down move between nodes, Enter opens the code and closes it again. On a graph
+ * that reads top to bottom the arrows turn with it (`turnedArrow`): Down and Up change the step, Right and Left move
+ * between nodes.
  * O is Free Roam and P is Story (`story/mode.ts`): in Free Roam no step leads, every arrow moves between nodes, and
  * the keys that walk the story move nothing.
  * See _specs/019-keyboard and the keys in _specs/007-review-story.
@@ -11,7 +13,7 @@
  */
 import type { Verdict } from '#shared/review/verdict.ts'
 import { isFoldGroup } from './graph/focus.ts'
-import { nodeAlongWire, nodeToward, type Direction } from './graph/navigate.ts'
+import { nodeAlongWire, nodeToward, turnedArrow, type Direction } from './graph/navigate.ts'
 import { modeOfKey } from './story/mode.ts'
 import { LOOK_KEY } from './state/look.ts'
 import type { Session } from './state/session.ts'
@@ -208,13 +210,16 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
   if (key === 't' || key === 'T') return effects.proofKey(shift), true
 
   const roam = session.mode === 'roam'
-  const direction = ARROWS[key]
-  if (direction && (shift || roam || direction === 'up' || direction === 'down')) {
+  const { flow } = session.view
+  const pressed = ARROWS[key]
+  // What the arrow does is what its turn does on the graph that reads left to right.
+  const direction = pressed && turnedArrow(pressed, flow)
+  if (pressed && direction && (shift || roam || direction === 'up' || direction === 'down')) {
     const from = session.pointed ?? session.focus[0] ?? null
-    // Sideways, the focus follows a wire to the node it connects to, because connection matters more than
+    // Along the graph, the focus follows a wire to the node it connects to, because connection matters more than
     // place. Where no wire leaves that side, it goes to the nearest node that way.
-    const along = from && (direction === 'left' || direction === 'right') ? nodeAlongWire(session.view.nodes, session.view.edges, from, direction) : null
-    const next = along ?? nodeToward(session.view.nodes, from, direction)
+    const along = from && (direction === 'left' || direction === 'right') ? nodeAlongWire(session.view.nodes, session.view.edges, from, direction, flow) : null
+    const next = along ?? nodeToward(session.view.nodes, from, pressed, flow)
     if (next) session.focusOn(next)
     // At the edge of the graph the key is still the review's: it must not fall through to something else.
     return true
@@ -235,13 +240,11 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
 
   // 1 to 9 and 0 go to a step. Two digits typed quickly make one number.
   if (/^[0-9]$/.test(key)) return session.typeDigit(key), true
+  // Right and Space go to the next step, Left to the one before: Down and Up on a graph that reads top to bottom.
+  if (direction === 'right' || key === ' ') return session.step(1), true
+  if (direction === 'left') return session.step(-1), true
 
   switch (key) {
-    case 'ArrowRight':
-    case ' ':
-      return session.step(1), true
-    case 'ArrowLeft':
-      return session.step(-1), true
     case 'Home':
       return session.goTo(0), true
     case 'End':

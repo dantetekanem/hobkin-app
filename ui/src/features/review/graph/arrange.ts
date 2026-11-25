@@ -9,7 +9,7 @@
  * the code it mirrors. A changed node nothing wires stays in its place among the rest, and its card says so. A story
  * step that focused a folded test focuses its card. Pure, and the same review always comes out the same.
  */
-import { layoutZones, zoneDocks } from '#shared/review/layout.ts'
+import { layoutZones, zoneDocks, type GraphFlow } from '#shared/review/layout.ts'
 import { fileName } from '#shared/review/paths.ts'
 import type { NodeStatus, Review, ReviewEdge, ReviewNode, StoryStep } from '#shared/review/types.ts'
 import { isUnchanged } from './levels.ts'
@@ -68,6 +68,8 @@ export interface Arranged {
   zoneOf: Record<string, string>
   /** The code zone each zone of tests sits under, as the whole graph has it, kept when its nodes fold (`zoneDocks`). */
   docks: Record<string, string>
+  /** Which way the graph reads: left to right, or top to bottom (spec 006). */
+  flow: GraphFlow
 }
 
 const PREFIX = 'tests:'
@@ -256,7 +258,7 @@ function joinWires(edges: readonly ReviewEdge[], end: (id: string) => string): {
  */
 const requestWise = (edge: ReviewEdge): ReviewEdge => (edge.kind === 'called-by' ? { ...edge, kind: 'calls', from: edge.to, to: edge.from } : edge)
 
-export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'> & Partial<Pick<Review, 'zones'>>): Arranged {
+export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'> & Partial<Pick<Review, 'zones'>>, flow: GraphFlow = 'left-to-right'): Arranged {
   const nodeOf = new Map(review.nodes.map((node) => [node.id, node]))
   const wires = review.edges.map(requestWise)
   const { groups: folded, covers } = foldTests(review.nodes, wires, nodeOf)
@@ -280,7 +282,7 @@ export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'> & Part
   const { zones, zoneOf } = zonesOf(review, drawn.map((node) => ({ id: node.id, of: holds(node.id) })), covers)
   const zoned = drawn.map((node) => ({ ...node, zone: zoneOf[node.id]! }))
   const docks = zoneDocks(zoned, edges, zones)
-  const positions = layoutZones(zoned, edges, zones, [], docks)
+  const positions = layoutZones(zoned, edges, zones, [], docks, flow)
   const drawnOf = new Map(drawn.map((node) => [node.id, node]))
   const { steps: story, stepOf } = foldStory(review.story, end, wireOf, (id) => drawnOf.get(id)?.title ?? id, (id) => (groups[id]?.tests ?? []).map((test) => nodeOf.get(test)!))
 
@@ -296,5 +298,6 @@ export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'> & Part
     zones,
     zoneOf,
     docks,
+    flow,
   }
 }
