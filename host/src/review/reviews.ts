@@ -609,8 +609,8 @@ export class Reviews {
 
   /** A preparation of this review is waiting or under way that starts its change review once its graph is drawn. */
   private preparingReview(id: string): boolean {
-    const jobs = [this.jobsUnderWay.get(id), ...this.queue.filter((job) => reviewIdOf(job.target) === id)]
-    return jobs.some((job) => job?.changeReview)
+    if (this.jobsUnderWay.get(id)?.changeReview) return true
+    return this.queue.some((job) => reviewIdOf(job.target) === id && job.changeReview)
   }
 
   /**

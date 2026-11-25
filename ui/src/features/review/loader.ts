@@ -94,8 +94,11 @@ const whyNoReview = (landing: ReviewLanding) =>
  * A review whose graph stands at the commit its change is at, with no change review there: one built alone, as the code
  * look builds it (spec 071). The host must know that commit; a change that lands is done with.
  */
-const unreviewed = (status: ReviewStatus): boolean =>
-  status.state === 'ready' && !status.stale && !status.landing && status.assessment?.state === 'idle' && status.assessment.head != null
+const unreviewed = (status: ReviewStatus): boolean => {
+  if (status.state !== 'ready' || status.stale || status.landing) return false
+  const run = status.assessment
+  return run?.state === 'idle' && run.head != null
+}
 
 /**
  * Whether the graph look waits for the change review of the review on screen (spec 071): the review opened before it
@@ -109,7 +112,7 @@ export function waitsForReview({ early, review, assessment, asking, preparation 
 }
 
 /** A host from before spec 071 refuses an argument it does not know, as `changeReview`. */
-const refusesArgument = (error: unknown): boolean => (error as { code?: unknown } | null)?.code === 'invalid-arguments'
+const refusesArgument = (error: unknown): boolean => error instanceof Error && 'code' in error && error.code === 'invalid-arguments'
 
 export function createReviewLoader({ id, scope, memory, command, sample, look: opensIn = 'graph', now = Date.now }: Options) {
   const store = createStore<LoadState>(() => ({ status: 'loading', startedAt: null, review: null, preparation: null, assessment: null, error: null, notesError: null, saving: false, look: opensIn, early: false, asking: false }))
@@ -203,8 +206,9 @@ export function createReviewLoader({ id, scope, memory, command, sample, look: o
    * The code look waits for none: its diff opens once the graph is built (spec 071).
    */
   const waits = (status: ReviewStatus): boolean => {
+    const state = store.getState()
     const run = status.assessment?.state
-    return store.getState().look === 'graph' && !store.getState().review && (run === 'queued' || run === 'running')
+    return state.look === 'graph' && !state.review && (run === 'queued' || run === 'running')
   }
   /**
    * Asks for the review's graph and its files alone, as the code look opens a review (spec 071). A host from before that
@@ -265,12 +269,12 @@ export function createReviewLoader({ id, scope, memory, command, sample, look: o
           if (asked) reviewStarted(id)
           if (disposed || turn !== generation) return
           if (!asked) {
+            // A host from before the code look builds a pull request's review only on "Start AI review".
             patch({ preparation, status: open ? 'ready' : 'awaiting', startedAt: null })
             return
           }
           preparation = asked
         }
-        if (disposed || turn !== generation) return
         patch({ preparation, ...clock(preparation) })
         if (!opens(preparation)) {
           // One that lands with no review kept, and none under way, waits for none: none is prepared for it.
@@ -424,9 +428,13 @@ export function createReviewLoader({ id, scope, memory, command, sample, look: o
   const setLook = async (next: ReviewLook): Promise<void> => {
     if (disposed || store.getState().look === next) return
     patch({ look: next })
+
     const { review, preparation, assessment } = store.getState()
+    if (next !== 'graph' || !command || !review || assessment || preparation?.landing) return
+    // Only a change review idle at the commit on screen: a review of an older commit is built again on the reviewer's word.
     const run = preparation?.assessment
-    if (next !== 'graph' || !command || !review || assessment || preparation?.landing || run?.state !== 'idle' || run.head !== review.change.head) return
+    if (run?.state !== 'idle' || run.head !== review.change.head) return
+
     patch({ asking: true, early: true })
     try {
       const status = await command('review.prepare', { id })
