@@ -6,6 +6,7 @@ import type { HostState } from '../../lib/host/state.ts'
 import { DEFAULT_PET, petOr, type PetChoice } from '../../avatar/pets.ts'
 import { clampAgents } from '../work/agents-at-once.ts'
 import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, adjustedPalette, migrateSettings, receiveAppearance, stepBudget, stepOpacity, themeRequestText, type BlockKind, type Palette } from './rules.ts'
+import { readLook, type ReviewLook } from '../review/state/look.ts'
 
 /** Lively plays movement even when the Mac asks for less. Still never moves. */
 export type Movement = 'lively' | 'system' | 'still'
@@ -42,6 +43,11 @@ interface SettingsState extends BorderColors {
    * this was kept load with the default, as the store fills in what a saved state lacks.
    */
   openByDefault: Record<BlockKind, boolean>
+  /**
+   * The look a review opens in (spec 071): Graph, or Code, the change as a diff file by file. Graph for a new
+   * installation and for settings saved before the choice, as the store fills in what a saved state lacks.
+   */
+  reviewView: ReviewLook
   /** The custom theme's colors. Kept while a built-in theme is chosen, so choosing Custom again brings them back. */
   palette: Palette | null
   /** The custom theme's backdrop behind the window, or null for the flat palette background (app/theme.ts). */
@@ -77,6 +83,7 @@ interface SettingsState extends BorderColors {
   setBackgroundOpacity: (opacity: number) => void
   changeBackgroundOpacity: (delta: -1 | 1) => void
   setOpenByDefault: (kind: BlockKind, open: boolean) => void
+  setReviewView: (look: ReviewLook) => void
   /** Refuses a palette whose text would not read, and keeps the last one that does. */
   setPalette: (palette: Palette) => void
   setCustomTheme: (on: boolean) => void
@@ -136,6 +143,7 @@ export const useSettings = create<SettingsState>()(
       screensOutOfMenu: [],
       backgroundOpacity: OPACITY.initial,
       openByDefault: { ...OPEN_BY_DEFAULT },
+      reviewView: 'graph',
       palette: null,
       background: null,
       themeName: null,
@@ -179,6 +187,7 @@ export const useSettings = create<SettingsState>()(
       setBackgroundOpacity: (opacity) => set({ backgroundOpacity: stepOpacity(opacity, 0) }),
       changeBackgroundOpacity: (delta) => set({ backgroundOpacity: stepOpacity(get().backgroundOpacity, delta) }),
       setOpenByDefault: (kind, open) => set({ openByDefault: { ...OPEN_BY_DEFAULT, ...get().openByDefault, [kind]: open } }),
+      setReviewView: (reviewView) => set({ reviewView: readLook(reviewView) }),
       setPalette: (palette) => set({ palette: adjustedPalette(palette) ?? get().palette }),
       setCustomTheme: (on) => set({ customTheme: on && get().palette !== null }),
     }),
@@ -189,7 +198,12 @@ export const useSettings = create<SettingsState>()(
       // Version 6 keeps the screens out of the menu as a list: a saved "GitHub is not in the menu" becomes that screen in it.
       version: 6,
       migrate: (saved, from) => outOfMenuFrom(migrateSettings(saved, from)),
-      partialize: ({ movement, sound, typeFace, pet, agents, dailyTokens, usageEvents, feedback, screensOutOfMenu, backgroundOpacity, openByDefault, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
+      // Storage can hold anything: a look it does not know opens reviews in Graph.
+      merge: (saved, current) => {
+        const kept = (saved ?? {}) as Partial<SettingsState>
+        return { ...current, ...kept, reviewView: readLook(kept.reviewView) }
+      },
+      partialize: ({ movement, sound, typeFace, pet, agents, dailyTokens, usageEvents, feedback, screensOutOfMenu, backgroundOpacity, openByDefault, reviewView, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
         movement,
         sound,
         typeFace,
@@ -201,6 +215,7 @@ export const useSettings = create<SettingsState>()(
         screensOutOfMenu,
         backgroundOpacity,
         openByDefault,
+        reviewView,
         palette,
         background,
         themeName,
