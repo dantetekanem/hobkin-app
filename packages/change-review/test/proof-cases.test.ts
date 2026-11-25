@@ -15,7 +15,10 @@ function repo(t: TestContext, files: Record<string, string>, executable: string[
     writeFileSync(join(dir, path), text)
   }
   for (const path of executable) chmodSync(join(dir, path), 0o755)
-  const git = (...args: string[]) => execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8' }).trim()
+  const git = (...args: string[]) => {
+    const author = ['-c', 'user.name=t', '-c', 'user.email=t@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null']
+    return execFileSync('git', ['-C', dir, ...author, ...args], { encoding: 'utf8' }).trim()
+  }
   git('init', '--quiet')
   git('add', '.')
   git('commit', '--quiet', '-m', 'fixture')

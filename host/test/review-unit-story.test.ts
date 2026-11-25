@@ -202,7 +202,10 @@ test('a case the runner places on other lines than the test’s is not its resul
   const file = 'test/models/cart_test.rb'
   const own = graph.nodes.find((node) => node.kind === 'test')!
   const parts = { units: [], words: null, places: places.map((place) => (place.kind === 'test' ? { ...place, symbol: 'total is rounded' } : place)) }
-  const told = (line: number) => unitWords(graph, { ...parts, runs: [{ kind: 'baseline', tests: [file], failed: [], cases: [{ path: file, name: 'total is rounded', status: 'passed', line }] }] }).find((node) => node.id === own.id)!
+  const told = (line: number) => {
+    const baseline = { kind: 'baseline', tests: [file], failed: [], cases: [{ path: file, name: 'total is rounded', status: 'passed' as const, line }] }
+    return unitWords(graph, { ...parts, runs: [baseline] }).find((node) => node.id === own.id)!
+  }
   assert.equal(told(2).status, 'passed')
   assert.equal(told(40).status, 'not-run')
 })

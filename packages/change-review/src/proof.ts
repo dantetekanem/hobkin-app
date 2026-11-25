@@ -995,6 +995,24 @@ function reportText(file: string): string {
   }
 }
 
+/** Where a run of one test file has its runner write the case report. */
+interface Written {
+  report: CaseReport
+  file: string
+}
+
+/**
+ * Each case's own result in a run: from the runner's report, or, for a configured `bun test`, which writes none,
+ * from its output. A run cut short says nothing of its cases.
+ */
+function casesOf(command: Command, files: readonly string[], run: Extract<ProgramRun, { started: true }>, written: Written | null): Receipt[] {
+  if (run.aborted || run.timedOut) return []
+  if (written) return reportCases(written.report, reportText(written.file), files[0]!, command.cwd)
+  const [program, subcommand] = command.book.command
+  const bun = basename(program ?? '') === 'bun' && subcommand === 'test'
+  return bun ? bunCases(run.tail, files, command.cwd) : []
+}
+
 /**
  * Runs test files with one command. A run of one file whose runner reports each case also writes that report, to a
  * folder outside the checkout that is removed once it is read.
@@ -1002,11 +1020,13 @@ function reportText(file: string): string {
 async function start(command: Command, files: readonly string[]): Promise<Started | { stopped: string }> {
   const [program, ...args] = command.book.command
   if (files.some((file) => file.startsWith('-'))) return { stopped: 'a test file must not be a command option.' }
+
   const report = files.length === 1 ? command.book.report : undefined
   const folder = report ? reportFolder() : null
-  const reportFile = folder ? join(folder, 'cases') : null
+  const written = report && folder ? { report, file: join(folder, 'cases') } : null
+  const reporting = written ? reportArgs(written.report, written.file) : []
   try {
-    const run = await runProgram(program!, [...args, ...(report && reportFile ? reportArgs(report, reportFile) : []), ...files], {
+    const run = await runProgram(program!, [...args, ...reporting, ...files], {
       cwd: command.cwd,
       env: command.env,
       timeoutMs: command.timeoutMs,
@@ -1016,14 +1036,7 @@ async function start(command: Command, files: readonly string[]): Promise<Starte
       maxBytes: 1024 * 1024,
     })
     if (!run.started) return { stopped: `${program} could not start: ${run.reason}` }
-    // A run cut short says nothing of its cases.
-    const finished = !run.aborted && !run.timedOut
-    // A configured `bun test` writes no report: its output names the cases it ran.
-    const bun = basename(program ?? '') === 'bun' && args[0] === 'test'
-    let cases: Receipt[] = []
-    if (finished && report && reportFile) cases = reportCases(report, reportText(reportFile), files[0]!, command.cwd)
-    else if (finished && bun) cases = bunCases(run.tail, files, command.cwd)
-    return { ...run, cases }
+    return { ...run, cases: casesOf(command, files, run, written) }
   } finally {
     if (folder) rmSync(folder, { recursive: true, force: true })
   }

@@ -15,7 +15,10 @@ export type CaseReport = { runner: 'node' | 'bun' } | { runner: 'vitest'; lines:
 
 /** The runner's arguments that also write its report to `file`, while it prints what it prints without them. */
 export function reportArgs(report: CaseReport, file: string): string[] {
-  if (report.runner === 'vitest') return ['--reporter=default', '--reporter=json', `--outputFile.json=${file}`, ...(report.lines ? ['--includeTaskLocation'] : [])]
+  if (report.runner === 'vitest') {
+    const lines = report.lines ? ['--includeTaskLocation'] : []
+    return ['--reporter=default', '--reporter=json', `--outputFile.json=${file}`, ...lines]
+  }
   if (report.runner === 'bun') return ['--reporter=junit', `--reporter-outfile=${file}`]
   return ['--test-reporter=spec', '--test-reporter-destination=stdout', '--test-reporter=junit', `--test-reporter-destination=${file}`]
 }
@@ -31,9 +34,13 @@ const LONGEST_NAME = 500
 /** As Bun's: a name given twice tells neither case, and a report past the limits tells none. */
 function receipts(found: readonly Receipt[]): Receipt[] {
   if (found.length > MOST_CASES || found.some((item) => item.name.length > LONGEST_NAME)) return []
-  const twice = new Set(found.filter((item, index) => found.findIndex((other) => other.name === item.name) !== index).map((item) => item.name))
-  return found.filter((item) => !twice.has(item.name))
+  const counts = new Map<string, number>()
+  for (const item of found) counts.set(item.name, (counts.get(item.name) ?? 0) + 1)
+  return found.filter((item) => counts.get(item.name) === 1)
 }
+
+/** The case's line, when the report gives a real one. */
+const lineOf = (line: unknown): { line?: number } => (typeof line === 'number' && Number.isInteger(line) && line > 0 ? { line } : {})
 
 const realOr = (path: string) => {
   try {
@@ -42,25 +49,56 @@ const realOr = (path: string) => {
     return path
   }
 }
+
 /** Whether the report's file, absolute or from `cwd`, is the test file: the same path, or the same file once links are followed. */
-const isFile = (reported: string, path: string, cwd: string) => {
-  const [named, file] = [resolve(cwd, reported), resolve(cwd, path)]
+function isFile(reported: string, path: string, cwd: string): boolean {
+  const named = resolve(cwd, reported)
+  const file = resolve(cwd, path)
   return named === file || realOr(named) === realOr(file)
 }
 
+// ───────────────────────── JUnit: node and Bun ─────────────────────────
+
 const TAG = /<(\/?)(testsuite|testcase|skipped|failure|error)\b((?:\s+[\w:.-]+="[^"]*")*)\s*(\/?)>/g
 const ATTRIBUTE = /([\w:.-]+)="([^"]*)"/g
-const ENTITIES: Record<string, string> = { quot: '"', amp: '&', lt: '<', gt: '>', apos: "'" }
+const ENTITIES = new Map([
+  ['quot', '"'],
+  ['amp', '&'],
+  ['lt', '<'],
+  ['gt', '>'],
+  ['apos', "'"],
+])
 
-const decoded = (text: string) =>
-  text.replace(/&(#x[\da-f]+|#\d+|\w+);/gi, (entity, name: string) => {
-    if (name[0] !== '#') return ENTITIES[name] ?? entity
-    const code = name[1] === 'x' || name[1] === 'X' ? Number.parseInt(name.slice(2), 16) : Number(name.slice(1))
+function decoded(text: string): string {
+  return text.replace(/&(#x[\da-f]+|#\d+|\w+);/gi, (entity, name: string) => {
+    if (name[0] !== '#') return ENTITIES.get(name) ?? entity
+    const hex = name[1] === 'x' || name[1] === 'X'
+    const code = hex ? Number.parseInt(name.slice(2), 16) : Number(name.slice(1))
     return Number.isInteger(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : entity
   })
+}
 
 function attributes(text: string): Map<string, string> {
   return new Map([...text.matchAll(ATTRIBUTE)].map((match) => [match[1]!, decoded(match[2]!)]))
+}
+
+/** A `testcase` whose children are being read. `item` is null for a case that is not this file's. */
+interface OpenCase {
+  item: Omit<Receipt, 'status'> | null
+  skipped: boolean
+  failed: boolean
+}
+
+/** A todo test that throws has both a skip and a failure, and fails nothing. */
+const statusOf = (open: OpenCase): Receipt['status'] => (open.skipped ? 'skipped' : open.failed ? 'failed' : 'passed')
+
+/** This file's case that a `testcase` names, inside the suites around it; null for another file's, or one that names no file. */
+function caseOf(said: ReadonlyMap<string, string>, suites: readonly (string | null)[], path: string, cwd: string): OpenCase['item'] {
+  const name = said.get('name')
+  const file = said.get('file')
+  if (name === undefined || file === undefined || !isFile(file, path, cwd)) return null
+  const named = [...suites.filter((suite) => suite !== null), name].join(' > ')
+  return { path, name: named, ...lineOf(Number(said.get('line'))) }
 }
 
 /**
@@ -70,63 +108,70 @@ function attributes(text: string): Map<string, string> {
  */
 export function junitCases(xml: string, path: string, cwd: string): Receipt[] {
   if (!/<testsuites\b/.test(xml) || !/<\/testsuites>\s*$/.test(xml)) return []
+
   const found: Receipt[] = []
-  // The suites around the case; null for one that is the file itself.
+  // The suites around the case; null for the suite that is the file itself.
   const suites: (string | null)[] = []
-  // The case whose children are being read; null for one that is not this file's.
-  let open: { item: Receipt | null; skipped: boolean; failed: boolean } | null = null
-  const close = () => {
-    // A todo test that throws has both a skip and a failure, and fails nothing.
-    if (open?.item) found.push({ ...open.item, status: open.skipped ? 'skipped' : open.failed ? 'failed' : 'passed' })
-    open = null
-  }
+  let open: OpenCase | null = null
+
   for (const [, closing, tag, text, selfClosing] of xml.matchAll(TAG)) {
-    const said = attributes(text!)
+    const said = attributes(text ?? '')
     if (tag === 'testsuite') {
       const name = said.get('name') ?? ''
       if (closing) suites.pop()
       else if (!selfClosing) suites.push(name === said.get('file') ? null : name)
-    } else if (tag === 'testcase') {
-      if (closing) {
-        close()
-        continue
+      continue
+    }
+    if (tag !== 'testcase') {
+      // A skip, a failure or an error inside the open case.
+      if (open && !closing) {
+        if (tag === 'skipped') open.skipped = true
+        else open.failed = true
       }
-      const name = said.get('name')
-      const file = said.get('file')
-      const line = Number(said.get('line'))
-      const named = [...suites.filter((suite) => suite !== null), name].join(' > ')
-      const item = name !== undefined && file !== undefined && isFile(file, path, cwd) ? { path, name: named, status: 'passed' as const, ...(Number.isInteger(line) && line > 0 ? { line } : {}) } : null
-      open = { item, skipped: false, failed: said.has('failure') }
-      if (selfClosing) close()
-    } else if (open && !closing) {
-      if (tag === 'skipped') open.skipped = true
-      else open.failed = true
+      continue
+    }
+    if (!closing) open = { item: caseOf(said, suites, path, cwd), skipped: false, failed: said.has('failure') }
+    if (closing || selfClosing) {
+      if (open?.item) found.push({ ...open.item, status: statusOf(open) })
+      open = null
     }
   }
   return receipts(found)
 }
 
-const VITEST_STATUS: Record<string, Receipt['status']> = { passed: 'passed', failed: 'failed', skipped: 'skipped', pending: 'skipped', todo: 'skipped', disabled: 'skipped' }
+// ───────────────────────── Vitest's JSON ─────────────────────────
+
+const VITEST_STATUS = new Map<unknown, Receipt['status']>([
+  ['passed', 'passed'],
+  ['failed', 'failed'],
+  ['skipped', 'skipped'],
+  ['pending', 'skipped'],
+  ['todo', 'skipped'],
+  ['disabled', 'skipped'],
+])
 
 const record = (value: unknown): Record<string, unknown> => (value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {})
 
+function parsed(json: string): unknown {
+  try {
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
+
+/** One case of Vitest's report: none when it has no title, suites or status it knows. */
+function vitestCase({ ancestorTitles: suites, title, status, location }: Record<string, unknown>, path: string): Receipt[] {
+  const result = VITEST_STATUS.get(status)
+  if (!result || typeof title !== 'string' || !Array.isArray(suites) || !suites.every((suite) => typeof suite === 'string')) return []
+  return [{ path, name: [...suites, title].join(' > '), status: result, ...lineOf(record(location).line) }]
+}
+
 /** The cases of Vitest's JSON report for the file: each one's suites, title, status, and line when it gives one. */
 export function vitestJsonCases(json: string, path: string, cwd: string): Receipt[] {
-  let report: unknown
-  try {
-    report = JSON.parse(json)
-  } catch {
-    return []
-  }
-  const files = record(report).testResults
+  const files = record(parsed(json)).testResults
   const own = Array.isArray(files) ? files.map(record).filter((file) => typeof file.name === 'string' && isFile(file.name, path, cwd)) : []
-  if (own.length !== 1 || !Array.isArray(own[0]!.assertionResults)) return []
-  const found = own[0]!.assertionResults.flatMap((value): Receipt[] => {
-    const { ancestorTitles: suites, title, status, location } = record(value)
-    const result = typeof status === 'string' ? VITEST_STATUS[status] : undefined
-    if (typeof title !== 'string' || !result || !Array.isArray(suites) || !suites.every((suite) => typeof suite === 'string')) return []
-    const line = record(location).line
-    return [{ path, name: [...suites, title].join(' > '), status: result, ...(Number.isInteger(line) && (line as number) > 0 ? { line: line as number } : {}) }]
-  })
-  return receipts(found)
+  const [file, ...others] = own
+  if (!file || others.length > 0 || !Array.isArray(file.assertionResults)) return []
+  return receipts(file.assertionResults.flatMap((result) => vitestCase(record(result), path)))
 }

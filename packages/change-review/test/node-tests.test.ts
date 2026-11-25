@@ -155,8 +155,11 @@ test('an exact Bun suite path identifies the scanned case, not an identically na
 test('a case in nested suites is the runner’s case of the same suites, and a case the runner places on other lines is not it', () => {
   const path = 'test/helpers/posts.test.js'
   const definitions = [{ id: 't1', symbol: 'describe "cart" describe "empty".has no total', path, startLine: 12, endLine: 16, anchors: [{ id: 'n1', lines: [] }], changed: false }]
-  const atHead = (receipt: Partial<NonNullable<TestRun['cases']>[number]>) =>
-    nodeTestsOf(input({ definitions, runs: [{ ...run('baseline', [path]), cases: [{ path, name: 'cart > empty > has no total', status: 'passed', ...receipt }] }] })).find((test) => test.symbol)?.at_head
+  const atHead = (receipt: Partial<NonNullable<TestRun['cases']>[number]>) => {
+    const cases = [{ path, name: 'cart > empty > has no total', status: 'passed' as const, ...receipt }]
+    const tests = nodeTestsOf(input({ definitions, runs: [{ ...run('baseline', [path]), cases }] }))
+    return tests.find((test) => test.symbol)?.at_head
+  }
   assert.equal(atHead({}), 'passed')
   assert.equal(atHead({ line: 12 }), 'passed')
   assert.equal(atHead({ line: 2 }), 'not-run')
