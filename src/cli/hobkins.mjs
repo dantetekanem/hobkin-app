@@ -197,6 +197,8 @@ function turnOf(run) {
     reply: status !== 'running' && run.result?.text?.trim() ? run.result.text : null,
     error: status === 'interrupted' ? (run.userStop ? STOPPED : 'It was cut off before it finished.') : failure,
     endedAt: run.finishedAt ?? null,
+    // What the user added to it while it worked, as its run keeps it (`HobkinRunner.keepNotes`).
+    ...(run.notes?.length ? { notes: run.notes } : {}),
   };
 }
 

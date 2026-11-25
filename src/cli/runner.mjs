@@ -676,6 +676,7 @@ export class HobkinRunner {
    * `images` are the pictures the user attached to the words, as Pi's image content, and go with them.
    */
   async messageCheck({ scheduleId, runId, noteId, message, images, queue }, { durable = false } = {}) {
+    const took = new Date(this.now()).getTime();
     const reachable = await this.reachableRuns(durable);
     if (!scheduleId) return { running: reachable.map(run => ({ scheduleId: run.scheduleId, title: run.title })) };
 
@@ -704,7 +705,11 @@ export class HobkinRunner {
       if (disposition === 'handled') this.pendingNotes.delete(key);
       const status = disposition === 'started' || disposition === 'queued' ? 'queued' : disposition === 'handled' ? 'handled' : 'unconfirmed';
       // What the turn it interrupted never read comes back, for the user's input.
-      return { scheduleId, status, ...(queue === 'interrupt' ? { unsent: this.givenBack(run.id, sent?.unsent) } : {}) };
+      const unsent = queue === 'interrupt' ? this.givenBack(run.id, sent?.unsent) : undefined;
+      const added = noteId === undefined || status === 'handled' ? null
+        : { noteId, text: message, at: took, queue: queue ?? 'steer', ...(pictures ? { images: pictures.length } : {}) };
+      await this.keepNotes(run.id, { added, takenBack: unsent });
+      return { scheduleId, status, ...(unsent ? { unsent } : {}) };
     } catch (error) {
       if (error.commandRejected) {
         this.pendingNotes.delete(key);
@@ -723,7 +728,41 @@ export class HobkinRunner {
     if (!run) throw notQueued('That check is not running.');
     const send = await this.inboxes.get(run.id).promise;
     const queue = await send(undefined, undefined, 'take-back');
-    return { scheduleId, unsent: this.givenBack(run.id, [...(queue?.steering ?? []), ...(queue?.followUp ?? [])]) };
+    const unsent = this.givenBack(run.id, [...(queue?.steering ?? []), ...(queue?.followUp ?? [])]);
+    await this.keepNotes(run.id, { takenBack: unsent });
+    return { scheduleId, unsent };
+  }
+
+  /**
+   * What the user added to a run while it worked stays on the run's record, so its page shows it again after a reload, a
+   * restart or leaving the page (021-agent-rendering, 034-durable-hobkins): the note's id, its words, when hobkin took it,
+   * how it waits for the turn, how many images went with it, and once the turn read it in, when. Only a note the window
+   * sent has an id, so a message from the main agent or a schedule's wake is never kept as the user's. The images are not
+   * kept. A note given back unread leaves the record, as it leaves the page. A run with no record keeps nothing, and a
+   * store that cannot take the change costs the page its copy, never the message, which has gone already.
+   */
+  async keepNotes(runId, { added = null, takenBack = [] }) {
+    const gone = new Set(takenBack.flatMap(({ noteId }) => (noteId ? [noteId] : [])));
+    if (!added && !gone.size) return;
+
+    await this.runtime.change(state => {
+      const run = state.runs[runId];
+      if (!run) return;
+      const notes = (run.notes ?? []).filter(note => !gone.has(note.noteId));
+      // A receipt can come before the send answers.
+      const receipt = added && this.receivedNotes.get(JSON.stringify([runId, added.noteId]));
+      if (added) notes.push(receipt ? { ...added, receivedAt: receipt.at } : added);
+      if (notes.length) run.notes = notes;
+      else delete run.notes;
+    }).catch(() => {});
+  }
+
+  /** A note's receipt goes on its run's record as well, so it still reads as read once hobkin has let its own go. Nothing waits for it. */
+  keepReceipt(runId, noteId, at) {
+    this.runtime.change(state => {
+      const note = state.runs[runId]?.notes?.find(each => each.noteId === noteId);
+      if (note && note.receivedAt === undefined) note.receivedAt = at;
+    }).catch(() => {});
   }
 
   /**
@@ -759,8 +798,10 @@ export class HobkinRunner {
     for (const [key, note] of this.pendingNotes) {
       if (note.runId !== runId || note.text !== text || note.images !== images) continue;
       this.pendingNotes.delete(key);
-      this.receivedNotes.set(key, { runId, noteId: note.noteId, at: new Date(this.now()).getTime() });
+      const at = new Date(this.now()).getTime();
+      this.receivedNotes.set(key, { runId, noteId: note.noteId, at });
       if (this.receivedNotes.size > 256) this.receivedNotes.delete(this.receivedNotes.keys().next().value);
+      this.keepReceipt(runId, note.noteId, at);
     }
   }
 

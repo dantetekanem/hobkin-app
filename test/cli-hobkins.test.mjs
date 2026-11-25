@@ -1392,3 +1392,39 @@ test("a working hobkin takes the user's message as Pi's keys queue it, and gives
   await waitingNow(app, id);
   assert.deepEqual(await app.hobkins.takeBack(id), { unsent: [] }, 'nothing waits for a hobkin that waits');
 });
+
+test("what the user adds to a working hobkin's turn stays with that turn, with its id, its time and its receipt, after a restart too, on Pi and on Claude Code", async t => {
+  for (const engine of [{ kind: 'tier', tier: 'mid' }, { kind: 'claude' }]) {
+    const h = fixture(t);
+    const before = fakeTurns();
+    let app = await h.openApp({ runHarness: before.runHarness });
+    t.after(() => app.close());
+    const { id, run } = await app.hobkins.start({ text: 'Prototype the page.', cwd: h.folder, engine });
+    const turn = await before.nth(0);
+    assert.equal(turn.request.harness, engine.kind === 'claude' ? 'claude' : 'pi');
+
+    const noteId = '00000000-0000-4000-8000-000000000001';
+    const sent = Date.now();
+    await app.hobkins.say(id, { text: 'Delegate it through team-leader.', noteId });
+    // A schedule's wake reaches the turn too, but it is not the user's, so it is not kept as theirs.
+    await app.hobkins.wake(id, { text: 'Two pull requests are new.', from: { kind: 'schedule', id: 'prs', title: 'New pull requests' } });
+    assert.equal(turn.heard.length, 2);
+    const [kept] = (await app.hobkins.read(id)).turns[0].notes;
+    assert.deepEqual({ ...kept, at: undefined }, { noteId, text: 'Delegate it through team-leader.', at: undefined, queue: 'steer' });
+    assert.ok(kept.at >= sent && kept.at <= Date.now(), 'when hobkin took it');
+    assert.equal((await app.hobkins.read(id)).turns[0].notes.length, 1);
+
+    // Its turn read it in: the receipt is kept with it.
+    turn.options.onEvent({ type: 'message_end', message: { role: 'user', content: [{ type: 'text', text: turn.heard[0] }] } });
+    const receivedAt = (await app.refresh()).steeringReceipts[run][0].at;
+    await until(async () => (await app.hobkins.read(id)).turns[0].notes[0].receivedAt === receivedAt);
+
+    // hobkin restarts while the turn works: the turn is cut off, and what the user added to it is still there, read.
+    await app.close();
+    app = await h.openApp({ runHarness: fakeTurns().runHarness });
+    const [cut] = (await app.hobkins.read(id)).turns;
+    assert.equal(cut.status, 'interrupted');
+    assert.deepEqual(cut.notes, [{ ...kept, receivedAt }]);
+    assert.equal((await app.refresh()).steeringReceipts[run], undefined, "hobkin's own receipts went with the restart");
+  }
+});
