@@ -29,7 +29,7 @@ const living = (t, extra = {}) => request(t, { untilDone: true, extensions: [don
  * A fake Pi on RPC. `body` runs on each prompt, with `prompts` counting them and `message` the words it was given;
  * `done(report, then)` calls `hobkin_done` over the bridge and hands `then` the host's answer.
  */
-const rpc = body => `
+const rpc = (body, model = { provider: 'test', id: 'model' }) => `
 let input = '';
 let prompts = 0;
 const answers = new Map();
@@ -49,7 +49,7 @@ process.stdin.on('data', chunk => {
     const cmd = JSON.parse(input.slice(0, end));
     input = input.slice(end + 1);
     const reply = data => send({ type: 'response', id: cmd.id, command: cmd.type, success: true, data });
-    if (cmd.type === 'get_state') reply({ sessionId: 'pi-job', thinkingLevel: 'medium', model: { provider: 'test', id: 'model' } });
+    if (cmd.type === 'get_state') reply({ sessionId: 'pi-job', thinkingLevel: 'medium', model: ${JSON.stringify(model)} });
     else if (cmd.type === 'get_session_stats') reply({ sessionId: 'pi-job', cost: 0.25 });
     else if (cmd.type === 'extension_ui_response') { const then = answers.get(cmd.id); answers.delete(cmd.id); then?.(JSON.parse(cmd.value)); }
     else if (cmd.type === 'prompt') {
@@ -212,7 +212,7 @@ test('a living job reads its own short prompt in place of the routines\' one, an
 });
 
 /** A temporary home whose main chat is a fake Pi. The home goes once every app opened on it has closed. */
-function home(t, { concurrency } = {}) {
+function home(t, { concurrency, now } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-until-done-home-')));
   const opened = [];
   t.after(async () => {
@@ -226,7 +226,7 @@ function home(t, { concurrency } = {}) {
   atomicJson(join(root, 'config.json'), config);
   const main = fakePi(root);
   const open = async options => {
-    const app = await HobkinApplication.open(root, { createMain: main.createMain, intervalMs: 60000, runHarness: async () => notHere, ...options });
+    const app = await HobkinApplication.open(root, { createMain: main.createMain, intervalMs: 60000, runHarness: async () => notHere, ...(now ? { now } : {}), ...options });
     opened.push(app);
     return app;
   };
@@ -354,4 +354,55 @@ test("a living job's reply reaches the main agent once, and the answer reaches t
   await app.tickWakes();
   await app.runtime.mainWork;
   assert.equal(userWords(app).filter(text => text.startsWith('<hobkin-wake>')).length, 1, 'a turn that ends with no words tells nobody');
+});
+
+/** Pi's own extensions for these tests: one of the user's own, and none of the Pi scheduler. */
+function isolatedPi(t) {
+  const agentDir = mkdtempSync(join(tmpdir(), 'hobkin-agent-'));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  t.after(() => {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    rmSync(agentDir, { recursive: true, force: true });
+  });
+}
+/** hobkin's own harness for sessions, extensions named, on a fake Pi that runs `program`. Other runs are left out. */
+const sessionsOn = (program, pids) => (request, options) => (request.purpose ? Promise.resolve(notHere)
+  : namingExtensions(runHarness)(request, { ...options, spawnProcess: fake(program, pids) }));
+
+test('a session job lives past its turn, hears the user and its schedules there, and ends with the report hobkin_done gave', { timeout: 20000 }, async t => {
+  isolatedPi(t);
+  const clock = { now: Date.now() };
+  const h = home(t, { now: () => clock.now });
+  const pids = [];
+  const program = rpc(`
+    if (prompts === 1) { say('Which branch should the fix go on?'); settled(); }
+    else if (message.startsWith('<hobkin-schedule>')) { say('CI is still running.'); settled(); }
+    else done('Useful: The totals add up again, merged into main on fix-totals.', () => { say('Ending.'); settled(); });
+  `, { provider: 'fixture', id: 'local' });
+  const app = await h.open({ runHarness: sessionsOn(program, pids) });
+  const started = await startSession({ root: h.root, title: 'Fix totals', brief: 'Fix the totals.', cwd: h.root, approved: true, wake: true, tier: 'mid' });
+  const id = `session:${started.name}`;
+  void app.tickSessions();
+  await until(() => app.runner.idle.has(id));
+
+  assert.equal((await app.runtime.state()).runs[id].status, 'running', 'its turn ended and it lives on');
+  assert.equal(app.runner.idle.get(id).said, 'Which branch should the fix go on?');
+  assert.equal(gone(pids[0]), false);
+
+  app.agentSchedules.make({ kind: 'run', id }, h.root, { in: '1m', note: 'Look at CI.' });
+  clock.now += 61000;
+  await app.tickAgentSchedules();
+  await until(() => app.runner.idle.get(id)?.said === 'CI is still running.');
+  assert.equal((await app.runtime.state()).runs[id].status, 'running', 'a schedule starts a turn on it and never ends it as waiting');
+
+  await app.runner.messageCheck({ scheduleId: `session.${started.name}`, message: 'Put it on fix-totals.' });
+  await until(async () => (await app.runtime.state()).runs[id].status !== 'running');
+  const run = (await app.runtime.state()).runs[id];
+  assert.equal(run.status, 'completed');
+  assert.equal(run.result.text, 'Useful: The totals add up again, merged into main on fix-totals.');
+  assert.equal(readFileSync(started.report, 'utf8'), run.result.text);
+  assert.equal(sessionsToWake(h.root)[0].name, started.name, 'its end wakes the chat');
+  await until(() => gone(pids[0]));
 });

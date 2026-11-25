@@ -472,9 +472,12 @@ const WAKE_WORDS = {
   never: 'never: it only runs',
 };
 
-/** What an agent may do once it has scheduled: a run that waits ends its turn, one that cannot keeps working. */
-function afterScheduling(owner, canWait, id) {
-  if (owner.kind !== 'run') return 'You may end your turn: hobkin starts a turn for you when it wakes you.';
+/**
+ * What an agent may do once it has scheduled: one that lives on between turns, as a job that lives until it is done
+ * (`lives`, 072-jobs-live-until-done), ends its turn, a run that waits ends its turn too, and one that cannot keeps working.
+ */
+function afterScheduling(owner, canWait, id, lives) {
+  if (owner.kind !== 'run' || lives) return 'You may end your turn: hobkin starts a turn for you when it wakes you.';
   if (canWait) {
     return 'End your turn now with one short line saying what you wait for. hobkin closes your process and starts you again on this session when it wakes you, or once more when it ends.';
   }
@@ -484,12 +487,13 @@ function afterScheduling(owner, canWait, id) {
 
 /**
  * What `hobkin_schedule` answers its agent: what was made, when it fires, when it ends, when it wakes, and what to do
- * now. `canWait` is false for a run that cannot wait for it, such as a session run on Claude Code.
+ * now. `canWait` is false for a run that cannot wait for it, such as a session run on Claude Code, and `lives` is true
+ * for one whose process stays up between turns.
  */
-export function scheduledText(schedule, owner, { canWait = true } = {}) {
+export function scheduledText(schedule, owner, { canWait = true, lives = false } = {}) {
   const repeats = schedule.every === undefined ? '' : `, then every ${spanWords(schedule.every * 1000)}`;
   const wakes = schedule.command === undefined ? 'with your note' : WAKE_WORDS[schedule.wakeOn];
-  const then = afterScheduling(owner, canWait, schedule.id);
+  const then = afterScheduling(owner, canWait, schedule.id, lives);
   const ends = schedule.until == null ? '. It has no end: cancel it when you are done.' : `, and it ends by ${clockWords(Date.parse(schedule.until))} at the latest.`;
   return `Scheduled "${schedule.name}" (id ${schedule.id}). It first fires at ${clockWords(Date.parse(schedule.nextAt))}${repeats}${ends} `
     + `hobkin wakes you ${wakes}, ${wakeCap(schedule) === null ? 'with no cap on wakes' : `${plural(wakeCap(schedule), 'time')} at most`}. ${then}`;

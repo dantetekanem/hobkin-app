@@ -526,7 +526,7 @@ export class HobkinApplication {
       const ownedScope = admission && app.runtime.ownedLifecycle.register({ id: scopeId, allowHelpers: false, binding, beforeSpawn: options?.beforeSpawn });
       // A session run and a durable hobkin's turn keep schedules for themselves (056-agent-schedules).
       const owner = admission && request.schedules === true ? scheduleOwnerOf(admission.id) : null;
-      const schedules = owner ? app.scheduleHandler(owner, request.cwd, { waits: request.waits }) : undefined;
+      const schedules = owner ? app.scheduleHandler(owner, request.cwd, { waits: request.waits, lives: request.untilDone === true }) : undefined;
       // A run that reads hobkin's memories reaches them as hobkin knows it by its run, never by what its request says
       // (057-shared-memory): a durable hobkin's turn as that hobkin, any other run as itself.
       const turnRun = Boolean(admission) && isTurnRunId(admission.id);
@@ -1190,7 +1190,8 @@ export class HobkinApplication {
    * What an agent's schedule tools reach (056-agent-schedules): `make` and `manage` for its own schedules alone, their
    * commands run in `cwd`, and `liveUntil`, when the last of them ends, so a run can wait on them. A run that has waited
    * as often as one may cannot wait for a schedule, so it makes none. `canWait` is false for a run that cannot wait at
-   * all, as on Claude Code, which is told its schedules end with its turn.
+   * all, as on Claude Code, which is told its schedules end with its turn. `lives` is true for a job that lives until its
+   * agent says it is done, whose schedules start a turn on its own process (072-jobs-live-until-done).
    */
   /**
    * What an agent's memory tools reach (057-shared-memory), by who it is: the main chat and a durable hobkin read
@@ -1234,19 +1235,19 @@ export class HobkinApplication {
     this.requestRefresh();
   }
 
-  scheduleHandler(owner, cwd, { waits, canWait = true } = {}) {
+  scheduleHandler(owner, cwd, { waits, canWait = true, lives = false } = {}) {
     const schedules = () => {
       if (!this.agentSchedules) throw Error('Schedules are not available here.');
       return this.agentSchedules;
     };
     return {
       make: params => {
-        if (owner.kind === 'run' && Number.isInteger(waits) && waits >= MOST_WAITS) {
+        if (owner.kind === 'run' && !lives && Number.isInteger(waits) && waits >= MOST_WAITS) {
           throw Error(`This run has waited ${MOST_WAITS} times, the most one run may, so nothing could wake it for a schedule. Finish what you can now and end with your report.`);
         }
         const schedule = schedules().make(owner, cwd, params);
         this.requestRefresh();
-        return { text: scheduledText(schedule, owner, { canWait }), schedule };
+        return { text: scheduledText(schedule, owner, { canWait, lives }), schedule };
       },
       manage: params => {
         const answer = schedules().manage(owner, params);

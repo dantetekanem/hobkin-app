@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
@@ -246,37 +246,6 @@ const session = (h, title) => startSession({ root: h.root, title, brief: `${titl
 const runOf = async (app, started) => (await app.runtime.state()).runs[`session:${started.name}`];
 const ended = root => readFileSync(join(root, 'runtime/handoffs/sessions.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter(line => line.endedAt);
 
-test('a session that asks to wait ends its turn waiting, with no report, no process and its place free', { timeout: 10000 }, async t => {
-  const h = home(t, { concurrency: 1 });
-  const pids = [];
-  const program = rpc(`
-    if (message.includes('hobkin-second')) { say('Useful: The second session ran.'); settled(); }
-    else ask({ minutes: 30, note: ${JSON.stringify(NOTE)} }, () => { say('Deployed. Waiting 30 minutes to read the monitoring.'); settled(); });
-  `, { model: { provider: 'fixture', id: 'local' } });
-  const app = await h.open({ now: () => NOW,
-    runHarness: (request, options) => (request.purpose ? Promise.resolve(notHere)
-      : runHarness(request, { ...options, now: () => NOW, spawnProcess: fake(program, pids) })) });
-  t.after(() => app.close());
-  const started = await session(h, 'Deploy');
-  await app.tickSessions();
-
-  const run = await runOf(app, started);
-  assert.equal(run.status, 'waiting');
-  assert.deepEqual(run.wait, { until: iso(NOW + 30 * 60000), note: NOTE, askedAt: iso(NOW),
-    said: 'Deployed. Waiting 30 minutes to read the monitoring.', waits: 1, freshSession: true });
-  assert.equal(run.finishedAt, undefined);
-  assert.equal(readReport(h.root, run.id, null), null, 'no report is filed');
-  assert.equal(existsSync(started.report), false);
-  assert.deepEqual(ended(h.root), [], 'the session has not ended');
-  assert.throws(() => process.kill(pids[0], 0), { code: 'ESRCH' });
-  assert.equal(app.runner.scheduledJobCount(await app.runtime.runIndex()), 0);
-
-  const second = await session(h, 'Second');
-  await app.tickSessions();
-  assert.equal((await runOf(app, second)).status, 'completed', 'its one place went to the next session');
-  assert.equal((await runOf(app, started)).status, 'waiting');
-});
-
 test('at its time a waiting session starts again on its own session with its note and files one report', async t => {
   const h = home(t);
   let clock = NOW;
@@ -293,7 +262,7 @@ test('at its time a waiting session starts again on its own session with its not
   await app.tickSessions();
   const [first, again] = calls;
   assert.deepEqual([again.id, again.sessionFile, again.cwd], [first.id, first.sessionFile, first.cwd]);
-  assert.deepEqual([first.waits, again.waits], [0, 1]);
+  assert.deepEqual([first.waits, again.waits], [undefined, 1], 'only a run that waited before carries its count');
   assert.match(again.prompt, /Read the monitoring again\.[\s\S]*31 minutes after you asked/);
   const run = await runOf(app, started);
   assert.equal(run.status, 'completed');

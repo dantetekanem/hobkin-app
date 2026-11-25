@@ -189,7 +189,7 @@ test('a run is steered while it runs, started again while it waits, and told onc
   const [first] = calls;
   assert.equal(first.request.schedules, true, 'a session run is given the schedule tools');
   const made = await first.options.schedules.make({ name: 'Watch CI', every: '2m', note: 'Read the checks.' });
-  assert.match(made.text, /End your turn now/);
+  assert.match(made.text, /You may end your turn: hobkin starts a turn for you when it wakes you\./, 'a job that lives on hears it there');
   assert.match((await first.options.schedules.manage({ action: 'list' })).text, /Watch CI/);
 
   await app.tickAgentSchedules();

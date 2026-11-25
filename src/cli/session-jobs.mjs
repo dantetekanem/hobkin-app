@@ -63,10 +63,11 @@ export async function startKeptSession({ root, hobkins, tier }, session) {
 }
 
 /**
- * One start of a session's run, the first or one after a wait: its Pi on the run's own session file, with its messages
- * and activity. `prompt` is read as the start is admitted. A run that ends waiting has not ended, so its end is left to
- * the start that finishes it or to the user's Stop, and a start after a wait that was not admitted, because the run had
- * already ended, leaves the end to whoever ended it.
+ * One start of a session's run, the first or, for a run that waited before 072-jobs-live-until-done, one after its wait:
+ * its Pi on the run's own session file, with its messages and activity. It lives until its agent says it is done with
+ * `hobkin_done`, or until it is stopped. `prompt` is read as the start is admitted. A run that ends waiting has not
+ * ended, so its end is left to the start that finishes it or to the user's Stop, and a start after a wait that was not
+ * admitted, because the run had already ended, leaves the end to whoever ended it.
  */
 function runSessionJob({ root, runner }, request, session, { prompt, waits, resume = false }) {
   const inbox = Promise.withResolvers();
@@ -83,8 +84,10 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
       effort: request.effort,
       prompt: prompt(),
       sessionFile: join(root, 'jobs', `${request.harnessId}.jsonl`),
-      waits,
-      // Its agent keeps schedules for itself, and waits on them as on a wait (056-agent-schedules).
+      ...(waits === undefined ? {} : { waits }),
+      // Its turn ending does not end it (072-jobs-live-until-done).
+      untilDone: true,
+      // Its agent keeps schedules for itself, and they start a turn on its process (056-agent-schedules).
       schedules: true,
       // It reads hobkin's shared memories and suggests one (057-shared-memory).
       ...(keepsMemories(root) ? { memories: 'run' } : {}),
@@ -108,11 +111,12 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
 
 /**
  * Runs a session as one of the runner's background jobs, the way Work runs: it shows as a running run with its live
- * activity and agents, `message_check` reaches it by its schedule, and `kill` stops it. When it ends, the session log
- * hears of it, so `--wake` gives the main agent its turn with the report. The run keeps the tier it was given beside
- * the model and effort that tier meant then, so a later change of the tier does not rewrite what ran. Its request carries
- * the user's directions, as a check's and a work run's do, read when it starts. Its record keeps what its end needs
- * (`session`). Its agent is not offered `hobkin_wait`: the user had run waits removed on 2026-11-24.
+ * activity and agents, `message_check` reaches it by its schedule, and `kill` stops it. It lives until its agent calls
+ * `hobkin_done` (072-jobs-live-until-done). When it ends, the session log hears of it, so `--wake` gives the main agent
+ * its turn with the report. The run keeps the tier it was given beside the model and effort that tier meant then, so a
+ * later change of the tier does not rewrite what ran. Its request carries the user's directions, as a check's and a work
+ * run's do, read when it starts. Its record keeps what its end needs (`session`). Its agent is not offered
+ * `hobkin_wait`: the user had run waits removed on 2026-11-24.
  */
 export function startSessionJob({ root, runner, model, effort, tier }, session) {
   const { name, title, cwd, brief, report, wake } = session;
@@ -141,7 +145,7 @@ export function startSessionJob({ root, runner, model, effort, tier }, session) 
     return JSON.stringify({ task: `Read ${brief} and follow it.`, directions: readDirections(root),
       ...(memory.length ? { memory } : {}), ...(memories ? { memories } : {}) });
   };
-  return runSessionJob({ root, runner }, request, session, { prompt, waits: 0 });
+  return runSessionJob({ root, runner }, request, session, { prompt });
 }
 
 /**
