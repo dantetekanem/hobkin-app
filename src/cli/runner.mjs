@@ -676,9 +676,7 @@ export class HobkinRunner {
    * `images` are the pictures the user attached to the words, as Pi's image content, and go with them.
    */
   async messageCheck({ scheduleId, runId, noteId, message, images, queue }, { durable = false } = {}) {
-    const runs = Object.values((await this.runtime.state()).runs);
-    // A durable hobkin's turn is the user's alone, so only its own page reaches it (`hobkins.mjs`), never the main agent's tool.
-    const reachable = runs.filter(run => run.status === 'running' && this.inboxes.has(run.id) && (durable || !run.hobkin));
+    const reachable = await this.reachableRuns(durable);
     if (!scheduleId) return { running: reachable.map(run => ({ scheduleId: run.scheduleId, title: run.title })) };
 
     const run = reachable.find(item => item.scheduleId === scheduleId && (runId === undefined || item.id === runId));
@@ -721,13 +719,20 @@ export class HobkinRunner {
    * its id, and stops waiting for a receipt.
    */
   async takeBack({ scheduleId, runId }, { durable = false } = {}) {
-    const runs = Object.values((await this.runtime.state()).runs);
-    const run = runs.find(item => item.status === 'running' && this.inboxes.has(item.id) && (durable || !item.hobkin)
-      && item.scheduleId === scheduleId && (runId === undefined || item.id === runId));
+    const run = (await this.reachableRuns(durable)).find(item => item.scheduleId === scheduleId && (runId === undefined || item.id === runId));
     if (!run) throw notQueued('That check is not running.');
     const send = await this.inboxes.get(run.id).promise;
     const queue = await send(undefined, undefined, 'take-back');
     return { scheduleId, unsent: this.givenBack(run.id, [...(queue?.steering ?? []), ...(queue?.followUp ?? [])]) };
+  }
+
+  /**
+   * The running checks a message can reach. A durable hobkin's turn is the user's alone, so only its own page reaches it
+   * (`hobkins.mjs`), never the main agent's tool.
+   */
+  async reachableRuns(durable) {
+    const runs = Object.values((await this.runtime.state()).runs);
+    return runs.filter(run => run.status === 'running' && this.inboxes.has(run.id) && (durable || !run.hobkin));
   }
 
   /** Messages Pi gave back unread, as the user typed them: a note's mark comes off, and its id goes with it. */
