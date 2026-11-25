@@ -6,6 +6,7 @@ import type { Review } from '../../shared/review/types.ts'
 import { createReviewLoader, type ReviewCommands } from '../src/features/review/loader.ts'
 import { failureOf, underWay } from '../src/features/review/preparing-model.ts'
 import { createReviewMemory } from '../src/features/review/state/memory.ts'
+import { onReviewStarted } from '../src/features/work/review-started.ts'
 
 const id = 'pr:owner/repo/78'
 const T0 = Date.parse('2026-11-12T16:00:00Z')
@@ -89,4 +90,30 @@ test('a pull request whose change review is under way is followed, never offered
   assert.equal(started.gets(), 0)
   assert.ok(underWay(started.loader.getState().preparation))
   started.loader.dispose()
+})
+
+test('Refresh review that builds nothing, as nothing changed since the review, says what another build costs and tells no list it started', async () => {
+  const ready = graphReady({ state: 'ready', head: 'h', summary })
+  const why = 'Nothing changed since this review: building it again costs a whole review, with its tests and its model calls. Ask again to build it.'
+  let prepared: ReviewStatus = { ...ready, again: { why } }
+  const command = (async (name: string) => {
+    if (name === 'review.status') return ready
+    if (name === 'review.prepare') return prepared
+    if (name === 'review.get') return { review, notes: { entries: [], draft: null }, status: ready, assessment: finished } satisfies OpenedReview
+    throw new Error(name)
+  }) as ReviewCommands
+  const loader = createReviewLoader({ id, scope: 'host:/fixture', command, memory: createReviewMemory(), now: () => T0 })
+  const started: string[] = []
+  const stopHearing = onReviewStarted(id, () => started.push(id))
+  await loader.load()
+
+  await loader.refresh()
+  assert.deepEqual([loader.getState().status, loader.getState().review?.id, loader.getState().error, started], ['ready', id, why, []])
+
+  // The second press builds it.
+  prepared = { ...ready, phase: 'reading', assessment: { state: 'queued', head: 'h' } }
+  await loader.refresh()
+  assert.deepEqual([loader.getState().error, started], [null, [id]])
+  stopHearing()
+  loader.dispose()
 })

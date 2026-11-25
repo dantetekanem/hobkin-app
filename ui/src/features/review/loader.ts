@@ -247,9 +247,15 @@ export function createReviewLoader({ id, scope, memory, command, sample, look: o
         // A change that lands is never built again, even when asked: there is nothing newer to review.
         const rebuild = refresh && !current.preparation?.landing
         preparation = rebuild ? await command('review.prepare', { id, refresh: true }) : await command('review.status', { id })
-        if (rebuild) reviewStarted(id)
+        // Nothing changed since the review: the host built nothing and says what another build costs. The next press builds it.
+        const unbuilt = rebuild ? (preparation.again?.why ?? null) : null
+        if (rebuild && !unbuilt) reviewStarted(id)
         if (disposed || turn !== generation) return
         const open = store.getState().review
+        if (unbuilt && open) {
+          patch({ error: unbuilt })
+          return
+        }
         if (preparation.landing && open) {
           // The review on screen holds still while its change lands: nothing newer is fetched for it.
           const held = heldStill(preparation, open, store.getState().preparation)
