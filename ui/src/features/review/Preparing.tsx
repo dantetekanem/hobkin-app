@@ -9,13 +9,14 @@ import { Button } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
+import { ModeSwitch } from './Chrome.tsx'
 import type { ReviewLoader } from './loader.ts'
 import { LiveLog } from './preparing/LiveLog.tsx'
 import { ProgressLine } from './preparing/ProgressLine.tsx'
 import { Timeline } from './preparing/Timeline.tsx'
 import './preparing/preparing.css'
 import { elapsedAt, preparingOf, type Preparing as Run, type Subject } from './preparing-model.ts'
-import { useReduced } from './state/context.tsx'
+import { useReduced, useRig } from './state/context.tsx'
 
 const CARD = 'rounded-3xl bg-background p-5'
 const HEADING = 'font-heading text-[14px] font-semibold text-muted-foreground'
@@ -67,6 +68,22 @@ export function Preparing({ loader, closeReview }: { loader: ReviewLoader; close
         )}
       </motion.div>
     </div>
+  )
+}
+
+/**
+ * The graph look while the change review it waits for is made (spec 071): the view a review that opens in the graph
+ * waits on, in what the review's panel and the proof leave, with the switch at the bottom to go back to the code.
+ */
+export function PreparingGraph({ loader, closeReview }: { loader: ReviewLoader; closeReview: () => void }) {
+  const rig = useRig()
+  return (
+    <motion.div className="absolute inset-y-0" style={{ left: rig.side, right: rig.proof }}>
+      <Preparing loader={loader} closeReview={closeReview} />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-3.5 pb-2">
+        <ModeSwitch />
+      </div>
+    </motion.div>
   )
 }
 

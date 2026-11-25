@@ -7,8 +7,8 @@ import type { ReviewNotes } from '#shared/review/status.ts'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import type { Verdict } from '#shared/review/verdict.ts'
 import { hostStore, runCommand, useHost } from '@/lib/host/index.ts'
-import { createReviewLoader, type ReviewLoader } from './loader.ts'
-import { Preparing } from './Preparing.tsx'
+import { createReviewLoader, waitsForReview, type ReviewLoader } from './loader.ts'
+import { Preparing, PreparingGraph } from './Preparing.tsx'
 import { RunCard } from './preparing/RunCard.tsx'
 import { sampleLanding } from './preparing/sample-landing.ts'
 import { sampleHost } from './preparing/sample-run.ts'
@@ -123,7 +123,8 @@ export function ReviewScreen() {
         : landing
           ? { command: landing }
           : { sample: sampleSource }
-    return createReviewLoader({ id, scope, memory: reviewMemory, ...source })
+    // It loads for the look Settings › Reviews chose; the review on screen tells it the look it is in (spec 071).
+    return createReviewLoader({ id, scope, memory: reviewMemory, look: useSettings.getState().reviewView, ...source })
   }, [reviewId, home, live])
 
   useEffect(() => {
@@ -142,12 +143,13 @@ export function ReviewScreen() {
 
   // One stage for each review, at its commit: another review, or the same one prepared again at a new commit, starts
   // again, with its entrance when it has not been opened before. A newer copy of the one on screen, as when its change
-  // review lands or it is built again at the same commit, is taken in where it is (`adopt`).
+  // review lands or it is built again at the same commit, is taken in where it is (`adopt`). The code look waits only for
+  // the graph and its files, which ask no model, so it says it is opening the review rather than how a review runs.
   return <ReviewLoad loader={loader} renderReview={(review) => (
     <ReactFlowProvider key={`${memoryKey(review)}${CODE}`}>
       <Stage review={review} source={loader.source} loader={loader} live={live} close={closeReview} verdict={verdict} ask={ask} />
     </ReactFlowProvider>
-  )} renderWaiting={(status, reason) => status === 'preparing' || status === 'awaiting'
+  )} renderWaiting={(status, reason, look) => status === 'awaiting' || (status === 'preparing' && look === 'graph')
     ? <Preparing loader={loader} closeReview={closeReview} />
     : <ReviewWaiting status={status} reason={reason} closeReview={closeReview} />} renderRun={() => <RunCard loader={loader} />} renderBeside={(review, preparation, action) => <StackCorner review={review} preparation={preparation} live={live} action={action} />} />
 }
@@ -284,6 +286,10 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
   // A review opens in the look Settings › Reviews chose, or in the one it was left in for another page (spec 071).
   const [session] = useState(() => createSession(review, reviewMemory, kept, { look: useSettings.getState().reviewView }))
   const look = useStore(session, (state) => state.look)
+  // The loader follows the look, before it is drawn: the graph look starts the change review the code look did not ask
+  // for, and shows its progress in place of the bare graph until it is ready (spec 071).
+  useLayoutEffect(() => void loader.setLook(look), [loader, look])
+  const waiting = useStore(loader, waitsForReview)
   useEffect(() => session.connect(), [session])
   // The reviewer's memory is written at most once a second, and at once when the review closes or the window goes. A
   // review left for another page keeps its place, to come back to.
@@ -499,8 +505,11 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
         <EntranceContext.Provider value={entrance}>
           <div ref={root} tabIndex={-1} className="rv" data-reduced={reduced} data-treatment={treatment} data-far="false" data-farther="false" data-entrance={entrance?.quiet ? 'quiet' : undefined} data-rv-root>
             {/* Graph or Code (spec 071): the graph with its story, outline, dock and code panel, or the code view, which
-                has its own line at the bottom with the switch, the input under the lines and the review's short words. */}
-            {look === 'graph' ? (
+                has its own line at the bottom with the switch, the input under the lines and the review's short words.
+                While the graph waits for its change review, the progress of that review shows in its place. */}
+            {look === 'graph' && waiting ? (
+              <PreparingGraph loader={loader} closeReview={close} />
+            ) : look === 'graph' ? (
               <>
                 <div ref={graph} className="absolute inset-0">
                   <Graph />
@@ -513,7 +522,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
               <CodeView ask={ask} units={assessment?.units?.units} verdict={<CodeVerdict loader={loader} live={live} verdict={verdict} ask={ask} landed={landed} />} />
             )}
             <Finder />
-            {look === 'graph' ? (
+            {look === 'graph' && !waiting ? (
               <>
                 <Notice />
                 <Dock room={room} ask={ask} units={assessment?.units?.units} />
