@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, CheckCheck } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
@@ -718,14 +718,16 @@ function Said({ note }: { note: AgentNote }) {
         <div className="ml-auto w-fit max-w-[72%] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-left text-[15px] leading-relaxed whitespace-pre-wrap group-focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
           {note.images ? <SentImages attachments={note.images} /> : null}
           {note.text}
-          {note.delivery ? (
-            <p role="status" className={cn('mt-1 text-[11px] leading-normal', note.delivery === 'refused' || note.delivery === 'unconfirmed' ? 'text-bad-fg' : 'text-muted-foreground')}>
-              {note.delivery === 'sending' ? 'Sending · waiting for the host.'
-                : note.delivery === 'received' ? 'Received · admitted into a Pi turn.'
-                : note.delivery === 'waiting' ? 'Waiting · queued for the agent’s next step; receipt not yet confirmed.'
-                  : note.delivery === 'refused' ? `Not sent · ${note.why}`
-                    : note.delivery === 'unconfirmed' ? `Delivery not confirmed · ${note.why}`
-                      : 'Sample message · kept in this window only.'}
+          {note.delivery === 'sending' || note.delivery === 'waiting' || note.delivery === 'received' ? (
+            // As a chat app marks a message: one check once it waits for the agent, two once the agent took it in, a faint
+            // one while it is still on its way to the host. One height for all three, so the bubble never jumps.
+            <p role="status" className="-mr-1 -mb-0.5 flex h-4 justify-end text-muted-foreground">
+              {note.delivery === 'received' ? <CheckCheck className="size-3.5" aria-hidden="true" /> : <Check className={cn('size-3.5', note.delivery === 'sending' && 'opacity-40')} aria-hidden="true" />}
+              <span className="sr-only">{note.delivery === 'received' ? 'Received' : note.delivery === 'waiting' ? 'Waiting' : 'Sending'}</span>
+            </p>
+          ) : note.delivery ? (
+            <p role="status" className={cn('mt-1 text-[11px] leading-normal', note.delivery === 'local' ? 'text-muted-foreground' : 'text-bad-fg')}>
+              {note.delivery === 'refused' ? `Not sent · ${note.why}` : note.delivery === 'unconfirmed' ? `Delivery not confirmed · ${note.why}` : 'Sample message · kept in this window only.'}
             </p>
           ) : null}
         </div>
