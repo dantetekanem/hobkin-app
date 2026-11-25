@@ -28,6 +28,12 @@ export interface PullCheckout {
    * folder and the commit the change starts from: where `head` and that branch, as just fetched, last met.
    */
   fetch(target: PullTarget, pull: { head: string; baseBranch: string; headBranch?: string }, say?: Say): Promise<{ repo: string; base: string }>
+  /**
+   * Where a named host's pull request at `head` starts now: the branch it merges into fetched again into hobkin's base
+   * ref, and where `head` meets it. Null when no clone here has `head` yet, as for one never read here: nothing is cloned
+   * or fetched to say it. GitHub says it through its API, so a GitHub pull request gets null.
+   */
+  start?(target: PullTarget, pull: { head: string; baseBranch: string }): Promise<string | null>
   /** The repository's folder with `head` in it, found or made, fetching the pull request's head again when it is not there. */
   repoFor(target: PullTarget, head: string, say?: Say): Promise<string>
   /**
@@ -160,11 +166,8 @@ export function pullCheckout({
   /** Whether a folder is a repository git can read: a bare clone counts. */
   const isRepository = (folder: string) => git(folder, 'rev-parse', '--git-dir').then(() => true, () => false)
 
-  /**
-   * A named host's repository on this Mac: the user's own clone the code host file lists, else hobkin's own, made with
-   * git from the host's git address. Its fetches name that address, so no remote of the user's is used or changed.
-   */
-  async function hostPlace(target: PullTarget, host: CodeHost, say?: Say): Promise<Clone> {
+  /** A named host's repository on this Mac already: the user's own clone the code host file lists, else hobkin's own. Null when neither is. */
+  async function hostClone(target: PullTarget, host: CodeHost, say?: Say): Promise<Clone | null> {
     const key = `${target.owner}/${target.repo}`
     const address = filled(host.git, target)
     const listed = host.clones[key]
@@ -173,7 +176,19 @@ export function pullCheckout({
       return { folder: listed, remote: address, own: false }
     }
     const folder = ownCloneOf(root, target)
-    if (await isRepository(folder)) return { folder, remote: address, own: true }
+    return (await isRepository(folder)) ? { folder, remote: address, own: true } : null
+  }
+
+  /**
+   * A named host's repository on this Mac: the user's own clone the code host file lists, else hobkin's own, made with
+   * git from the host's git address. Its fetches name that address, so no remote of the user's is used or changed.
+   */
+  async function hostPlace(target: PullTarget, host: CodeHost, say?: Say): Promise<Clone> {
+    const there = await hostClone(target, host, say)
+    if (there) return there
+    const key = `${target.owner}/${target.repo}`
+    const address = filled(host.git, target)
+    const folder = ownCloneOf(root, target)
     say?.(`There is no clone of ${key} from ${host.name} on this Mac, so hobkin makes its own. Its files come from ${host.name} as they are read.`)
     const making = `${folder}.cloning-${process.pid}`
     rmSync(making, { recursive: true, force: true })
@@ -255,6 +270,14 @@ export function pullCheckout({
         await git(clone.folder, 'diff', '--numstat', base, head)
       }
       return { repo: clone.folder, base }
+    },
+    async start(target, { head, baseBranch }) {
+      const host = hostFor(target)
+      const clone = host ? await hostClone(target, host) : null
+      if (!clone || !(await has(clone.folder, head))) return null
+      const { base } = pullRefs(target)
+      await fetchInto(target, clone, [`+refs/heads/${baseBranch}:${base}`])
+      return git(clone.folder, 'merge-base', base, head)
     },
     async deleteBranch(target, branch, sha) {
       const host = hostFor(target)

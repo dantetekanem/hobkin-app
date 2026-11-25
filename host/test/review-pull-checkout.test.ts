@@ -53,6 +53,25 @@ function github(t: TestContext) {
   return { bare, base, head, moveMain }
 }
 
+/** A stack on that "GitHub": the branch `lower` one commit over main, #12's head one commit over it, and a clone to move them in. */
+function stack(t: TestContext, bare: string, base: string) {
+  const work = join(temporaryDirectory(t), 'work')
+  execFileSync('git', ['clone', '--quiet', bare, work])
+  const git = gitAt(work)
+  const commit = (file: string, text: string) => {
+    writeFileSync(join(work, file), text)
+    git('add', file)
+    git('commit', '--quiet', '-m', `Write ${file}`)
+    return git('rev-parse', 'HEAD')
+  }
+  git('checkout', '--quiet', '-b', 'lower', base)
+  const lower = commit('lower.txt', 'one\n')
+  git('push', '--quiet', bare, 'lower')
+  const head = commit('upper.txt', 'two\n')
+  git('push', '--quiet', '--force', bare, `${head}:refs/pull/12/head`)
+  return { git, commit, lower, head }
+}
+
 /** Points a clone's github.com address at the bare repository on disk. */
 const throughDisk = (repo: string, bare: string) => gitAt(repo)('config', `url.file://${bare}.insteadOf`, GITHUB_URL)
 
@@ -182,21 +201,7 @@ test('a clone that fails leaves nothing behind and says why; a head GitHub no lo
 
 test('a layer whose lower layer was force-pushed is read from where its head meets that branch as fetched, though its host still names the old tip', async (t) => {
   const { bare, base } = github(t)
-  const work = join(temporaryDirectory(t), 'work')
-  execFileSync('git', ['clone', '--quiet', bare, work])
-  const git = gitAt(work)
-  const commit = (file: string, text: string) => {
-    writeFileSync(join(work, file), text)
-    git('add', file)
-    git('commit', '--quiet', '-m', `Write ${file}`)
-    return git('rev-parse', 'HEAD')
-  }
-  // The lower layer, and #12 on top of it.
-  git('checkout', '--quiet', '-b', 'lower', base)
-  const lower = commit('lower.txt', 'one\n')
-  git('push', '--quiet', bare, 'lower')
-  const head = commit('upper.txt', 'two\n')
-  git('push', '--quiet', '--force', bare, `${head}:refs/pull/12/head`)
+  const { git, commit, lower, head } = stack(t, bare, base)
   // The lower layer is written again and force-pushed; #12's host still says its base is at the old tip.
   git('checkout', '--quiet', '-B', 'lower', base)
   commit('lower.txt', 'one, again\n')
@@ -242,6 +247,34 @@ test("a pull request on a named code host is fetched from the user's own bare cl
 
   // A host the code host file does not name is refused.
   await assert.rejects(checkout.fetch({ ...target, host: 'other' }, { head, baseBranch: 'main' }), /other is not a code host the code host file names/)
+})
+
+test("where a named host's pull request starts now is asked of its clone: the branch it merges into fetched again and met with its head, and nothing is cloned to say it", async (t) => {
+  const { bare, base } = github(t)
+  const { git, lower, head } = stack(t, bare, base)
+  // Through git's transport, as a clone of the host would be: #12's head, on no branch, is not in it.
+  const clone = join(temporaryDirectory(t), 'shop.git')
+  execFileSync('git', ['clone', '--quiet', '--bare', '--no-local', bare, clone])
+  const corp = { name: 'corp', web: 'https://git.example.invalid', api: ['corp-api'], git: bare.replace('shop.git', '{repo}.git'), headRef: 'refs/pull/{number}/head', clones: { 'acme/shop': clone }, checkout: false, merge: false }
+  const named = { ...target, host: 'corp' }
+  const checkout = pullCheckout({ root: temporaryDirectory(t), folders: () => [], gh: noGh, hostOf: () => corp })
+
+  assert.equal(await checkout.start!(named, { head, baseBranch: 'lower' }), null, 'one never read here has no head here, so there is nothing to say')
+  await checkout.fetch(named, { head, baseBranch: 'lower' })
+  assert.equal(await checkout.start!(named, { head, baseBranch: 'lower' }), lower)
+  // The lower layer is squashed into main, and #12 retargeted there at the same head.
+  git('checkout', '--quiet', 'main')
+  git('merge', '--quiet', '--squash', 'lower')
+  git('commit', '--quiet', '-m', 'Lower layer')
+  git('push', '--quiet', bare, 'main')
+  assert.equal(await checkout.start!(named, { head, baseBranch: 'main' }), base)
+  assert.equal(await checkout.start!(target, { head, baseBranch: 'main' }), null, 'GitHub says it through its API')
+
+  // With no clone of the repository on this Mac, none is made to answer.
+  const root = temporaryDirectory(t)
+  const none = pullCheckout({ root, folders: () => [], gh: noGh, hostOf: () => ({ ...corp, clones: {} }) })
+  assert.equal(await none.start!(named, { head, baseBranch: 'main' }), null)
+  assert.equal(existsSync(ownCloneOf(root, named)), false)
 })
 
 test("a branch on a named code host is deleted with git from the clone it is fetched into, only while it is at the commit shown", async (t) => {

@@ -6,7 +6,7 @@
  */
 import { captureChange, type SizeLimit } from '#shared/review/capture.ts'
 import type { PrepareInput } from '#shared/review/draft.ts'
-import { pullUrl, type ReviewTarget } from '#shared/review/ids.ts'
+import { pullUrl, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
 import type { PullOwner, ReviewStatus } from '#shared/review/status.ts'
 import { SIZE_LIMIT } from '#shared/review/types.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
@@ -157,6 +157,26 @@ export function changeSource({
   }
 }
 
+const SHA = /^[0-9a-f]{40}$/
+
+/** The commits a pull request spans as its host says now, and where it starts once that is known. */
+interface PullRange {
+  head: string
+  /** The tip of the branch it merges into. GitHub always says it; a named host may not. */
+  tip?: string
+  /** That branch, by name, which a named host's clone here fetches. */
+  ref?: string
+  base?: string
+}
+
+/** A pull request's range, or null when its host does not say enough of it: GitHub its base's tip, a named host its base branch. */
+function rangeOf(pull: PullTarget, head: string | null | undefined, base?: { sha?: string; ref?: string }): PullRange | null {
+  const tip = base?.sha && SHA.test(base.sha) ? base.sha : undefined
+  const ref = base?.ref || undefined
+  if (!head || !SHA.test(head) || (pull.host ? !ref : !tip)) return null
+  return { head, tip, ref }
+}
+
 /**
  * A pull request: its title, description and branches read with GET requests only, through gh on GitHub or through
  * the API command of the code host it lives on, and its code from a checkout of it on this Mac, where the review's
@@ -185,8 +205,8 @@ export function pullSource({
   limit?: SizeLimit
 }): ReviewSource {
   const github = githubApi(gh)
-  // A retargeted PR can keep the same head. Compare immutable tips, not today's branch names.
-  const ranges = new Map<string, { head: string; tip: string; base?: string }>()
+  // A retargeted PR can keep the same head, so its range is its head and its base, by tip and by branch, under its review's name.
+  const ranges = new Map<string, PullRange>()
   /** A read on the pull request's own host. */
   const read = (target: PullTarget) => async <Value>(path: string): Promise<Value> => JSON.parse(await (apiOf(target) ?? github)({ path })) as Value
   // Who the user is, when it cannot be said, leaves every pull request someone else's: nothing is merged or closed on a guess.
@@ -205,27 +225,31 @@ export function pullSource({
   return {
     async head(target) {
       const pull = pullOf(target)
-      const answer = await read(pull)<{ state?: string; head?: { sha?: string }; base?: { sha?: string } }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
+      const answer = await read(pull)<{ state?: string; head?: { sha?: string }; base?: { sha?: string; ref?: string } }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
       const head = answer.state === 'open' ? answer.head?.sha : null
-      const tip = answer.base?.sha
-      if (head && tip && /^[0-9a-f]{40}$/.test(tip) && /^[0-9a-f]{40}$/.test(head)) {
-        const key = pullUrl(pull)!
-        const seen = ranges.get(key)
-        if (seen?.tip !== tip || seen.head !== head) ranges.set(key, { head, tip })
-      } else ranges.delete(pullUrl(pull)!)
+      const key = reviewIdOf(pull)
+      const range = rangeOf(pull, head, answer.base)
+      const seen = ranges.get(key)
+      if (!range) ranges.delete(key)
+      else if (seen?.head !== range.head || seen.tip !== range.tip || seen.ref !== range.ref) ranges.set(key, range)
       return head ?? null
     },
     async start(target, head) {
       const pull = pullOf(target)
-      const seen = ranges.get(pullUrl(pull)!)
-      if (pull.host || !seen || seen.head !== head) return null
-      if (!seen.base) {
-        const compared = await read(pull)<{ merge_base_commit?: { sha?: string } }>(`repos/${pull.owner}/${pull.repo}/compare/${seen.tip}...${head}?per_page=1`)
-        const base = compared.merge_base_commit?.sha
-        if (!base || !/^[0-9a-f]{40}$/.test(base)) throw new Error(`GitHub did not identify the merge base of #${pull.number}.`)
-        seen.base = base
+      const seen = ranges.get(reviewIdOf(pull))
+      if (!seen || seen.head !== head) return null
+      if (seen.base) return seen.base
+      if (pull.host) {
+        // A named host is asked nothing more: its clone here fetches the branch it merges into and meets it with the head.
+        const base = (await checkout?.start?.(pull, { head, baseBranch: seen.ref! })) ?? null
+        if (base) seen.base = base
+        return base
       }
-      return seen.base
+      const compared = await read(pull)<{ merge_base_commit?: { sha?: string } }>(`repos/${pull.owner}/${pull.repo}/compare/${seen.tip}...${head}?per_page=1`)
+      const base = compared.merge_base_commit?.sha
+      if (!base || !SHA.test(base)) throw new Error(`GitHub did not identify the merge base of #${pull.number}.`)
+      seen.base = base
+      return base
     },
     async read(target, head, watch = {}) {
       const pull = pullOf(target)
@@ -236,7 +260,8 @@ export function pullSource({
       if (details.head.sha && details.head.sha !== head) throw new Error(`#${pull.number} moved while its details were read. Start its review again.`)
       watch.titled?.(details.title)
       const { repo, base } = await checkout.fetch(pull, { head, baseBranch: details.base.ref, headBranch: details.head.ref }, say)
-      if (details.base.sha) ranges.set(pullUrl(pull)!, { head, tip: details.base.sha, base })
+      const range = rangeOf(pull, head, details.base)
+      if (range) ranges.set(reviewIdOf(pull), { ...range, base })
       // How far behind its base the pull request is, counted in the checkout this read already made.
       const behind = await gitIn(repo, 'rev-list', '--count', `${head}..${pullRefs(pull).base}`).then((count) => Number.parseInt(count, 10), () => null)
       const reader = gitReader(repo)

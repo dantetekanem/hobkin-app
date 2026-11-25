@@ -75,6 +75,42 @@ test("a named host's pull request asked for again at the same commit opens the r
   assert.equal(fetched.length, 1, 'read once: the second ask compares with the base of the review it made')
 })
 
+test("a named host's pull request retargeted at the same commit says its review is outdated, and is drawn again from where it starts now", async (t) => {
+  const { repo, base, head: round } = repository(t)
+  // One more commit on top, so the pull request can start at either commit under it.
+  writeFileSync(join(repo, 'app/cart.rb'), 'class Cart\n  def total = 1.round(2)\nend\n')
+  execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-am', 'Two places'])
+  const head = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+  const startOf: Record<string, string> = { main: base, release: round }
+  let into = 'main'
+  const api: HostApi = async () => JSON.stringify({ state: 'open', title: 'Round the total', body: '', base: { ref: into }, head: { ref: 'round', sha: head }, user: { login: 'dev' } })
+  const fetched: string[] = []
+  const asked: string[] = []
+  const checkout = {
+    fetch: async (_pull: unknown, { baseBranch }: { baseBranch: string }) => (fetched.push(baseBranch), { repo, base: startOf[baseBranch]! }),
+    start: async (_pull: unknown, { baseBranch }: { baseBranch: string }) => (asked.push(baseBranch), startOf[baseBranch]!),
+    repoFor: async () => repo,
+    deleteBranch: async () => {},
+  }
+  const source = pullSource({ gh: async () => ({ kind: 'missing' }), apiOf: () => api, checkout, whoIsMe: async () => ({ viewer: null }) })
+  const reviews = new Reviews({ store: reviewStore(temporaryDirectory(t)), sources: { change: source, pull: source }, work: () => ({ workAction: async () => ({}) }), card: () => null })
+  t.after(() => reviews.close())
+  const id = 'pr:corp:acme/shop/7'
+  reviews.prepare(id)
+  await reviews.settled(id)
+
+  await reviews.lookAgain(id, () => 0)
+  assert.deepEqual([reviews.status(id).stale, asked], [false, []], 'the range it was read over is known: nothing more is asked')
+  into = 'release'
+  await reviews.lookAgain(id, () => 65_000)
+  assert.deepEqual([reviews.status(id).stale, reviews.status(id).startsAt, asked], [true, round, ['release']])
+
+  reviews.prepare(id)
+  await reviews.settled(id)
+  assert.equal(reviews.get(id).review.change.base, round)
+  assert.deepEqual(fetched, ['main', 'release'])
+})
+
 const sample = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const files = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/files.json', import.meta.url), 'utf8')) as ReviewFileContents[]
 
