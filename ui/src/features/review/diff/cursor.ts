@@ -229,18 +229,3 @@ export function clicked(cursor: Cursor | null, line: DiffLine, column: Column, e
   if (extend && cursor && number != null) return { ...cursor, line: number, column: split ? column : cursor.column }
   return cursorOn(line, split ? column : line.kind === 'removed' ? 'old' : 'new')
 }
-
-/**
- * Where the view scrolls to keep the cursor's row, from `start` to `end` pixels down the list, in sight: nowhere while
- * it is in view, else with the row in the middle, or at the top when the row is taller than the view (pi-coder's
- * `getStableDiffScroll`).
- */
-export function stableScroll(current: number, viewport: number, start: number, end: number): number {
-  const height = Math.max(1, viewport)
-  const top = Math.max(0, current)
-  const from = Math.max(0, start)
-  const to = Math.max(from + 1, end)
-  if (from >= top && to <= top + height) return top
-  if (to - from >= height) return from
-  return Math.max(0, from - Math.floor((height - (to - from)) / 2))
-}

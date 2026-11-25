@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { diffFromPatch, diffOf, lineNumberOn, linesIn, revealLines, rowOfLine, splitRows, startView, unifiedRows, type DiffItem, type DiffView, type SplitItem } from '../src/features/review/code/diff-rows.ts'
+import { diffFromPatch, diffOf, lineNumberOn, linesIn, revealLines, rowOfLine, splitRows, stableScroll, startView, unifiedRows, type DiffItem, type DiffView, type SplitItem } from '../src/features/review/code/diff-rows.ts'
 import {
   changeAt,
   changesOf,
@@ -14,7 +14,6 @@ import {
   rangeOf,
   rowsOf,
   snapped,
-  stableScroll,
   toChange,
   type Cursor,
 } from '../src/features/review/diff/cursor.ts'

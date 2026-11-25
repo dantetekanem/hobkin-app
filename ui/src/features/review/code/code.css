@@ -156,6 +156,63 @@
   text-align: center;
 }
 
+/*
+ * The code view (spec 071). A column of the gutter is kept for notes before the line numbers, so a note that comes or
+ * goes moves no line: a square for a comment, a diamond in the question color for a question.
+ */
+.dv[data-glyphs] .dv-line {
+  grid-template-columns: 1.4em var(--dv-gutter) var(--dv-gutter) 1.6em minmax(0, 1fr);
+}
+.dv[data-glyphs] .dv-split .dv-line {
+  grid-template-columns: 1.4em var(--dv-gutter) 1.6em minmax(0, 1fr);
+}
+.dv[data-glyphs] .dv-gap {
+  padding-left: calc(1.4em + var(--dv-gutter) * 2 + 1.6em);
+}
+.dv-glyph {
+  display: flex;
+  height: 1.7em;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  user-select: none;
+}
+.dv-glyph i {
+  width: 6px;
+  height: 6px;
+}
+.dv-glyph i[data-kind='comment'] {
+  border-radius: 1px;
+  background: color-mix(in oklab, var(--hb-code-text) 72%, transparent);
+}
+.dv-glyph i[data-kind='question'] {
+  background: var(--hb-sun-fg);
+  transform: rotate(45deg) scale(0.92);
+}
+
+/* The cursor: a bar across its line, stronger than the selection it ends. Quiet while the keyboard is in the files. */
+.dv-line[data-cursor='true'] {
+  background: color-mix(in oklab, var(--hb-accent) 40%, var(--hb-code-bg));
+  box-shadow: inset 3px 0 0 var(--hb-accent);
+}
+.dv-line[data-cursor='true'] .dv-no {
+  color: var(--hb-code-text);
+}
+.dv-line[data-cursor='quiet'] {
+  box-shadow: inset 3px 0 0 color-mix(in oklab, var(--hb-accent) 60%, transparent);
+}
+
+/* A row drawn under a line, such as the input of a note: indented to the code, in the app's own type. */
+.dv-insert {
+  padding: 0.5em 1.2em 0.7em calc(1.4em + var(--dv-gutter) * 2 + 1.6em);
+  background: color-mix(in oklab, var(--hb-code-text) 5%, var(--hb-code-bg));
+  box-shadow: inset 3px 0 0 var(--hb-accent);
+  color: var(--hb-text);
+  font-family: var(--font-sans);
+  line-height: normal;
+  white-space: normal;
+}
+
 /* Between two shown parts: how many lines are held back, and the ways to see them. */
 .dv-gap {
   display: flex;
