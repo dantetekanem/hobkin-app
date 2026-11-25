@@ -511,6 +511,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
   let turns = 0, recheck;
   const extensionErrors = new Set();
   let takesMessages = false, joining = false;
+  // While the user's message interrupts the turn under way (`interruptWith`).
+  let interrupting = false;
   // A run that can wait (053-run-waits): what the turn asked with `hobkin_wait`, the tools its last reply called, and
   // whether it was told once that Pi's own waits cannot wake it here. Only a run given the tool is told to use it.
   let waitAsked, calledLast = new Set(), toldPiWait = false;
@@ -643,8 +645,10 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       clearTimeout(recheck);
     }
     if (record.type === 'agent_settled') {
-      if (record.aborted === true) child.fail(Object.assign(Error('Pi agent run was aborted.'), { interrupted: true }));
-      else if (!agents.size) void finishUnlessOut();
+      // A stop the user's interrupting message made ends only the turn: the message starts the next one.
+      if (record.aborted === true) {
+        if (!interrupting) child.fail(Object.assign(Error('Pi agent run was aborted.'), { interrupted: true }));
+      } else if (!agents.size) void finishUnlessOut();
     }
     // What the run's first model request was made of, from the usage extension. Only hashes and sizes are kept.
     promptFacts ??= promptFactsIn(record);
@@ -686,10 +690,29 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       throw Error('Pi handled the prompt without starting an assistant response.');
     }
     takesMessages = true;
-    // A plain steer would sit unread while the lead waits on its agents, so this also starts a turn on an idle one.
-    onReady(async (message, images) => {
+    // Pi's force submit for the user's message: what waits in Pi's queue comes back, the turn under way stops, and the
+    // message starts the next turn on the same process at once. The run goes on.
+    const interruptWith = async (message, images) => {
+      const queue = await child.request('clear_queue');
+      interrupting = true;
+      try {
+        await child.request('abort');
+      } finally {
+        interrupting = false;
+      }
+      const response = await child.request('prompt', { message, ...(images?.length ? { images } : {}) });
+      return { ...response, unsent: [...(queue?.steering ?? []), ...(queue?.followUp ?? [])] };
+    };
+    // The user's message waits for the turn as Pi's keys queue it: `steer` (Enter), `follow-up` once the turn would end
+    // (Alt+Enter), or `interrupt`, which stops the turn for it (Control+Enter). `take-back` is Pi's Alt+Up: what waits in
+    // the queue comes out of it, as Pi held it. A plain steer would sit unread while the lead waits on its agents, so it
+    // also starts a turn on an idle one.
+    onReady(async (message, images, how = 'steer') => {
       if (!takesMessages) throw Object.assign(Error('That check has finished.'), { notQueued: true });
-      return child.request('prompt', { message, ...(images?.length ? { images } : {}), streamingBehavior: 'steer' });
+      if (how === 'take-back') return child.request('clear_queue');
+      if (how === 'interrupt') return interruptWith(message, images);
+      const streamingBehavior = how === 'follow-up' ? 'followUp' : 'steer';
+      return child.request('prompt', { message, ...(images?.length ? { images } : {}), streamingBehavior });
     });
     await settled.promise;
     // A job its agent said is done reports what it said then.

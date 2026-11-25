@@ -393,11 +393,12 @@ export class Hobkins {
   }
 
   /**
-   * A waiting hobkin takes the words as its next turn. A working one hears them in the turn it is on. Either way the
-   * user's words give that turn a fresh count of messages between hobkins. `images` are the pictures the user attached,
-   * as Pi's image content, and go with the words either way.
+   * A waiting hobkin takes the words as its next turn. A working one hears them in the turn it is on, as `queue` says, the
+   * way Pi's keys queue a message: `steer` (the default), `follow-up` once the turn would end, or `interrupt`, which stops
+   * the turn for them and gives back what it never read (`unsent`). Either way the user's words give that turn a fresh count
+   * of messages between hobkins. `images` are the pictures the user attached, as Pi's image content, and go with the words.
    */
-  async say(id, { text, noteId, sentAt, images } = {}) {
+  async say(id, { text, noteId, sentAt, images, queue } = {}) {
     // Where the turn these words start begins: the user's Enter, when the window said when that was.
     const began = turnFrom(sentAt);
     const asked = message(text);
@@ -428,12 +429,13 @@ export class Hobkins {
           ...(noteId === undefined ? {} : { noteId }),
           message: asked,
           ...pictures,
+          ...(queue === undefined ? {} : { queue }),
         };
-        const { status } = await this.runner.messageCheck(note, { durable: true });
+        const { status, unsent } = await this.runner.messageCheck(note, { durable: true });
         await this.change(hobkins => {
           if (hobkins[id]?.run === record.run) hobkins[id].count = randomUUID();
         });
-        return { started: false, queued: status === 'queued', run: record.run };
+        return { started: false, queued: status === 'queued', run: record.run, ...(unsent ? { unsent } : {}) };
       } catch (error) {
         // Either the turn has not begun yet, and the words wait for it, or it ended between the look and the message,
         // and they start the next one. A moment settles which.
@@ -442,6 +444,20 @@ export class Hobkins {
       }
     }
     throw Error('That hobkin is between turns. Send the message again.');
+  }
+
+  /** Pi's Alt+Up on a working hobkin: what waits for its turn comes back as the user typed it, and the turn goes on. */
+  async takeBack(id) {
+    const record = live(await this.runtime.state(), id);
+    if (record.state !== 'working') return { unsent: [] };
+    try {
+      const { unsent } = await this.runner.takeBack({ scheduleId: turnSchedule(id), runId: record.run }, { durable: true });
+      return { unsent };
+    } catch (error) {
+      // A turn that ended meanwhile has nothing left waiting.
+      if (/not running|has finished/.test(error.message)) return { unsent: [] };
+      throw error;
+    }
   }
 
   /**

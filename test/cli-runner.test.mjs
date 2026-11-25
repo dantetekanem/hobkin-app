@@ -1217,3 +1217,35 @@ test('a routine changed through the runner shows in its snapshot at once, withou
   await assert.rejects(runner.change('check', { at: '25:00' }), { message: 'at must be HH:mm or a list of 1–48 unique HH:mm times' });
   assert.equal((await runner.snapshot()).schedules[0].at, '10:00');
 });
+
+test('a message to a running check waits as the user chose, and what still waits comes back as they typed it', { timeout: 2000 }, async t => {
+  const runtime = new MemoryRuntime();
+  const runner = new HobkinRunner({ runtime, root: '/unused', config });
+  const noteId = '00000000-0000-4000-8000-000000000001';
+  const waiting = { steering: [`[hobkin-note:${noteId}]\nOnly weekdays`], followUp: ['Then sum it up'] };
+  const sent = [];
+  runner.inboxes.set('run', { reject() {}, promise: Promise.resolve(async (text, images, how) => {
+    sent.push([text, how]);
+    if (how === 'take-back') return waiting;
+    if (how === 'interrupt') return { disposition: 'started', unsent: [...waiting.steering, ...waiting.followUp] };
+    return { disposition: 'queued' };
+  }) });
+  const finish = Promise.withResolvers();
+  const { work } = runner.startTracked({ id: 'run', scheduleId: 'check' }, () => finish.promise);
+  t.after(async () => { finish.resolve({ status: 'completed' }); await work; });
+
+  assert.equal((await runner.messageCheck({ scheduleId: 'check', runId: 'run', noteId, message: 'Only weekdays' })).status, 'queued');
+  assert.equal((await runner.messageCheck({ scheduleId: 'check', runId: 'run', message: 'Then sum it up', queue: 'follow-up' })).status, 'queued');
+  assert.deepEqual(sent.map(([, how]) => how), ['steer', 'follow-up']);
+  await assert.rejects(runner.messageCheck({ scheduleId: 'check', message: 'Sideways', queue: 'sideways' }), error => error.notQueued === true);
+
+  // Taken back, a note keeps its id, and it no longer waits for a receipt.
+  assert.deepEqual(await runner.takeBack({ scheduleId: 'check', runId: 'run' }), { scheduleId: 'check', unsent: [{ noteId, text: 'Only weekdays' }, { text: 'Then sum it up' }] });
+  assert.equal(runner.pendingNotes.size, 0);
+
+  // Interrupting gives back the same way what the stopped turn never read.
+  const interrupted = await runner.messageCheck({ scheduleId: 'check', runId: 'run', message: 'Do this instead', queue: 'interrupt' });
+  assert.deepEqual(interrupted, { scheduleId: 'check', status: 'queued', unsent: [{ noteId, text: 'Only weekdays' }, { text: 'Then sum it up' }] });
+  assert.deepEqual(sent.at(-1), ['Do this instead', 'interrupt']);
+  await assert.rejects(runner.takeBack({ scheduleId: 'other' }), /not running/);
+});

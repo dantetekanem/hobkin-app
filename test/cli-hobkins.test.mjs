@@ -1359,3 +1359,36 @@ test("a waiting hobkin's page on screen starts its Pi process after a restart, a
   await assert.rejects(app.hobkins.pageShown('ffffffff'), /no hobkin with that id/);
   assert.equal(processes.length, 1);
 });
+
+test("a working hobkin takes the user's message as Pi's keys queue it, and gives back what waits for its turn", async t => {
+  const h = fixture(t);
+  const heard = [];
+  let end;
+  // Its turn takes messages the way a turn's Pi does: steered, followed up or interrupting, and gives back its queue.
+  const runHarness = async (request, options) => {
+    if (request.purpose !== 'durable') return { status: 'completed', text: request.prompt, cost: null };
+    end = Promise.withResolvers();
+    options?.onReady?.(async (message, images, how) => {
+      heard.push([how, message]);
+      if (how === 'take-back') return { steering: ['[hobkin-note:00000000-0000-4000-8000-000000000001]\nOnly weekdays.'], followUp: [] };
+      return how === 'interrupt' ? { disposition: 'started', unsent: ['Then sum it up.'] } : { disposition: 'queued' };
+    });
+    return end.promise;
+  };
+  const app = await h.openApp({ runHarness });
+  t.after(() => app.close());
+  const { id } = await app.hobkins.start({ text: 'Plan the week.', cwd: h.folder, engine: { kind: 'tier', tier: 'mid' } });
+  await until(() => end);
+
+  await app.hobkins.say(id, { text: 'Only weekdays.', noteId: '00000000-0000-4000-8000-000000000001' });
+  await app.hobkins.say(id, { text: 'Then sum it up.', queue: 'follow-up' });
+  const interrupted = await app.hobkins.say(id, { text: 'Plan the month instead.', queue: 'interrupt' });
+  assert.deepEqual(heard.map(([how]) => how), ['steer', 'follow-up', 'interrupt']);
+  assert.deepEqual(interrupted, { started: false, queued: true, run: `hobkin:${id}:1`, unsent: [{ text: 'Then sum it up.' }] });
+
+  assert.deepEqual(await app.hobkins.takeBack(id), { unsent: [{ noteId: '00000000-0000-4000-8000-000000000001', text: 'Only weekdays.' }] });
+
+  end.resolve({ status: 'completed', text: 'Planned.', cost: null });
+  await waitingNow(app, id);
+  assert.deepEqual(await app.hobkins.takeBack(id), { unsent: [] }, 'nothing waits for a hobkin that waits');
+});

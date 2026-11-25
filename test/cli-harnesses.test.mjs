@@ -508,6 +508,51 @@ test('a running job takes a message as a steer, until the run is over', async t 
   await assert.rejects(message('too late'), /has finished/);
 });
 
+/** A fake Pi whose first turn waits, as one at work does, with what `clear_queue` and `abort` answer given by the test. */
+const workingPi = (body, { queue = { steering: [], followUp: [] }, abort = 'reply();' } = {}) => rpc(`${teamEvents}
+    ${body}
+  `).replace("} else if (cmd.type === 'abort') {\n      reply();", `} else if (cmd.type === 'clear_queue') {
+      reply(${JSON.stringify(queue)});
+    } else if (cmd.type === 'abort') {
+      ${abort}`);
+
+test('a running job takes a follow-up as Pi does, once its turn would end', async t => {
+  const program = workingPi(`if (cmd.streamingBehavior) {
+      say((cmd.streamingBehavior === 'followUp' ? 'Afterwards: ' : 'Steered: ') + cmd.message);
+      settled();
+    }`);
+
+  const result = await runHarness(request(t), { spawnProcess: fake(program), onReady: send => void send('sum it up', undefined, 'follow-up') });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.text, 'Afterwards: sum it up');
+});
+
+test('a running job gives back what waits in its queue, and goes on', async t => {
+  const program = workingPi(`if (cmd.streamingBehavior === undefined) later(() => { say('Done anyway'); settled(); });`,
+    { queue: { steering: ['[hobkin-note:1]\nonly weekdays'], followUp: ['and sum it up'] } });
+  let taken;
+
+  const result = await runHarness(request(t), { spawnProcess: fake(program), onReady: send => { taken = send(undefined, undefined, 'take-back'); } });
+
+  assert.deepEqual(await taken, { steering: ['[hobkin-note:1]\nonly weekdays'], followUp: ['and sum it up'] });
+  assert.equal(result.status, 'completed');
+  assert.equal(result.text, 'Done anyway');
+});
+
+test('a running job interrupted with a message stops its turn and takes the message at once, giving back what waited', async t => {
+  // The first turn works until it is aborted, and the message starts the next on the same process.
+  const program = workingPi(`if (cmd.message !== 'do this instead') {} else { say('Now: ' + cmd.message); settled(); }`,
+    { queue: { steering: ['only weekdays'], followUp: [] }, abort: "send({ type: 'agent_settled', aborted: true }); reply();" });
+  let interrupted;
+
+  const result = await runHarness(request(t), { spawnProcess: fake(program), onReady: send => { interrupted = send('do this instead', undefined, 'interrupt'); } });
+
+  assert.deepEqual(await interrupted, { disposition: 'started', unsent: ['only weekdays'] });
+  assert.equal(result.status, 'completed', 'the run goes on: only its turn was stopped');
+  assert.equal(result.text, 'Now: do this instead');
+});
+
 test('images the user attached go to Pi with the first prompt and with a steer', async t => {
   const chart = { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' };
   const photo = { type: 'image', data: 'cGhvdG8=', mimeType: 'image/jpeg' };

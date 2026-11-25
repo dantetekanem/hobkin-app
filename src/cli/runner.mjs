@@ -190,6 +190,8 @@ const noteUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 // What a workflow's start hands its run, as JSON, at most this big.
 const MOST_INPUT_BYTES = 32768;
 const notQueued = message => Object.assign(Error(message), { notQueued: true });
+// How the user's message waits for a running check's turn, as Pi's keys queue it (`runHarness`'s inbox).
+const MESSAGE_QUEUES = ['steer', 'follow-up', 'interrupt'];
 // What a living job last said, as the main agent hears it, at most this long.
 const LONGEST_SAID = 4000;
 
@@ -673,7 +675,7 @@ export class HobkinRunner {
    * A check shows as running before Pi is ready for it, so a message sent that early waits. With no schedule named, lists what is running.
    * `images` are the pictures the user attached to the words, as Pi's image content, and go with them.
    */
-  async messageCheck({ scheduleId, runId, noteId, message, images }, { durable = false } = {}) {
+  async messageCheck({ scheduleId, runId, noteId, message, images, queue }, { durable = false } = {}) {
     const runs = Object.values((await this.runtime.state()).runs);
     // A durable hobkin's turn is the user's alone, so only its own page reaches it (`hobkins.mjs`), never the main agent's tool.
     const reachable = runs.filter(run => run.status === 'running' && this.inboxes.has(run.id) && (durable || !run.hobkin));
@@ -682,6 +684,7 @@ export class HobkinRunner {
     const run = reachable.find(item => item.scheduleId === scheduleId && (runId === undefined || item.id === runId));
     if (!run) throw notQueued('That check is not running.');
     if (typeof message !== 'string' || !message.trim() || message.length > 4096) throw notQueued('Say what to tell the check in at most 4096 characters.');
+    if (queue !== undefined && !MESSAGE_QUEUES.includes(queue)) throw notQueued('A message waits for the turn as steer, follow-up or interrupt.');
     if (noteId !== undefined && (!runId || typeof noteId !== 'string' || !noteUuid.test(noteId))) throw notQueued('Invalid steering note identity.');
     const unsendable = imagesProblem(images);
     if (unsendable) throw notQueued(unsendable);
@@ -698,9 +701,12 @@ export class HobkinRunner {
       this.pendingNotes.set(key, { runId: run.id, noteId, text, images: pictures?.length ?? 0 });
     }
     try {
-      const disposition = (await send(text, pictures))?.disposition;
+      const sent = await send(text, pictures, queue ?? 'steer');
+      const disposition = sent?.disposition;
       if (disposition === 'handled') this.pendingNotes.delete(key);
-      return { scheduleId, status: disposition === 'started' || disposition === 'queued' ? 'queued' : disposition === 'handled' ? 'handled' : 'unconfirmed' };
+      const status = disposition === 'started' || disposition === 'queued' ? 'queued' : disposition === 'handled' ? 'handled' : 'unconfirmed';
+      // What the turn it interrupted never read comes back, for the user's input.
+      return { scheduleId, status, ...(queue === 'interrupt' ? { unsent: this.givenBack(run.id, sent?.unsent) } : {}) };
     } catch (error) {
       if (error.commandRejected) {
         this.pendingNotes.delete(key);
@@ -708,6 +714,30 @@ export class HobkinRunner {
       }
       throw error;
     }
+  }
+
+  /**
+   * Pi's Alt+Up for a running check: what waits in its queue comes out, as the user typed it, and the check goes on. A note keeps
+   * its id, and stops waiting for a receipt.
+   */
+  async takeBack({ scheduleId, runId }, { durable = false } = {}) {
+    const runs = Object.values((await this.runtime.state()).runs);
+    const run = runs.find(item => item.status === 'running' && this.inboxes.has(item.id) && (durable || !item.hobkin)
+      && item.scheduleId === scheduleId && (runId === undefined || item.id === runId));
+    if (!run) throw notQueued('That check is not running.');
+    const send = await this.inboxes.get(run.id).promise;
+    const queue = await send(undefined, undefined, 'take-back');
+    return { scheduleId, unsent: this.givenBack(run.id, [...(queue?.steering ?? []), ...(queue?.followUp ?? [])]) };
+  }
+
+  /** Messages Pi gave back unread, as the user typed them: a note's mark comes off, and its id goes with it. */
+  givenBack(runId, texts = []) {
+    return texts.filter(text => typeof text === 'string').map(text => {
+      const [, noteId, words] = text.match(/^\[hobkin-note:([0-9a-f-]{36})\]\n([\s\S]*)$/i) ?? [];
+      if (!noteId) return { text };
+      this.pendingNotes.delete(JSON.stringify([runId, noteId]));
+      return { noteId, text: words };
+    });
   }
 
   /**
