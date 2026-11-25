@@ -200,19 +200,19 @@ test('unsafe, hidden and malformed records are ignored; visible content stays te
 const child = (rootId, id, status = 'running', parentId = rootId) => ({
   id, parentId, rootId, depth: parentId === rootId ? 1 : 2, name: 'same name', status,
 });
-test('owned-publication projects exact ancestry, and a helper row says only who it is and how it stands', () => {
+test('owned-publication projects exact ancestry, and a helper row says only who it is, how it stands and what it runs on', () => {
   assert.equal(typeof activity.OwnedActivity, 'function');
   const display = new activity.OwnedActivity();
   display.track('root');
   const rows = [
-    { ...child('root', 'child'), usage: { private: 'SECRET' }, lastActivityAt: 1, performance: { steps: ['SECRET'] } },
+    { ...child('root', 'child'), model: 'openai-codex/gpt-6-luna', thinking: 'high', usage: { private: 'SECRET' }, lastActivityAt: 1, performance: { steps: ['SECRET'] } },
     child('root', 'grandchild', 'unknown', 'child'),
   ];
   const view = display.project(rows).root;
   assert.deepEqual(view, [
-    { id: 'child', parentId: 'root', rootId: 'root', depth: 1, name: 'same name', state: 'running' },
+    { id: 'child', parentId: 'root', rootId: 'root', depth: 1, name: 'same name', state: 'running', model: 'openai-codex/gpt-6-luna', thinking: 'high' },
     { id: 'grandchild', parentId: 'child', rootId: 'root', depth: 2, name: 'same name', state: 'unknown' },
-  ]);
+  ], 'a row that names no model or level leaves them out');
   view[1].state = 'completed';
   assert.equal(display.project(rows).root[1].state, 'unknown');
 });

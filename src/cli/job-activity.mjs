@@ -67,7 +67,7 @@ const TERMINAL_CHILD = new Set(['completed', 'failed', 'cancelled']);
 
 /**
  * Disposable display groups, never execution targets or custody. Only admitted roots are tracked. A helper's row says
- * who it is and how it stands, never its words or calls: nothing draws them.
+ * who it is, how it stands and the model and thinking level it runs on, never its words or calls: nothing draws them.
  */
 export class OwnedActivity {
   groups = new Map();
@@ -82,8 +82,12 @@ export class OwnedActivity {
     for (const row of snapshot) {
       const group = this.groups.get(row.rootId);
       if (!group || (!group.children.has(row.id) && group.children.size >= 32)) continue;
-      const { id, parentId, rootId, depth, name, status } = row;
-      group.children.set(id, { id, parentId, rootId, depth, name, state: status });
+      const { id, parentId, rootId, depth, name, status, model, thinking } = row;
+      group.children.set(id, {
+        id, parentId, rootId, depth, name, state: status,
+        ...(model ? { model } : {}),
+        ...(thinking ? { thinking } : {}),
+      });
     }
     for (const [id, group] of this.groups) {
       if (group.settled && !group.children.size) this.groups.delete(id);
