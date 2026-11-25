@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { COMMANDS } from '#shared/commands/registry.ts'
-import type { AgentSchedule } from '#shared/protocol/schedules.ts'
+import type { AgentSchedule, AgentScheduleRuns } from '#shared/protocol/schedules.ts'
 import { createClientTool } from '../src/client-tool.ts'
 import { runCommand, Unavailable } from '../src/commands.ts'
-import { AgentScheduleReader, scheduleEnvironmentOf, scheduleHandlers, scheduleOperationsOf, type ScheduleOperations } from '../src/schedules.ts'
+import { AgentScheduleReader, scheduleEnvironmentOf, scheduleHandlers, scheduleOperationsOf, scheduleRunsOf, type ScheduleOperations } from '../src/schedules.ts'
 
 const WATCH: AgentSchedule = { id: 'sch-1', owner: { kind: 'run', id: 'session:ship' }, name: 'Watch CI for #412', does: 'shell', command: 'gh pr checks 412', state: 'waiting', every: 120 }
 const NAP: AgentSchedule = { id: 'sch-2', owner: { kind: 'main' }, does: 'wake', note: 'Look at the deploy.', state: 'paused' }
@@ -250,4 +250,69 @@ test('a snapshot from a runtime with no schedules passes as it came, and one who
   Object.defineProperty(throwing, 'agentSchedules', { enumerable: true, get: () => assert.fail('a getter the runtime broke') })
   assert.deepEqual(reader.wire(throwing), { busy: true })
   assert.equal(reader.read(throwing), undefined)
+})
+
+/** What hobkin's application answers for one agent's schedules and their runs, with rows the window cannot place. */
+const RUNS_ANSWER = {
+  schedules: [
+    {
+      id: 'sch-1',
+      name: 'Watch CI for #412',
+      does: 'shell',
+      command: 'gh pr checks 412',
+      runs: [
+        { at: '2026-11-25T14:02:03.000Z', startedAt: '2026-11-25T14:02:00.000Z', outcome: 'pending', exitCode: 8, woke: false, line: 'checks pending', tail: `${'x'.repeat(3000)}\nchecks pending` },
+        { at: 'not a time', outcome: 'passed' },
+        { at: '2026-11-25T14:04:01.000Z', outcome: 'sleeping' },
+        { at: '2026-11-25T14:04:04.000Z', startedAt: '2026-11-25T14:04:00.000Z', outcome: 'failed', exitCode: 1, woke: true },
+      ],
+    },
+    { id: 'sch-2', does: 'wake', runs: 'none' },
+    { name: 'no id', runs: [] },
+  ],
+}
+
+test("schedule.runs reads one agent's schedules and their runs from the application's own method, without trust", async () => {
+  const asked: unknown[] = []
+  const app = { agentScheduleRuns: (owner: unknown) => (asked.push(owner), RUNS_ANSWER) }
+  const handlers = scheduleHandlers({ operations: () => null, schedules: () => [], runs: () => scheduleRunsOf(app) })
+
+  const said = await runCommand(handlers, 'schedule.runs', { kind: 'hobkin', id: 'a1b2c3d4' })
+  assert.ok(said.ok)
+  const { schedules } = said.value as { schedules: AgentScheduleRuns[] }
+  const [watch, nap] = schedules
+  assert.deepEqual(asked, [{ kind: 'hobkin', id: 'a1b2c3d4' }])
+  assert.deepEqual([watch!.id, watch!.name, watch!.does, watch!.command], ['sch-1', 'Watch CI for #412', 'shell', 'gh pr checks 412'])
+  assert.deepEqual(
+    watch!.runs.map(({ outcome, exitCode, woke }) => [outcome, exitCode, woke]),
+    [['pending', 8, false], ['failed', 1, true]],
+    'a run with no time, or an outcome the window cannot place, is dropped',
+  )
+  assert.equal(watch!.runs[0]!.startedAt, '2026-11-25T14:02:00.000Z')
+  assert.ok(watch!.runs[0]!.tail!.endsWith('\nchecks pending'), 'what it printed last is kept')
+  assert.ok(watch!.runs[0]!.tail!.length <= 2000)
+  assert.deepEqual(nap, { id: 'sch-2', does: 'wake', runs: [] })
+  assert.equal(schedules.length, 2, 'a row with no id is dropped')
+
+  await runCommand(handlers, 'schedule.runs', { kind: 'main' })
+  assert.deepEqual(asked.at(-1), { kind: 'main' })
+})
+
+test('schedule.runs answers none from a runtime without runs, and checks whose runs it asks for', async () => {
+  for (const app of [{}, { agentScheduleRuns: 'not a method' }]) {
+    const handlers = scheduleHandlers({ operations: () => null, schedules: () => [], runs: () => scheduleRunsOf(app) })
+    assert.deepEqual(await runCommand(handlers, 'schedule.runs', { kind: 'main' }), { ok: true, value: { schedules: [] } })
+  }
+  const odd = scheduleHandlers({ operations: () => null, schedules: () => [], runs: () => scheduleRunsOf({ agentScheduleRuns: () => 'odd' }) })
+  assert.deepEqual(await runCommand(odd, 'schedule.runs', { kind: 'run', id: 'session:ship' }), { ok: true, value: { schedules: [] } })
+
+  const starting = scheduleHandlers({ operations: () => null, schedules: () => [], runs: () => { throw new Unavailable('hobkin is still starting.') } })
+  assert.ok(refused('hobkin is still starting.')(await runCommand(starting, 'schedule.runs', { kind: 'main' })))
+
+  for (const args of [{}, { kind: 'main', id: 'a1b2c3d4' }, { kind: 'run' }, { kind: 'hobkin', id: '' }, { kind: 'team' }]) {
+    const said = await runCommand(odd, 'schedule.runs', args)
+    assert.equal(!said.ok && said.error.code, 'invalid-arguments', JSON.stringify(args))
+  }
+  assert.equal(COMMANDS['schedule.runs'].runs, 'host')
+  assert.equal('hobkin' in COMMANDS['schedule.runs'], false, 'only the window reads them')
 })

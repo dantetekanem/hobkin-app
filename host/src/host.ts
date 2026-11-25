@@ -63,7 +63,7 @@ import { readsOf, Windows } from './windows.ts'
 import { TurnRelay } from './turn-relay.ts'
 import { ActivityKeeper } from './activity.ts'
 import { agentHandlers } from './agents.ts'
-import { AgentScheduleReader, scheduleEnvironmentOf, scheduleHandlers, scheduleOperationsOf } from './schedules.ts'
+import { AgentScheduleReader, scheduleEnvironmentOf, scheduleHandlers, scheduleOperationsOf, scheduleRunsOf } from './schedules.ts'
 import { memoryHandlers, memoryOperationsAt } from './memories.ts'
 import { hobkinHandlers } from './hobkins.ts'
 import { routineHandlers } from './routines.ts'
@@ -794,7 +794,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...guideHandlers({ root: () => hobkin().runtime.directory, refresh: () => hobkin().refresh() }),
     ...catchUpHandlers({ app: hobkin }),
     ...folderPickHandlers({ pick: options.pickFolder ?? (async () => null) }),
-    ...scheduleHandlers({ operations: () => scheduleOperationsOf(hobkin()), schedules: () => agentSchedules.read(owner.snapshot) }),
+    ...scheduleHandlers({ operations: () => scheduleOperationsOf(hobkin()), schedules: () => agentSchedules.read(owner.snapshot), runs: () => scheduleRunsOf(hobkin()) }),
     // What hobkin remembers for every agent, on the window's Memory page, through hobkin's own memory functions (057).
     ...memoryHandlers({ operations: () => memoryOperationsAt(owner.app?.runtime.directory ?? resolveDataRoot(root)) }),
     // Durable hobkins (034-durable-hobkins): hobkin's runtime keeps them, and the host checks only what it knows.

@@ -68,6 +68,32 @@ export interface AgentSchedule {
   endedWhy?: string
 }
 
+/**
+ * One run of a schedule as its agent's conversation shows it (`schedule.runs`): what the newest run says, with when it
+ * began and the last lines it printed.
+ */
+export interface AgentScheduleRunRecord extends AgentScheduleRun {
+  /** When it began, as an ISO time. Missing for a run a restart cut off. */
+  startedAt?: string
+  /** The last lines it printed, with what went to stderr marked. Missing for a plain wake and a run that printed nothing. */
+  tail?: string
+}
+
+/** A schedule with its runs, oldest first, as `schedule.runs` answers for one agent. */
+export interface AgentScheduleRuns {
+  id: string
+  name?: string
+  does?: 'shell' | 'wake'
+  command?: string
+  runs: AgentScheduleRunRecord[]
+}
+
+/** What `schedule.runs` takes: whose schedules, the main chat or a durable hobkin or a run by its id. */
+export interface ScheduleRunsOf {
+  kind: AgentScheduleOwner['kind']
+  id?: string
+}
+
 /** What `schedule.cancel` and `schedule.run` take. Only the window sends them. */
 export interface ScheduleTarget {
   id: string
@@ -89,6 +115,9 @@ const OWNERS: readonly AgentScheduleOwner['kind'][] = ['main', 'hobkin', 'run']
 const ID_MAX = 128
 /** As long as the tools let an agent write each, and the rest short enough for a row. */
 const WORDS_MAX = { name: 80, command: 4000, note: 1000, ownerTitle: 120, endedWhy: 200, line: 200 } as const
+/** The most runs of one schedule the window reads, as many as hobkin keeps, and the most of a run's last lines. */
+export const SCHEDULE_RUNS_MAX = 200
+const TAIL_MAX = 2000
 
 type Row = Record<string, unknown>
 
@@ -170,6 +199,54 @@ export function readAgentSchedules(value: unknown): AgentSchedule[] | undefined 
   for (const row of value) {
     if (schedules.length >= AGENT_SCHEDULES_MAX) break
     const schedule = scheduleOf(row)
+    if (!schedule || seen.has(schedule.id)) continue
+    seen.add(schedule.id)
+    schedules.push(schedule)
+  }
+  return schedules
+}
+
+/** The end of what a run printed, no longer than `most`, cut after a character that would be split in two. */
+function tailOf(value: unknown, most: number): string | undefined {
+  if (typeof value !== 'string' || !value) return undefined
+  if (value.length <= most) return value
+  const start = /[\uDC00-\uDFFF]/.test(value[value.length - most]!) ? value.length - most + 1 : value.length - most
+  return value.slice(start)
+}
+
+function runOf(value: unknown): AgentScheduleRunRecord | undefined {
+  const run = lastOf(value)
+  if (!run || !isRow(value)) return undefined
+  return present<AgentScheduleRunRecord>({ ...run, startedAt: timeOf(value.startedAt), tail: tailOf(value.tail, TAIL_MAX) })
+}
+
+function scheduleRunsOf(value: unknown): AgentScheduleRuns | undefined {
+  if (!isRow(value)) return undefined
+  const id = idOf(value.id)
+  if (!id) return undefined
+  const runs = Array.isArray(value.runs) ? value.runs.slice(-SCHEDULE_RUNS_MAX).map(runOf).filter((run) => run !== undefined) : []
+  return {
+    ...present<Omit<AgentScheduleRuns, 'id' | 'runs'>>({
+      name: cut(value.name, WORDS_MAX.name),
+      does: oneOf(['shell', 'wake'] as const, value.does),
+      command: cut(value.command, WORDS_MAX.command),
+    }),
+    id,
+    runs,
+  }
+}
+
+/**
+ * The runtime's answer to `schedule.runs` read without trust: each schedule with an id kept once, each run with a time
+ * and an outcome the window can place, words cut short, and only the newest runs a schedule may keep.
+ */
+export function readScheduleRuns(value: unknown): AgentScheduleRuns[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const schedules: AgentScheduleRuns[] = []
+  for (const row of value) {
+    if (schedules.length >= AGENT_SCHEDULES_MAX) break
+    const schedule = scheduleRunsOf(row)
     if (!schedule || seen.has(schedule.id)) continue
     seen.add(schedule.id)
     schedules.push(schedule)

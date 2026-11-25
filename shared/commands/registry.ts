@@ -19,6 +19,7 @@ import { INTEGRATION_ID, type IntegrationManifest } from '../integration/manifes
 import type { SystemMetrics, UsageFacts } from '../protocol/system.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
 import type { ShellFields } from '../protocol/snapshot.ts'
+import type { AgentScheduleRuns } from '../protocol/schedules.ts'
 import {
   COMPUTER_KINDS,
   PROFILE_TEXT_MAX,
@@ -1323,6 +1324,12 @@ export const COMMANDS = {
     args: Type.Object({ id: scheduleId }, { additionalProperties: false }),
     outside: true,
   },
+  'schedule.runs': {
+    description: "Read one agent's schedules with each run they made, oldest first, for its conversation: the main chat's, a durable hobkin's by its id, or a run's by its id.",
+    runs: 'host',
+    args: Type.Object({ kind: oneOf(['main', 'hobkin', 'run']), id: Type.Optional(scheduleId) }, { additionalProperties: false }),
+    rule: ({ kind, id }) => ((kind === 'main') === (id === undefined) ? null : kind === 'main' ? 'the main chat has no id' : 'need the id of the hobkin or run'),
+  },
   // What hobkin remembers for every agent it runs (057-shared-memory), on the window's Memory page. hobkin's own agents
   // change memories with their own tools and rules, so only the window sends the four that change them.
   'memory.list': {
@@ -1714,6 +1721,7 @@ export interface CommandResults {
   'schedule.cancel': { ok: true }
   'schedule.pause': { ok: true }
   'schedule.run': { ok: true }
+  'schedule.runs': { schedules: AgentScheduleRuns[] }
   /** A refusal of a change comes as its answer, in plain words, so the window keeps the user's draft and says why. */
   'memory.list': MemoryList
   'memory.save': MemorySaved

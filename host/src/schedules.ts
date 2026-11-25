@@ -1,4 +1,4 @@
-import { ENDED_SCHEDULE_STATES, readAgentSchedules, type AgentSchedule } from '#shared/protocol/schedules.ts'
+import { ENDED_SCHEDULE_STATES, readAgentSchedules, readScheduleRuns, type AgentSchedule, type ScheduleRunsOf } from '#shared/protocol/schedules.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
 
 /**
@@ -37,6 +37,16 @@ export function scheduleOperationsOf(app: object): ScheduleOperations | null {
   }
 }
 
+/** How one agent's schedules and their runs are read from the application, by its own method. */
+export type ScheduleRunsReader = (owner: ScheduleRunsOf) => unknown
+
+/** The application's own reader of an agent's schedule runs, or nothing from a runtime that keeps none. */
+export function scheduleRunsOf(app: object | null | undefined): ScheduleRunsReader | null {
+  const runs = (app as { agentScheduleRuns?: unknown } | null | undefined)?.agentScheduleRuns
+  if (!isMethod(runs)) return null
+  return (owner) => runs.call(app, owner)
+}
+
 /**
  * What the application gives a run on Claude Code for `hobkin schedule`: its token and home, or null for a run that
  * keeps no schedules and from a runtime without them. The route checks what comes back.
@@ -52,6 +62,8 @@ export interface ScheduleSeat {
   operations: () => ScheduleOperations | null | undefined
   /** The schedules as the window has them now, or nothing from a runtime that sends none. */
   schedules: () => readonly AgentSchedule[] | undefined
+  /** The runtime's reader of an agent's schedule runs, or nothing from one that keeps none. Throws `Unavailable` while hobkin is not open. */
+  runs?: () => ScheduleRunsReader | null | undefined
 }
 
 const NOT_AVAILABLE = 'Schedules are not available in this hobkin yet. Restart the app to load them.'
@@ -80,7 +92,9 @@ function answered(answer: unknown): { ok: true } {
   throw new Unavailable(saidWhy ? reason.slice(0, REASON_MAX) : NO_ANSWER)
 }
 
-export function scheduleHandlers({ operations, schedules }: ScheduleSeat): Pick<HostHandlers, 'schedule.cancel' | 'schedule.pause' | 'schedule.run'> {
+type ScheduleCommand = 'schedule.cancel' | 'schedule.pause' | 'schedule.run' | 'schedule.runs'
+
+export function scheduleHandlers({ operations, schedules, runs }: ScheduleSeat): Pick<HostHandlers, ScheduleCommand> {
   /** The runtime's operations. hobkin not open says so; a runtime without them, or one that breaks reaching them, has none. */
   const available = (): ScheduleOperations => {
     let found: ScheduleOperations | null | undefined
@@ -107,6 +121,13 @@ export function scheduleHandlers({ operations, schedules }: ScheduleSeat): Pick<
     'schedule.cancel': ({ id }) => act(id, 'there is nothing to cancel', (runtime) => runtime.cancel(id)),
     'schedule.pause': ({ id, paused }) => act(id, paused ? 'it cannot be paused' : 'it cannot go on', (runtime) => runtime.pause(id, paused)),
     'schedule.run': ({ id }) => act(id, 'it cannot run now', (runtime) => runtime.run(id)),
+    // A runtime that keeps no runs has none to show, so its pages show none.
+    'schedule.runs': async ({ kind, id }) => {
+      const read = runs?.()
+      if (!read) return { schedules: [] }
+      const answer = await read(id === undefined ? { kind } : { kind, id })
+      return { schedules: readScheduleRuns((answer as { schedules?: unknown } | null | undefined)?.schedules) }
+    },
   }
 }
 
