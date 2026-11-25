@@ -366,6 +366,24 @@ test('a second message steers the running turn; clearing and aborting reach Pi',
   assert.ok(h.fake.children[0].stdin.writableEnded, 'the old child was asked to exit');
 });
 
+test('a follow-up for the running turn reaches Pi as its follow-up, and taking the queue back clears it', async t => {
+  const h = fixture(t, { script: { clear_queue: reply => reply({ steering: [], followUp: ['after that'] }) } });
+  const runtime = await h.connected();
+  h.fake.gate = Promise.withResolvers();
+  await runtime.send('first', 'message:first');
+  await until(() => runtime.main.isStreaming, 'the run to start');
+  assert.deepEqual(await runtime.send('after that', 'message:later', undefined, undefined, undefined, 'follow-up'), { id: 'message:later', queued: true });
+  assert.deepEqual(h.fake.received.filter(record => record.type === 'follow_up').map(record => record.message), ['after that']);
+  assert.equal(h.fake.received.filter(record => record.type === 'steer').length, 0);
+
+  assert.deepEqual(await runtime.dequeue(), ['after that']);
+  assert.equal((await runtime.state()).runs['message:later'].status, 'interrupted');
+  assert.ok(runtime.main.isStreaming, 'the turn goes on');
+  h.fake.gate.resolve();
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['message:first'].status, 'completed');
+});
+
 test('a chat behind a launcher compacts through its Pi child', async t => {
   const h = fixture(t, { script: { compact: reply => reply({ summary: 'short' }) } });
   const runtime = await h.connected();

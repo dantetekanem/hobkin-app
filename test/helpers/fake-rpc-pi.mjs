@@ -115,6 +115,7 @@ export function fakePiRpc({ model = { provider: 'fixture', id: 'local' }, thinki
         reply();
       },
       steer: reply => reply({ disposition: 'queued' }),
+      follow_up: reply => reply({ disposition: 'queued' }),
       clear_queue: reply => reply({ steering: [], followUp: [] }),
       abort: reply => {
         pi.aborted = true;

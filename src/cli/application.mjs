@@ -165,6 +165,8 @@ function idleFields(run, idle) {
 }
 
 const BUSY_RETRY_MS = 100;
+// What Continue sends after the user stopped a turn: the word they would type in Pi, which has no way to resume a stopped run.
+const CONTINUE_WORDS = 'Continue';
 // Events that come together go out as one publish this long after the first, and a rebuild is asked for this soon too.
 const REFRESH_DELAY_MS = 25;
 // The window shows growing words every 100 ms, so activity goes out no oftener than this.
@@ -611,6 +613,7 @@ export class HobkinApplication {
       teamsAgents: this.teamsAgents?.snapshot() ?? {},
       mainActivity: this.runtime.mainActivity(),
       busy: this.runtime.mainBusy,
+      mainStopped: this.runtime.stoppedTurn,
       searching: searchingTool(this.runtime.mainTool),
       tooling: Boolean(this.runtime.mainTool),
       doing: this.runtime.mainDoing ?? null,
@@ -936,6 +939,8 @@ export class HobkinApplication {
       connection: 'connected',
       unread: this.unread,
       busy: this.runtime.mainBusy,
+      // The main turn the user stopped, while nothing has started since: Chat offers to continue it.
+      mainStopped: this.runtime.stoppedTurn,
       searching: searchingTool(this.runtime.mainTool),
       tooling: Boolean(this.runtime.mainTool),
       doing: this.runtime.mainDoing ?? null,
@@ -979,12 +984,13 @@ export class HobkinApplication {
     if (kind) recordEvent(this.runtime.directory, 'work_paused', { pause: kind });
   }
 
-  // Messages go out in the order they were typed, and one the conversation cannot take yet waits here.
-  send(text, report, images = [], { sentAt } = {}) {
+  // Messages go out in the order they were typed, and one the conversation cannot take yet waits here. During a turn `queue` says how it
+  // waits for that turn: `steer`, or `follow-up` once the turn would end.
+  send(text, report, images = [], { sentAt, queue } = {}) {
     // Where the turn's clock starts, read before the message waits its place: the user's Enter when the window said when that was.
     const turn = turnFrom(sentAt);
     this.sending++;
-    const sent = this.outgoing.then(() => this.deliver(text, report, images, turn)).finally(() => { this.sending--; });
+    const sent = this.outgoing.then(() => this.deliver(text, report, images, turn, queue)).finally(() => { this.sending--; });
     this.outgoing = sent.catch(() => {});
     return sent;
   }
@@ -1010,7 +1016,7 @@ export class HobkinApplication {
       report: savedReportPath(this.runtime.directory, id), partialResult: Boolean(run.result.text) };
   }
 
-  async deliver(text, report, images = [], turn) {
+  async deliver(text, report, images = [], turn, queue) {
     // A main chat whose Pi ended opens the same conversation again for the user's next message.
     await this.runtime.reopenMain();
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
@@ -1039,7 +1045,7 @@ export class HobkinApplication {
     this.carrying().add(carried);
     let accepted;
     try {
-      accepted = await this.sendWhenFree(`${notes}${since}${message}`, images, turn, read => this.heard(carried, read));
+      accepted = await this.sendWhenFree(`${notes}${since}${message}`, images, turn, read => this.heard(carried, read), queue);
     } catch (error) {
       this.carrying().delete(carried);
       throw error;
@@ -1112,11 +1118,11 @@ export class HobkinApplication {
     if (carried.briefedAt) writeBriefState(root, { briefedAt: carried.briefedAt });
   }
 
-  async sendWhenFree(message, attachments, turn, onRead) {
+  async sendWhenFree(message, attachments, turn, onRead, queue) {
     const images = attachments.length ? this.pastedImages.contents(attachments) : undefined;
     for (;;) {
       try {
-        return await this.runtime.send(message, undefined, images, turn, onRead);
+        return await this.runtime.send(message, undefined, images, turn, onRead, queue);
       } catch (error) {
         if (error.message !== MAIN_BUSY) throw error;
         // Only a turn, or a chat too full to wait, holds what the user sent. A compaction hobkin began early gives way.
@@ -1405,6 +1411,23 @@ export class HobkinApplication {
     await this.refreshing?.catch(() => {});
     await this.refresh();
     return recovery.unsent;
+  }
+
+  /** Pi's Alt+Up: what waits for the running turn comes back as the user typed it, for the input, and the turn goes on. */
+  async dequeue() {
+    const taken = await this.runtime.dequeue();
+    this.requestRefresh();
+    return taken.map(text => typedPart(text).text).filter(text => text.trim());
+  }
+
+  /**
+   * Continue after the user stopped a turn. Pi cannot resume a stopped run: its RPC has no such command, and its agent does not continue
+   * from the reply the stop cut short. So the word goes as the user's own message, as they would type it in Pi, and the main agent hears
+   * with it that they stopped its turn.
+   */
+  async continueStopped({ sentAt } = {}) {
+    if (!this.runtime.stoppedTurn) throw Error('Nothing to continue: the last turn was not one you stopped.');
+    return this.send(CONTINUE_WORDS, undefined, [], { sentAt });
   }
 
   recoverMainStop(turn, confirmed = true) {

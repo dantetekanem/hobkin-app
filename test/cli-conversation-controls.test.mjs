@@ -215,3 +215,44 @@ test('a stop ends the owned turn at once, keeps the conversation and hands back 
   call.finish();
   await h.runtime.idle();
 });
+
+test('a follow-up waits for the turn to end, after anything steered into it, and belongs to that turn', async t => {
+  const h = await fixture(t);
+  await h.runtime.send('Original request', 'original');
+  const first = await h.nextCall();
+  assert.equal((await h.runtime.send('Then summarize', 'later', undefined, undefined, undefined, 'follow-up')).queued, true);
+  assert.equal((await h.runtime.send('Use the corrected scope', 'correction')).queued, true);
+
+  first.finish();
+  const second = await h.nextCall();
+  assert.deepEqual(text(second.messages), ['Original request', 'Use the corrected scope'], 'the steered message goes first');
+  second.finish();
+  const third = await h.nextCall();
+  assert.deepEqual(text(third.messages), ['Original request', 'Use the corrected scope', 'Then summarize']);
+  third.finish();
+  await h.runtime.idle();
+
+  const { runs } = await h.runtime.state();
+  assert.deepEqual([runs.later.title, runs.later.parentRunId, runs.later.status], ['Follow-up', 'original', 'completed']);
+  assert.equal(runs.correction.title, 'Steering');
+  await assert.rejects(h.runtime.send('Sideways', 'odd', undefined, undefined, undefined, 'sideways'), /queue/i);
+});
+
+test('taking the queue back leaves the turn running and what was queued unread', async t => {
+  const h = await fixture(t);
+  assert.deepEqual(await h.runtime.dequeue(), [], 'with no turn running nothing waits');
+  await h.runtime.send('Original request', 'original');
+  const first = await h.nextCall();
+  await h.runtime.send('Use the corrected scope', 'correction');
+  await h.runtime.send('Then summarize', 'later', undefined, undefined, undefined, 'follow-up');
+
+  assert.deepEqual(await h.runtime.dequeue(), ['Use the corrected scope', 'Then summarize'], 'steering first, as Pi holds them');
+  assert.equal(h.runtime.mainBusy, true, 'the turn goes on');
+  const { runs } = await h.runtime.state();
+  assert.deepEqual([runs.correction.status, runs.later.status], ['interrupted', 'interrupted']);
+
+  first.finish();
+  await h.runtime.idle();
+  assert.equal(h.calls.length, 1, 'the model never read what was taken back');
+  assert.equal((await h.runtime.state()).runs.original.status, 'completed');
+});

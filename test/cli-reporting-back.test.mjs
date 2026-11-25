@@ -803,3 +803,34 @@ test('a deleted session report stays deleted', async t => {
     await app.close();
   }
 });
+
+test('Continue goes on after a turn the user stopped, as their own word, and only then', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    assert.equal(app.snapshot.mainStopped, null);
+    await assert.rejects(app.continueStopped(), /Nothing to continue/);
+
+    const control = h.fake.controls.get(app.runtime.main.sessionId);
+    control.gate = Promise.withResolvers();
+    const { id } = await app.send('Look through every report');
+    app.runtime.main.clearQueue = () => ({ steering: [], followUp: [] });
+    await app.interrupt();
+    assert.equal(app.snapshot.mainStopped, id, 'the stopped turn is the one to continue');
+
+    // Pi cannot resume a stopped run, so the word goes as the user would type it, with the news that they stopped it.
+    Object.assign(control, { gate: null, aborted: false });
+    const sent = t.mock.method(app.runtime, 'send');
+    const continued = await app.continueStopped({ sentAt: Date.now() });
+    const [words] = sent.mock.calls[0].arguments;
+    assert.ok(words.endsWith('\n\nContinue'), words);
+    assert.deepEqual(noteOf(words).userDid.map(({ did }) => did), ['stopped your turn']);
+    assert.notEqual(continued.id, id);
+
+    await app.runtime.idle();
+    assert.equal((await app.refresh()).mainStopped, null, 'a turn has started since');
+    await assert.rejects(app.continueStopped(), /Nothing to continue/);
+  } finally {
+    await app.close();
+  }
+});

@@ -36,6 +36,12 @@ export const MAIN_BUSY = 'Main conversation is busy.';
 const MAIN_STOPPING = 'Main conversation is stopping.';
 // A turn whose Pi has stopped is held only for what it had not read, and the next stop gives that back.
 export const STOP_AGAIN = 'Stop hobkin again to get back what it had not read.';
+// How a message sent during a turn waits in Pi's queue, as Pi's own keys queue it: Enter steers the turn, Alt+Enter
+// follows it up once the turn would end. Each with the session's method that queues it and its run's title.
+const QUEUES = {
+  steer: { method: 'steer', title: 'Steering' },
+  'follow-up': { method: 'followUp', title: 'Follow-up' },
+};
 // A tool that does not listen for a stop holds Pi's answer until it returns, so a stop waits this long before it says it is unconfirmed.
 const STOP_WAIT_MS = 30000;
 // A close asks Pi for what the model never read, and waits no longer than this for the answer.
@@ -507,6 +513,8 @@ export class HobkinRuntime {
   /** The main chat's latest words and tool calls, as a job's activity is kept: never its thinking. */
   mainActivity() { return this.mainFeed?.snapshot() ?? []; }
   get mainBusy() { return Boolean(this.main && this.busySessions.has(this.main.sessionId)); }
+  /** The main turn the user stopped, by its run id, while no turn has started since in the same conversation: what Continue goes on with. */
+  get stoppedTurn() { return this.stopped && this.stopped.session === this.main && !this.mainTurn ? this.stopped.turn : null; }
   sessionReady(sessionId) { return !this.closing && !this.fault && !this.busySessions.has(sessionId); }
   /** Whether a new turn would start at once. `send` steers a live turn instead, and Pi refuses a prompt during compaction. */
   get mainFree() {
@@ -700,6 +708,7 @@ export class HobkinRuntime {
   noticeStop(turn, now = Date.now()) {
     if (turn.stopNoticed) return;
     turn.stopNoticed = true;
+    this.stopped = { turn: turn.id, session: turn.session };
     recordCardAction(this.directory, { id: `main-stop:${turn.id}`, did: 'stopped your turn', line: 'You stopped hobkin.' }, now);
   }
 
@@ -985,11 +994,12 @@ export class HobkinRuntime {
     return { targets: [...targets, ...(this.ownedLifecycle?.targets?.() ?? [])] };
   }
 
-  async queueSteering(text, id, turn, images, onRead) {
+  async queueSteering(text, id, turn, images, onRead, queue = 'steer') {
+    const { method, title } = QUEUES[queue];
     const request = {
       id,
       kind: 'main',
-      title: 'Steering',
+      title,
       prompt: text,
       harness: 'pi',
       sessionId: turn.sessionId,
@@ -1014,7 +1024,7 @@ export class HobkinRuntime {
         this.check();
         interruptedByReset = this.resetting || turn.stopping || this.mainTurn !== turn;
         if (interruptedByReset) throw Error('Main conversation is stopping or resetting.');
-        if (this.main !== turn.session || !turn.session.isStreaming || typeof turn.session.steer !== 'function') {
+        if (this.main !== turn.session || !turn.session.isStreaming || typeof turn.session[method] !== 'function') {
           throw Error(MAIN_BUSY);
         }
         // Watched before Pi takes it, so a read that follows at once is not missed.
@@ -1027,7 +1037,7 @@ export class HobkinRuntime {
         }
         let disposition;
         try {
-          disposition = await turn.session.steer(text, images);
+          disposition = await turn.session[method](text, images);
         } catch (error) {
           turn.unreadSteered?.delete(id);
           throw error;
@@ -1075,6 +1085,35 @@ export class HobkinRuntime {
     });
   }
 
+  /**
+   * Pi's Alt+Up: what waits in Pi's queue for the running turn, steered and followed up alike, comes out for the user to edit, and the turn
+   * goes on. None of it was read, so the news each carried waits for the next message, and its run ends as taken back. Returns the texts
+   * as Pi held them, steering first, or none while no turn runs.
+   */
+  async dequeue() {
+    const turn = this.mainTurn;
+    if (!turn || turn.session !== this.main || turn.stopping) return [];
+    // A message on its way into the queue lands there first, so it comes back with the rest.
+    await Promise.allSettled([...turn.steering]);
+    if (this.mainTurn !== turn || turn.stopping) return [];
+    if (typeof turn.session.clearQueue !== 'function') throw Error('This conversation cannot give its queue back.');
+    const queue = await turn.session.clearQueue();
+    if (!queue || !Array.isArray(queue.steering) || !Array.isArray(queue.followUp)) throw Error('Pi gave back no queue.');
+    const taken = [...queue.steering, ...queue.followUp];
+    if (!taken.every(text => typeof text === 'string')) throw Error('Queued messages must be strings.');
+    const ids = [];
+    for (const text of taken) {
+      const waiting = [...(turn.unreadSteered ?? [])].find(([, entry]) => entry.text === text);
+      if (!waiting) continue;
+      turn.unreadSteered.delete(waiting[0]);
+      hear(waiting[1].onRead, false);
+      ids.push(waiting[0]);
+    }
+    await this.endQueued(ids, 'interrupted');
+    this.notify();
+    return taken;
+  }
+
   /** The turn has ended, so what it never read stays unread. */
   settleReads(turn) {
     turn.readsSettled = true;
@@ -1088,11 +1127,16 @@ export class HobkinRuntime {
     for (const { onRead } of left) hear(onRead, false);
   }
 
-  async finishSteering(turn, status) {
-    if (!turn.children.length) return;
+  finishSteering(turn, status) {
+    return this.endQueued(turn.children, status);
+  }
+
+  /** The runs of messages queued for a turn end with it, or when they are taken back, still running ones only. None reached the model by itself. */
+  async endQueued(ids, status) {
+    if (!ids.length) return;
     return this.change(state => {
       const finishedAt = new Date().toISOString();
-      for (const id of turn.children) {
+      for (const id of ids) {
         const run = state.runs[id];
         if (!run || run.status !== 'running') continue;
         Object.assign(run, {
@@ -1108,8 +1152,9 @@ export class HobkinRuntime {
   /**
    * `began` says when the user sent these words and what they waited on since (`turnFrom`), for the turn's stage timings. `onRead` hears
    * whether a message steered into a running turn was read (`awaitRead`). A message that starts its own turn is read, and hears nothing.
+   * `queue` is how a message sent during a turn waits for it (`QUEUES`); with no turn running, every message starts one.
    */
-  async send(text, id = randomUUID(), images, began, onRead) {
+  async send(text, id = randomUUID(), images, began, onRead, queue = 'steer') {
     // When the runtime took the words: a turn nobody timed counts from here.
     const handed = Date.now();
     this.check();
@@ -1118,18 +1163,19 @@ export class HobkinRuntime {
     if (this.resetting) throw Error('Main conversation is resetting.');
     if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > MAX_MESSAGE_BYTES) throw Error(`Message must contain 1–${MAX_MESSAGE_BYTES} bytes.`);
     if (images && this.imageRefusal) throw Error(this.imageRefusal);
+    if (!Object.hasOwn(QUEUES, queue)) throw Error('A message waits in the queue as steer or follow-up.');
 
     const activeTurn = this.mainTurn;
     if (activeTurn?.session === this.main) {
       if (activeTurn.stopping) throw Error(activeTurn.heldForUnread ? STOP_AGAIN : MAIN_STOPPING);
-      if (activeTurn.preflight && this.main.isStreaming && typeof this.main.steer === 'function') {
-        return this.queueSteering(text, id, activeTurn, images, onRead);
+      if (activeTurn.preflight && this.main.isStreaming && typeof this.main[QUEUES[queue].method] === 'function') {
+        return this.queueSteering(text, id, activeTurn, images, onRead, queue);
       }
       if (this.mainBusy || this.main.isStreaming) throw Error(MAIN_BUSY);
       await this.mainWork;
       this.check();
       if (this.resetting) throw Error('Main conversation is resetting.');
-      return this.send(text, id, images, began, onRead);
+      return this.send(text, id, images, began, onRead, queue);
     }
     if (this.mainBusy || this.main.isStreaming) throw Error(MAIN_BUSY);
 
@@ -1146,6 +1192,8 @@ export class HobkinRuntime {
       children: [],
     };
     this.mainTurn = turn;
+    // A turn has started since the user stopped the last one, so there is nothing left to continue.
+    this.stopped = null;
     this.stepMainPulse((pulses, now) => pulses.begin(MAIN_PULSE_KEY, now, text));
     let preflight;
     let disposition;

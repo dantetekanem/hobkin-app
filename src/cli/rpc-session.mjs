@@ -244,6 +244,10 @@ export class PiRpcSession {
     return (await this.child.request('steer', { message: text, images }))?.disposition;
   }
 
+  async followUp(text, images) {
+    return (await this.child.request('follow_up', { message: text, images }))?.disposition;
+  }
+
   async executeUserBash(command, { id } = {}) {
     let wire;
     const result = await this.child.request('bash', { command }, undefined, generated => {
