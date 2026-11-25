@@ -74,12 +74,12 @@ export function remarkFilePaths() {
   return (tree: Node) => walk(tree)
 }
 
-interface Element {
+interface HastNode {
   type: string
   tagName?: string
   value?: string
   properties?: Record<string, unknown>
-  children?: Element[]
+  children?: HastNode[]
 }
 
 /**
@@ -87,18 +87,26 @@ interface Element {
  * code with other words, becomes a link to the file, and the code keeps its words. Code already in a link stays as it is.
  */
 export function rehypeCodePaths() {
-  const link = (path: string): Element => ({ type: 'element', tagName: 'a', properties: { href: encodeURI(path) }, children: [{ type: 'text', value: path }] })
-  const linked = (code: Element) => {
-    code.children = code.children?.flatMap((child): Element[] =>
-      child.type === 'text' && child.value ? splitPaths(child.value).map((piece) => ('path' in piece ? link(piece.path) : { type: 'text', value: piece.text })) : [child],
-    )
-  }
-  const walk = (parent: Element) => {
+  const link = (path: string): HastNode => ({
+    type: 'element',
+    tagName: 'a',
+    properties: { href: encodeURI(path) },
+    children: [{ type: 'text', value: path }],
+  })
+
+  /** A text's words, with each path among them a link. */
+  const withLinks = (text: string): HastNode[] =>
+    splitPaths(text).map((piece) => ('path' in piece ? link(piece.path) : { type: 'text', value: piece.text }))
+
+  const walk = (parent: HastNode) => {
     for (const child of parent.children ?? []) {
       if (child.tagName === 'a') continue
-      if (child.tagName === 'code') linked(child)
-      else walk(child)
+      if (child.tagName === 'code') {
+        child.children = child.children?.flatMap((part) => (part.type === 'text' && part.value ? withLinks(part.value) : [part]))
+      } else {
+        walk(child)
+      }
     }
   }
-  return (tree: Element) => walk(tree)
+  return (tree: HastNode) => walk(tree)
 }

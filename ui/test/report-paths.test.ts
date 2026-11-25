@@ -37,6 +37,7 @@ test('a report links every local path: in its words, in inline code and in a cod
       '```',
     ].join('\n'),
   )
+
   assert.deepEqual(files(html), ['/Users/x/notes.md', '~/image.jpg', '~/Poetry/x/README.md', '~/shots/a.png', '~/plans/a.md', '/tmp/shot.png', '/var/log/system.log', '~/Poetry/x/out.md'])
   // A whole inline code that is a path is the link; one with other words keeps them, with the path linked inside.
   assert.match(html, /<a [^>]*data-file="~\/Poetry\/x\/README\.md"[^>]*><code[^>]*>~\/Poetry\/x\/README\.md<\/code><\/a>/)
@@ -59,6 +60,7 @@ test('a report keeps web links, report links and words that only look like paths
       '```',
     ].join('\n'),
   )
+
   assert.deepEqual(files(html), [])
   assert.match(html, /<a [^>]*href="https:\/\/hobkin\.invalid\/Users\/x\/a\.md"[^>]*target="_blank"/)
   assert.match(html, /<a [^>]*href="https:\/\/hobkin\.invalid"[^>]*target="_blank"/)
@@ -69,16 +71,19 @@ test('a report keeps web links, report links and words that only look like paths
 
 test("a fold's label and inside link paths the same way", () => {
   const html = render(['<details><summary>Logs in `/tmp/run.log`</summary>', '', 'Kept at ~/logs/run.md', '</details>'].join('\n'))
+
   assert.deepEqual(files(html), ['/tmp/run.log', '~/logs/run.md'])
 })
 
 test('⌘-click on a file opens it in its app when a host can, and a plain click opens the sheet', () => {
   const mac = { inMacWindow: true, hasHost: true }
-  assert.equal(decideLink({ href: '#', file: '/Users/x/a.md', meta: true }, mac), 'app')
-  assert.equal(decideLink({ href: '#', file: '/Users/x/a.md', meta: true }, { inMacWindow: false, hasHost: true }), 'app')
-  assert.equal(decideLink({ href: '#', file: '/Users/x/a.md', meta: false }, mac), 'file')
+  const fileLink = { href: '#', file: '/Users/x/a.md' }
+
+  assert.equal(decideLink({ ...fileLink, meta: true }, mac), 'app')
+  assert.equal(decideLink({ ...fileLink, meta: true }, { inMacWindow: false, hasHost: true }), 'app')
+  assert.equal(decideLink({ ...fileLink, meta: false }, mac), 'file')
   // With no host to open it, the sheet says why it cannot be shown.
-  assert.equal(decideLink({ href: '#', file: '/Users/x/a.md', meta: true }, { inMacWindow: true, hasHost: false }), 'file')
+  assert.equal(decideLink({ ...fileLink, meta: true }, { inMacWindow: true, hasHost: false }), 'file')
   // A web link is the same with ⌘ as without.
   assert.equal(decideLink({ href: 'https://hobkin.invalid', file: null, meta: true }, mac), 'system')
 })
