@@ -35,7 +35,7 @@ import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import type { ProofRun } from '../protocol/proofs.ts'
 import { METRICS_DAYS_MAX, type WorkMetrics } from '../protocol/metrics.ts'
 import type { ActivityEntry } from '../protocol/activity.ts'
-import { GRADES, ISSUE_PICKUPS, PR_MODES, PROJECT_KINDS, REVIEW_PULLS, type FolderLook, type FolderPicked, type NewProjectDone, type WholeQueue, type Workload, type YoloRules } from '../protocol/work.ts'
+import { GRADES, ISSUE_PICKUPS, PR_MODES, PROJECT_KINDS, REVIEW_PULLS, type FolderLook, type FolderPicked, type NewProjectDone, type RunGuide, type RunGuideAsked, type WholeQueue, type Workload, type YoloRules } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
 import { EFFORTS, TIER_IDS, type HostTiers } from '../tiers/tiers.ts'
@@ -1027,6 +1027,20 @@ export const COMMANDS = {
     rule: ({ kind, wants }) => (kind === 'goal' && !(typeof wants === 'string' && wants.trim()) ? 'a goal needs "wants", the words it works toward' : null),
     hobkin: true,
   },
+  'work.guide.read': {
+    description:
+      "Read a code project's run guide, which hobkin keeps in its own home and never in the project: the steps to run it end to end so the user can try a change, the project files it was written from, when it was written, its last run and how far that got, and whether a guide look waits or runs. A goal has none, and the answer says why.",
+    runs: 'host',
+    args: Type.Object({ slug: projectSlug }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'work.guide.write': {
+    description:
+      "File a guide look on a code project, as Write the run guide and Check it again do: an agent reads the project's own docs and scripts, writes the run guide, follows it in a worktree of its own with services of its own, and records the run. It waits at the front of the project's queue and runs when work mode lets it. hobkin refuses it for a goal, a project not taken and one it does not know, in its own words.",
+    runs: 'host',
+    args: Type.Object({ slug: projectSlug }, { additionalProperties: false }),
+    hobkin: true,
+  },
   'work.folder.pick': {
     description: "Show the Mac's own folder chooser and answer with the folder picked, or with none when it was closed. It shows a window on the user's screen, so only the window sends it.",
     runs: 'host',
@@ -1581,6 +1595,8 @@ export interface CommandResults {
   'work.project': { ok: true }
   'work.project.look': FolderLook
   'work.project.new': NewProjectDone
+  'work.guide.read': RunGuide
+  'work.guide.write': RunGuideAsked
   /** The folder picked, or null when the chooser was closed. */
   'work.folder.pick': FolderPicked
   'work.proposal': { ok: true }
