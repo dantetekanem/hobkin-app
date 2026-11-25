@@ -276,7 +276,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
         here: () => here.current,
         close: () => here.current && close(),
         celebrate: (kind, words) => celebrate({ kind, message: words }),
-        landing: loader.look,
+        status: loader.look,
       })
       if (!closed) return
       const next = useStory.getState().next((id) => goneNow.current(id))

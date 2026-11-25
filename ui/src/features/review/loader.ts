@@ -428,15 +428,16 @@ export function createReviewLoader({ id, scope, memory, command, sample, look: o
   /** Keeps a status for the open review, only when something changed, so an open review does not draw again every second. */
   const keep = (status: ReviewStatus) => patch({ preparation: status, ...clock(status) })
   /**
-   * Asks the host now how the change lands, and keeps what it says for the open review: null when it says nothing. A
-   * verdict that has just landed asks, even once the review has closed.
+   * Asks the host now how the review stands, as how the change lands and whether a merge asked for still waits, and
+   * keeps what it says for the open review: null with no host. A verdict that has just landed asks, even once the review
+   * has closed.
    */
-  const look = async (): Promise<ReviewLanding | null> => {
+  const look = async (): Promise<ReviewStatus | null> => {
     if (!command) return null
     const status = await command('review.status', { id })
     const review = store.getState().review
     if (!disposed && review) keep(heldStill(status, review, store.getState().preparation))
-    return status.landing ?? null
+    return status
   }
   /**
    * Follows the review's look (spec 071). The graph look is where a change review starts: once the look becomes Graph

@@ -2,7 +2,7 @@ import { createStore } from 'zustand/vanilla'
 import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { Note } from '#shared/review/notes.ts'
-import type { PullOwner, ReviewLanding, VerdictPreview } from '#shared/review/status.ts'
+import type { PullOwner, ReviewStatus, VerdictPreview } from '#shared/review/status.ts'
 import { questionsToDiscuss, usersComments, type Verdict } from '#shared/review/verdict.ts'
 
 type VerdictCommand = 'review.preview' | 'review.verdict' | 'review.remove'
@@ -266,18 +266,19 @@ export interface VerdictScreen {
   here: () => boolean
   close: () => void
   celebrate: (kind: 'tada' | 'done', message: string) => void
-  /** How the finished change lands now, as the host says: null when it says nothing. */
-  landing: () => Promise<ReviewLanding | null>
+  /** How the review stands now, as the host says: how the change lands, and a merge asked for that still waits. Null when it says nothing. */
+  status: () => Promise<Pick<ReviewStatus, 'landing' | 'mergeAsked'> | null>
 }
 
 /**
  * What the review does once the host took a verdict: it closes, in every case, if the reviewer is still on it. Approve
- * and merge says "Merged!" once it is known to have merged: a pull request, which GitHub merged, or a finished change
- * the host says merged. A change an agent brings up to date first does not keep the review open: the yes is given, and
- * the merge that follows shows nothing here. A host that says nothing of how the change lands, as when hobkin hands the
- * merge to a session, or an older host, is never taken for a merge: like every other verdict, it closes the review with
- * a short confirmation of what the host did. A review the reviewer has left is never closed. It answers whether it closed
- * the review, which is when a story goes on to the next one.
+ * and merge says "Merged!" once it is known to have merged: a pull request its code host merged, or a finished change
+ * the host says merged. A merge the host says still waits is not one: a pull request its code host put in a queue or
+ * was asked to merge in its own time, or a change an agent brings up to date first. Those do not keep the review open:
+ * the yes is given, and the merge that follows shows nothing here. A host that says nothing of how a finished change
+ * lands, as when hobkin hands the merge to a session, or an older host, is never taken for a merge: like every other
+ * verdict, it closes the review with a short confirmation of what the host did. A review the reviewer has left is never
+ * closed. It answers whether it closed the review, which is when a story goes on to the next one.
  */
 export async function afterVerdict(verdict: Verdict, message: string, screen: VerdictScreen): Promise<boolean> {
   const closeWith = (kind: 'tada' | 'done') => {
@@ -288,7 +289,8 @@ export async function afterVerdict(verdict: Verdict, message: string, screen: Ve
   }
 
   if (verdict !== 'approve-merge') return closeWith('done')
+  const now = await screen.status().catch(() => null)
+  if (now?.mergeAsked?.state === 'waiting') return closeWith('done')
   if (screen.kind === 'pull') return closeWith('tada')
-  const landing = await screen.landing().catch(() => null)
-  return closeWith(landing?.state === 'merged' ? 'tada' : 'done')
+  return closeWith(now?.landing?.state === 'merged' ? 'tada' : 'done')
 }

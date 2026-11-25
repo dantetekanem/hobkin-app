@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { AssessmentStatus } from '../../shared/review/assessment.ts'
-import { IDLE_STATUS, type OpenedReview, type ReviewLanding, type ReviewStatus } from '../../shared/review/status.ts'
+import { IDLE_STATUS, type MergeAsked, type OpenedReview, type ReviewLanding, type ReviewStatus } from '../../shared/review/status.ts'
 import type { Review } from '../../shared/review/types.ts'
 import { createReviewLoader, type ReviewCommands } from '../src/features/review/loader.ts'
 import { failureOf, underWay } from '../src/features/review/preparing-model.ts'
@@ -167,7 +167,7 @@ test('a merged change with no review to open is never prepared, and does not wai
 })
 
 /** The review screen, as a verdict that has landed sees it, and everything that happens to it. */
-function screenOf(now: ReviewLanding | null, kind: 'change' | 'pull' = 'change') {
+function screenOf(now: ReviewLanding | null, kind: 'change' | 'pull' = 'change', mergeAsked?: MergeAsked) {
   const seen: string[] = []
   let here = true
   return {
@@ -177,14 +177,14 @@ function screenOf(now: ReviewLanding | null, kind: 'change' | 'pull' = 'change')
       here: () => here,
       close: () => void seen.push('close'),
       celebrate: (kind: 'tada' | 'done', message: string) => void seen.push(`${kind}: ${message}`),
-      landing: async () => now,
+      status: async () => ({ ...(now ? { landing: now } : {}), ...(mergeAsked ? { mergeAsked } : {}) }),
     },
     leave: () => void (here = false),
   }
 }
 
 test('approve and merge closes the review at once: with Merged! when it is known merged, with the host\'s words when it is not', async () => {
-  // Merged at once: Merged!, and the review closes. So does a pull request, which GitHub merged, without asking more.
+  // Merged at once: Merged!, and the review closes. So does a pull request the host merged.
   const atOnce = screenOf(merged)
   assert.equal(await afterVerdict('approve-merge', 'Merged it into main.', atOnce.screen), true)
   assert.deepEqual(atOnce.seen, ['tada: Merged it into main.', 'close'])
@@ -193,13 +193,17 @@ test('approve and merge closes the review at once: with Merged! when it is known
   left.leave()
   assert.equal(await afterVerdict('approve', 'Approved.', left.screen), false)
   const pull = screenOf(null, 'pull')
-  let asked = false
-  pull.screen.landing = async () => {
-    asked = true
-    return null
-  }
   await afterVerdict('approve-merge', 'Merged acme/shop#9 into main.', pull.screen)
-  assert.deepEqual([pull.seen, asked], [['tada: Merged acme/shop#9 into main.', 'close'], false])
+  assert.deepEqual(pull.seen, ['tada: Merged acme/shop#9 into main.', 'close'])
+  // A pull request its code host only queued, or was asked to merge in its own time, is not merged yet: no Merged!.
+  const asked = screenOf(null, 'pull', { at: '2026-11-12T21:00:00.000Z', state: 'waiting', message: 'The host merges it once its checks pass.' })
+  await afterVerdict('approve-merge', 'Asked code.example.invalid to merge acme/shop#9. The host merges it once its checks pass.', asked.screen)
+  assert.deepEqual(asked.seen, ['done: Asked code.example.invalid to merge acme/shop#9. The host merges it once its checks pass.', 'close'])
+  // A status the host could not give leaves a pull request's merge as the host's answer said: merged.
+  const unread = screenOf(null, 'pull')
+  unread.screen.status = () => Promise.reject(new Error('the host went away'))
+  await afterVerdict('approve-merge', 'Merged acme/shop#9 into main.', unread.screen)
+  assert.deepEqual(unread.seen, ['tada: Merged acme/shop#9 into main.', 'close'])
 
   // A host that says nothing of how the change lands, as when hobkin hands the merge to a session while work mode
   // waits, or an older host: never Merged! on its word alone. The review closes with what the host said it did.
@@ -251,7 +255,7 @@ async function openReview({ conflicts = false } = {}) {
         here: () => true,
         close: () => void seen.push('close'),
         celebrate: (kind) => void seen.push(kind),
-        landing: host.loader.look,
+        status: host.loader.look,
       }),
   })
   return {
