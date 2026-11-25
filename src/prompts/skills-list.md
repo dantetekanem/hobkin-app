@@ -1,0 +1,1 @@
+The following skills give instructions for specific tasks. When a task matches a skill's description, load it with load_skill and its name. Its answer names the skill's folder: read the files it names from there, with absolute paths.

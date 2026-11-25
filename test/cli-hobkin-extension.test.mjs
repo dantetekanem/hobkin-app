@@ -17,6 +17,7 @@ import { createOwnedAgentSessionTool } from '../src/cli/owned-agent-tool.mjs';
 import { createAgentScheduleTool, createAgentSchedulesTool } from '../src/cli/schedule-tools.mjs';
 import { createRecallTool, createRememberTool } from '../src/cli/memory-tools.mjs';
 import { createActionItemTool } from '../src/cli/action-item-tool.mjs';
+import { createLoadSkillTool } from '../src/cli/load-skill-extension.mjs';
 import { initialize } from '../src/cli/config.mjs';
 import { fileDecision, openDecisions } from '../src/cli/decisions.mjs';
 import { readActionDecisions } from '../src/cli/pending-read.mjs';
@@ -134,7 +135,8 @@ const toolResults = session => session.messages.filter(message => message.role =
 
 test('Pi registers the Hobkin tools with their ordinary definitions and reports them on start', async t => {
   const { session, statuses } = await fixture(t);
-  const originals = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool(), createAgentScheduleTool(), createAgentSchedulesTool(), createRecallTool(), createRememberTool(), createActionItemTool(), createOwnedAgentSessionTool()];
+  const originals = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool(), createAgentScheduleTool(), createAgentSchedulesTool(), createRecallTool(), createRememberTool(), createActionItemTool(), createOwnedAgentSessionTool(),
+    createLoadSkillTool(() => [])];
   const registered = session.agent.state.tools;
   for (const tool of originals) {
     const found = registered.find(item => item.name === tool.name);

@@ -10,13 +10,15 @@ import { createQuestionTool } from './questions.mjs';
 import { createCheckMessageTool, createScheduleTool, createSettingsTool, createStopWorkloadTool } from './hobkin-tools.mjs';
 import { createAgentScheduleTool, createAgentSchedulesTool } from './schedule-tools.mjs';
 import { createRecallTool, createRememberTool } from './memory-tools.mjs';
+import loadSkill from './load-skill-extension.mjs';
 
 /**
  * Every tool this extension registers, by name, as the main chat's exact list of bridged tools (`pi-session.mjs`) expects
- * them. A tool added here is added to that list in the same change.
+ * them. A tool added here is added to that list in the same change. `load_skill` alone runs in the chat's own Pi rather
+ * than in the host, since only that Pi knows its skills (070-load-skill).
  */
 export const HOBKIN_BRIDGE_TOOLS = Object.freeze(['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload',
-  'hobkin_schedule', 'hobkin_schedules', 'hobkin_recall', 'hobkin_remember', 'hobkin_action_items', 'owned_agent']);
+  'hobkin_schedule', 'hobkin_schedules', 'hobkin_recall', 'hobkin_remember', 'hobkin_action_items', 'owned_agent', 'load_skill']);
 
 /** hobkin's memories for the prompt. A host from before has none to give, and that costs the index, never the turn. */
 async function memoriesSection(ctx) {
@@ -49,6 +51,8 @@ export default function hobkin(pi) {
     (await callBridge(ctx, { op: 'tool', name: 'owned_agent', id, params }, signal)).details);
   tools.push(ownedTool);
   pi.registerTool(ownedTool);
+  // Ahead of the prompt below, which is set whole from Pi's, so it carries the list of skills load_skill words.
+  tools.push(loadSkill(pi));
   pi.on('before_agent_start', async (event, ctx) => {
     const persona = await callBridge(ctx, { op: 'persona' });
     const sections = [

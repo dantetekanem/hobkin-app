@@ -25,6 +25,7 @@ import { memoryExtension } from './memory-extension.mjs';
 import { memoryKeeperExtension } from './memory-keeper-extension.mjs';
 import { MEMORY_TOOLS, memoryTools } from './memory-tools.mjs';
 import { integrationExtension } from './integration-extension.mjs';
+import { loadSkillExtension } from './load-skill-extension.mjs';
 import { integrationEnvironment, isIntegrationCall, serveIntegration } from './integrations.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
@@ -158,11 +159,12 @@ export function buildInvocation(request) {
 
 /**
  * A job that loads tools gets its extensions named up front, so Pi leaves out what Hobkin does not use. Its Pi also
- * loads hobkin's guard against the code tool crash (`code-tool-crash.mjs`), a job that lives until its agent says it is
- * done (`untilDone` on its request) gets `hobkin_done` (`done-extension.mjs`, 072-jobs-live-until-done), and one that
- * keeps schedules (`schedules` on its request) gets
- * `hobkin_schedule` and `hobkin_schedules` (`schedule-extension.mjs`) in place of the Pi scheduler, whose timers would
- * live only in this process (056-agent-schedules). One that reads hobkin's memories (`memories` on its request: `run`
+ * loads `load_skill` (`load-skill-extension.mjs`, 070-load-skill) ahead of the rest, so an extension that sets the
+ * whole prompt keeps the list of skills it words, and hobkin's guard against the code tool crash (`code-tool-crash.mjs`).
+ * A job that lives until its agent says it is done (`untilDone` on its request) gets `hobkin_done` (`done-extension.mjs`,
+ * 072-jobs-live-until-done), and one that keeps schedules (`schedules` on its request) gets `hobkin_schedule` and
+ * `hobkin_schedules` (`schedule-extension.mjs`) in place of the Pi scheduler, whose timers would live only in this
+ * process (056-agent-schedules). One that reads hobkin's memories (`memories` on its request: `run`
  * or `keeper`) gets their tools (057-shared-memory). One that integrations offer tools to (`options.integrations.offer`)
  * gets them, with its offer in its environment (`integration-extension.mjs`, 065-integration-drops).
  */
@@ -173,7 +175,7 @@ export const namingExtensions = run => async (request, options) => {
   const memories = Object.hasOwn(MEMORY_EXTENSIONS, request.memories ?? '') ? MEMORY_EXTENSIONS[request.memories] : null;
   const offer = options?.integrations?.offer;
   const leaveOut = [...(schedules ? ['pi-scheduler'] : []), ...(memories ? LEFT_OUT_WITH_MEMORIES : [])];
-  const extensions = [...await extensionPaths(request.cwd, { leaveOut }), codeToolGuardExtension,
+  const extensions = [loadSkillExtension, ...await extensionPaths(request.cwd, { leaveOut }), codeToolGuardExtension,
     ...(request.untilDone === true ? [doneExtension] : []), ...(schedules ? [scheduleExtension] : []), ...(memories ? [memories] : []),
     ...(offer ? [integrationExtension] : [])];
   // Naming them comes before the process starts, so the turn's stages show how long it took.
