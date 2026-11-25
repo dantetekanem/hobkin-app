@@ -91,6 +91,8 @@ const OWN_AT_HOME: Names = [
 const OWN_IN_RUNTIME: Names = [
   'answers.md', // decided.mjs
   'brief.json', // brief.mjs
+  'catch-up.json', // catch-up.mjs: when the last catch-up was written and the day the daily one last came
+  'catch-up-asked.json', // catch-up.mjs: a catch-up `hobkin reports catch-up` asked for, until the running hobkin takes it
   'client-notices.jsonl', // client-notices.mjs
   'deleted-reports.json', // reports.mjs
   'events', // events.mjs
@@ -112,10 +114,13 @@ const OWN_IN_RUNTIME: Names = [
   'telemetry.jsonl', // telemetry.mjs
   'tell-requests', // hobkin-tell.mjs
   'templates-seen.json', // routine-templates.mjs
+  'unread.json', // unread.mjs: what the user sent that the main agent never read
   'upkeep.json', // work/upkeep.mjs
   'usage.json', // usage.mjs
   'view.json', // view.mjs, patterns.mjs, application.mjs
   'wins-told.json', // work/wins.mjs
+  'workflows.json', // workflows.mjs: which workflows are on
+  'workflows-seen.json', // workflows.mjs: when each workflow was first seen in its folder
   /^work-reset-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z$/, // work/commands.mjs: what a reset of work mode set aside
   // No code writes it: credentials beside `remote.json`, for a hobkin-api on this Mac it seems. Taken until someone decides.
   'remote.local-dev.json',
@@ -129,6 +134,8 @@ const OWN_IN_PROJECT: Names = [
   'signals.json',
   'state.json',
   'prs',
+  'run-guide.md', // the user's run guide (work/run-guide.mjs), kept here and never in the project
+  'run-guide.jsonl', // when the run guide was written and run
   'yolo.json', // work/yolo.mjs
   'machines.json', // work/machines.mjs
   'runs', // work/director.mjs, until hobkin's cd6f3cc of 2026-11-10: the briefs and reports of runs
