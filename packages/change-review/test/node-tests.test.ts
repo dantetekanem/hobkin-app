@@ -166,6 +166,32 @@ test('a case in nested suites is the runner’s case of the same suites, and a c
   assert.equal(atHead({ name: 'empty > has no total' }), 'not-run')
 })
 
+test("a Rails test is Minitest's case of its class and method: `test \"words\"` runs as test_words", () => {
+  const path = 'test/models/cart_test.rb'
+  const definition = (id: string, symbol: string, startLine: number) => ({ id, symbol, path, startLine, endLine: startLine + 2, anchors: [{ id: 'n1', lines: [] }], changed: false })
+  const definitions = [
+    definition('t1', 'CartTest test "has  no total"', 4),
+    definition('t2', 'CartTest#test_plain', 8),
+    definition('t3', `Admin::OrderTest test "can't be blank?"`, 12),
+    definition('t4', 'CartTest test "later"', 16),
+  ]
+  const cases = [
+    { path, name: 'CartTest#test_has_no_total', status: 'failed' as const },
+    { path, name: 'CartTest#test_plain', status: 'passed' as const },
+    { path, name: "Admin::OrderTest#test_can't_be_blank?", status: 'passed' as const },
+    { path, name: 'OrderTest#test_later', status: 'passed' as const },
+  ]
+
+  const tests = nodeTestsOf(input({ definitions, runs: [{ ...run('baseline', [path]), cases }] }))
+
+  assert.deepEqual(tests.filter((test) => test.path === path && test.symbol).map((test) => [test.symbol, test.at_head]), [
+    ['CartTest test "has  no total"', 'failed'],
+    ['CartTest#test_plain', 'passed'],
+    [`Admin::OrderTest test "can't be blank?"`, 'passed'],
+    ['CartTest test "later"', 'not-run'],
+  ])
+})
+
 test('a test has no tests of its own', () => {
   assert.deepEqual(nodeTestsOf(input({ node: { id: 't1', symbol: 'rounds', path: 'test/total.test.js', kind: 'test' } })), [])
 })

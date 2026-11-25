@@ -197,6 +197,19 @@ test('native exact case receipts establish success, not a sibling name', async (
   assert.equal(told('another case').status, 'not-run')
 })
 
+test("a Rails test is told by Minitest's case of its class and method", async () => {
+  const graph = await review()
+  const file = 'test/models/cart_test.rb'
+  const own = graph.nodes.find((node) => node.kind === 'test')!
+  const parts = { units: [], words: null, places: places.map((place) => (place.kind === 'test' ? { ...place, symbol: 'CartTest test "total is rounded"' } : place)) }
+  const told = (name: string) => {
+    const baseline = { kind: 'baseline', tests: [file], failed: [], cases: [{ path: file, name, status: 'passed' as const }] }
+    return unitWords(graph, { ...parts, runs: [baseline] }).find((node) => node.id === own.id)!
+  }
+  assert.equal(told('CartTest#test_total_is_rounded').status, 'passed')
+  assert.equal(told('OrderTest#test_total_is_rounded').status, 'not-run')
+})
+
 test('a case the runner places on other lines than the test’s is not its result', async () => {
   const graph = await review()
   const file = 'test/models/cart_test.rb'
