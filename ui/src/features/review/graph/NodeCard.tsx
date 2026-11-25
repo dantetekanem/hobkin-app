@@ -1,4 +1,4 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, type NodeProps, type Position } from '@xyflow/react'
 import { ChevronDown, ChevronUp, Minus, MessageSquare, ShieldCheck, Signpost, Unlink, X, Check } from 'lucide-react'
 import { animate, motion } from 'motion/react'
 import { memo, useEffect, useRef } from 'react'
@@ -12,6 +12,7 @@ import { isLineCount, type TestGroup } from './arrange.ts'
 import { useEntrance } from './entrance.tsx'
 import { KIND, LevelBadge, needsALook, statusOf } from './kinds.tsx'
 import { hoverShown, isUnchanged } from './levels.ts'
+import { PIN_SIDES } from './pin-sides.ts'
 
 /** Long titles take two lines of the header, which leaves one line for the summary. */
 const TWO_LINE_TITLE = 34
@@ -60,6 +61,7 @@ function NodeCardComponent({ id }: NodeProps) {
   const hover = useSession((session) => hoverShown(session.hover.nodes[id] ?? 'none', session.hovered, session.focus))
   const seen = useSession((session) => session.revealed.has(id))
   const pins = useSession((session) => session.pins[id])
+  const sides = useSession((session) => PIN_SIDES[session.view.flow])
   const notes = useSession((session) => notesOn(session, id))
   const listed = useSession((session) => session.opened === id)
   // In Focus, a node the reviewer has seen carries a quiet mark (spec 053). A review without Focus looks as it did.
@@ -103,7 +105,7 @@ function NodeCardComponent({ id }: NodeProps) {
 
   return (
     <>
-      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <Handle type="target" position={sides.in} isConnectable={false} />
       <motion.div
         ref={inner}
         className="size-full"
@@ -244,8 +246,8 @@ function NodeCardComponent({ id }: NodeProps) {
               Seen
             </span>
           ) : null}
-          {folded?.in.length ? <More side="left" ids={folded.in} /> : null}
-          {folded?.out.length ? <More side="right" ids={folded.out} /> : null}
+          {folded?.in.length ? <More side={sides.in} ids={folded.in} /> : null}
+          {folded?.out.length ? <More side={sides.out} ids={folded.out} /> : null}
           {notes > 0 ? (
             <button
               type="button"
@@ -261,11 +263,11 @@ function NodeCardComponent({ id }: NodeProps) {
               {notes}
             </button>
           ) : null}
-          <i className="rv-pin" data-side="left" data-wired={pins?.in ?? false} aria-hidden="true" />
-          <i className="rv-pin" data-side="right" data-wired={pins?.out ?? false} aria-hidden="true" />
+          <i className="rv-pin" data-side={sides.in} data-wired={pins?.in ?? false} aria-hidden="true" />
+          <i className="rv-pin" data-side={sides.out} data-wired={pins?.out ?? false} aria-hidden="true" />
         </div>
       </motion.div>
-      <Handle type="source" position={Position.Right} isConnectable={false} />
+      <Handle type="source" position={sides.out} isConnectable={false} />
     </>
   )
 }
@@ -329,7 +331,7 @@ function Fact({ node }: { node: ReviewNode }) {
 }
 
 /** The count of wires a focus node folded away on one side, naming the first few nodes they lead to. */
-function More({ side, ids }: { side: 'left' | 'right'; ids: readonly string[] }) {
+function More({ side, ids }: { side: Position; ids: readonly string[] }) {
   const nodeOf = useSession((session) => session.nodeOf)
   const names = ids.slice(0, NAMED).map((other) => nodeOf.get(other)?.title ?? other)
   const rest = ids.length - names.length

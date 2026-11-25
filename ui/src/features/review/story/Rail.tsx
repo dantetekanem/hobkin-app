@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { spring } from '@/lib/motion.ts'
+import { ARROW, turnedArrow } from '../graph/navigate.ts'
 import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
 import { awayFrom, pagerOf } from './pager.ts'
 
@@ -27,12 +28,13 @@ export function Rail() {
   const seen = useSession((session) => session.story.seen)
   const away = useSession((session) => awayFrom(session.story))
   const pending = useSession((session) => session.pendingDigits)
+  const flow = useSession((session) => session.view.flow)
   const reduced = useReduced()
   const pager = useMemo(() => pagerOf({ steps, step, seen, away, pending }), [away, pending, seen, step, steps])
 
   return (
     <nav aria-label="Steps" data-away={away} className="rv-float rv-pager pointer-events-auto min-w-0">
-      <PagerArrow label="Previous step" keys="←" disabled={!pager.back} onClick={() => store.getState().step(-1)}>
+      <PagerArrow label="Previous step" keys={ARROW[turnedArrow('left', flow)]} disabled={!pager.back} onClick={() => store.getState().step(-1)}>
         <ChevronLeft />
       </PagerArrow>
       <div className="rv-pager-middle min-w-0">
@@ -78,7 +80,7 @@ export function Rail() {
           </ol>
         </LayoutGroup>
       </div>
-      <PagerArrow label="Next step" keys="→" disabled={!pager.next} onClick={() => store.getState().step(1)}>
+      <PagerArrow label="Next step" keys={ARROW[turnedArrow('right', flow)]} disabled={!pager.next} onClick={() => store.getState().step(1)}>
         <ChevronRight />
       </PagerArrow>
     </nav>

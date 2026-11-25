@@ -3,6 +3,8 @@ import { Hob } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { LevelBadge } from '../graph/kinds.tsx'
+import { ARROW, turnedArrow } from '../graph/navigate.ts'
+import { useSession } from '../state/context.tsx'
 
 /** A step of the story, as it is told. */
 export interface StepContent {
@@ -26,6 +28,7 @@ const MOOD: Record<StoryStep['kind'], Mood> = { outcome: 'hello', walk: 'focused
  */
 export function CardBody({ content, review }: { content: StepContent; review: Review }) {
   const { step, index, total } = content
+  const flow = useSession((session) => session.view.flow)
 
   return (
     <div className="rv-step-body">
@@ -64,8 +67,8 @@ export function CardBody({ content, review }: { content: StepContent; review: Re
 
       <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-muted-foreground">
         <span className="flex items-center gap-1">
-          <Kbd>←</Kbd>
-          <Kbd>→</Kbd>
+          <Kbd>{ARROW[turnedArrow('left', flow)]}</Kbd>
+          <Kbd>{ARROW[turnedArrow('right', flow)]}</Kbd>
           steps
         </span>
         <span className="flex items-center gap-1">

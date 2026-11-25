@@ -10,6 +10,7 @@ import { pulsePoint } from '../story/travel.ts'
 import { QUIET_ENTRANCE_ABOVE } from './entrance-plan.ts'
 import { isFoldGroup } from './focus.ts'
 import { GroupCard } from './GroupCard.tsx'
+import { readingOrder } from './navigate.ts'
 import { NodeCard } from './NodeCard.tsx'
 import { TestList } from './TestList.tsx'
 import { Wire } from './Wire.tsx'
@@ -30,8 +31,8 @@ const fine = typeof matchMedia === 'function' ? matchMedia('(hover: hover) and (
 const REGION = { zIndex: -1, draggable: false, selectable: false, focusable: false, style: { pointerEvents: 'none' as const } }
 
 /**
- * The graph: every node of the review in its zone and every wire from a right pin to a left pin, each zone a region
- * behind its nodes (spec 055).
+ * The graph: every node of the review in its zone and every wire from a right pin to a left pin, or from a bottom pin to
+ * a top pin on a graph that reads top to bottom (spec 006), each zone a region behind its nodes (spec 055).
  * It pans by dragging and by two-finger scroll, and zooms by pinch and by Command with scroll.
  * It is a view of the review model: nodes can be moved, and nothing else about the graph can be changed here.
  */
@@ -41,6 +42,7 @@ export function Graph() {
   const viewNodes = useSession((session) => session.view.nodes)
   const viewEdges = useSession((session) => session.view.edges)
   const viewZones = useSession((session) => session.view.zones)
+  const flow = useSession((session) => session.view.flow)
   // React Flow puts `light` or `dark` on its own root. Left alone it says `light`, which would bring the
   // light palette back inside the graph while the rest of the app is dark.
   const theme = useTheme()
@@ -51,9 +53,9 @@ export function Graph() {
   )
   const cards = useMemo<Node[]>(
     () =>
-      // In reading order, column by column, so the order on screen is the order in the document.
+      // In reading order, column by column or row by row, so the order on screen is the order in the document.
       [...viewNodes]
-        .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y)
+        .sort(readingOrder(flow))
         .map((node) => {
           // A group card of a large change stands where Focus lays it out, at the head of its members: it is not dragged.
           const group = isFoldGroup(node.id)
@@ -68,7 +70,7 @@ export function Graph() {
             ...(group ? { draggable: false } : {}),
           }
         }),
-    [viewNodes],
+    [flow, viewNodes],
   )
   const placed = useMemo(() => [...regions, ...cards], [cards, regions])
   const edges = useMemo<Edge[]>(() => viewEdges.map((edge) => ({ id: edge.id, type: 'wire', source: edge.from, target: edge.to, selectable: false, focusable: false })), [viewEdges])

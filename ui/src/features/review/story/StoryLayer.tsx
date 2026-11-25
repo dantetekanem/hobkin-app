@@ -203,8 +203,8 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null, resume = nu
         rig.goTo(target, { cut: true })
       } else if (move.kind === 'step' || move.kind === 'jump') {
         const edge = move.travel ? view.edges.find((entry) => entry.id === move.travel!.wire) : undefined
-        const ends = edge ? wireEnds(edge, view.nodes) : null
-        rig.goTo(target, { ride: ends && move.travel ? { curve: wireCurve(ends.source, ends.target), reversed: move.travel.reversed } : null })
+        const ends = edge ? wireEnds(edge, view.nodes, view.flow) : null
+        rig.goTo(target, { ride: ends && move.travel ? { curve: wireCurve(ends.source, ends.target, view.flow), reversed: move.travel.reversed } : null })
       } else {
         rig.goTo(target)
       }

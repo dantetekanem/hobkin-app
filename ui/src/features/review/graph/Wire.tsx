@@ -1,7 +1,7 @@
 import { EdgeLabelRenderer, useStore, type EdgeProps } from '@xyflow/react'
 import { AnimatePresence, motion } from 'motion/react'
 import { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react'
-import { NODE_SIZE } from '#shared/review/layout.ts'
+import { wirePins } from '#shared/review/layout.ts'
 import { WIRE_PHRASE } from '#shared/review/types.ts'
 import { ease, tween } from '@/lib/motion.ts'
 import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
@@ -15,7 +15,8 @@ import { wireCurve, type WireCurve } from './wire-path.ts'
 const DRAW = { duration: 0.42, ease: ease.out } as const
 
 /**
- * One wire. It leaves the right pin of its source and arrives at the left pin of its target.
+ * One wire. It leaves the right pin of its source and arrives at the left pin of its target, or on a graph that reads top
+ * to bottom, the bottom pin and the top pin.
  * At rest it is thin and tinted by its kind. On the step's path it is drawn over in the active color, carries a pulse
  * from source to target and says what it is. A wire the model proposed stays dashed until the reviewer confirms it.
  * A wire to code the change did not touch is quieter, and one the focus folded away is not drawn: its node counts it.
@@ -25,6 +26,7 @@ function WireComponent({ id, source, target }: EdgeProps) {
   const edge = useSession((session) => session.edgeOf.get(id))
   const fromKind = useSession((session) => session.nodeOf.get(source)?.kind)
   const toKind = useSession((session) => session.nodeOf.get(target)?.kind)
+  const flow = useSession((session) => session.view.flow)
   const unchanged = useSession((session) => isUnchanged(session.nodeOf.get(source)) || isUnchanged(session.nodeOf.get(target)))
   const level = useSession((session) => session.levels.wires[id] ?? 'rest')
   const hover = useSession((session) => hoverShown(session.hover.wires[id] ?? 'none', session.hovered, session.focus))
@@ -56,8 +58,9 @@ function WireComponent({ id, source, target }: EdgeProps) {
   const curve = useMemo(() => {
     if (!ends || !fromKind || !toKind) return null
     const [fromX = 0, fromY = 0, toX = 0, toY = 0] = ends.split(' ').map(Number)
-    return wireCurve({ x: fromX + NODE_SIZE[fromKind].width, y: fromY + NODE_SIZE[fromKind].height / 2 }, { x: toX, y: toY + NODE_SIZE[toKind].height / 2 })
-  }, [ends, fromKind, toKind])
+    const pins = wirePins({ kind: fromKind, position: { x: fromX, y: fromY } }, { kind: toKind, position: { x: toX, y: toY } }, flow)
+    return wireCurve(pins.source, pins.target, flow)
+  }, [ends, flow, fromKind, toKind])
 
   if (!edge || !curve) return null
   // The pointer lights a node's own wires, never the ones its focus folded away: looking never unfolds the life cycle.

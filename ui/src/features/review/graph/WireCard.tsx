@@ -22,10 +22,11 @@ function OpenWire({ edge }: { edge: ViewEdge }) {
   const store = useSessionStore()
   const rig = useRig()
   const nodes = useSession((session) => session.view.nodes)
+  const flow = useSession((session) => session.view.flow)
   const from = useSession((session) => session.nodeOf.get(edge.from))
   const to = useSession((session) => session.nodeOf.get(edge.to))
-  const ends = wireEnds(edge, nodes)
-  const middle = wireCurve(ends.source, ends.target).middle
+  const ends = wireEnds(edge, nodes, flow)
+  const middle = wireCurve(ends.source, ends.target, flow).middle
   // It sits just under the wire's middle and follows the graph.
   const transform = useTransform(() => {
     const at = pointToScreen(middle, rig.viewport.get())

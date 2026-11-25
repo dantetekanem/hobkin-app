@@ -331,7 +331,10 @@
   height: 12px;
 }
 
-/* Pins: what a node depends on enters on the left, and what leans on it leaves on the right. */
+/*
+ * Pins: what a node depends on enters on the left, and what leans on it leaves on the right. On a graph that reads top
+ * to bottom it enters at the top and leaves at the bottom.
+ */
 .rv-pin {
   position: absolute;
   top: 50%;
@@ -347,6 +350,19 @@
 }
 .rv-pin[data-side='right'] {
   right: -5.5px;
+}
+.rv-pin[data-side='top'],
+.rv-pin[data-side='bottom'] {
+  top: auto;
+  left: 50%;
+  margin-top: 0;
+  margin-left: -5.5px;
+}
+.rv-pin[data-side='top'] {
+  top: -5.5px;
+}
+.rv-pin[data-side='bottom'] {
+  bottom: -5.5px;
 }
 .rv-pin[data-wired='true'] {
   background: var(--kind-fg);

@@ -596,11 +596,43 @@
 .rv-more[data-side='left']::before {
   left: 100%;
 }
+/* Top to bottom, the count stands under the bottom pin or over the top one, its lead running up or down to it. */
+.rv-more[data-side='top'],
+.rv-more[data-side='bottom'] {
+  top: auto;
+  left: 50%;
+  margin-top: 0;
+  transform: translateX(-50%);
+}
+.rv-more[data-side='top'] {
+  bottom: calc(100% + 16px);
+}
+.rv-more[data-side='bottom'] {
+  top: calc(100% + 16px);
+}
+.rv-more[data-side='top']::before,
+.rv-more[data-side='bottom']::before {
+  top: auto;
+  left: 50%;
+  width: 0;
+  height: 10px;
+  border-top: 0;
+  border-left: 1.5px dashed var(--hb-border-strong);
+}
+.rv-more[data-side='top']::before {
+  top: 100%;
+}
+.rv-more[data-side='bottom']::before {
+  bottom: 100%;
+}
 .rv[data-far='true'] .rv-more {
   height: 30px;
   margin-top: -15px;
   padding: 0 4px;
   font-size: 16px;
+}
+.rv[data-far='true'] .rv-more:is([data-side='top'], [data-side='bottom']) {
+  margin-top: 0;
 }
 
 /* ───────────────────────────── The step's card, beside its node ───────────────────────────── */

@@ -1,4 +1,4 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, type NodeProps } from '@xyflow/react'
 import { ChevronDown, ChevronUp, Layers } from 'lucide-react'
 import { motion } from 'motion/react'
 import { memo } from 'react'
@@ -8,6 +8,7 @@ import { seenAll } from '../state/session.ts'
 import { useEntrance } from './entrance.tsx'
 import type { FoldGroup, Standing } from './focus.ts'
 import { hoverShown } from './levels.ts'
+import { PIN_SIDES } from './pin-sides.ts'
 
 const count = (value: number) => value.toLocaleString('en-US')
 
@@ -34,6 +35,7 @@ function GroupCardComponent({ id }: NodeProps) {
   const level = useSession((session) => session.levels.nodes[id] ?? 'rest')
   const hover = useSession((session) => hoverShown(session.hover.nodes[id] ?? 'none', session.hovered, session.focus))
   const pins = useSession((session) => session.pins[id])
+  const sides = useSession((session) => PIN_SIDES[session.view.flow])
   const seen = useSession((session) => session.view.plan.groups[id]?.members.filter((member) => seenAll(session, member)).length ?? 0)
   const entrance = useEntrance(id)
 
@@ -45,7 +47,7 @@ function GroupCardComponent({ id }: NodeProps) {
   const what = tests ? (members === 1 ? 'card of tests' : 'cards of tests') : members === 1 ? 'part' : 'parts'
   return (
     <>
-      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <Handle type="target" position={sides.in} isConnectable={false} />
       <motion.div
         className="size-full"
         initial={entrance ? { opacity: 0, transform: entrance.quiet ? 'translateY(0px) scale(1)' : 'translateY(34px) scale(0.9)' } : false}
@@ -104,11 +106,11 @@ function GroupCardComponent({ id }: NodeProps) {
               </div>
             </div>
           </div>
-          <i className="rv-pin" data-side="left" data-wired={pins?.in ?? false} aria-hidden="true" />
-          <i className="rv-pin" data-side="right" data-wired={pins?.out ?? false} aria-hidden="true" />
+          <i className="rv-pin" data-side={sides.in} data-wired={pins?.in ?? false} aria-hidden="true" />
+          <i className="rv-pin" data-side={sides.out} data-wired={pins?.out ?? false} aria-hidden="true" />
         </div>
       </motion.div>
-      <Handle type="source" position={Position.Right} isConnectable={false} />
+      <Handle type="source" position={sides.out} isConnectable={false} />
     </>
   )
 }
