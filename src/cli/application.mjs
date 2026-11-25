@@ -10,7 +10,7 @@ import { createPulses, createPulseWire, feedPiEvent } from './pulse.mjs';
 import { TeamsAgents } from './teams-agents.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
 import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.mjs';
-import { agentKindOf, integrationOffer } from './integrations.mjs';
+import { agentKindOf, integrationOffer, MAIN_AGENT } from './integrations.mjs';
 import { workflowFoldersOf } from './workflows.mjs';
 import { restartingAfterCodeToolCrash } from './code-tool-crash.mjs';
 import { withShippedSkills } from './skills-extension.mjs';
@@ -391,6 +391,8 @@ export class HobkinApplication {
       askQuestion,
       triggerSchedule: (...args) => app.runner.trigger(...args),
       messageCheck: request => app.runner.messageCheck(request),
+      // The agents the main chat's own Pi starts with pi-extended-teams, kept as a run's are, under the main chat's name.
+      onMainEvent: event => app.teamsAgents?.observe(MAIN_AGENT, event),
       stopWorkload: request => app.stopWorkload(request),
       // The main agent's own schedules, run in its folder (056-agent-schedules).
       agentSchedules: app.scheduleHandler({ kind: 'main' }, app.config.main.cwd),
@@ -932,7 +934,8 @@ export class HobkinApplication {
       jobActivity,
       pulses: this.publishedPulses(),
       ...helpers,
-      teamsAgents: this.teamsAgents?.snapshot(active) ?? {},
+      // The main chat runs as long as hobkin does, so its teams agents are never taken for those of a run that ended.
+      teamsAgents: this.teamsAgents?.snapshot(new Set([...active, MAIN_AGENT])) ?? {},
       stopControls: this.runtime.stopControls(),
       steeringReceipts: this.runner.steeringReceipts(),
       completedJobReports,

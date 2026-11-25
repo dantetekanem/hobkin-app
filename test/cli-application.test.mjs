@@ -2742,6 +2742,38 @@ test("a run's teams agents travel in teamsAgents, never in jobChildren", async t
   assert.equal(app.snapshot.jobActivity.job[0].name, 'spawn_agent', "the run's own feed still has the call as a step");
 });
 
+test("the main chat's teams agents travel in teamsAgents under #main, and stay running while hobkin runs", async t => {
+  const h = fixture(t);
+  let emit = null;
+  // The main session as the fake makes it, with its listener kept, so the test can be the main agent's Pi.
+  const createMain = async options => {
+    const main = await h.fake.createMain(options);
+    const subscribe = main.subscribe.bind(main);
+    main.subscribe = listener => {
+      emit = listener;
+      return subscribe(listener);
+    };
+    return main;
+  };
+  const app = await h.openApp({ intervalMs: 60000, createMain });
+  t.after(() => app.close());
+  const { TeamsAgents } = await import('../src/cli/teams-agents.mjs');
+  let clock = 1000;
+  // No real ~/.pi: the reader gets a folder of its own and no timers.
+  app.teamsAgents = new TeamsAgents({ teamsDir: join(h.root, 'teams'), now: () => clock, schedule: () => () => {} });
+  emit({ type: 'tool_execution_start', toolCallId: 'm', toolName: 'spawn_agent', args: { name: 'scout', prompt: 'Find it', model_slot: 'read-review' } });
+  emit({ type: 'tool_execution_end', toolCallId: 'm', toolName: 'spawn_agent', isError: false, result: { content: [{ type: 'text', text: 'Started.' }], details: { name: 'scout', session: 'session-main', queued: false } } });
+  app.publishActivity();
+  const shown = () => app.snapshot.teamsAgents['#main']?.map(({ name, state, task }) => [name, state, task]);
+  assert.deepEqual(shown(), [['scout', 'running', 'Find it']]);
+
+  // A minute on, a full refresh still counts the main chat as running, so its agent is not taken for one whose run ended.
+  clock += 60000;
+  await app.refresh();
+  assert.deepEqual(shown(), [['scout', 'running', 'Find it']]);
+  assert.equal(app.snapshot.mainActivity.at(-1).name, 'spawn_agent', "the main chat's own feed still has the call as a step");
+});
+
 test("a check whose Pi crashed in its code tool is restarted once on its own session and ends as the restart does", async t => {
   const h = fixture(t);
   const crashed = 'Harness exited before completion (1). or]: This operation was aborted\n      at new DOMException (node:internal/per_context/domexception:76:18)\n      at AbortController.abort (node:internal/abort_controller:504:18)\n      at Execution.finish (file:///pi/dist/bundle/chunks/execute-L2EEDV3L.js:2:8423)';

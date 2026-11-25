@@ -110,7 +110,7 @@ function recordMainStop(root, run, actions) {
 
 export class HobkinRuntime {
   /** `pulses` (`pulse.mjs`), when given, is where the main turn's pulse is kept for whoever publishes it. */
-  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, agentSchedules, memoryKeeper, integrations, editReport, metricsNow, pulses = null, stopWaitMs = STOP_WAIT_MS, unreadWaitMs = UNREAD_WAIT_MS, onChange = () => {} } = {}) {
+  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, agentSchedules, memoryKeeper, integrations, editReport, metricsNow, pulses = null, stopWaitMs = STOP_WAIT_MS, unreadWaitMs = UNREAD_WAIT_MS, onChange = () => {}, onMainEvent = () => {} } = {}) {
     // What the main agent's memory tools reach, `{ recall, remember }` (057-shared-memory).
     this.memoryKeeper = memoryKeeper;
     this.directory = root;
@@ -135,6 +135,8 @@ export class HobkinRuntime {
     this.mainOwnedRoots = new Set();
     this.editReport = editReport;
     this.onChange = onChange;
+    // Each event of the main chat's Pi, for what only reads it, such as its pi-extended-teams agents (`teams-agents.mjs`).
+    this.onMainEvent = onMainEvent;
     this.active = new Map();
     this.busySessions = new Set();
     this.mainTurn = null;
@@ -405,6 +407,7 @@ export class HobkinRuntime {
     try {
       unsubscribe = main.subscribe(event => {
         feed.accept(event);
+        this.onMainEvent(event);
         if (!TURN_BOUNDS.has(event.type)) this.stepMainPulse((pulses, now) => feedPiEvent(pulses, MAIN_PULSE_KEY, event, now));
         if (event.type === 'tool_execution_start') this.mainTool = event.toolName;
         this.mainDoing = doingAfter(this.mainDoing, event);
