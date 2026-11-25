@@ -38,6 +38,7 @@ import { AgentScheduleRunner } from './agent-schedule-runner.mjs';
 import { scheduledText, scheduleWakeBlock } from './agent-schedules.mjs';
 import { isTurnRunId } from './hobkin-ids.mjs';
 import { tierBinding } from './tiers.mjs';
+import { TeamsTiers } from './teams-tiers.mjs';
 import { agentSchedulesBrief, failureKey, handOffBrief, isQuietScheduledRun, isWakeBrief, jobsBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { Hobkins, hobkinSummaries } from './hobkins.mjs';
 import { answerRequest, takeRequests, tellRequests, turnToken } from './hobkin-tell.mjs';
@@ -352,7 +353,7 @@ export class HobkinApplication {
    * folder of workflows, `[{ id, folder, tools }]`, which run as routines do with only those tools (`workflows.mjs`).
    * Without it no agent is given anything new.
    */
-  static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, harnessWarms, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch, integrations = null } = {}) {
+  static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, harnessWarms, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch, integrations = null, teamsHome = null } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
@@ -426,6 +427,8 @@ export class HobkinApplication {
         shell,
         now,
       });
+      // pi-extended-teams' tiers kept equal to hobkin's, in the home whose settings teams reads; only when one is named (`teams-tiers.mjs`).
+      app.teamsTiers = teamsHome ? new TeamsTiers({ root: app.runtime.directory, home: teamsHome }) : null;
       app.ledger = UsageLedger.open(app.runtime.directory, app.config.initializedAt);
       app.telemetry = Telemetry.open(app.runtime.directory, app.now());
       // Before the first tick and before `app_opened`, so upload begins with this start and never sends what came before.
@@ -462,6 +465,7 @@ export class HobkinApplication {
           app.lookForReturn();
           // Not awaited: it holds a question on screen for as long as it stays there.
           app.presentDecision();
+          app.teamsTiers?.tick();
         },
       });
       app.hobkins = new Hobkins({ runtime: app.runtime, runner: app.runner, root: app.runtime.directory, config: () => app.config, now: app.now, warms,

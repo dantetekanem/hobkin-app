@@ -42,11 +42,11 @@ const isObject = value => value !== null && typeof value === 'object' && !Array.
 
 /** The settings in `file`, and the file a link there points to, or the problem that leaves them alone. A missing file holds none yet. */
 function readTeamsSettings(file, slots) {
-  const found = lstatSync(file, { throwIfNoEntry: false });
-  if (!found) return { target: file, settings: {} };
   let target = file;
   let text;
   try {
+    const found = lstatSync(file, { throwIfNoEntry: false });
+    if (!found) return { target, settings: {} };
     // A link is followed, so the file it names is the one written and the link stays.
     if (found.isSymbolicLink()) target = realpathSync(file);
     text = readFileSync(target, 'utf8');

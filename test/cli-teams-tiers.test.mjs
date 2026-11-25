@@ -3,10 +3,13 @@ import { test } from 'node:test';
 import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as wait } from 'node:timers/promises';
+import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize, loadConfig } from '../src/cli/config.mjs';
 import { clientNoticesToPost } from '../src/cli/client-notices.mjs';
 import { fileVersion } from '../src/cli/file-version.mjs';
 import { TeamsTiers, teamsSettingsFile, teamsTiers, teamsTiersOf, writeTeamsTiers } from '../src/cli/teams-tiers.mjs';
+import { fakePi } from './helpers/pi-session.mjs';
 
 const place = () => mkdtempSync(join(tmpdir(), 'hobkin-teams-tiers-'));
 const read = file => JSON.parse(readFileSync(file, 'utf8'));
@@ -170,4 +173,21 @@ test('a bad file is told once in Chat, left alone, and kept again once it is fix
   writeFileSync(file, '{}');
   keeper.tick();
   assert.deepEqual(read(file).favoriteModels['read-analyze'], { model: 'anthropic/chat', thinking: 'high' });
+});
+
+test('hobkin keeps the tiers of the home it is given from the moment it opens', async t => {
+  const { root, file, save } = running();
+  // The chat runs on the fixture's own model, as the fake Pi does.
+  save({ main: { cwd: root, model: 'fixture/local', effort: 'medium' }, tiers: { max: { model: 'openai/max', effort: 'max' } } });
+  const home = join(file, '..', '..', '..', '..');
+  const app = await HobkinApplication.open(root, {
+    createMain: fakePi(root).createMain,
+    runHarness: async () => { throw Error('No agent runs in this test.'); },
+    fetch: async () => { throw Error('No network in this test.'); },
+    intervalMs: 3600000,
+    teamsHome: home,
+  });
+  t.after(() => app.close());
+  for (const end = Date.now() + 5000; !fileVersion(file); await wait(20)) if (Date.now() > end) throw Error('The tiers were never written.');
+  assert.deepEqual(read(file).favoriteModels['read-critical'], { model: 'openai/max', thinking: 'max' });
 });

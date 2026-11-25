@@ -13,7 +13,7 @@ pi install git:github.com/dantetekanem/hobkin
 pi install git:github.com/jl1990/pi-scheduler
 ```
 
-Run `/reload`, then `/hobkin`. The package includes Pi Durable; it does not install a daemon. Automatic reflection uses `favoriteModels.read-critical` in `~/.pi/agent/pi-extended-teams/settings.json`. Hobkin does not install Teams or change that setting.
+Run `/reload`, then `/hobkin`. The package includes Pi Durable; it does not install a daemon. Automatic reflection uses `favoriteModels.read-critical` in `~/.pi/agent/pi-extended-teams/settings.json`. Hobkin does not install Teams. While the hobkin app runs on the user's own home, it keeps that setting equal to its max tier, and the other teams tiers equal to the hobkin tier for the same use (`src/cli/teams-tiers.mjs`).
 
 ## Start and stop
 
