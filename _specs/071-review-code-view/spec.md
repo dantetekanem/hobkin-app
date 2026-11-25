@@ -34,7 +34,8 @@ The user, 2026-11-25, after trying it: "review should be only triggered in graph
 ### What starts hobkin's review
 
 - Graph starts hobkin's change review, as it always has: a review opened in Graph waits for it and shows its progress. Code opens on the diff as soon as the host has built the review's files, which asks no model, and starts no change review. A pull request opened in Code builds its diff by itself, with no "Start AI review" to press.
-- Going from Code to Graph starts the change review when none is ready or under way at the review's commit, and the graph shows its progress until it is ready. A change review already made, as the background makes one for each finished change, shows in both looks.
+- Going from Code to Graph starts the change review of a finished change when none is ready or under way at the review's commit, and the graph shows its progress, beside the panel and over the switch's own row, until it is ready. On a pull request the graph offers Start AI review instead, as opening one in the graph does: a pull request is reviewed only once the user asks. While the graph waits, only I, O and P act. A change review already made, as the background makes one for each finished change, shows in both looks.
+- The host builds a review's graph and files alone with `review.prepare` and `changeReview: false`. A full ask joins such a build, queued or running, and starts the change review when the graph is drawn. The window's graph-only ask counts as the user's, so the line never drops it, and hobkin says nothing of it in the chat.
 - In Code nothing sits in the corner over the code: no Refresh review, no run card, no Make it a stack. Refresh review would start the change review.
 
 ### The code view
@@ -120,6 +121,7 @@ The model is pi-coder 0.9.10's `/diff` (`src/ui/review-app.ts`, read on 2026-11-
 - A11. `ui/test/review-ask.test.ts`, `ui/test/review-panel.test.ts`, `shared/test/review-verdict.test.ts`, `host/test/review-notes.test.ts`.
 - A12. `ui/test/review-foot.test.ts`, `ui/test/review-verdict-actions.test.ts`, `ui/test/review-panel.test.ts` › X; still renders of the code view's line for a change and for someone else's pull request at 1411 and 1040 pixels (`scratchpad/still-b/page-*.png`).
 - A13. `shared/test/review-grammar.test.ts`, `host/test/review-verdict.test.ts`, `ui/test/review-verdict-actions.test.ts`. The suggestion block is not seen in a still.
+- A14. `host/test/review-graph-only.test.ts`, `ui/test/review-look-load.test.ts`; a still of the graph's wait view at 1411 pixels (`scratchpad/lane-look/page2-1411-dark.html.png`).
 - All: check in the app's window, by the user: open a review in each look, switch with I, write a comment and a question on lines, mark a file seen, reload.
 
 ## Steps
@@ -131,4 +133,4 @@ The model is pi-coder 0.9.10's `/diff` (`src/ui/review-app.ts`, read on 2026-11-
 - [x] S5 (all). The code view on the review's stage. 2ee9f41. Still renders of the code view and of the Settings row; the stage as a whole is not seen.
 - [ ] S6 (all). The user's check in the app's window.
 - [x] S7 (A10 to A13). The user's notes of 2026-11-25: Escape back to the graph 44f7a22; D and H apart 177c8a5; Talk to agent and a pull request's choices f9b1661; no panel in the code view, the verdict on its line 7d414fd; a note on the first file 1fa9217; grammar suggestions with Use it 7e0ddc1; the input on Comment again be9f2f5.
-- [ ] S8 (A14). Code opens on the diff with no change review, and Graph starts one.
+- [x] S8 (A14). Code opens on the diff with no change review, and Graph starts one: the host's graph-only build 3a1de77, the loader by look e5d9629, the screen and the graph's wait view 6fcae03, post-processing 70a0773 (one lane); a pull request's Start AI review in the graph, the wait view's switch row and keys 97f2b6b. The live host restarted itself at 09:25 onto all of it.
