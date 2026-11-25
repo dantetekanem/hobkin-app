@@ -218,7 +218,7 @@ export function Canvas() {
           Stop) that some screens place there, or it swallows their clicks. Leave that corner out of the drag region. */}
       <motion.div
         data-tauri-drag-region
-        className="select-none-chrome absolute top-0 right-44 z-10 h-14"
+        className="select-none-chrome absolute top-0 right-80 z-10 h-14"
         initial={false}
         animate={{ left: dragLeft(shift, dragEdge) }}
         transition={growth}

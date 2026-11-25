@@ -35,10 +35,13 @@ export function ReviewLoad({ loader, renderReview, renderWaiting, renderRun, ren
     onClick: () => void (retryNotes ? loader.flushNotes() : loader.refresh()),
   }, retryNotes ? 'Retry saving notes' : 'Refresh review')
 
+  // The corner sits in the top row, at the right, left of the review's dev switches where a dev build shows them (the
+  // user, 2026-11-25: "refresh review should be near dev"): Refresh review and what stands beside it first, then a run.
+  const corner = `absolute top-2 z-30 flex max-w-sm flex-col items-end gap-2 ${import.meta.env?.DEV ? 'right-[58px]' : 'right-3.5'}`
   return createElement('div', { className: 'relative h-full', 'data-rv-load': '' },
     state.review ? renderReview(state.review) : renderWaiting?.(state.status, state.error, state.look),
-    createElement('div', { className: 'absolute right-4 top-28 z-30 flex max-w-sm flex-col items-end gap-2' },
+    createElement('div', { className: corner },
+      state.review && renderBeside && !quiet ? renderBeside(state.review, state.preparation, refresh) : refresh,
       message ? createElement('p', { role: 'status', className: 'rounded-lg bg-card p-3 text-sm text-muted-foreground' }, message) : null,
-      run,
-      state.review && renderBeside && !quiet ? renderBeside(state.review, state.preparation, refresh) : refresh))
+      run))
 }

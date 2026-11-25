@@ -54,7 +54,8 @@ export function DevTools({ onReplay }: { onReplay: () => void }) {
   return (
     <>
       <Popover>
-        <PopoverTrigger className="rv-float absolute top-3.5 right-3.5 z-10 h-6 rounded-full px-2 font-mono text-[10.5px] text-muted-foreground" aria-label="Development switches">
+        {/* Solid, so it reads the same over whatever the review shows under it (the user, 2026-11-25). */}
+        <PopoverTrigger className="absolute top-3.5 right-3.5 z-40 h-6 rounded-full border border-border bg-card px-2 font-mono text-[10.5px] text-foreground shadow-xs" aria-label="Development switches">
           dev
         </PopoverTrigger>
         <PopoverContent align="end" sideOffset={8} className="rv-float w-[300px] gap-3 rounded-[18px] p-4 text-[13px] ring-0">
