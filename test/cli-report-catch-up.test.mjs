@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { readCatchUp, setCatchUp } from '../src/cli/catch-up.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { main } from '../src/cli/main.mjs';
 import { reportReadStates, Telemetry } from '../src/cli/telemetry.mjs';
@@ -80,4 +81,44 @@ test('hobkin reports gives each report its read state: read, caught-up or unread
   assert.deepEqual(reports.map(({ id, read }) => [id, read]), [['c', 'unread'], ['b', 'caught-up'], ['a', 'read']]);
   assert.equal(reports.some(report => 'readState' in report), false, 'one field says it, from the reads themselves');
   assert.equal(reports[0].routineId, 'routine-c');
+});
+
+test('a new home catches up daily at 08:00 and at 8 reports, and counts only the unread reports from runs since tracking began', t => {
+  const root = home(t);
+  const telemetry = Telemetry.open(root, STARTED);
+  savedView(root, [
+    listed('unread', 1),
+    listed('failed', 2, 'The run failed: no network.', { outcome: 'failed' }),
+    listed('opened', 3),
+    listed('covered', 4),
+    listed('quiet', 5, 'Nothing new.'),
+    listed('unchanged', 6, 'No change.', { outcome: 'no_change' }),
+    listed('catch-up:1', 7, 'Useful: Two reports matter.', { scheduleId: 'catch-up' }),
+    listed('old', -60),
+    listed('imported', 8, 'Useful: From the old extension.', { outcome: 'imported' }),
+  ]);
+  telemetry.recordReportRead({ id: 'opened', dwellMs: 5000 }, STARTED + 10 * MINUTE);
+  telemetry.recordCaughtUp(['covered'], 'catch-up:1', STARTED + 10 * MINUTE);
+
+  assert.deepEqual(readCatchUp(root), { daily: '08:00', pileUp: 8, running: false, lastAt: null, uncovered: 2 });
+});
+
+test('the catch-up settings change one at a time, turn off with null, and refuse a bad time or count in plain words', t => {
+  const root = home(t);
+  const config = () => JSON.parse(readFileSync(join(root, 'config.json'), 'utf8'));
+
+  assert.deepEqual(setCatchUp(root, { daily: '18:30' }), { daily: '18:30', pileUp: 8, running: false, lastAt: null, uncovered: 0 });
+  assert.equal(setCatchUp(root, { pileUp: 30 }).daily, '18:30', 'what is left out stays as it was');
+  assert.deepEqual(setCatchUp(root, { daily: null, pileUp: null }), { daily: null, pileUp: null, running: false, lastAt: null, uncovered: 0 });
+  assert.deepEqual(config().catchUp, { daily: null, pileUp: null });
+  assert.equal(config().background.model, 'fixture/check', 'the rest of config.json stays as it was');
+
+  for (const daily of ['8:00', '24:00', '07:60', 'noon', 8]) {
+    assert.throws(() => setCatchUp(root, { daily }), /^Error: The daily catch-up time is HH:MM on a 24-hour clock, such as 08:00\.$/);
+  }
+  for (const pileUp of [0, -1, 1.5, '3']) {
+    assert.throws(() => setCatchUp(root, { pileUp }), /^Error: A pile-up is a whole number of reports, 1 or more\.$/);
+  }
+  assert.deepEqual(config().catchUp, { daily: null, pileUp: null }, 'a refused change changes nothing');
+  assert.equal(setCatchUp(root, { pileUp: 1 }).pileUp, 1);
 });

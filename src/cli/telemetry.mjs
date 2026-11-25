@@ -83,6 +83,12 @@ export function reportReadStates(root) {
   return states;
 }
 
+/** When hobkin began to watch which reports get read, in milliseconds, or null before it ever did. */
+export function trackingSince(root) {
+  const start = parseEvents(logPath(root)).find(isStart);
+  return start ? Date.parse(start.at) : null;
+}
+
 /** Local-only record of how reports get used. It holds run IDs and timings, never report text. */
 export class Telemetry {
   constructor(root) {
