@@ -11,7 +11,6 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { sampleLength } from '@/features/agent-activity/sample.ts'
 import { stepsOf } from '@/features/agent-activity/steps.ts'
 import { Arrivals } from '@/features/agent-activity/arrive.ts'
-import { glowIn, helpersGlow, liveIf } from '@/features/agent-activity/glow.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { SkillsLine } from '@/features/agent-activity/SkillsLine.tsx'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
@@ -20,8 +19,7 @@ import { lastStepTime, mainTimeOf, type EntryTime } from '@/features/agent-activ
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { turnStartedAt, doingNow as turnWord } from '@/features/chat/doing.ts'
 import { useNow } from '@/features/chat/use-now.ts'
-import { ChildFaces } from '@/features/work/ChildAgents.tsx'
-import { childrenSummary, helpersCount } from '@/features/work/child-summary.ts'
+import { HelpersLine } from '@/features/work/ChildAgents.tsx'
 import { useMainChildren } from '@/features/work/children.ts'
 import { useHasHost, useHost, useWatchJob } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
@@ -138,19 +136,14 @@ function Blank({ children }: { children: string }) {
 }
 
 /**
- * The agents the main agent spawned, in a line at the left: their faces, each with its story on hover, and the count.
- * They run inside its Pi, so none of their steps are here. Its border breathes while a helper runs (glow.ts).
+ * The agents the main agent spawned, folded into one line at the left that opens their list. They run inside its Pi,
+ * so none of their steps are here. Over the tasks row under it, so the list it opens hangs over that row.
  */
 function Helpers({ helpers }: { helpers: readonly RunChild[] }) {
   const still = useStill()
   return (
-    <motion.div className="flex px-[10%] pb-2" initial={holdStill({ opacity: 0 }, still)} animate={{ opacity: 1, transition: tween.enter }}>
-      <div {...liveIf(helpersGlow(helpers))} style={glowIn(HUE)} className="aa-glow flex h-7 min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-2.5 pl-1.5 text-[12px] text-muted-foreground">
-        <ChildFaces spawned={helpers} hue={HUE} />
-        <span className="truncate tabular-nums" title={childrenSummary(helpers)}>
-          {helpersCount(helpers)}
-        </span>
-      </div>
+    <motion.div className="relative z-20 flex px-[10%] pb-2" initial={holdStill({ opacity: 0 }, still)} animate={{ opacity: 1, transition: tween.enter }}>
+      <HelpersLine helpers={helpers} hue={HUE} />
     </motion.div>
   )
 }

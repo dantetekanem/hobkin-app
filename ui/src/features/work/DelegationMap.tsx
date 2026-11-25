@@ -14,7 +14,7 @@ import { sameFields, sameLists } from '@/lib/host/frame.ts'
 import { hostStore, useHost, useHostEqual } from '@/lib/host/index.ts'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
 import { ChildFaces, ChildHood } from './ChildAgents.tsx'
-import { childHue, childLine, childrenSummary, describeChild, helpersNow, HOBKIN_HUE, satellitesOf } from './child-summary.ts'
+import { childHue, childrenSummary, describeChild, helpersNow, HOBKIN_HUE, satellitesOf } from './child-summary.ts'
 import { useMainChildren, useRunChildren } from './children.ts'
 import { mapPlaces } from './map-places.ts'
 import { SaidLine } from './parts.tsx'
@@ -31,9 +31,9 @@ import { useChat } from '../chat/chat-store.ts'
  * hobkin's k stops one.
  *
  * The agents an agent spawned through pi-extended-teams sit to its right as small satellites, wired to it the way
- * it is wired to hobkin, each with how it stands. A narrow map shows only their faces. A pulse runs back along a
- * child's wire when it reports. They cannot be opened: hobkin has no way to reach them. The helpers hobkin's own
- * chat spawned stand under its name, the same small faces, while any is out.
+ * it is wired to hobkin: their faces only, each with how it stands on hover, as folded as an agent's page has them. A
+ * pulse runs back along a child's wire when it reports. They cannot be opened: hobkin has no way to reach them. The
+ * helpers hobkin's own chat spawned stand under its name, the same small faces, while any is out.
  *
  * Positions ride transforms on one spring, so the nodes, their wires and hobkin move together and a change
  * mid-flight retargets. Under Still they are placed where they belong and only fade.
@@ -51,10 +51,8 @@ const NARROW = { left: 84, wire: 56, hob: 64 }
 
 /** A node's satellites: rows this tall and apart, and as many as fit beside the node. */
 const SATELLITE = { row: 18, gap: 3, room: 3 }
-/** Below this width a node's satellites show only their faces, so the node keeps room for its own words. */
-const NAMED_FROM = 800
-const NAMED = { wire: 22, width: 216, named: true }
-const FACES = { wire: 14, width: 18, named: false }
+/** A node's satellites are their faces only, folded as an agent's page folds them: its page lists them. */
+const FACES = { wire: 14, width: 18 }
 
 /** The nodes' spring: a new one bubbles up and overshoots a little, and a move between places settles the same way. */
 const NODE_SPRING = { type: 'spring', duration: 0.62, bounce: 0.32 } as const
@@ -199,7 +197,7 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
 
           <AnimatePresence initial={false}>
             {agents.map((agent, index) => (
-              <AgentNode key={agent.id} agent={agent} y={placeY(index)} left={nodeLeft} still={still} helpers={width < NAMED_FROM ? FACES : NAMED} onStop={() => askToStop(agent)} />
+              <AgentNode key={agent.id} agent={agent} y={placeY(index)} left={nodeLeft} still={still} helpers={FACES} onStop={() => askToStop(agent)} />
             ))}
             {free.map((index) => (
               <Placed key={`free:${index}`} y={placeY(index)} left={nodeLeft} still={still} from={{ lift: 0, scale: 0.96 }}>
@@ -457,7 +455,7 @@ function Pulse({ signal, hue, quiet = false, from, toY, width, still, heartbeat 
   )
 }
 
-type Helpers = typeof NAMED
+type Helpers = typeof FACES
 
 /** One agent's node, with its children beside it. It opens the agent's canvas, and Right reaches Stop on a work agent. */
 function AgentNode({ agent, y, left, still, helpers, onStop }: { agent: RunningAgent; y: number; left: number; still: boolean; helpers: Helpers; onStop: () => void }) {
@@ -516,14 +514,14 @@ function AgentNode({ agent, y, left, still, helpers, onStop }: { agent: RunningA
  * An agent's children, to the right of its node and wired to its pin. Each sits in its place on the nodes' spring
  * and moves with its node. A queued child's wire is dashed like a free place's, since it has not started.
  */
-function Satellites({ spawned, hue, still, wire, width, named }: { spawned: readonly RunChild[]; hue: number; still: boolean } & Helpers) {
+function Satellites({ spawned, hue, still, wire, width }: { spawned: readonly RunChild[]; hue: number; still: boolean } & Helpers) {
   const { shown, more } = satellitesOf(spawned, SATELLITE.room)
   const rows = shown.length + (more ? 1 : 0)
   const top = (NODE_H - rows * SATELLITE.row - (rows - 1) * SATELLITE.gap) / 2
   const middleOf = (index: number) => top + index * (SATELLITE.row + SATELLITE.gap) + SATELLITE.row / 2
   const pin = { from: { x: 0, y: NODE_H / 2 }, width: wire, still }
   const hueOf = (child: RunChild) => childHue(hue, spawned.indexOf(child))
-  const pill = cn('flex w-fit max-w-full items-center gap-1.5 rounded-full', named ? 'pr-2 pl-1' : 'px-[3px]')
+  const pill = 'flex w-fit max-w-full items-center gap-1.5 rounded-full px-[3px]'
 
   return (
     <div aria-hidden="true" className="relative shrink-0" style={{ width: wire + width, height: NODE_H }}>
@@ -544,12 +542,6 @@ function Satellites({ spawned, hue, still, wire, width, named }: { spawned: read
           <Placed key={child.name} y={middleOf(index) - SATELLITE.row / 2} left={wire} still={still} from={{ lift: 8, scale: 0.6 }}>
             <div title={describeChild(child)} className={cn(pill, 'bg-surface shadow-panel')} style={{ height: SATELLITE.row }}>
               <ChildHood child={child} hue={hueOf(child)} />
-              {named ? (
-                <>
-                  <span className="truncate text-[11px] leading-none font-medium">{child.name}</span>
-                  <span className="shrink-0 text-[10.5px] leading-none text-muted-foreground">{childLine(child)}</span>
-                </>
-              ) : null}
             </div>
           </Placed>
         ))}
@@ -557,7 +549,6 @@ function Satellites({ spawned, hue, still, wire, width, named }: { spawned: read
           <Placed key="more" y={middleOf(shown.length) - SATELLITE.row / 2} left={wire} still={still} from={{ lift: 8, scale: 0.6 }}>
             <div title={childrenSummary(spawned)} className={cn(pill, 'border border-dashed border-border text-[10.5px] text-muted-foreground tabular-nums')} style={{ height: SATELLITE.row }}>
               +{more}
-              {named ? ' more' : ''}
             </div>
           </Placed>
         ) : null}

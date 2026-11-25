@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Check, CheckCheck } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
-import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { agentControls, answerAgent, questionOf, runningAgents, useAgent, useAgentControl, type RunningAgent } from '@/app/running-agents.ts'
 import { holdStill, stillVariants, useStill } from '@/app/still.ts'
@@ -12,7 +12,6 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { exchangeOf, pauseOf, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
 import { Arrivals, useArrival } from '@/features/agent-activity/arrive.ts'
-import { glowIn, helpersGlow, liveIf } from '@/features/agent-activity/glow.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { earlierRow, useNewest } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
@@ -34,8 +33,7 @@ import { agentsFrom, sameFields } from '@/lib/host/frame.ts'
 import { runCommand, useHasHost, useHost, useHostEqual } from '@/lib/host/index.ts'
 import { useAgentThreads, type AgentNote } from './agent-threads.ts'
 import { AgentWaits } from './AgentWaits.tsx'
-import { ChildCluster, ChildHood } from './ChildAgents.tsx'
-import { childHue, childLine, childrenSummary, describeChild, helpersCount, satellitesOf } from './child-summary.ts'
+import { HelpersLine } from './ChildAgents.tsx'
 import { useRunChildren } from './children.ts'
 import { changeLine } from '@/features/chat/change-line.ts'
 import { sendChange } from '@/features/chat/send-change.ts'
@@ -139,7 +137,7 @@ export function AgentScreen() {
                 <AgentTaskList agentId={agentId} hue={agent.hue} />
                 {/* The agents its own Pi started with pi-extended-teams: shown, never controlled (046-teams-layer). A spawn
                     call is a step, so a run that has any is always read here. */}
-                <TeamsStrip runs={[agentId]} hue={agent.hue} runName={agent.title} variant="line" />
+                <TeamsStrip runs={[agentId]} hue={agent.hue} runName={agent.title} />
                 <HelpersStrip runId={agentId} hue={agent.hue} />
                 {/* Last, so it only adds at the row's end. */}
                 <AgentSkillsLine agentId={agentId} hue={agent.hue} />
@@ -377,7 +375,7 @@ const Overview = memo(function Overview({ agentId, agent, finished, waiting, que
       ) : null}
       {agentId && agent ? (
         <Plain className="w-full">
-          <HelpersGlance runId={agentId} hue={agent.hue} />
+          <HelpersGlance runId={agentId} hue={agent.hue} hidden={hidden} />
         </Plain>
       ) : null}
     </>
@@ -478,50 +476,24 @@ function QuestionBubble({ hue, question, waiting }: { hue: number; question: str
   )
 }
 
-/** How many helpers the small screen names. More are counted, so it stays a line or two however many there are. */
-const GLANCE_HELPERS = 4
-
 /**
- * The helpers the agent spawned through pi-extended-teams, each with how it stood when the run last checked. They run
- * inside the agent's own Pi, so hobkin has no steps of theirs, and they cannot be opened, stopped or messaged.
+ * The helpers the agent spawned, folded into one line under its glance, as they are under its shrunken header while it
+ * is read. Hidden behind the steps, it takes no keyboard and no pointer.
  */
-function HelpersGlance({ runId, hue }: { runId: string; hue: number }) {
+function HelpersGlance({ runId, hue, hidden }: { runId: string; hue: number; hidden: boolean }) {
   const children = useRunChildren(runId)
   if (children.length === 0) return null
-  const { shown, more } = satellitesOf(children, GLANCE_HELPERS)
   return (
-    <div className="flex flex-col items-center gap-2">
-      <p className="text-[12px] text-muted-foreground">{childrenSummary(children)}</p>
-      <ul className="flex max-w-[72%] flex-wrap justify-center gap-1.5 text-[12px]">
-        {shown.map((child) => (
-          <li key={child.name} title={describeChild(child)} aria-label={describeChild(child)} className="flex items-center gap-1.5 rounded-full bg-surface-2 py-1 pr-2.5 pl-1.5">
-            <ChildHood child={child} hue={childHue(hue, children.indexOf(child))} size={14} />
-            <span className="font-medium">{child.name}</span>
-            <span className="text-muted-foreground">{childLine(child)}</span>
-          </li>
-        ))}
-        {more ? <li className="py-1 text-muted-foreground">+{more} more</li> : null}
-      </ul>
+    // Positioned, so the list the line opens hangs under it.
+    <div inert={hidden} className="relative flex justify-center">
+      <HelpersLine helpers={children} hue={hue} />
     </div>
   )
 }
 
-/**
- * While the run is read, its helpers sit under the shrunken header in a line of their own: their small faces, each with
- * its story on hover, and the count. Its border breathes while a helper runs (glow.ts).
- */
+/** While the run is read, its helpers sit under the shrunken header, folded into one line beside its teams agents. */
 function HelpersStrip({ runId, hue }: { runId: string; hue: number }) {
-  const children = useRunChildren(runId)
-  const id = useId()
-  if (children.length === 0) return null
-  return (
-    <div {...liveIf(helpersGlow(children))} style={glowIn(hue)} className="aa-glow flex h-7 min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-2.5 pl-1.5 text-[12px] text-muted-foreground">
-      <ChildCluster runId={runId} hue={hue} summaryId={id} />
-      <span className="truncate tabular-nums" title={childrenSummary(children)}>
-        {helpersCount(children)}
-      </span>
-    </div>
-  )
+  return <HelpersLine helpers={useRunChildren(runId)} hue={hue} />
 }
 
 /** The steps and messages of the exchange, top to bottom, for the keyboard. */

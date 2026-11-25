@@ -1,146 +1,67 @@
-import { ChevronDown } from 'lucide-react'
-import { AnimatePresence, motion } from 'motion/react'
-import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
-import { holdStill, useStill } from '@/app/still.ts'
-// The line's glow is the tasks line's own (`aa-glow`).
-import '@/features/agent-activity/agent-activity.css'
+import { useRef, useState } from 'react'
 import { useDrop } from '@/features/agent-activity/drop.ts'
-import { glowIn, liveIf, teamsGlow } from '@/features/agent-activity/glow.ts'
-import { useRoom } from '@/features/agent-activity/TaskList.tsx'
-import { spring, tween } from '@/lib/motion.ts'
+import { teamsGlow } from '@/features/agent-activity/glow.ts'
+import { useModelChoices } from '@/features/tiers/models.ts'
 import { cn } from '@/lib/utils.ts'
+import { FoldLine, RunsOnLine } from './FoldLine.tsx'
 import { agentsCount, describeTeamsAgent, firstLine, standing, teamsCounts, teamsSummary, type ShownTeamsAgent } from './rules.ts'
-import { TeamsAgentSheet, TeamsFace, TeamsRow, TimesOf, type SheetOpen } from './TeamsAgentSheet.tsx'
+import { runsOnWords } from './runs-on.ts'
+import { TeamsAgentSheet, TeamsFace, TimesOf, type SheetOpen } from './TeamsAgentSheet.tsx'
 import { useTeamsAgents } from './use-teams-agents.ts'
 
 /**
- * A run's pi-extended-teams agents, quiet on its screen (`046-teams-layer`): running ones first, each with its time.
- * A click or Enter opens one read only. They are the run's own agents, not hobkin's helpers: nothing here stops,
- * messages or counts them. A run that started none draws nothing.
- *
- * `rows`: a short list with what each was asked and its times, where the page has room (a durable hobkin's page, an
- * agent's small screen). `line`: one line beside the tasks line under an agent's shrunken header, that opens the
- * whole list under it as the tasks line does.
+ * A run's pi-extended-teams agents on its screen (`046-teams-layer`), folded into one line beside the tasks line: their
+ * faces and how many. A press opens every one under it, running ones first, and a row opens that agent read only. They
+ * are the run's own agents, not hobkin's helpers: nothing here stops, messages or counts them. A run that started none
+ * draws nothing.
  */
-type Variant = 'rows' | 'line'
-
-/** How many rows show before the rest wait behind "+N more". */
-const ROWS = 3
-/** How many faces the line stacks. */
-const FACES = 3
-
-export function TeamsStrip({ runs, hue, runName, variant, className }: { runs: readonly (string | null | undefined)[]; hue: number; runName: string; variant: Variant; className?: string }) {
+export function TeamsStrip({ runs, hue, runName, className }: { runs: readonly (string | null | undefined)[]; hue: number; runName: string; className?: string }) {
   const [open, setOpen] = useState<SheetOpen>(null)
-  const lineListOpen = useDrop((state) => state.open === 'agents') && variant === 'line'
+  const listOpen = useDrop((state) => state.open === 'agents')
   const sheetAgent = open !== null && open !== 'all' ? open.agent : undefined
   // What the user reads stays until they close it: the open list and the agent in the sheet.
-  const agents = useTeamsAgents(runs, { list: lineListOpen || open === 'all', agent: sheetAgent })
+  const agents = useTeamsAgents(runs, { list: listOpen || open === 'all', agent: sheetAgent })
   if (agents.length === 0) return null
-  return <TeamsStripView agents={agents} open={open} onOpen={setOpen} hue={hue} runName={runName} variant={variant} className={className} />
+  return <TeamsStripView agents={agents} open={open} onOpen={setOpen} hue={hue} runName={runName} className={className} />
 }
 
-/** The strip for given agents, with no host: what `TeamsStrip` draws, and what a still render draws. */
-export function TeamsStripView({ agents, open, onOpen, hue, runName, variant, className }: { agents: readonly ShownTeamsAgent[]; open: SheetOpen; onOpen: (next: SheetOpen) => void; hue: number; runName: string; variant: Variant; className?: string }) {
+/** The line for given agents, with no host: what `TeamsStrip` draws, and what a still render draws. */
+export function TeamsStripView({ agents, open, onOpen, hue, runName, className }: { agents: readonly ShownTeamsAgent[]; open: SheetOpen; onOpen: (next: SheetOpen) => void; hue: number; runName: string; className?: string }) {
   const opener = useRef<HTMLElement | null>(null)
-  const openFrom = (element: HTMLElement, next: SheetOpen) => {
+  const openFrom = (element: HTMLElement, agent: string) => {
     opener.current = element
-    onOpen(next)
+    onOpen({ agent })
   }
-  // Read as it is drawn, as a step's time is: a strip drawn yesterday that has not changed keeps its look.
-  const now = Date.now()
-  const shown = agents.slice(0, ROWS)
-  const more = agents.length - shown.length
-  const summary = teamsSummary(agents)
-  const sheet = <TeamsAgentSheet agents={agents} open={open} onOpen={onOpen} hue={hue} runName={runName} opener={() => opener.current} />
-
-  if (variant === 'line') return <TeamsLine agents={agents} hue={hue} now={now} summary={summary} onOpen={(element, agent) => openFrom(element, { agent })} sheet={sheet} className={className} />
-
+  const faces = agents.map((agent) => ({ key: agent.id, face: <TeamsFace agent={agent} hue={hue} /> }))
+  const list = {
+    title: 'Teams agents',
+    counts: teamsCounts(agents),
+    label: "The run's teams agents, running ones first",
+    rows: <AgentRows agents={agents} hue={hue} onOpen={openFrom} />,
+  }
   return (
-    <section aria-label="Teams agents" className={cn('w-full min-w-0 text-left', className)}>
-      <div className="flex items-center gap-2 px-2 pb-0.5 text-[12px] text-muted-foreground">
-        <span className="min-w-0 flex-1 truncate">{summary}</span>
-        {more ? (
-          <button type="button" onClick={(event) => openFrom(event.currentTarget, 'all')} className="shrink-0 rounded-md px-1.5 py-0.5 transition-colors duration-[140ms] ease-[ease] hover:bg-surface-2 hover:text-foreground">
-            +{more} more
-          </button>
-        ) : null}
-      </div>
-      <ul className="flex flex-col">
-        {shown.map((agent) => (
-          <li key={agent.id} title={describeTeamsAgent(agent, now)}>
-            <TeamsRow agent={agent} hue={hue} now={now} onOpen={(element) => openFrom(element, { agent: agent.id })} />
-          </li>
-        ))}
-      </ul>
-      {sheet}
-    </section>
+    <FoldLine drop="agents" faces={faces} count={agentsCount(agents)} summary={teamsSummary(agents)} live={teamsGlow(agents)} hue={hue} list={list} className={className}>
+      <TeamsAgentSheet agents={agents} open={open} onOpen={onOpen} hue={hue} runName={runName} opener={() => opener.current} />
+    </FoldLine>
   )
+}
+
+/** The open list's rows, read as they are drawn, as a step's time is. */
+function AgentRows({ agents, hue, onOpen }: { agents: readonly ShownTeamsAgent[]; hue: number; onOpen: (element: HTMLElement, agent: string) => void }) {
+  const models = useModelChoices()
+  const now = Date.now()
+  return agents.map((agent) => (
+    <li key={agent.id} title={describeTeamsAgent(agent, now)}>
+      <AgentRow agent={agent} hue={hue} now={now} runsOn={runsOnWords(agent, models)} onOpen={(element) => onOpen(element, agent.id)} />
+    </li>
+  ))
 }
 
 /**
- * The agents in one line, as the tasks line beside it reads: their faces and how many, such as "2 agents". It is as
- * wide as its words, up to 22rem, and its border breathes
- * while one of them is working (glow.ts). A click opens every one under it, with what it was asked, how it stands and
- * its times, and the same again closes it; Escape inside closes it too. A row opens that agent read only. It shares
- * its place under the header with the tasks list, so opening one closes the other.
+ * One agent in the open list, as a task is in its own: face, name, how it stands and its times; the tier, model and
+ * thinking level it runs on, as far as they are known; and what it was asked.
  */
-function TeamsLine({ agents, hue, now, summary, onOpen, sheet, className }: { agents: readonly ShownTeamsAgent[]; hue: number; now: number; summary: string; onOpen: (element: HTMLElement, agent: string) => void; sheet: ReactNode; className?: string }) {
-  const still = useStill()
-  const open = useDrop((state) => state.open === 'agents')
-  const bar = useRef<HTMLButtonElement>(null)
-  const panelId = useId()
-  const count = agentsCount(agents)
-  const live = teamsGlow(agents)
-
-  const toggle = () => {
-    if (open && document.getElementById(panelId)?.contains(document.activeElement)) bar.current?.focus({ preventScroll: true })
-    useDrop.getState().setOpen('agents', !open)
-  }
-
-  return (
-    <div
-      className={cn('flex min-w-0 max-w-[22rem] items-center', className)}
-      onKeyDown={(event) => {
-        if (!open || event.key !== 'Escape') return
-        event.preventDefault()
-        event.stopPropagation()
-        toggle()
-      }}
-    >
-      <motion.button
-        ref={bar}
-        type="button"
-        aria-expanded={open}
-        aria-controls={open ? panelId : undefined}
-        aria-label={`${summary}. ${open ? 'Hide' : 'Show'} every agent.`}
-        onClick={toggle}
-        {...liveIf(live)}
-        style={glowIn(hue)}
-        // Its own transform at rest, for a press to spring back to. With none, Motion takes scale(0) as the rest and
-        // the line vanishes once it is clicked.
-        initial={false}
-        animate={{ transform: 'scale(1)' }}
-        whileTap={holdStill({ transform: 'scale(0.97)', transition: { duration: 0.14 } }, still)}
-        className="aa-glow flex h-7 min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-1.5 pl-2 text-[12px] outline-none transition-colors duration-[160ms] ease-[ease] hover:bg-secondary focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
-      >
-        <span className="flex shrink-0 items-center" aria-hidden="true">
-          {agents.slice(0, FACES).map((agent, index) => (
-            <span key={agent.id} className={cn(index > 0 && '-ml-1')}>
-              <TeamsFace agent={agent} hue={hue} />
-            </span>
-          ))}
-        </span>
-        <span className="shrink-0 text-muted-foreground tabular-nums">{count}</span>
-        <ChevronDown className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]', open && 'rotate-180')} aria-hidden="true" />
-      </motion.button>
-      <AnimatePresence>{open ? <AgentsPanel key="panel" id={panelId} agents={agents} hue={hue} now={now} onOpen={onOpen} still={still} /> : null}</AnimatePresence>
-      {sheet}
-    </div>
-  )
-}
-
-/** One agent in the open list, as a task is in its own: face, name, how it stands and its times, and what it was asked under them. */
-function AgentRow({ agent, hue, now, onOpen }: { agent: ShownTeamsAgent; hue: number; now: number; onOpen: (opener: HTMLElement) => void }) {
+function AgentRow({ agent, hue, now, runsOn, onOpen }: { agent: ShownTeamsAgent; hue: number; now: number; runsOn: readonly string[]; onOpen: (opener: HTMLElement) => void }) {
   const { note } = standing(agent, now)
   return (
     <button
@@ -160,60 +81,9 @@ function AgentRow({ agent, hue, now, onOpen }: { agent: ShownTeamsAgent; hue: nu
           </span>
           <TimesOf agent={agent} now={now} />
         </span>
+        <RunsOnLine words={runsOn} />
         <span className="text-[12px] break-words text-muted-foreground">{firstLine(agent.task)}</span>
       </span>
     </button>
   )
-}
-
-/**
- * Every agent under the line, as the tasks list hangs under its own: what each was asked, how it stands and its times.
- * It opens under the line's left end, at most 28rem wide, as the tasks list does, moved left only as far as the row
- * needs to hold it whole.
- */
-function AgentsPanel({ id, agents, hue, now, onOpen, still }: { id: string; agents: readonly ShownTeamsAgent[]; hue: number; now: number; onOpen: (element: HTMLElement, agent: string) => void; still: boolean }) {
-  const outer = useRef<HTMLDivElement>(null)
-  const room = useRoom(outer)
-  const lineLeft = useLineLeft(outer)
-  return (
-    // Spans the row the line sits in, so the list stands under it within the row.
-    <div
-      ref={outer}
-      className="pointer-events-none absolute inset-x-0 top-full z-20 mt-2 flex"
-      style={{ paddingLeft: `max(0px, min(${lineLeft}px, 100% - 28rem))` }}
-    >
-      <motion.div
-        id={id}
-        role="region"
-        aria-label="Every teams agent"
-        style={{ maxHeight: room }}
-        initial={holdStill({ opacity: 0, transform: 'translateY(-6px) scale(0.96)' }, still)}
-        animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.sheet, opacity: tween.enter } }, still)}
-        exit={holdStill({ opacity: 0, transform: 'translateY(-4px) scale(0.96)', transition: tween.exit }, still)}
-        className="pointer-events-auto flex w-full max-w-[28rem] origin-top-left flex-col overflow-hidden rounded-[18px] border border-border bg-popover text-popover-foreground shadow-panel"
-      >
-        <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
-          <span className="text-[13px] font-medium">Teams agents</span>
-          <span className="min-w-0 truncate text-[12px] text-muted-foreground tabular-nums">{teamsCounts(agents)}</span>
-        </div>
-        <ul aria-label="The run's teams agents, running ones first" className="scroll-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2">
-          {agents.map((agent) => (
-            <li key={agent.id} title={describeTeamsAgent(agent, now)}>
-              <AgentRow agent={agent} hue={hue} now={now} onOpen={(element) => onOpen(element, agent.id)} />
-            </li>
-          ))}
-        </ul>
-      </motion.div>
-    </div>
-  )
-}
-
-/** Where the line that holds the list starts in its row, read as the list opens. */
-function useLineLeft(list: RefObject<HTMLElement | null>): number {
-  const [left, setLeft] = useState(0)
-  useLayoutEffect(() => {
-    const line = list.current?.parentElement
-    if (line) setLeft(line.offsetLeft)
-  }, [list])
-  return left
 }

@@ -176,13 +176,12 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
       exit={{ opacity: 0, transition: tween.exit }}
     >
       <Header id={id} hobkin={hobkin} state={state} mood={mood} split={split} />
-      {/* The agents its turns started with pi-extended-teams, as long as hobkin holds those turns: shown, never controlled (046-teams-layer). */}
-      <div className="flex shrink-0 justify-center px-[10%]">
-        <TeamsStrip runs={[...turns.map((turn) => turn.run), hobkin?.run]} hue={hueOf(id)} runName={hobkin?.title ?? 'This hobkin'} variant="rows" className="pb-2" />
-      </div>
-      {/* The tasks of the turn in flight, as one line that stays in sight above the conversation and opens over it, and the skills it loaded after them. */}
+      {/* The tasks of the turn in flight, as one line that stays in sight above the conversation and opens over it; the
+          agents its turns started with pi-extended-teams, folded into a line the same way, as long as hobkin holds those
+          turns (shown, never controlled: 046-teams-layer); and the skills it loaded. */}
       <div className="relative z-10 mx-[10%] flex shrink-0 gap-3">
         <AgentTaskList agentId={liveRun} hue={hueOf(id)} />
+        <TeamsStrip runs={[...turns.map((turn) => turn.run), hobkin?.run]} hue={hueOf(id)} runName={hobkin?.title ?? 'This hobkin'} />
         <AgentSkillsLine agentId={liveRun} hue={hueOf(id)} />
       </div>
       <Conversation
