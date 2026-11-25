@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { create } from 'zustand'
 import { OPEN_BY_DEFAULT, type BlockKind } from '../settings/rules.ts'
 import { useSettings } from '../settings/store.ts'
+import { tellUnfold } from './unfold.ts'
 
 /**
  * Whether the tool blocks of an agent's steps are open: a file read's text, a command's output, a diff, a tool's output.
@@ -45,8 +46,12 @@ export function blockOpen(choice: Choice | null, all: Pick<Blocks, 'open' | 'tur
   return all.turn > block.since ? false : block.byDefault
 }
 
-/** One block's open state, and the click on its header that opens or closes just it. */
-export function useBlock(kind: BlockKind): { open: boolean; toggle: () => void } {
+/**
+ * One block's open state, and the click on its header that opens or closes just it. The click tells the transcript
+ * first, from the header it was on, so the block opens below the header where the user reads it and the view does not
+ * follow the end.
+ */
+export function useBlock(kind: BlockKind): { open: boolean; toggle: (press?: { currentTarget: Element }) => void } {
   const all = useBlocks((state) => state.open)
   const turn = useBlocks((state) => state.turn)
   // Read defensively: a window that hot-reloaded an older store has no such setting yet.
@@ -54,5 +59,9 @@ export function useBlock(kind: BlockKind): { open: boolean; toggle: () => void }
   const [since] = useState(turn)
   const [choice, setChoice] = useState<Choice | null>(null)
   const open = blockOpen(choice, { open: all, turn }, { byDefault, since })
-  return { open, toggle: () => setChoice({ open: !open, turn }) }
+  const toggle = (press?: { currentTarget: Element }) => {
+    tellUnfold(press?.currentTarget ?? null, open)
+    setChoice({ open: !open, turn })
+  }
+  return { open, toggle }
 }

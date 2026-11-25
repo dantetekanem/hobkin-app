@@ -1,6 +1,14 @@
 import { useRef, useState, type RefObject } from 'react'
 import { UNFOLD } from './follow.ts'
 
+/**
+ * Tells the transcript a box or a row inside it is about to open or close, before it changes height, so the view holds
+ * where the user reads it rather than following the end (`follow.ts`).
+ */
+export function tellUnfold(box: Element | null, closing: boolean): void {
+  box?.dispatchEvent(new CustomEvent(UNFOLD, { bubbles: true, detail: { closing } }))
+}
+
 /** A box that opens on request, and a big one further with each press. */
 export interface Unfold<T extends HTMLElement> {
   open: boolean
@@ -22,7 +30,7 @@ export function useUnfold<T extends HTMLElement>(): Unfold<T> {
   const open = presses > 0
   const box = useRef<T>(null)
   const press = (next: number) => {
-    box.current?.dispatchEvent(new CustomEvent(UNFOLD, { bubbles: true, detail: { closing: next === 0 } }))
+    tellUnfold(box.current, next === 0)
     setPresses(next)
   }
   return {

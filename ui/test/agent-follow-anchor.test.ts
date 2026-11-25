@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { followEnd, UNFOLD, type FollowControl } from '../src/features/agent-activity/follow.ts'
+import { tellUnfold } from '../src/features/agent-activity/unfold.ts'
 
 /** A ResizeObserver that calls back only for what it watches, when the test says a box changed size. */
 class Sizes {
@@ -152,5 +153,15 @@ test('a press that was never let go does not make the newest button give up foll
   box.scrollTop = end()
   follow.onScroll()
   assert.equal(follow.following, true)
+  follow.dispose()
+})
+
+test('a row the user opens tells the transcript as a box does, so the view holds where the row is read', () => {
+  const { box, list, follow, end } = transcript(2000, 600)
+  tellUnfold(list as unknown as HTMLElement, false)
+  box.scrollHeight = 2400
+  resized(list)
+  assert.notEqual(box.scrollTop, end(), 'the row opens below itself, and the view stays on it')
+  assert.equal(follow.following, false)
   follow.dispose()
 })

@@ -1,5 +1,5 @@
 import { Braces, Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, Search, SquareTerminal, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react'
-import { createContext, Fragment, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, Fragment, memo, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { FilePath } from '@/components/FilePath.tsx'
 import { GrowingMarkdown } from '@/features/chat/markdown.ts'
@@ -188,7 +188,7 @@ function Count({ value }: { value: number }) {
 }
 
 /** The row a group folds into. It opens to the list with Enter or a click. */
-function FoldRow({ icon: Icon, open, onToggle, children, failed = false }: { icon: LucideIcon; open: boolean; onToggle?: () => void; children: ReactNode; failed?: boolean }) {
+function FoldRow({ icon: Icon, open, onToggle, children, failed = false }: { icon: LucideIcon; open: boolean; onToggle?: (press: MouseEvent<HTMLButtonElement>) => void; children: ReactNode; failed?: boolean }) {
   const content = (
     <>
       <Icon className={cn('size-3.5 shrink-0', failed ? 'text-bad-fg' : 'text-muted-foreground')} aria-hidden="true" />
