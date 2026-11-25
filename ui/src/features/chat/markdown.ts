@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { stillVariants } from '../../app/still-rule.ts'
 import { spring, tween } from '../../lib/motion.ts'
 import { localPathOf, remarkFilePaths } from '../viewer/paths.ts'
+import { Fence } from './CopyBlock.ts'
 import { blockScan, type Definition } from './stream-buffer.ts'
 
 /**
@@ -29,7 +30,6 @@ const BLOCKS = {
   li: 'my-0.5 pl-0.5 marker:text-muted-foreground',
   blockquote: 'mb-3 border-l-2 border-border-strong pl-3 text-muted-foreground last:mb-0',
   hr: 'my-4 border-border',
-  pre: 'mb-3 overflow-x-auto rounded-xl bg-code-bg p-3 font-mono text-[13px] leading-[1.7] text-code-text last:mb-0 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[13px]',
 } as const satisfies Partial<Record<Tag, string>>
 
 const TABLE_WRAP = 'mb-3 overflow-x-auto last:mb-0'
@@ -83,6 +83,7 @@ const blockNames = Object.keys(BLOCKS) as (keyof typeof BLOCKS)[]
 const components: Components = {
   ...inline,
   ...Object.fromEntries(blockNames.map((tag) => [tag, styled(tag, BLOCKS[tag])])),
+  pre: Fence,
   // A wide table scrolls by itself and never widens the conversation.
   table: ({ node: _node, ...props }) => createElement('div', { className: TABLE_WRAP }, createElement('table', { ...props, className: TABLE })),
 }
@@ -260,6 +261,7 @@ function streamingComponentsWith(arrival: typeof rising): Components {
   return {
   ...inline,
   ...Object.fromEntries(blockNames.map((tag) => [tag, styled(moving[tag]!, BLOCKS[tag], arrival)])),
+  pre: Fence,
   table: ({ node, ...props }) =>
     createElement(motion.div, { ...arrival, ...(wasShown(node) ? { initial: false } : {}), className: TABLE_WRAP }, createElement('table', { ...props, className: TABLE })),
   // Text that just arrived fades in. Only opacity moves, so the block around it never jumps.
