@@ -125,7 +125,9 @@ function perform(action: KeyAction): boolean {
       return true
     case 'close-veil':
       view.closeVeil()
-      focusInput()
+      // Back on an agent's screen, the keyboard stays on it: the message input would close it.
+      if (keyboardHomeFor(useView.getState().screen) === 'canvas') requestCanvasFocus()
+      else focusInput()
       return true
     case 'open-spotlight':
       // It takes the keyboard itself as it opens, and gives it back when it closes.

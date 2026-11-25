@@ -5,6 +5,8 @@ import { clockTime, dayLabel } from '@/features/reports/time.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { hostStore, runCommand, useHasHost, useHost, useSessions } from '@/lib/host/index.ts'
+import { requestCanvasFocus } from './focus.ts'
+import { keyboardHomeFor } from './key-map.ts'
 import { sampleMessages } from './sample.ts'
 import { stillVariants, useStill } from './still.ts'
 import { useView } from './view-store.ts'
@@ -35,7 +37,9 @@ export function ChatVeil() {
 
   const close = () => {
     closeVeil()
-    document.querySelector<HTMLTextAreaElement>('[data-chat-side] textarea')?.focus()
+    // Back on an agent's screen, the keyboard stays on it: the chat's input would close it.
+    if (keyboardHomeFor(useView.getState().screen) === 'canvas') requestCanvasFocus()
+    else document.querySelector<HTMLTextAreaElement>('[data-chat-side] textarea')?.focus()
   }
 
   return (
