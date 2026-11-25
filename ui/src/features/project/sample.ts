@@ -1,5 +1,5 @@
 import { DECIDED_MAX, type DecidedChange, type WorkMetrics } from '#shared/protocol/metrics.ts'
-import type { ModelFact, WorkState } from '#shared/protocol/work.ts'
+import type { ModelFact, RunGuide, WorkState } from '#shared/protocol/work.ts'
 import { dateOf } from '../numbers/format.ts'
 
 /**
@@ -99,4 +99,101 @@ export function withSampleModels(work: WorkState): WorkState {
     return { ...project, models }
   })
   return { ...work, projects }
+}
+
+const DAY_MS = 24 * HOUR_MS
+
+const STOREFRONT_GUIDE = `## What you need
+
+- Node 22 and pnpm 11 (\`package.json\` › engines)
+- Postgres 16 running on this Mac (\`README.md\` › Requirements)
+- A Stripe test key in \`STRIPE_SECRET_KEY\`: Stripe's dashboard, Developers › API keys, in test mode (\`.env.example\`)
+
+## Set up once
+
+1. \`pnpm install\` (\`README.md\` › Setup)
+2. \`cp .env.example .env\`, then fill in \`STRIPE_SECRET_KEY\`. The README leaves this step out. (\`.env.example\`)
+
+## Database
+
+1. \`pnpm db:create\` and \`pnpm db:migrate\` (\`package.json\` › scripts)
+2. \`pnpm db:seed\` makes a shop with 40 products and a login, \`demo@storefront.test\` with the password \`demo\` (\`db/seed.ts\`)
+
+## Run it
+
+1. In its own terminal: \`pnpm dev\`, which starts the app on port 3000 (\`package.json\` › scripts)
+2. Open http://localhost:3000 and sign in with the seed's login.
+
+## Try a change
+
+Switch to the change's branch. When it changes \`package.json\` or \`db/migrations\`, run \`pnpm install\` and \`pnpm db:migrate\` again, then start \`pnpm dev\` again.
+
+## Stop
+
+Control-C in the \`pnpm dev\` terminal. Postgres keeps running: \`brew services stop postgresql@16\` stops it.
+`
+
+const BILLING_GUIDE = `## What you need
+
+- Ruby 3.4 and Bundler (\`.ruby-version\`, \`Gemfile\`)
+- Postgres 16 and Redis 7 (\`docker-compose.yml\`)
+
+## Set up once
+
+1. \`bin/setup\`, which installs the gems and copies \`.env.example\` to \`.env\` (\`bin/setup\`)
+2. Fill in \`STRIPE_WEBHOOK_SECRET\` in \`.env\`: Stripe's dashboard, Developers › Webhooks (\`.env.example\`)
+
+## Database
+
+1. \`docker compose up -d db redis\` (\`docker-compose.yml\`)
+2. \`bin/rails db:prepare\` creates, migrates and seeds it (\`README.md\` › Database)
+
+## Run it
+
+1. In its own terminal: \`bin/dev\`, on port 4000 (\`Procfile.dev\`)
+2. Open http://localhost:4000/up, which answers OK.
+
+## Try a change
+
+Switch to the change's branch, run \`bin/rails db:migrate\`, and start \`bin/dev\` again.
+
+## Stop
+
+Control-C in the \`bin/dev\` terminal, then \`docker compose stop\`.
+`
+
+/**
+ * The sample projects' run guides (_specs/068-run-guide): storefront's worked three days ago, billing-api's stopped at
+ * its database nine days ago, docs-site has none yet, and the goal has none by hobkin's refusal.
+ */
+export function sampleRunGuide(slug: string, now: number): RunGuide {
+  const none: RunGuide = { slug, text: null, writtenAt: null, commit: null, sources: [], lastRun: null, pending: null, refused: null }
+  const ago = (days: number) => new Date(now - days * DAY_MS).toISOString()
+  if (slug === 'storefront') {
+    return {
+      ...none,
+      text: STOREFRONT_GUIDE,
+      writtenAt: ago(3.1),
+      commit: headOf('storefront:guide'),
+      sources: ['README.md', 'package.json', '.env.example', 'db/seed.ts'],
+      lastRun: { at: ago(3), by: 'guide', item: null, worked: true, reached: null, note: 'http://localhost:3000 answered with the shop’s home page.' },
+    }
+  }
+  if (slug === 'billing-api') {
+    return {
+      ...none,
+      text: BILLING_GUIDE,
+      writtenAt: ago(9.2),
+      commit: headOf('billing-api:guide'),
+      sources: ['README.md', 'bin/setup', 'docker-compose.yml', 'Procfile.dev'],
+      lastRun: { at: ago(9), by: 'item', item: '0f6a3b', worked: false, reached: 'Set up once', note: 'db:prepare failed: the seeds need a currency table the migrations no longer make.' },
+    }
+  }
+  if (slug === 'marathon-plan') return { ...none, refused: 'A goal has no run guide: there is no app to run.' }
+  return none
+}
+
+/** What hobkin says to a press on the sample. Nothing is filed. */
+export function sampleGuideAsked(slug: string): string {
+  return `A guide look waits at the front of ${slug}'s queue. It runs when work mode lets it.`
 }

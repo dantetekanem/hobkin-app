@@ -8,8 +8,10 @@ import { READ_WORDS, type MetricsReadState } from '../numbers/metrics-store.ts'
 import { finishedReviewId } from '../review/entry.ts'
 import { stateOf } from '../work/ai-reviews.ts'
 import { needsFirst } from '../work/finished-cards.ts'
+import { isGoal } from '../work/projects.ts'
 import { oldestAtOf } from '../work/work-tiles.ts'
 import { inPlace, readinessRow, stillToSetUp, waitingChange, type PartRow, type ReadinessTone } from '../work/yolo-page.ts'
+import type { GuideRead } from './run-guide.ts'
 
 /**
  * One project's page as data (_specs/053-work-control-room, "A page for each project"): what each section shows, read
@@ -25,6 +27,7 @@ export const SECTION_ID = {
   merged: 'project-merged',
   models: 'project-models',
   readiness: 'project-readiness',
+  runGuide: 'project-run-guide',
 } as const
 
 /** The most merges Merged lately lists. The rest are counted under it. */
@@ -61,6 +64,8 @@ export interface ProjectInput {
   reviews: ProjectReviews | null
   /** The agents at work now. The page's At work section reads them itself, so the rest of it never waits on them. */
   agents?: readonly AgentLike[]
+  /** Its run guide as read so far (`work.guide.read`). Missing while it has not been read. */
+  runGuide?: GuideRead
   live: boolean
   /** The time the page is drawn at, for how long its oldest change has waited. Now unless given. */
   now?: number
@@ -200,6 +205,8 @@ export interface TakenPage {
   merged: MergedSection
   models: { facts: ModelFact[]; empty: string }
   readiness: ReadinessSection
+  /** Its run guide (_specs/068-run-guide). Null for a goal, which has none. */
+  runGuide: GuideRead | null
 }
 
 export type ProjectPage =
@@ -463,5 +470,6 @@ export function projectPage(input: ProjectInput): ProjectPage {
     merged,
     models: { facts: [...models], empty: 'No TLA+ models on its default branch.' },
     readiness: readinessSectionOf(yolo, ready, work.enabled, work.finished),
+    runGuide: isGoal(project) ? null : (input.runGuide ?? { state: 'reading' }),
   }
 }
