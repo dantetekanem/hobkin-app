@@ -92,6 +92,7 @@ These change things. Use them only when the user asked, except the three in Hand
 | `hobkin work add item <project> <title>`, `trigger`, `pause`, `cancel`, `priority`, `prs`, `grade`, `sync`, ... | Each prints `ok` and a `message`. See `hobkin work help`. |
 | `hobkin work trouble <project> <item> [severe] [why]` | Records that a merge went wrong and files an urgent fix. Nothing is rolled back. |
 | `hobkin reports delete ID...` | Deletes reports everywhere. Run receipts stay, so nothing replays. |
+| `hobkin reports catch-up` | Asks the running hobkin for one catch-up report over the unread reports no catch-up covered yet, on its fast model, and prints a `message`. When there are none, it says so and asks for nothing. |
 | `hobkin init` | Creates a workspace. |
 | `hobkin patterns-submit`, `upgrade-apply` | Model spend and migrations, with their own confirmation steps. |
 
@@ -111,6 +112,8 @@ The line after it may say `Next: ...`, the one call the report asks of the user.
 Reports without a triage line and failed runs also appear, so check `outcome` too. It is `completed`, `failed`, `incomplete`, `interrupted` or `no_change`, or `imported` for old history. Filter by `routineId` to follow one check. A scheduled run that found nothing new is not in Reports, so its line in the run history below is its only record.
 
 `read` says whether the user has seen a report. `read` means they opened it for at least 3 seconds or messaged about it. `caught-up` means they never opened it, but a catch-up report covered it. `unread` means neither.
+
+A catch-up report has `routineId` `catch-up`. hobkin writes one each day at 08:00 and whenever 8 unread reports pile up, unless the user changed or turned off either. It covers the unread reports from runs that no catch-up covered yet, except those that said nothing new. In under 200 words it says what happened, which reports to open and what looks skippable, and it names each report as a link, `[title](hobkin-report:<id>)`. It suggests pausing or trimming a routine and never does either.
 
 **Run history.** `checks/<id>/log.md` has one line per finished run, oldest first:
 

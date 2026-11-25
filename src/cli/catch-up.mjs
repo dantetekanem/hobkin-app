@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { lstatSync, mkdirSync, readFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicJson, loadConfig } from './config.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
@@ -36,10 +36,15 @@ const NO_MODEL = 'hobkin has no fast model to write a catch-up with. Choose one 
 
 // The catch-up being written for each home, one at a time, until it has ended.
 const writing = new Map();
+// What each home's tick last saw: the settings by config.json's version, the local day the daily catch-up last came
+// due, and the listed reports, so it knows when one finished.
+const ticks = new Map();
 
 const isClockTime = value => typeof value === 'string' && CLOCK_TIME.test(value);
 const isCount = value => Number.isInteger(value) && value >= 1;
 const statePath = home => join(home, 'runtime', 'catch-up.json');
+// `hobkin reports catch-up` runs in another process and leaves this for the running hobkin's next tick.
+const askedPath = home => join(home, 'runtime', 'catch-up-asked.json');
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
 /** The two triggers as saved. One left out has its default, and one set to null is off. */
@@ -214,4 +219,73 @@ export function setCatchUp(root, { daily, pileUp } = {}) {
   const catchUp = { daily: daily === undefined ? current.daily : daily, pileUp: pileUp === undefined ? current.pileUp : pileUp };
   atomicJson(join(home, 'config.json'), { ...loadConfig(home), catchUp });
   return readCatchUp(home);
+}
+
+/** An agent's or the user's ask from another process, for the running hobkin to start on its next tick. */
+export function requestCatchUp(root) {
+  const home = resolveDataRoot(root);
+  const count = uncoveredReports(home, readLocalView(home).reports).length;
+  if (!count) return { message: NOTHING };
+  atomicJson(askedPath(home), { version: 1, at: new Date().toISOString() });
+  return { message: `Asked hobkin for a catch-up of ${plural(count, 'unread report')}. It starts within a second while hobkin runs, and shows in Reports when it is done.` };
+}
+
+/** The settings, read again only once config.json has changed. */
+function tickSettings(home, seen) {
+  const stat = lstatSync(join(home, 'config.json'));
+  const version = `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+  if (seen.version !== version) Object.assign(seen, { version, settings: settings(home) });
+  return seen.settings;
+}
+
+const localDay = clock => `${clock.getFullYear()}-${String(clock.getMonth() + 1).padStart(2, '0')}-${String(clock.getDate()).padStart(2, '0')}`;
+
+/** Once its local time has come each day: a catch-up when anything is uncovered, and none when one is being written already. */
+function tickDaily(home, app, daily, seen) {
+  if (daily === null) return;
+  const clock = new Date(app.now());
+  const [hours, minutes] = daily.split(':').map(Number);
+  if (clock.getHours() * 60 + clock.getMinutes() < hours * 60 + minutes) return;
+  const today = localDay(clock);
+  seen.dailyOn ??= readState(home).dailyOn ?? null;
+  if (seen.dailyOn === today) return;
+  seen.dailyOn = today;
+  atomicJson(statePath(home), { ...readState(home), version: 1, dailyOn: today });
+  if (!writing.has(home)) startCatchUp(home, app, { trigger: 'scheduled' });
+}
+
+/**
+ * When a report has finished since the last look, a catch-up once the uncovered reports reach the pile size. A catch-up's
+ * own report never counts as one finishing, so one that failed is not tried again until another report comes in.
+ */
+function tickPileUp(home, app, pileUp, seen) {
+  const reports = app.snapshot?.reports;
+  if (!Array.isArray(reports) || reports === seen.reports) return;
+  const before = seen.ids;
+  seen.reports = reports;
+  seen.ids = new Set(reports.map(report => report.id));
+  if (!before || pileUp === null || writing.has(home)) return;
+  const finished = reports.some(report => !before.has(report.id) && report.scheduleId !== CATCH_UP);
+  if (finished && uncoveredReports(home, reports).length >= pileUp) startCatchUp(home, app, { trigger: 'scheduled' });
+}
+
+/**
+ * The catch-up's part of hobkin's tick, each second: an ask left by `hobkin reports catch-up`, the daily time, and a
+ * pile-up once a report has finished. The first look at the list only learns what is there. It never fails the tick.
+ */
+export function tickCatchUp(root, app) {
+  const home = resolveDataRoot(root);
+  const seen = ticks.get(home) ?? {};
+  ticks.set(home, seen);
+  try {
+    if (lstatSync(askedPath(home), { throwIfNoEntry: false })) {
+      rmSync(askedPath(home), { force: true });
+      startCatchUp(home, app);
+    }
+    const { daily, pileUp } = tickSettings(home, seen);
+    tickDaily(home, app, daily, seen);
+    tickPileUp(home, app, pileUp, seen);
+  } catch {
+    // The next tick looks again.
+  }
 }

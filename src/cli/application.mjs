@@ -28,6 +28,7 @@ import { CHROME_NOTE } from './chrome.mjs';
 import { compactionDue, nextRunIn } from './compaction.mjs';
 import { editReport } from './report-editor.mjs';
 import { ShortReports } from './short-reports.mjs';
+import { tickCatchUp } from './catch-up.mjs';
 import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
@@ -433,6 +434,8 @@ export class HobkinApplication {
           retireOffers(app.runtime.directory, app.now());
           retirePickUp(app.runtime.directory, app.now());
           app.tickInbox();
+          // The daily catch-up, a pile of unread reports, or an ask from `hobkin reports catch-up` (069-report-catch-up).
+          tickCatchUp(app.runtime.directory, app);
           app.remote.tick();
           app.landOffers.next();
           app.lookForReturn();

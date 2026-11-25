@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HobkinApplication } from '../src/cli/application.mjs';
-import { catchUpIdle, readCatchUp, setCatchUp, startCatchUp } from '../src/cli/catch-up.mjs';
+import { catchUpIdle, readCatchUp, setCatchUp, startCatchUp, tickCatchUp } from '../src/cli/catch-up.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { buildInvocation } from '../src/cli/harnesses.mjs';
 import { main } from '../src/cli/main.mjs';
@@ -41,18 +41,21 @@ const listed = (id, minutes, body = `Useful: ${id} found something.`, patch = {}
 
 /**
  * hobkin itself on a home whose reads were watched from the start, with no model: each catch-up's model run gets
- * `answer(request)`, and any other model run fails, as one with no model would.
+ * `answer(request)`, and any other model run fails, as one with no model would. Both triggers start off, so only a
+ * test's own ask or the triggers it sets start a catch-up, and its first tick is over before the test goes on.
  */
-async function openHobkin(t, root, answer = () => ({ status: 'completed', text: CATCH_UP_TEXT, cost: null })) {
+async function openHobkin(t, root, { answer = () => ({ status: 'completed', text: CATCH_UP_TEXT, cost: null }), now, catchUp = {} } = {}) {
   Telemetry.open(root, STARTED);
+  setCatchUp(root, { daily: null, pileUp: null, ...catchUp });
   const asked = [];
   const runHarness = async request => {
     if (request.purpose !== 'catch-up') throw Error(`Unexpected ${request.purpose} job.`);
     asked.push(request);
     return answer(request);
   };
-  const app = await HobkinApplication.open(root, { createMain: fakePi(root).createMain, runHarness, intervalMs: 60000 });
+  const app = await HobkinApplication.open(root, { createMain: fakePi(root).createMain, runHarness, intervalMs: 60000, ...(now ? { now } : {}) });
   t.after(() => app.close());
+  await app.runner.tick();
   return { app, asked };
 }
 
@@ -173,7 +176,7 @@ const until = async check => {
 test('a catch-up covers exactly the uncovered unread reports, once it has finished, and one runs at a time', { timeout: 20000 }, async t => {
   const root = home(t);
   const answered = Promise.withResolvers();
-  const { app, asked } = await openHobkin(t, root, () => answered.promise);
+  const { app, asked } = await openHobkin(t, root, { answer: () => answered.promise });
   const long = `Useful: The mail check found a letter from the bank.\n\n${'The letter asks for a signed form before Friday. '.repeat(30)}`;
   await finishRun(app, 'digest-1', 'Useful: The digest found two invoices.');
   saveShortReport(root, 'digest-1', 'Two invoices came in.');
@@ -223,7 +226,7 @@ test('a catch-up covers exactly the uncovered unread reports, once it has finish
 test('a catch-up that fails covers nothing, and with nothing uncovered none starts', { timeout: 20000 }, async t => {
   const root = home(t);
   const answers = [{ status: 'failed', text: '', error: 'The model is not signed in.' }, { status: 'completed', text: '  ' }];
-  const { app, asked } = await openHobkin(t, root, () => answers.shift());
+  const { app, asked } = await openHobkin(t, root, { answer: () => answers.shift() });
 
   assert.deepEqual(startCatchUp(root, app), { message: 'Nothing to catch up on: every report is read or already in a catch-up.' });
   assert.equal(readCatchUp(root).running, false);
@@ -238,7 +241,7 @@ test('a catch-up that fails covers nothing, and with nothing uncovered none star
 
   assert.equal(asked.length, 2);
   assert.equal(app.telemetry.events.some(({ type }) => type === 'report_caught_up'), false);
-  assert.deepEqual(readCatchUp(root), { daily: '08:00', pileUp: 8, running: false, lastAt: null, uncovered: 1 });
+  assert.deepEqual(readCatchUp(root), { daily: null, pileUp: null, running: false, lastAt: null, uncovered: 1 });
 });
 
 test('with no fast model to write it, no catch-up starts and hobkin says so', { timeout: 20000 }, async t => {
@@ -267,4 +270,99 @@ test('the catch-up runs with no tools, and its prompt asks for a one-minute read
   for (const part of ['## What happened', '## Open these', '## Skippable']) assert.ok(prompt.includes(part), part);
   assert.ok(prompt.includes('[title](hobkin-report:<id>)'));
   assert.match(prompt, /Never pause, change or delete a routine/);
+});
+
+/** Local wall time `days` after midnight three days ago, as the app's clock reads it. */
+const localTime = (days, hours, minutes) => {
+  const day = new Date(Date.now() - 3 * 86400000);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate() + days, hours, minutes).getTime();
+};
+
+test('the daily catch-up comes once a day at its time when something is uncovered and unread, and never when it is off', { timeout: 20000 }, async t => {
+  const root = home(t);
+  let clock = localTime(0, 7, 59);
+  const { app, asked } = await openHobkin(t, root, { now: () => clock, catchUp: { daily: '08:00' } });
+  const tickAt = async time => {
+    clock = time;
+    tickCatchUp(root, app);
+    await catchUpIdle(root);
+    await app.refresh();
+  };
+  await finishRun(app, 'digest-1', 'Useful: The digest found two invoices.');
+  await app.refresh();
+
+  await tickAt(localTime(0, 7, 59));
+  assert.equal(asked.length, 0, 'not before its time');
+  await tickAt(localTime(0, 8, 0));
+  assert.equal(asked.length, 1);
+  assert.equal(app.snapshot.reports.find(({ scheduleId }) => scheduleId === 'catch-up').readState, undefined);
+
+  await finishRun(app, 'digest-2', 'Useful: Another invoice came in.');
+  await app.refresh();
+  await tickAt(localTime(0, 23, 0));
+  assert.equal(asked.length, 1, 'once a day');
+  await tickAt(localTime(1, 9, 30));
+  assert.deepEqual(JSON.parse(asked[1].prompt).reports.map(({ id }) => id), ['digest-2'], 'the next day, what came since');
+  await tickAt(localTime(2, 8, 0));
+  assert.equal(asked.length, 2, 'nothing uncovered, so nothing to write');
+
+  setCatchUp(root, { daily: null });
+  await finishRun(app, 'digest-3', 'Useful: A third invoice came in.');
+  await app.refresh();
+  await tickAt(localTime(3, 8, 0));
+  assert.equal(asked.length, 2, 'turned off');
+});
+
+test('a pile-up starts a catch-up when a report finishes and the uncovered count reaches its size, and never a second while one runs', { timeout: 20000 }, async t => {
+  const root = home(t);
+  const answered = Promise.withResolvers();
+  const { app, asked } = await openHobkin(t, root, { answer: () => answered.promise, catchUp: { pileUp: 2 } });
+  const finishAndTick = async (...ids) => {
+    for (const id of ids) await finishRun(app, id, `Useful: ${id} found something.`);
+    await app.refresh();
+    tickCatchUp(root, app);
+  };
+
+  await finishAndTick('a');
+  assert.equal(readCatchUp(root).running, false, 'one uncovered report is under the pile size');
+  await finishAndTick('b');
+  assert.equal(readCatchUp(root).running, true);
+  await until(() => asked.length);
+  await finishAndTick('c', 'd');
+  answered.resolve({ status: 'completed', text: CATCH_UP_TEXT, cost: null });
+  await catchUpIdle(root);
+  await app.refresh();
+  tickCatchUp(root, app);
+
+  assert.equal(asked.length, 1, 'neither while it ran nor when its own report came in');
+  assert.deepEqual(JSON.parse(asked[0].prompt).reports.map(({ id }) => id), ['b', 'a']);
+  assert.equal(readCatchUp(root).uncovered, 2);
+  setCatchUp(root, { pileUp: null });
+  await finishAndTick('e');
+  assert.equal(readCatchUp(root).running, false, 'turned off');
+});
+
+test('hobkin reports catch-up asks the running hobkin for one on its next tick, or says there is nothing to catch up on', { timeout: 20000 }, async t => {
+  const root = home(t);
+  const { app, asked } = await openHobkin(t, root);
+  const ask = async () => {
+    const printed = output();
+    assert.equal(await main(['reports', 'catch-up', '--home', root], printed), 0);
+    return JSON.parse(printed.text);
+  };
+
+  assert.deepEqual(await ask(), { message: 'Nothing to catch up on: every report is read or already in a catch-up.' });
+  await app.runner.tick();
+  assert.equal(asked.length, 0);
+
+  await finishRun(app, 'digest-1', 'Useful: The digest found two invoices.');
+  await app.refresh();
+  assert.deepEqual(await ask(), { message: 'Asked hobkin for a catch-up of 1 unread report. It starts within a second while hobkin runs, and shows in Reports when it is done.' });
+  await app.runner.tick();
+  await catchUpIdle(root);
+  await app.runner.tick();
+
+  assert.equal(asked.length, 1, 'one ask, one catch-up');
+  const [run] = Object.values((await app.runtime.state()).runs).filter(({ scheduleId }) => scheduleId === 'catch-up');
+  assert.equal(run.trigger, 'manual');
 });
