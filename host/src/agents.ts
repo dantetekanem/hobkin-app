@@ -1,4 +1,4 @@
-import type { ImageContent } from 'hobkin/src/cli/application.mjs'
+import type { ImageContent, TakenBack, TalkQueue } from 'hobkin/src/cli/application.mjs'
 import { ENDED_SCHEDULE_STATES, type AgentSchedule } from '#shared/protocol/schedules.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
@@ -16,7 +16,11 @@ import { changeFrom } from './model-name.ts'
 export interface AgentsApp {
   workAction(action: string, slug?: unknown, value?: unknown, extra?: unknown): Promise<unknown>
   kill(runId: string): Promise<boolean>
-  runner: { messageCheck(request: { scheduleId?: string; runId?: string; noteId?: string; message?: string; images?: ImageContent[] }): Promise<unknown> }
+  runner: {
+    messageCheck(request: { scheduleId?: string; runId?: string; noteId?: string; message?: string; images?: ImageContent[]; queue?: TalkQueue }): Promise<unknown>
+    /** What waits for a running check's turn, given back. Absent in a runtime from before. */
+    takeBack?(request: { scheduleId: string; runId: string }): Promise<{ unsent: TakenBack[] }>
+  }
   /** Absent in a runtime from before an agent could change its model while it works. */
   runtime?: { changeRun?(runId: string, change: { model?: string; effort?: string }): Promise<{ model: string | null; effort: string | null }> }
 }
@@ -55,7 +59,7 @@ const STOPS = { 'for-now': 'later', 'not-approved': 'decline' } as const
 
 const messageOf = (result: unknown) => String((result as { message?: unknown } | null)?.message ?? '')
 
-export function agentHandlers({ app, runs, models, images: attached, schedules }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say' | 'agent.change'> {
+export function agentHandlers({ app, runs, models, images: attached, schedules }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say' | 'agent.change' | 'agent.dequeue'> {
   /**
    * The run, while it runs, or also while it waits for its time when `waits` says so (spec 053). hobkin's own
    * conversation is no agent: its turn stops from the input.
@@ -107,7 +111,7 @@ export function agentHandlers({ app, runs, models, images: attached, schedules }
       if (!stopped) throw new Unavailable('It had already finished, so nothing was stopped.')
       return { message: `Stopped "${run.title}".` }
     },
-    'agent.say': async ({ run: id, text, images = [], noteId }) => {
+    'agent.say': async ({ run: id, text, images = [], noteId, queue }) => {
       const run = running(id, 'It has finished, so nothing was sent.')
 
       // The exact run is checked again by the runner, so a schedule rollover cannot redirect the note.
@@ -118,11 +122,26 @@ export function agentHandlers({ app, runs, models, images: attached, schedules }
       const pictures = images.length ? { images: imageContents(attached, images) } : {}
       const message = text?.trim() ? text : attached?.wordsAlone() ?? ''
       try {
-        const result = await app().runner.messageCheck({ scheduleId: run.scheduleId, runId: id, noteId, message, ...pictures }) as { status?: string } | null
+        const asked = { scheduleId: run.scheduleId, runId: id, noteId, message, ...pictures, ...(queue ? { queue } : {}) }
+        const result = await app().runner.messageCheck(asked) as { status?: string; unsent?: TakenBack[] } | null
         // Pi has the images now, so they leave the draft.
         if (images.length) attached?.given(images)
         if (result?.status === 'handled') throw new Unavailable('Pi handled the input without queuing this note.')
-        return { queued: result?.status === 'queued' }
+        // What the turn it interrupted never read goes back to the input.
+        return { queued: result?.status === 'queued', ...(result?.unsent ? { unsent: result.unsent } : {}) }
+      } catch (error) {
+        if (error instanceof Error && 'notQueued' in error && error.notQueued === true) throw new Unavailable(error.message)
+        throw error
+      }
+    },
+    'agent.dequeue': async ({ run: id }) => {
+      const run = running(id, 'It has finished, so nothing waits for it.')
+      const takeBack = app().runner.takeBack
+      if (!takeBack) throw new Unavailable('This hobkin cannot take messages back from an agent yet. Restart the app to load it.')
+      if (run.scheduleId === undefined) throw new Unavailable('hobkin cannot pass a message to this agent while it runs.')
+      try {
+        const { unsent } = await takeBack.call(app().runner, { scheduleId: run.scheduleId, runId: id })
+        return { unsent }
       } catch (error) {
         if (error instanceof Error && 'notQueued' in error && error.notQueued === true) throw new Unavailable(error.message)
         throw error

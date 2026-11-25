@@ -9,11 +9,24 @@ declare module 'hobkin/src/cli/application.mjs' {
   import type { StopControlTarget } from '#shared/protocol/snapshot.ts'
 
   /** The durable hobkins (034-durable-hobkins). A refusal is a thrown Error with a plain sentence. */
+  /** How the user's message waits for an agent's turn in flight, as Pi's keys queue it: Enter, Alt+Enter, Control+Enter. */
+  export type TalkQueue = 'steer' | 'follow-up' | 'interrupt'
+  /** A message given back unread, as the user typed it, with the id of the note it was, if any. */
+  export interface TakenBack {
+    text: string
+    noteId?: string
+  }
+
   export interface DurableHobkins {
     /** With no `text` it starts waiting, and `run` is null: its first turn is the first message sent to it. */
     start(args: { cwd: string; engine: HobkinEngine; text?: string; title?: string }): Promise<{ id: string; run: string | null }>
-    /** `sentAt` is when the user sent the words, on the window's clock, for the timing of the turn. */
-    say(id: string, args: { text: string; noteId?: string; sentAt?: number; images?: ImageContent[] }): Promise<{ started: boolean; queued: boolean; run: string }>
+    /**
+     * `sentAt` is when the user sent the words, on the window's clock, for the timing of the turn. `queue` is how they wait
+     * for a working hobkin's turn; an interrupting message gives back what that turn never read (`unsent`).
+     */
+    say(id: string, args: { text: string; noteId?: string; sentAt?: number; images?: ImageContent[]; queue?: TalkQueue }): Promise<{ started: boolean; queued: boolean; run: string; unsent?: TakenBack[] }>
+    /** What waits for a working hobkin's turn, as the user typed it, taken out of Pi's queue. Absent in a runtime from before. */
+    takeBack?(id: string): Promise<{ unsent: TakenBack[] }>
     end(id: string): Promise<{ ok: true }>
     rename(id: string, title: string): Promise<HobkinSummary>
     /** The hobkins named only by their first message, each with the words a better title is made from. */

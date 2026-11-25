@@ -80,6 +80,12 @@ export interface StartupForceReceipt extends StartupForceArgs {
   queueRecovery: 'not-applicable'
 }
 
+/** A message given back unread from an agent's turn, as the user typed it, with the id of the note it was, if any. */
+export interface TakenBack {
+  text: string
+  noteId?: string
+}
+
 export interface ExecutionTarget {
   home: string
   epoch: string
@@ -186,6 +192,8 @@ const noteDraft = Type.Union([
 ])
 /** When the user sent a message, in milliseconds since the epoch on the window's clock, for hobkin's timing of the turn. Only to a host that takes it (`../protocol/timings.ts`). */
 const sentAt = Type.Optional(Type.Integer({ minimum: 0 }))
+/** How the user's message waits for an agent's turn in flight, as Pi's keys queue it: Enter, Alt+Enter, Control+Enter. */
+const talkQueue = Type.Optional(oneOf(['steer', 'follow-up', 'interrupt']))
 
 export const COMMANDS = {
   'app.state': {
@@ -697,7 +705,7 @@ export const COMMANDS = {
   },
   'hobkin.say': {
     description:
-      "Send the user's words to a durable hobkin, with the images attached for it (`conversation.attach` with `agent` as `hobkin:<id>`), by id. While it waits they start its next turn; while it works they reach the turn in flight.",
+      "Send the user's words to a durable hobkin, with the images attached for it (`conversation.attach` with `agent` as `hobkin:<id>`), by id. While it waits they start its next turn; while it works they reach the turn in flight as `queue` says: `steer` it (the default), wait as a `follow-up` until it would end, or `interrupt` it and start at once, with `unsent` for what it never read.",
     runs: 'host',
     args: Type.Object(
       {
@@ -706,10 +714,16 @@ export const COMMANDS = {
         images: Type.Optional(Type.Array(words(64), { maxItems: 16 })),
         noteId: Type.Optional(Type.String({ maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' })),
         sentAt,
+        queue: talkQueue,
       },
       { additionalProperties: false },
     ),
     rule: ({ text, images }) => (text !== undefined || (Array.isArray(images) && images.length > 0) ? null : 'need words in "text" or at least one image'),
+  },
+  'hobkin.dequeue': {
+    description: "Take back what waits for a working durable hobkin's turn, as the user typed it, for its message box. The turn goes on. Pi does this on Alt+Up.",
+    runs: 'host',
+    args: Type.Object({ id: hobkinId }, { additionalProperties: false }),
   },
   'hobkin.end': {
     description: 'End a durable hobkin: its turn in flight stops and it leaves the lists. Its conversation file stays on disk.',
@@ -1266,15 +1280,21 @@ export const COMMANDS = {
   },
   'agent.say': {
     description:
-      "Queue the user's words for an agent's exact run, with the images attached for it (`conversation.attach` with `agent`), by id. Acknowledgement is not a receipt; steeringReceipts reports notes admitted into a Pi turn. Refused once the run has finished.",
+      "Queue the user's words for an agent's exact run, with the images attached for it (`conversation.attach` with `agent`), by id. `queue` says how they wait for its turn: `steer` it (the default), wait as a `follow-up` until it would end, or `interrupt` it and start at once, with `unsent` for what it never read. Acknowledgement is not a receipt; steeringReceipts reports notes admitted into a Pi turn. Refused once the run has finished.",
     runs: 'host',
     args: Type.Object({
       run: words(256),
       text: Type.Optional(words(4096)),
       images: Type.Optional(Type.Array(words(64), { maxItems: 16 })),
       noteId: Type.Optional(Type.String({ maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' })),
+      queue: talkQueue,
     }, { additionalProperties: false }),
     rule: ({ text, images }) => (text !== undefined || (Array.isArray(images) && images.length > 0) ? null : 'need words in "text" or at least one image'),
+  },
+  'agent.dequeue': {
+    description: "Take back what waits for a working agent's turn, as the user typed it, for its message box. The run goes on. Pi does this on Alt+Up.",
+    runs: 'host',
+    args: Type.Object({ run: words(256) }, { additionalProperties: false }),
   },
   'agent.change': {
     description:
@@ -1574,7 +1594,9 @@ export interface CommandResults {
   /** The new hobkin's id, and the run of its first turn, or null when it was started with no first message. */
   'hobkin.start': { id: string; run: string | null }
   /** `started`: the words began a new turn. `queued`: they were handed to the turn in flight. `run` is that turn's run. */
-  'hobkin.say': { started: boolean; queued: boolean; run: string }
+  /** `unsent`: what a turn the message interrupted never read, for the message box. */
+  'hobkin.say': { started: boolean; queued: boolean; run: string; unsent?: TakenBack[] }
+  'hobkin.dequeue': { unsent: TakenBack[] }
   'hobkin.end': { ok: true }
   'hobkin.rename': HobkinSummary
   'hobkin.seen': { ok: true }
@@ -1676,7 +1698,9 @@ export interface CommandResults {
   'work.group': { message: string; lines: string[] }
   /** What hobkin did, in its own words. */
   'agent.stop': { message: string }
-  'agent.say': { queued: boolean }
+  /** `unsent`: what a turn the message interrupted never read, for the message box. */
+  'agent.say': { queued: boolean; unsent?: TakenBack[] }
+  'agent.dequeue': { unsent: TakenBack[] }
   /** What the agent works on now, in words. */
   'agent.change': { message: string }
   /** The runtime took it. A refusal comes as the command's error, in the runtime's words. */

@@ -81,16 +81,26 @@ export function hobkinHandlers({ app, claudeMissing, modelProblem, models, home 
       }
       return ask((hobkins) => hobkins.start({ cwd: path, engine, ...(text === undefined ? {} : { text }), ...(title === undefined ? {} : { title }) }))
     },
-    'hobkin.say': ({ id, text, images = [], noteId, sentAt }) => ask(async (hobkins) => {
+    'hobkin.say': ({ id, text, images = [], noteId, sentAt, queue }) => ask(async (hobkins) => {
       // The images attached for it go with the words, and a message of pictures alone gets hobkin's own words.
       const pictures = images.length ? { images: imageContents(attached, images) } : {}
       const words = text?.trim() ? text : attached?.wordsAlone() ?? ''
-      const said = await hobkins.say(id, { text: words, ...pictures, ...(noteId === undefined ? {} : { noteId }), ...(sentAt === undefined ? {} : { sentAt }) })
+      const said = await hobkins.say(id, {
+        text: words,
+        ...pictures,
+        ...(noteId === undefined ? {} : { noteId }),
+        ...(sentAt === undefined ? {} : { sentAt }),
+        ...(queue === undefined ? {} : { queue }),
+      })
       // The hobkin has them now, so they leave the draft.
       if (images.length) attached?.given(images)
       return said
     }),
     'hobkin.end': ({ id }) => ask((hobkins) => hobkins.end(id)),
+    'hobkin.dequeue': ({ id }) => ask((hobkins) => {
+      if (!hobkins.takeBack) throw new Unavailable('This hobkin cannot take messages back from a hobkin yet. Restart the app to load it.')
+      return hobkins.takeBack(id)
+    }),
     'hobkin.rename': ({ id, title }) => ask((hobkins) => hobkins.rename(id, title)),
     'hobkin.seen': ({ id }) => ask((hobkins) => hobkins.seen(id)),
     'hobkin.change': async ({ id, model, effort }) => {
