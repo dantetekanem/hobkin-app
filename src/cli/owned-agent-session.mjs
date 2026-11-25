@@ -2,6 +2,7 @@ import { isAbsolute } from 'node:path';
 import { startRpcProcess, clean } from './rpc-process.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { ownedExtensionArguments } from './pi-extensions.mjs';
+import { providerExtensionBinding } from './provider-extensions.mjs';
 import { BRIDGE, serveBridge } from './bridge.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 import { createCustomStyleTool } from './owned-agent-extension.mjs';
@@ -56,8 +57,9 @@ export function createOwnedAgentAdapter({
       || !binding.prompt.trim()
       || !/^[^/\s]+\/\S+$/.test(binding.model ?? '') || !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(binding.effort)
       || (!theme && (!['read', 'write'].includes(binding.parentRole) || (binding.parentRole === 'read' && binding.role !== 'read')))) throw Error('Invalid owned host binding');
+    const provider = providerExtensionBinding(binding.launcher || theme ? undefined : binding.providerExtensions, binding.model);
     const args = ['--mode', 'rpc', '--no-session', '--model', binding.model, '--thinking', binding.effort,
-      ...ownedExtensionArguments(binding.role, binding.launcher)];
+      ...ownedExtensionArguments(binding.role, binding.launcher), ...provider.args];
     const invocation = piCommand(binding.launcher, args);
     const result = Promise.withResolvers();
     // Consumers may attach after a synchronous startup failure; never leak an unhandled rejection.
@@ -259,7 +261,7 @@ export function createOwnedAgentAdapter({
     // Launchers are synchronous handle factories. Validation after launch must clean up, not throw and release capacity.
     try {
       transport = startProcess({ ...invocation, cwd: binding.cwd,
-        env: { ...piEnvironment(binding.launcher), HOBKIN_OWNED_ROLE: binding.role, HOBKIN_OWNED_HELPERS: binding.allowHelpers === true ? '1' : '0' }, name: 'Owned child',
+        env: { ...piEnvironment(binding.launcher), ...provider.env, HOBKIN_OWNED_ROLE: binding.role, HOBKIN_OWNED_HELPERS: binding.allowHelpers === true ? '1' : '0' }, name: 'Owned child',
         maxRecordBytes: 1048576, maxKeptBytes: 65536, onRecord, onFail: error => { void fail(error); } });
       const spawned = now();
       if (typeof transport?.closed?.then === 'function') {

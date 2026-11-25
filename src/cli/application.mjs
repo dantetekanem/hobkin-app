@@ -347,6 +347,10 @@ export class HobkinApplication {
       runHarness = (request, options) => run({ ...request, launcher }, options);
     }
     runHarness ??= namingExtensions(readingUsage(withShippedSkills(defaultRunHarness)));
+    if (!launcher && app.config.providerExtensions) {
+      const run = runHarness;
+      runHarness = (request, options) => run({ ...request, providerExtensions: app.config.providerExtensions }, options);
+    }
     app.snapshot = readLocalView(root);
     // The agents a run's own Pi starts with pi-extended-teams, shown and never controlled or counted (046-teams-layer).
     app.teamsAgents = new TeamsAgents({ now: app.now, onChange: () => app.requestRefresh(true) });
@@ -512,7 +516,8 @@ export class HobkinApplication {
       // Checks prohibit helpers; Work stays closed until child accounting is integrated. The owned tree keeps every root
       // it had, so a start after a wait (`waits` on the request, 053-run-waits) has a root of its own beside its run's.
       const scopeId = admission && (request.waits > 0 ? `${admission.id}:after-wait:${request.waits}` : admission.id);
-      const ownedScope = admission && app.runtime.ownedLifecycle.register({ id: scopeId, allowHelpers: false, binding: request, beforeSpawn: options?.beforeSpawn });
+      const binding = app.config.providerExtensions ? { ...request, providerExtensions: app.config.providerExtensions } : request;
+      const ownedScope = admission && app.runtime.ownedLifecycle.register({ id: scopeId, allowHelpers: false, binding, beforeSpawn: options?.beforeSpawn });
       // A session run and a durable hobkin's turn keep schedules for themselves (056-agent-schedules).
       const owner = admission && request.schedules === true ? scheduleOwnerOf(admission.id) : null;
       const schedules = owner ? app.scheduleHandler(owner, request.cwd, { waits: request.waits }) : undefined;

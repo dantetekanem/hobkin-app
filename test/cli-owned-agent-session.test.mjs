@@ -3,6 +3,7 @@ import { test, mock } from 'node:test';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { registerHooks } from 'node:module';
+import { fileURLToPath } from 'node:url';
 // Replace the SDK before any production import; only the pure tool declaration is needed.
 registerHooks({ resolve(specifier, context, next) {
   if (specifier === '@earendil-works/pi-coding-agent') return { url: 'data:text/javascript,export const defineTool = value => value;', shortCircuit: true };
@@ -63,6 +64,23 @@ test('owned read child uses actual restricted tools and one trusted extension, t
   assert.equal(f.shutdowns, 1);
   assert.equal(JSON.stringify(events).includes('private'), false);
   assert.equal(stats.length, 1);
+});
+
+test('an opted-in provider adds only the provider adapter to the owned read role', { timeout: 1000 }, async () => {
+  const entry = fileURLToPath(import.meta.url);
+  const f = fixture({ binding: { providerExtensions: { test: entry } } });
+  const handle = f.adapter.start(identity);
+  await tick();
+  const { args, env } = f.calls[0];
+  assert.equal(args[args.indexOf('--tools') + 1], 'read,grep,find,ls');
+  assert.ok(args.includes('--no-extensions') && args.includes('--no-mcp'));
+  assert.equal(args.filter(arg => arg === '--extension').length, 2);
+  assert.ok(args.some(arg => arg.endsWith('/provider-extensions.mjs')));
+  assert.ok(!args.includes(entry));
+  assert.deepEqual(JSON.parse(env.HOBKIN_PROVIDER_EXTENSIONS), { test: entry });
+  f.emit(end('report'));
+  f.emit({ type: 'agent_settled' });
+  assert.equal(await handle.result, 'report');
 });
 
 test('owned measurement reconciles cumulative facts without replay charges or private identity', { timeout: 1000 }, async () => {

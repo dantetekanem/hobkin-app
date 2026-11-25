@@ -108,6 +108,16 @@ Each built-in template has a version. When an update brings a new one, or a newe
 
 For a check that runs once, put the file in `once/` with a `date` (`YYYY-MM-DD` in the file's timezone) plus `at` or `window`. If Hobkin was not running at that time, the check runs as soon as it is, however late. It never runs twice, and once it has run it leaves Routines: its file moves to `checks/<id>/`, next to its log. The [routine guide](../src/prompts/routine-setup.md) covers multiple daily times, hourly windows and weekly/monthly settings. Hobkin reloads edited routines automatically. Keep the dashboard open for checks to run.
 
+## Use a Pi provider extension
+
+Pi's provider extensions may supply models and authentication that `models.json` cannot describe. To opt in to an already-installed provider, add its provider ID and the absolute path to its provider extension entry file to Hobkin's `config.json`:
+
+```json
+"providerExtensions": { "my-provider": "/absolute/path/to/provider-entry.ts" }
+```
+
+The picker and native Pi session register that provider through Pi; they do not enable its other tools, commands or hooks. The next host start reads the choice. Sign in through Pi as usual; remove the entry to undo the opt-in. A configured launcher remains responsible for its own providers. Only choose provider code you trust.
+
 ## Start Pi through a launcher
 
 If Pi must start through a wrapper, for example one that sets up credentials or required extensions, add `launcher` to Hobkin's `config.json`:

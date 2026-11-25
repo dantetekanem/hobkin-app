@@ -11,6 +11,7 @@ import { createCheckMessageTool, createScheduleTool, createSettingsTool, createS
 import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { compactAtForceLevel } from './compaction.mjs';
 import { mainSdkResources } from './pi-extensions.mjs';
+import { loadProviderExtensions } from './provider-extensions.mjs';
 import { openRpcSession } from './rpc-session.mjs';
 import { attachUserBash } from './user-bash.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
@@ -72,7 +73,7 @@ export async function openPiSession(
     const bootstrap = config.launcher ? dependencies.bootstrap : {
       root, file,
       expected: expected ? { sessionId: expected.sessionId, sessionFile: expected.sessionFile } : null,
-      config: { main: config.main, background: config.background, resourceSelection: config.resourceSelection },
+      config: { main: config.main, background: config.background, resourceSelection: config.resourceSelection, providerExtensions: config.providerExtensions },
       agentDir: dependencies.agentDir, resourceCandidates: dependencies.resourceCandidates ?? [],
       clientExtensionPath: dependencies.clientBridge?.extensionPath, recoverScriptedHistory: dependencies.recoverScriptedHistory,
     };
@@ -327,6 +328,7 @@ export async function openConversation(
   let modelRuntime = scriptedMain ? undefined : suppliedModelRuntime;
   if (!createSession && !modelRuntime) modelRuntime = await ModelRuntime.create({ allowModelNetwork: false,
     ...(rpcBridge ? { authPath: join(effectiveAgentDir, 'auth.json'), modelsPath: join(effectiveAgentDir, 'models.json') } : {}) });
+  if (modelRuntime) await loadProviderExtensions(modelRuntime, config.providerExtensions, { cwd: config.main.cwd, agentDir: effectiveAgentDir });
   let model;
   if (modelRuntime && config.main.model) {
     const resolved = resolveCliModel({ cliModel: config.main.model, modelRuntime });

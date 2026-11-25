@@ -5,6 +5,7 @@ import { efforts, validateBinding } from './schedules.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { keptEffort } from './model-settings.mjs';
 import { extensionArguments, extensionPaths, LEFT_OUT_WITH_MEMORIES } from './pi-extensions.mjs';
+import { providerExtensionBinding } from './provider-extensions.mjs';
 import { clean, startRpcProcess } from './rpc-process.mjs';
 import { createTurnMetrics } from './turn-metrics.mjs';
 import { BRIDGE, serveBridge } from './bridge.mjs';
@@ -141,6 +142,7 @@ export function buildInvocation(request) {
     ]),
     ...(isWork ? ['--append-system-prompt', prompt(workPromptOf(request))] : []),
   ];
+  if (!request.launcher) args.push(...providerExtensionBinding(request.providerExtensions, request.model, noTools ? [] : request.extensions).args);
   if (request.model) args.push('--model', request.model);
   return piCommand(request.launcher, args);
 }
@@ -436,7 +438,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
   const durable = request.purpose === 'durable';
   // What hobkin gives this run's own process, such as a durable hobkin's turn token (`hobkin-tell.mjs`), and what has
   // every agent the run spawns follow the user's directions (`agent-directions-extension.mjs`).
-  const env = { ...piEnvironment(request.launcher), ...AGENTS_ENVIRONMENT, ...request.env };
+  const providerEnv = request.launcher ? {} : providerExtensionBinding(request.providerExtensions, request.model, usesTools(request.purpose) ? request.extensions : []).env;
+  const env = { ...piEnvironment(request.launcher), ...AGENTS_ENVIRONMENT, ...request.env, ...providerEnv };
   // Everything a durable turn's process starts with. The conversation's next turn reuses it only when all of it is the same.
   const key = durable && JSON.stringify([invocation.command, invocation.args, request.cwd, env]);
   if (request.warm === true) {

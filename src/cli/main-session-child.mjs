@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { readSessionHeader } from './migration/ownership.mjs';
 import { resolveResourcePolicy } from './resource-policy.mjs';
+import { validateProviderExtensions } from './provider-extensions.mjs';
 import { validateBinding } from './schedules.mjs';
 import { startRpcProcess } from './rpc-process.mjs';
 import { readOffer } from './integration-extension.mjs';
@@ -28,7 +29,8 @@ function validateBootstrap(value) {
   if (dirname(value.file) !== join(value.root, 'sessions') || !/^main(?:-[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})?\.jsonl$/i.test(basename(value.file))) {
     throw Error('Main child bootstrap file is not owned.');
   }
-  fields(value.config, ['main', 'background', 'resourceSelection']);
+  fields(value.config, ['main', 'background', 'resourceSelection', 'providerExtensions']);
+  validateProviderExtensions(value.config.providerExtensions);
   fields(value.config.main, ['cwd', 'model', 'effort']);
   validateBinding({ ...value.config.main, harness: 'pi' });
   if (value.config.background !== undefined) {
