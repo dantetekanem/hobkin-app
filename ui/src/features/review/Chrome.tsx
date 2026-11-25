@@ -11,6 +11,7 @@ import { NoteInput } from './panel/notes.tsx'
 import { proofRoom } from './proof/beside.ts'
 import { useReduced, useReviewMemory, useRig, useSession, useSessionStore } from './state/context.tsx'
 import { MODE_KEYS, type ReviewMode } from './story/mode.ts'
+import { LOOK_KEY } from './state/look.ts'
 import { Rail } from './story/Rail.tsx'
 import { uncoveredMiddle } from './story/useCamera.ts'
 
@@ -70,44 +71,53 @@ function RoundButton({ label, keys, onClick, children, className }: { label: str
   )
 }
 
-const MODES: { mode: ReviewMode; label: string; tip: string }[] = [
-  { mode: 'roam', label: 'Free Roam', tip: 'Move between nodes as you like, with nothing leading. Starts on the whole graph' },
-  { mode: 'story', label: 'Story', tip: 'Walk the story step by step. Starts at its first step' },
+const CHOICES: { id: ReviewMode | 'code'; label: string; keys: string; tip: string }[] = [
+  { id: 'code', label: 'Code', keys: LOOK_KEY, tip: 'The change as a diff, file by file, with comments and questions on its lines' },
+  { id: 'roam', label: 'Free Roam', keys: MODE_KEYS.roam, tip: 'Move between nodes as you like, with nothing leading. Starts on the whole graph' },
+  { id: 'story', label: 'Story', keys: MODE_KEYS.story, tip: 'Walk the story step by step. Starts at its first step' },
 ]
 
 /**
- * "Free Roam | Story" (spec 032): how the review is walked, beside the pager, with each mode's key on it. A click on
- * either, the one on or the other, starts it from the beginning, and the keyboard goes back to the review.
+ * "Code | Free Roam | Story" (specs 032 and 071): how the review is read, at the bottom, with each choice's key on it, in
+ * the order the keys sit on the keyboard. Code is the code view. Free Roam and Story are the graph's modes: a click on
+ * either, the one on or the other, starts it from the beginning, from the code view too. The keyboard goes back to the
+ * review. `withCode` offers Code, wherever the review draws the code view.
  */
-function ModeSwitch() {
+export function ModeSwitch({ withCode = false }: { withCode?: boolean }) {
   const store = useSessionStore()
   const mode = useSession((session) => session.mode)
+  const look = useSession((session) => session.look)
+  const choices = withCode ? CHOICES : CHOICES.filter((choice) => choice.id !== 'code')
   return (
-    <div role="group" aria-label="How to walk the review" className="rv-float pointer-events-auto flex h-9 shrink-0 items-center gap-0.5 rounded-full p-1">
-      {MODES.map((choice) => (
-        <Tooltip key={choice.mode}>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-pressed={mode === choice.mode}
-                onClick={(event) => {
-                  store.getState().setMode(choice.mode)
-                  event.currentTarget.closest<HTMLElement>('[data-rv-root]')?.focus({ preventScroll: true })
-                }}
-                className={cn(
-                  'flex h-7 items-center gap-1.5 rounded-full px-2.5 font-heading text-[13px] font-semibold whitespace-nowrap transition-[background-color,color] duration-[160ms] ease-[var(--ease-out)]',
-                  mode === choice.mode ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground',
-                )}
-              />
-            }
-          >
-            {choice.label}
-            <Kbd>{MODE_KEYS[choice.mode]}</Kbd>
-          </TooltipTrigger>
-          <TooltipContent sideOffset={8}>{choice.tip}</TooltipContent>
-        </Tooltip>
-      ))}
+    <div role="group" aria-label="How to read the review" className="rv-float pointer-events-auto flex h-9 shrink-0 items-center gap-0.5 rounded-full p-1">
+      {choices.map((choice) => {
+        const on = choice.id === 'code' ? look === 'code' : look === 'graph' && mode === choice.id
+        return (
+          <Tooltip key={choice.id}>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-pressed={on}
+                  onClick={(event) => {
+                    if (choice.id === 'code') store.getState().setLook('code')
+                    else store.getState().setMode(choice.id)
+                    event.currentTarget.closest<HTMLElement>('[data-rv-root]')?.focus({ preventScroll: true })
+                  }}
+                  className={cn(
+                    'flex h-7 items-center gap-1.5 rounded-full px-2.5 font-heading text-[13px] font-semibold whitespace-nowrap transition-[background-color,color] duration-[160ms] ease-[var(--ease-out)]',
+                    on ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                />
+              }
+            >
+              {choice.label}
+              <Kbd>{choice.keys}</Kbd>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={8}>{choice.tip}</TooltipContent>
+          </Tooltip>
+        )
+      })}
     </div>
   )
 }
