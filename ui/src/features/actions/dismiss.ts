@@ -12,7 +12,9 @@ const record = (value: unknown): Record<string, unknown> | null =>
 /** When the project was offered, from the offer itself in the host's waiting list. hobkin offers a project once at a time. */
 function offeredAt(snapshot: WireSnapshot, slug: string): string | null {
   const asks = record(snapshot.waiting)?.asks
-  const offer = Array.isArray(asks) ? asks.map(record).find((entry) => entry?.kind === 'proposal' && entry.slug === slug) : null
+  if (!Array.isArray(asks)) return null
+
+  const offer = asks.map(record).find((entry) => entry?.kind === 'proposal' && entry.slug === slug)
   return typeof offer?.offeredAt === 'string' ? offer.offeredAt : null
 }
 
@@ -38,9 +40,15 @@ export function dismissIdOf(row: WaitingRow, snapshot: WireSnapshot): string | n
 }
 
 /** Whether hobkin lists the card, so it can be dismissed there: one of hobkin's decisions, a learning offer or a project offer. */
-export const canDismiss = (row: WaitingRow): boolean => row.answers?.by === 'decision' || row.answers?.by === 'learning' || row.answers?.by === 'proposal'
+export function canDismiss(row: WaitingRow): boolean {
+  const by = row.answers?.by
+  return by === 'decision' || by === 'learning' || by === 'proposal'
+}
 
-/** Backspace or Delete dismisses the item that has the keyboard, as it deletes a report in Reports. Typed in a field, it is text. */
-export function dismissesKey({ key, meta = false, ctrl = false, alt = false }: { key: string; meta?: boolean; ctrl?: boolean; alt?: boolean }, typing: boolean): boolean {
-  return !typing && !meta && !ctrl && !alt && (key === 'Backspace' || key === 'Delete')
+/**
+ * Backspace or Delete dismisses the item that has the keyboard, as it deletes a report in Reports. Typed in a field, it is
+ * text. The screens pass on a key held with Command, Control or Option before they ask.
+ */
+export function dismissesKey(key: string, typing: boolean): boolean {
+  return !typing && (key === 'Backspace' || key === 'Delete')
 }

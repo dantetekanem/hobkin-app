@@ -225,7 +225,7 @@ export function ActionsScreen() {
       return
     }
     // As Backspace deletes a report on Reports: the item on this card is dismissed.
-    if (dismissesKey({ key: event.key }, false)) {
+    if (dismissesKey(event.key, false)) {
       const row = shown.current.find((each) => each.id === card.dataset.item)
       if (row) dismiss(row)
       event.preventDefault()

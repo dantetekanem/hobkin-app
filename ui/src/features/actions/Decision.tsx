@@ -47,19 +47,19 @@ export function OpenItem({ rows, row, sample, now, slides, aside, step, onSwitch
 
   const keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || !(event.target instanceof HTMLElement)) return
+    // The item that has the keyboard: the open one, or one in the list beside it. Typed in the answer field, a key is text.
+    const listed = event.target.closest<HTMLElement>('[data-side-row]')?.dataset.sideRow
+    const focused = rows.find((each) => each.id === listed) ?? row
+    const typing = event.target instanceof HTMLInputElement
+
     if (event.key === 'Escape') onClose()
     // Pressed here rather than left to the browser, so a key that comes from hobkin's commands presses it the same way.
     else if (event.key === 'Enter' && event.target instanceof HTMLButtonElement) event.target.click()
-    // As r replies to a report: the item that has the keyboard goes with the next message, the open one or one in the
-    // list beside it. Typed in the answer field, it is a letter.
-    else if (discussesKey({ key: event.key, shift: event.shiftKey }, event.target instanceof HTMLInputElement)) {
-      const listed = event.target.closest<HTMLElement>('[data-side-row]')?.dataset.sideRow
-      onDiscuss(rows.find((each) => each.id === listed) ?? row)
-    } else if (dismissesKey({ key: event.key, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey }, event.target instanceof HTMLInputElement)) {
-      // As Backspace deletes a report: the item that has the keyboard, the open one or one in the list beside it.
-      const listed = event.target.closest<HTMLElement>('[data-side-row]')?.dataset.sideRow
-      onDismiss(rows.find((each) => each.id === listed) ?? row)
-    } else return
+    // As r replies to a report: the item goes with the next message.
+    else if (discussesKey({ key: event.key, shift: event.shiftKey }, typing)) onDiscuss(focused)
+    // As Backspace deletes a report: the item is dismissed.
+    else if (dismissesKey(event.key, typing)) onDismiss(focused)
+    else return
     event.preventDefault()
   }
 

@@ -20,8 +20,11 @@ test("each card hobkin lists is dismissed by hobkin's own id for it, as its hobk
       asks: [{ kind: 'proposal', slug: 'storefront', title: 'Storefront', offeredAt: '2026-11-09T10:00:00.000Z' }],
     },
   }
+
+  const ids = hostRows(snapshot).map((row) => dismissIdOf(row, snapshot))
+
   // hobkin's ids (`listActionItems`): a decision by its own id, a learning offer and a project offer by what was offered when.
-  assert.deepEqual(hostRows(snapshot).map((row) => dismissIdOf(row, snapshot)), ['d1', 'learning:a1b2c3:2026-11-09T09:00:00.000Z', 'project:storefront:2026-11-09T10:00:00.000Z'])
+  assert.deepEqual(ids, ['d1', 'learning:a1b2c3:2026-11-09T09:00:00.000Z', 'project:storefront:2026-11-09T10:00:00.000Z'])
 })
 
 test('a sample, which never reached hobkin, cannot be dismissed there', () => {
@@ -39,14 +42,20 @@ test('only what hobkin lists offers Dismiss: its decisions and its learning and 
       yours: [{ slug: 'storefront', item: 'i1', title: 'Rotate the key', attentionKind: 'personal' }],
     },
   })
-  assert.deepEqual(rows.map((row) => [row.answers?.by, canDismiss(row)]), [['decision', true], ['learning', true], ['proposal', true], ['work', false]])
+
+  const offered = rows.map((row) => [row.answers?.by, canDismiss(row)])
+
+  assert.deepEqual(offered, [
+    ['decision', true],
+    ['learning', true],
+    ['proposal', true],
+    ['work', false],
+  ])
 })
 
-test('Backspace or Delete dismisses the item with the keyboard; in a field, or with a modifier, it is not a dismissal', () => {
-  assert.equal(dismissesKey({ key: 'Backspace' }, false), true)
-  assert.equal(dismissesKey({ key: 'Delete' }, false), true)
-  assert.equal(dismissesKey({ key: 'Backspace' }, true), false)
-  assert.equal(dismissesKey({ key: 'Backspace', meta: true }, false), false)
-  assert.equal(dismissesKey({ key: 'Backspace', alt: true }, false), false)
-  assert.equal(dismissesKey({ key: 'd' }, false), false)
+test('Backspace or Delete dismisses the item with the keyboard; typed in a field, it is text', () => {
+  assert.equal(dismissesKey('Backspace', false), true)
+  assert.equal(dismissesKey('Delete', false), true)
+  assert.equal(dismissesKey('Backspace', true), false)
+  assert.equal(dismissesKey('d', false), false)
 })

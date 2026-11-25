@@ -21,7 +21,17 @@ export function ItemMenu({ row, action, onAsk, onReview, onDiscuss, onDismiss }:
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon-sm" tabIndex={-1} data-row-control="" aria-label={`More for ${row.summary}`} title="Everything this item can do" className="pointer-events-auto text-muted-foreground" />}
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            tabIndex={-1}
+            data-row-control=""
+            aria-label={`More for ${row.summary}`}
+            title="Everything this item can do"
+            className="pointer-events-auto text-muted-foreground"
+          />
+        }
       >
         <Ellipsis aria-hidden="true" />
       </DropdownMenuTrigger>
