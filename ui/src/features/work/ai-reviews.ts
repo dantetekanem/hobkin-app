@@ -85,14 +85,18 @@ const timeOf = (iso: string | null | undefined): number | null => {
 /**
  * What a review is doing, from what the host sends, or null for one that never ran and waits for nothing.
  * Reviewing beats failed, so a review asked for again after it stopped shows as reviewing. A review of a finished change
- * the host says waits its turn, or one queued behind others, waits: it is not reviewing.
+ * the host says waits its turn, or one queued behind others, waits: it is not reviewing. A ready review asked for again
+ * stays ready on the host, so the older one still opens, and its phase says how the new one is built.
  */
 export function stateOf(item: ReviewListItem): RowState | null {
   const assessment = item.assessment?.state
+  const waits: RowState = { kind: 'waits', ahead: readTurn(item.turn)?.ahead ?? null }
   if (assessment === 'running') return { kind: 'reviewing', percent: percentOf(item) }
-  // Preparing with a phase other than waiting its turn is a review being prepared: it is reading, arranging or checking.
-  if (item.state === 'preparing' && item.phase !== 'queued') return { kind: 'reviewing', percent: null }
-  if (item.state === 'preparing' || assessment === 'queued' || item.waiting) return { kind: 'waits', ahead: readTurn(item.turn)?.ahead ?? null }
+  if (item.phase === 'queued') return waits
+  // Any other phase is a review being built, first or again: it is reading, arranging or checking. The change review
+  // the host puts behind it says queued until the graph is drawn, which is no wait.
+  if (item.phase || item.state === 'preparing') return { kind: 'reviewing', percent: null }
+  if (assessment === 'queued' || item.waiting) return waits
   if (item.state === 'failed' || assessment === 'failed') return { kind: 'failed' }
   if (item.state === 'ready' || assessment === 'ready') return { kind: 'ready' }
   return null
@@ -159,7 +163,7 @@ function rowOf(item: ReviewListItem, priorityOf: PriorityOf): ReviewRow | null {
     row.line = (running ? assessment.now : undefined) ?? (item.phase ? PHASES[item.phase] : undefined) ?? 'Starting'
     row.percent = state.percent
     // The change review's own start, once it runs; before that, the start of the review it is built on.
-    row.startedAt = (running ? timeOf(assessment.startedAt) : null) ?? (item.state === 'preparing' ? timeOf(item.startedAt) : null)
+    row.startedAt = (running ? timeOf(assessment.startedAt) : null) ?? (item.phase ? timeOf(item.startedAt) : null)
   } else if (state.kind === 'waits') {
     row.line = turn?.why ?? 'Waits its turn'
   } else if (state.kind === 'failed') {

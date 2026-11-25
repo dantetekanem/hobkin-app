@@ -84,6 +84,29 @@ test('a reviewing row says how far along it is, what it is doing now, and when i
   assert.equal(rows['change:storefront:a3']!.line, 'Starting')
 })
 
+test('a ready review asked for again says reviewing while it is built, with its start, and waits only while that waits its turn', () => {
+  // The host keeps it ready, so the older review still opens, puts a change review queued behind the graph it draws,
+  // and says how the build goes by its phase.
+  const built = (id: string, over: Partial<ReviewListItem>) => item(id, { startedAt: at(1), assessment: { state: 'queued', head: HEAD }, ...over })
+  const rows = Object.fromEntries(
+    rowsOf({
+      reviews: [
+        built('pr:acme/web/20', { kind: 'pull', project: 'acme/web', phase: 'reading' }),
+        built('change:storefront:r1', { phase: 'checking', assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(30) }) } }),
+        built('change:storefront:r2', { phase: 'arranging', assessment: undefined }),
+        built('change:storefront:r3', { phase: 'queued', assessment: undefined }),
+      ],
+    }).map((row) => [row.item.id, [row.state, row.line, row.startedAt]]),
+  )
+
+  assert.deepEqual(rows, {
+    'pr:acme/web/20': [{ kind: 'reviewing', percent: null }, 'Reading the change', Date.parse(at(1))],
+    'change:storefront:r1': [{ kind: 'reviewing', percent: null }, 'Checking the result', Date.parse(at(1))],
+    'change:storefront:r2': [{ kind: 'reviewing', percent: null }, 'Arranging the story', Date.parse(at(1))],
+    'change:storefront:r3': [{ kind: 'waits', ahead: null }, 'Waits its turn', null],
+  })
+})
+
 test('a pull request is named by its repository and number, and a finished change by its project', () => {
   const [pull, change] = rowsOf({
     reviews: [item('pr:acme/web/12', { kind: 'pull', project: 'Acme/Web', updatedAt: at(1) }), item('change:billing-api:5e7c21', { project: 'billing-api', updatedAt: at(2) })],
