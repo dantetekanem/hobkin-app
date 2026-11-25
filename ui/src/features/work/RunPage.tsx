@@ -469,7 +469,10 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
       {/* Control+Option+P here opens the full prompt on this box's message, sent as the box sends it. */}
       <AgentPromptEditor
         agent={agentId}
-        to={{ name, face: <AgentHood hue={hue} size={22} mood={finished ? 'idle' : answering ? 'listening' : mood} working={!finished} /> }}
+        to={{
+          name,
+          face: <AgentHood hue={hue} size={22} mood={finished ? 'idle' : answering ? 'listening' : mood} working={!finished} />,
+        }}
         text={draft}
         setText={setDraft}
         canSend={canSend}

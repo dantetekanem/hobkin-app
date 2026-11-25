@@ -694,7 +694,10 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
       {/* Control+Option+P here opens the full prompt on this box's message, sent as the box sends it. */}
       <AgentPromptEditor
         agent={agent}
-        to={{ name, face: <AgentHood hue={hueOf(id)} size={22} mood={working ? 'working' : 'listening'} working={working} /> }}
+        to={{
+          name,
+          face: <AgentHood hue={hueOf(id)} size={22} mood={working ? 'working' : 'listening'} working={working} />,
+        }}
         text={draft}
         setText={setDraft}
         canSend={canSend}

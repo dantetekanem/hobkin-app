@@ -104,9 +104,20 @@ export function AgentPromptEditor({ agent, ...box }: AgentPromptProps) {
   const open = useAgentPrompt((state) => state.agent === agent)
   const attachments = useAgentImages((images) => images.trays[agent] ?? NO_IMAGES)
   // A box that goes away takes its editor with it.
-  useEffect(() => () => closeAgentPrompt(agent), [agent])
+  useEffect(() => {
+    return () => closeAgentPrompt(agent)
+  }, [agent])
+
   const { attach, detach } = useAgentImages.getState()
-  const target = agentTarget({ ...box, attachments, attach: (files) => attach(agent, files), detach: (id) => detach(agent, id) }, () => closeAgentPrompt(agent))
+  const target = agentTarget(
+    {
+      ...box,
+      attachments,
+      attach: (files) => attach(agent, files),
+      detach: (id) => detach(agent, id),
+    },
+    () => closeAgentPrompt(agent),
+  )
   return createPortal(<AnimatePresence>{open ? <Editor key="prompt-editor" target={target} /> : null}</AnimatePresence>, document.body)
 }
 

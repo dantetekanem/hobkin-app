@@ -95,7 +95,8 @@ export function closeAgentPrompt(agent: string): void {
 
 /** The agent whose talk box `element` is, by the id the box carries (`data-agent-input`). A box that takes nothing more is none. */
 export function talkBoxOf(element: Element | null): string | null {
-  if (!element || (element as HTMLTextAreaElement).readOnly) return null
+  if (!element) return null
+  if ('readOnly' in element && element.readOnly === true) return null
   return element.getAttribute('data-agent-input') || null
 }
 
@@ -119,10 +120,26 @@ export function promptPress({ chatOpen, agentOpen, typingTo }: { chatOpen: boole
 export function agentEditorEnter(press: EnterPress, { turnRunning, canSend }: { turnRunning: boolean; canSend: boolean }): PromptEnter | null {
   if (editorEnter(press) === 'durable') return 'durable'
   if (!press.meta && !press.ctrl && !press.alt) return null
-  const box = press.meta ? { key: 'Enter' } : { key: 'Enter', ctrl: press.ctrl, alt: press.alt, shift: press.shift }
-  const action = composerKey(box, { turnRunning, canSend, empty: false, stopped: false, queued: false })
-  if (!action) return null
-  return action.do === 'send' || action.do === 'follow-up' || action.do === 'interrupt' ? action.do : 'nothing'
+
+  const pressInBox = press.meta ? { key: 'Enter' } : { key: 'Enter', ctrl: press.ctrl, alt: press.alt, shift: press.shift }
+  // Continuing a stopped turn and taking back what waits stay the box's own keys, so the editor asks for neither.
+  const action = composerKey(pressInBox, {
+    turnRunning,
+    canSend,
+    empty: false,
+    stopped: false,
+    queued: false,
+  })
+  switch (action?.do) {
+    case undefined:
+      return null
+    case 'send':
+    case 'follow-up':
+    case 'interrupt':
+      return action.do
+    default:
+      return 'nothing'
+  }
 }
 
 /** The editor on an agent's talk box. It writes the box's own words, sends through the box, and `close` takes it away. */

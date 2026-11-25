@@ -71,6 +71,8 @@ const typingIn = (target: EventTarget | null) => target instanceof HTMLElement &
 
 function contextOf(target: EventTarget | null): KeyContext {
   const { screen, veil } = useView.getState()
+  // The full prompt is open on the main chat's draft or on an agent's talk box.
+  const promptOpen = useChat.getState().draft.place === 'editor' || useAgentPrompt.getState().agent !== null
   return {
     zone: zoneOf(target),
     messageEmpty: (messageInput()?.value.length ?? 0) === 0,
@@ -79,13 +81,7 @@ function contextOf(target: EventTarget | null): KeyContext {
     inOverlay: safely(() => inOverlay(target, document), false),
     veilOpen: veil !== null,
     veilSection: veil,
-    dialog: useNewHobkin.getState().open
-      ? 'new-hobkin'
-      : useNerdStats.getState().open
-        ? 'nerd-stats'
-        : useChat.getState().draft.place === 'editor' || useAgentPrompt.getState().agent !== null
-          ? 'prompt'
-          : undefined,
+    dialog: useNewHobkin.getState().open ? 'new-hobkin' : useNerdStats.getState().open ? 'nerd-stats' : promptOpen ? 'prompt' : undefined,
     asking: safely(() => runningAgents().some((agent) => agent.asks), false),
     outOfMenu: useSettings.getState().screensOutOfMenu,
     typing: typingIn(target),
@@ -150,7 +146,11 @@ function perform(action: KeyAction): boolean {
       // The editor takes the keyboard as it opens and gives it back to whatever had it when it closes. From an agent's
       // talk box it writes that box's message, and anywhere else the main chat's (`prompt-target.ts`).
       const chat = useChat.getState()
-      const press = promptPress({ chatOpen: chat.draft.place === 'editor', agentOpen: useAgentPrompt.getState().agent, typingTo: talkBoxOf(document.activeElement) })
+      const press = promptPress({
+        chatOpen: chat.draft.place === 'editor',
+        agentOpen: useAgentPrompt.getState().agent,
+        typingTo: talkBoxOf(document.activeElement),
+      })
       // The same key closes it, with the words left where they were written, so nothing is lost.
       if (press.do === 'toggle-chat') chat.change({ type: 'editor-toggled' })
       else useAgentPrompt.setState({ agent: press.do === 'open-agent' ? press.agent : null })
