@@ -9,7 +9,7 @@ import { glowIn, liveIf, teamsGlow } from '@/features/agent-activity/glow.ts'
 import { useRoom } from '@/features/agent-activity/TaskList.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { describeTeamsAgent, firstLine, standing, teamsCounts, teamsLine, teamsSummary, type ShownTeamsAgent } from './rules.ts'
+import { agentsCount, describeTeamsAgent, firstLine, standing, teamsCounts, teamsSummary, type ShownTeamsAgent } from './rules.ts'
 import { TeamsAgentSheet, TeamsFace, TeamsRow, TimesOf, type SheetOpen } from './TeamsAgentSheet.tsx'
 import { useTeamsAgents } from './use-teams-agents.ts'
 
@@ -78,8 +78,8 @@ export function TeamsStripView({ agents, open, onOpen, hue, runName, variant, cl
 }
 
 /**
- * The agents in one line, as the tasks line beside it reads: their faces, how many, and who leads, such as
- * "2 agents · running: test-gate, observability". It is as wide as its words, up to 22rem, and its border breathes
+ * The agents in one line, as the tasks line beside it reads: their faces and how many, such as "2 agents". It is as
+ * wide as its words, up to 22rem, and its border breathes
  * while one of them is working (glow.ts). A click opens every one under it, with what it was asked, how it stands and
  * its times, and the same again closes it; Escape inside closes it too. A row opens that agent read only. It shares
  * its place under the header with the tasks list, so opening one closes the other.
@@ -89,7 +89,7 @@ function TeamsLine({ agents, hue, now, summary, onOpen, sheet, className }: { ag
   const open = useDrop((state) => state.open === 'agents')
   const bar = useRef<HTMLButtonElement>(null)
   const panelId = useId()
-  const line = teamsLine(agents)
+  const count = agentsCount(agents)
   const live = teamsGlow(agents)
 
   const toggle = () => {
@@ -130,15 +130,7 @@ function TeamsLine({ agents, hue, now, summary, onOpen, sheet, className }: { ag
             </span>
           ))}
         </span>
-        <span className="shrink-0 text-muted-foreground tabular-nums">{line.count}</span>
-        <span className="shrink-0 text-muted-foreground" aria-hidden="true">
-          ·
-        </span>
-        <span className="min-w-0 truncate text-left">
-          <span className={cn(line.lead === 'failed' ? 'text-bad-fg' : 'text-muted-foreground')}>{line.lead}: </span>
-          <span className="font-medium">{line.names}</span>
-          {line.more ? <span className="text-muted-foreground"> +{line.more}</span> : null}
-        </span>
+        <span className="shrink-0 text-muted-foreground tabular-nums">{count}</span>
         <ChevronDown className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]', open && 'rotate-180')} aria-hidden="true" />
       </motion.button>
       <AnimatePresence>{open ? <AgentsPanel key="panel" id={panelId} agents={agents} hue={hue} now={now} onOpen={onOpen} still={still} /> : null}</AnimatePresence>

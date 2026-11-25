@@ -70,13 +70,11 @@ export function teamsSummary(agents: readonly TeamsAgent[]): string {
 }
 
 /**
- * The agents in one line, as the tasks line reads: how many, and the names of those in the leading state, such as
- * "2 agents · running: test-gate, observability", with how many stand otherwise. `agents` come running first.
+ * The agents in one line, as the tasks line reads: how many, "1 agent" or "3 agents". Who is running shows in the list
+ * under it; the user asked on 2026-11-24 for the line to stop at the count.
  */
-export function teamsLine(agents: readonly TeamsAgent[]): { count: string; lead: TeamsAgentState; names: string; more: number } {
-  const lead = agents[0]?.state ?? 'running'
-  const leading = agents.filter((agent) => agent.state === lead)
-  return { count: agents.length === 1 ? '1 agent' : `${agents.length} agents`, lead, names: leading.map(({ name }) => name).join(', '), more: agents.length - leading.length }
+export function agentsCount(agents: readonly TeamsAgent[]): string {
+  return agents.length === 1 ? '1 agent' : `${agents.length} agents`
 }
 
 const FIRST_LINE = 96
