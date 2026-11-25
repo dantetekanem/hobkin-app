@@ -78,6 +78,15 @@ const bridgeCall = (placeholder, op) => {
 };
 /** A job that lives until its agent says it is done (072-jobs-live-until-done): one asked to, that was given `hobkin_done`. */
 const livesUntilDone = request => request.untilDone === true && request.extensions?.includes(doneExtension) === true;
+/**
+ * A launcher's Pi finds its own extensions, so hobkin names none for it (`namingExtensions`). A run there that keeps
+ * schedules still gets hobkin's schedule tools, beside the launcher's extensions and never in place of them, so a
+ * durable hobkin or a `hobkin session` run schedules the same way with a launcher as without one (056-agent-schedules).
+ */
+function launcherExtensions(request) {
+  const keepsSchedules = request.launcher !== undefined && request.extensions === undefined && request.schedules === true;
+  return keepsSchedules ? ['--extension', scheduleExtension] : [];
+}
 /** A call of `hobkin_schedule` or `hobkin_schedules` that reached the host over the run's bridge (`schedule-extension.mjs`). */
 const isScheduleCall = placeholder => {
   try {
@@ -146,7 +155,7 @@ export function buildInvocation(request) {
       '--no-context-files', '--no-approve',
       '--system-prompt', system,
     ] : [
-      ...extensionArguments(request.extensions), '--append-system-prompt', system,
+      ...extensionArguments(request.extensions), ...launcherExtensions(request), '--append-system-prompt', system,
       // Work keeps the launcher's normal project-trust decision.
       ...(isWork ? [] : ['--approve']),
     ]),

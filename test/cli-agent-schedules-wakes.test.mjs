@@ -108,22 +108,24 @@ test('a run given the schedule tools loads them and leaves out the Pi scheduler,
   }
 });
 
-/** A temporary home whose main chat is a fake Pi and whose scheduled commands run in a fake shell. */
-function home(t) {
+/** A temporary home whose main chat is a fake Pi and whose scheduled commands run in a fake shell. `config` adds to its config. */
+function home(t, config = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-schedule-wakes-')));
   const opened = [];
   t.after(async () => {
     await Promise.all(opened.map(app => app.close()));
     rmSync(root, { recursive: true, force: true });
   });
-  const config = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
-  config.main.model = 'fixture/local';
-  config.background.model = 'fixture/check';
-  atomicJson(join(root, 'config.json'), config);
+  const initial = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
+  initial.main.model = 'fixture/local';
+  initial.background.model = 'fixture/check';
+  atomicJson(join(root, 'config.json'), { ...initial, ...config });
   const fakeMain = fakePi(root);
   const clock = { now: NOW };
   const open = async options => {
-    const app = await HobkinApplication.open(root, { createMain: fakeMain.createMain, intervalMs: 60000, now: () => clock.now, ...options });
+    // The main chat is the fake Pi itself, never started through a configured launcher.
+    const createMain = mainOptions => fakeMain.createMain({ ...mainOptions, config: { ...mainOptions.config, launcher: undefined } });
+    const app = await HobkinApplication.open(root, { createMain, intervalMs: 60000, now: () => clock.now, ...options });
     opened.push(app);
     return app;
   };
@@ -280,6 +282,43 @@ test("a schedule a durable hobkin's turn makes with its tool is the hobkin's own
   calls[1].end.resolve({ status: 'completed', text: 'Nothing yet.', cost: null });
   await until(async () => (await app.hobkins.read(id)).hobkin.state === 'waiting');
   assert.deepEqual(await listed(), owned, 'after it');
+});
+
+test("a durable hobkin started through a configured launcher schedules with its tool too, and the schedule is the hobkin's", async t => {
+  const h = home(t, { launcher: { command: ['fake-launcher', 'pi'] } });
+  const invocations = [];
+  const answers = [];
+  const app = await h.open({ runHarness: async (request, options) => {
+    if (request.purpose !== 'durable' || request.warm) return request.warm ? { status: 'warmed' } : notHere;
+    // The Pi the launcher starts has hobkin_schedule only when its arguments load hobkin's schedule extension.
+    const invocation = buildInvocation(request);
+    invocations.push(invocation);
+    const hasTool = invocation.args.includes(scheduleExtension);
+    answers.push(hasTool ? options.schedules.make({ name: 'Watch the changes', command: 'git status --short', every: '5m', note: 'Say what changed.' }) : null);
+    return { status: 'completed', text: hasTool ? 'Watching.' : 'I have no way to schedule.', cost: null };
+  } });
+
+  const { id } = await app.hobkins.start({ text: 'Watch the changes.', cwd: h.root, engine: { kind: 'tier', tier: 'mid' }, title: 'Change watcher' });
+  await until(() => invocations.length === 1);
+  await until(async () => (await app.hobkins.read(id)).hobkin.state === 'waiting');
+
+  const [{ command, args }] = invocations;
+  assert.deepEqual([command, args[0]], ['fake-launcher', 'pi'], 'Pi starts through the launcher');
+  const loaded = args.indexOf(scheduleExtension);
+  assert.equal(args[loaded - 1], '--extension', "hobkin's schedule tools are loaded");
+  assert.equal(args.includes('--no-extensions'), false, "the launcher's Pi keeps the extensions it finds itself");
+  assert.match(answers[0]?.text ?? '', /Scheduled/);
+  const listed = (await app.refresh()).agentSchedules.map(({ name, owner, ownerTitle }) => [name, owner, ownerTitle]);
+  assert.deepEqual(listed, [['Watch the changes', { kind: 'hobkin', id }, 'Change watcher']]);
+});
+
+test('through a launcher only a run that keeps schedules is given their tools, and the rest are left as the launcher starts them', t => {
+  const launcher = { command: ['fake-launcher'] };
+  const session = buildInvocation(request(t, { launcher, schedules: true }));
+  const other = buildInvocation(request(t, { launcher }));
+  assert.equal(session.args.includes(scheduleExtension), true, 'a hobkin session run');
+  assert.equal(other.args.includes('--extension'), false);
+  assert.equal(other.args.includes('--no-extensions'), false);
 });
 
 test('a reset ends the main chat\'s schedules, and a wake not delivered before a restart is delivered after it', async t => {
