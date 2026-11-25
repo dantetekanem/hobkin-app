@@ -39,7 +39,7 @@ import { chatTeller } from './notify.ts'
 import type { WhoIsMe } from './owner.ts'
 import { peopleFinder, pullPeople } from './people.ts'
 import { findGh, type GhCall } from './gh.ts'
-import { pullCheckout, pullRefs, type PullTarget, type Say } from './pull-checkout.ts'
+import { pullCheckout, pullHeadFetch, pullRefs, type PullTarget, type Say } from './pull-checkout.ts'
 import { Reviews, type Watched } from './reviews.ts'
 import type { RiskWork } from './risk-fix.ts'
 import { sampleReviewSource } from './sample-source.ts'
@@ -418,6 +418,12 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     },
     log: seat.log,
   })
+  /** A pull request's named code host, and how the stack agent fetches its head from there by hand. Nothing for GitHub's. */
+  const hostOfPull = (pull: PullTarget, branch: string | null) => {
+    if (!pull.host) return {}
+    const named = hosts.hostOf(pull.host)
+    return { host: pull.host, fetch: named ? pullHeadFetch(named, pull, branch) : null }
+  }
   stackFacts.set(reviews, async (id) => {
     const target = targetOfReviewId(id)
     if (!target) throw new Unavailable(`There is no review named ${id}.`)
@@ -439,7 +445,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
         branch: change?.branch ?? built?.branch ?? null,
         kind: 'own',
         project: target.slug,
-        ...(change?.pr && opened?.kind === 'pull' ? { pull: { number: opened.number, address: change.pr, author: null, ...(opened.host ? { host: opened.host } : {}) } } : {}),
+        ...(change?.pr && opened?.kind === 'pull' ? { pull: { number: opened.number, address: change.pr, author: null, ...hostOfPull(opened, change.branch ?? null) } } : {}),
       }
     }
     const head = status.head ?? built?.head ?? null
@@ -454,7 +460,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       head,
       branch: built?.branch ?? null,
       kind: status.owner?.mine ? 'mine' : 'other',
-      pull: { number: target.number, address: pullUrl(target) ?? `${target.owner}/${target.repo}#${target.number}`, author: status.owner?.author ?? null, ...(target.host ? { host: target.host } : {}) },
+      pull: { number: target.number, address: pullUrl(target) ?? `${target.owner}/${target.repo}#${target.number}`, author: status.owner?.author ?? null, ...hostOfPull(target, built?.branch ?? null) },
     }
   })
   refreshFacts.set(reviews, async (id) => {

@@ -68,6 +68,15 @@ export const ownCloneOf = (root: string, target: PullTarget) => join(root, 'clie
 const filled = (word: string, target: PullTarget, branch = '') =>
   word.replaceAll('{owner}', target.owner).replaceAll('{repo}', target.repo).replaceAll('{number}', String(target.number)).replaceAll('{branch}', branch)
 
+/**
+ * A named code host's pull request head as git fetches it by hand, the way the checkout fetches it: from the host's git
+ * address, by the ref the host keeps the head in. Null for a host that keeps it by branch, when the branch is not known.
+ */
+export function pullHeadFetch(host: Pick<CodeHost, 'git' | 'headRef'>, target: PullTarget, branch: string | null): { remote: string; ref: string } | null {
+  if (host.headRef.includes('{branch}') && !branch) return null
+  return { remote: filled(host.git, target), ref: filled(host.headRef, target, branch ?? '') }
+}
+
 /** A folder in words, with the home folder as `~`. */
 const shown = (folder: string) => (folder.startsWith(`${homedir()}/`) ? `~${folder.slice(homedir().length)}` : folder)
 

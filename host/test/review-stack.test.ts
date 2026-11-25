@@ -48,6 +48,18 @@ test('the prompt names the code host the pull request is on', () => {
   assert.match(stackPrompt(OWN), /Comment on any code host\./)
 })
 
+test("the prompt fetches a pull request's head the way its code host keeps it", () => {
+  assert.match(stackPrompt(OTHER), /fetch it with `git fetch origin pull\/183\/head`, which changes no branch/)
+  const fetch = { remote: 'ssh://git@code.example.invalid/them/rpg.git', ref: 'refs/changes/183/head' }
+  const named: StackFacts = { ...OTHER, pull: { number: 183, address: 'https://code.example.invalid/them/rpg/pull/183', author: 'them', host: 'corp', fetch } }
+  assert.match(stackPrompt(named), /fetch it with `git fetch ssh:\/\/git@code\.example\.invalid\/them\/rpg\.git refs\/changes\/183\/head`, which changes no branch/)
+  assert.doesNotMatch(stackPrompt(named), /pull\/183\/head|git fetch origin/)
+  // A host whose ref hobkin cannot fill names no command.
+  const unknown = stackPrompt({ ...named, pull: { ...named.pull!, fetch: null } })
+  assert.match(unknown, /fetch it from corp with git, which changes no branch and no file/)
+  assert.doesNotMatch(unknown, /git fetch/)
+})
+
 test('it starts one agent in the repository folder with the change title and the prompt', async () => {
   const { seat, started } = fakeSeat()
   const answer = await stackHandlers(seat)['review.stack']!({ id: 'change:shop:billing' })

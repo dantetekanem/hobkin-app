@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import type { GhCall } from '../src/review/gh.ts'
 import { gitIn, type GitRun } from '../src/review/assessment.ts'
-import { ownCloneOf, pullCheckout, pullRefs } from '../src/review/pull-checkout.ts'
+import { ownCloneOf, pullCheckout, pullHeadFetch, pullRefs } from '../src/review/pull-checkout.ts'
 import { pullSource } from '../src/review/sources.ts'
 import { temporaryDirectory } from './support.ts'
 
@@ -297,4 +297,14 @@ test("a branch on a named code host is deleted with git from the clone it is fet
   await checkout.deleteBranch(named, 'round-the-total', head)
   assert.equal(host('for-each-ref', 'refs/heads/round-the-total'), '')
   assert.equal(host('rev-parse', 'refs/heads/main') !== '', true, 'nothing else goes')
+})
+
+test("a named code host's pull request head is fetched by hand from the host's git address, by the ref the host keeps it in", () => {
+  const corp = { name: 'corp', web: 'https://code.example.invalid', api: ['corp-api'], git: 'ssh://git@code.example.invalid/{owner}/{repo}.git', headRef: 'refs/changes/{number}/head', clones: {}, checkout: true, merge: false }
+  const named = { ...target, host: 'corp' }
+  assert.deepEqual(pullHeadFetch(corp, named, null), { remote: 'ssh://git@code.example.invalid/acme/shop.git', ref: 'refs/changes/12/head' })
+  // A host that keeps a pull request's head by its branch needs the branch, and says nothing without it.
+  const byBranch = { ...corp, headRef: 'refs/heads/{branch}' }
+  assert.deepEqual(pullHeadFetch(byBranch, named, 'round-the-total'), { remote: 'ssh://git@code.example.invalid/acme/shop.git', ref: 'refs/heads/round-the-total' })
+  assert.equal(pullHeadFetch(byBranch, named, null), null)
 })

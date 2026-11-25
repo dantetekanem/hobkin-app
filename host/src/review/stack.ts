@@ -23,7 +23,25 @@ export interface StackFacts {
   /** For hobkin's own change: its Work project. */
   project?: string
   /** The pull request, with the named code host it is on: none for GitHub's. */
-  pull?: { number: number; address: string; author: string | null; host?: string }
+  pull?: StackPull
+}
+
+export interface StackPull {
+  number: number
+  address: string
+  author: string | null
+  host?: string
+  /**
+   * For a named code host: where its head is fetched from by hand, and by which ref (`pullHeadFetch`), or null when
+   * hobkin cannot say. A GitHub pull request's head is GitHub's own ref from `origin`.
+   */
+  fetch?: { remote: string; ref: string } | null
+}
+
+/** How the agent fetches a pull request's head that is not in the repository yet, in the prompt's words. */
+function fetchWords(pull: StackPull): string {
+  if (!pull.host) return fill(part('fetch'), { remote: 'origin', ref: `pull/${pull.number}/head` })
+  return pull.fetch ? fill(part('fetch'), pull.fetch) : fill(part('fetch unknown'), { host: pull.host })
 }
 
 export interface StackSeat {
@@ -45,7 +63,7 @@ export function stackPrompt(facts: StackFacts): string {
   const known = (value: string | null) => value ?? NOT_KNOWN
   const host = codeHostWords(facts.pull)
   const pull = facts.pull
-    ? fill(part('pull'), { number: String(facts.pull.number), address: facts.pull.address, author: facts.pull.author ?? `an author ${host} did not name` })
+    ? fill(part('pull'), { number: String(facts.pull.number), address: facts.pull.address, author: facts.pull.author ?? `an author ${host} did not name`, fetch: fetchWords(facts.pull) })
     : part('no pull')
   const ending = fill(part(facts.kind), { project: facts.project ?? '' })
   return fill(template.main, {
