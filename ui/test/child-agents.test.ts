@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
-import { childLine, childrenSummary, describeChild, helpersCount, helpersNow, satellitesOf } from '../src/features/work/child-summary.ts'
+import { byStanding, childLine, childrenSummary, describeChild, helpersCount, helpersNow, satellitesOf } from '../src/features/work/child-summary.ts'
 import { childrenFrom, mainChildrenFrom } from '../src/lib/host/frame.ts'
 import { applyHostMessage, applyLink, initialHostState } from '../src/lib/host/state.ts'
 
@@ -89,6 +89,18 @@ test("a running child's line carries its last phase or tool only when the run as
   assert.equal(childLine(child('read', 'running', { phase: 'thinking' })), 'running · thinking')
   assert.equal(childLine(child('review', 'queued', { queuePosition: 2 })), 'queued · #2')
   assert.equal(childLine(child('scan', 'stopped')), 'never reported', 'an ended run says what is known, not that it was stopped')
+})
+
+test("a child's hover says the tier, model and level it runs on as far as its row says them", () => {
+  assert.equal(describeChild(child('fix', 'running', { role: 'write', modelSlot: 'write-feature', model: 'openai-codex/gpt-6-luna', thinking: 'high' })), 'fix, write: running; Write-feature tier: openai-codex/gpt-6-luna at high')
+  assert.equal(describeChild(child('scout', 'queued', { role: 'read', modelSlot: 'read-collect', queuePosition: 1 })), 'scout, read: queued for a free place, number 1 in line; Read-collect tier')
+  assert.equal(describeChild(child('helper', 'completed', { id: 'h1' })), 'helper: completed: execution ended, which does not say whether the work is right')
+})
+
+test('the open list and the line put what is still out first, each state in the order it came', () => {
+  const rows = [child('a', 'reported'), child('b', 'failed'), child('c', 'running'), child('d', 'queued'), child('e', 'running')]
+  assert.deepEqual(byStanding(rows).map(({ name }) => name), ['c', 'e', 'd', 'b', 'a'])
+  assert.deepEqual(rows.map(({ name }) => name), ['a', 'b', 'c', 'd', 'e'], 'the rows given are left as they were')
 })
 
 test('a node shows every child that fits, and past that the ones still out first, in the order they came', () => {

@@ -78,6 +78,8 @@ test('an opened agent says what it was asked and what hobkin has of its work', (
   assert.deepEqual(standing(agent('lost', 'unknown', at(14, 0, 0)), now), { word: 'unknown', time: null })
   assert.match(describeTeamsAgent(done, now), /^scout, done at .*09:30.*; asked: Task of scout$/)
   assert.match(describeTeamsAgent(agent('lost', 'unknown', at(14, 0, 0)), now), /how it ended is not known/)
+  const onLuna = { ...done, modelSlot: 'read-review', model: 'openai-codex/gpt-6-luna', thinking: 'max' }
+  assert.match(describeTeamsAgent(onLuna, now), /^scout, done at .*09:30.*; Read-review tier: openai-codex\/gpt-6-luna at max; asked: Task of scout$/)
 
   assert.deepEqual(whatIsKept(agent('bare', 'running', at(14, 0, 0))), { steps: false, messages: false })
   assert.deepEqual(whatIsKept(agent('full', 'done', at(14, 0, 0), {

@@ -6,9 +6,11 @@ import { Dialog, DialogClose, DialogContent, DialogTitle } from '@/components/ui
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { exchangeOf } from '@/features/agent-activity/steps.ts'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
+import { useModelChoices } from '@/features/tiers/models.ts'
 import { childHue } from '@/features/work/child-summary.ts'
 import { cn } from '@/lib/utils.ts'
-import { MEANING, endText, firstLine, startText, standing, whatIsKept, whoSaid, type ShownTeamsAgent } from './rules.ts'
+import { MEANING, describeTeamsAgent, endText, firstLine, startText, standing, whatIsKept, whoSaid, type ShownTeamsAgent } from './rules.ts'
+import { runsOnFull, runsOnWords } from './runs-on.ts'
 
 /**
  * A run's pi-extended-teams agent, opened from its strip (`046-teams-layer`): read only. What it was asked, how it stands
@@ -145,7 +147,7 @@ export function TeamsAgentSheet({ agents, open, onOpen, hue, runName, opener }: 
           {showing === 'all' ? (
             <ul className="-mx-2 flex flex-col">
               {agents.map((row) => (
-                <li key={row.id}>
+                <li key={row.id} title={describeTeamsAgent(row, Date.now())}>
                   <TeamsRow agent={row} hue={hue} now={Date.now()} onOpen={() => onOpen({ agent: row.id })} />
                 </li>
               ))}
@@ -174,6 +176,7 @@ export function TeamsAgentBody({ agent, hue, runName, now }: { agent: ShownTeams
   const { note } = standing(agent, now)
   const kept = whatIsKept(agent)
   const ended = endText(agent, now)
+  const runsOn = runsOnWords(agent, useModelChoices())
   // Nothing of an agent that is no longer out still runs, so none of its steps is drawn as running.
   const settled = agent.state !== 'running' && agent.state !== 'queued'
   const steps = useMemo(() => {
@@ -195,8 +198,9 @@ export function TeamsAgentBody({ agent, hue, runName, now }: { agent: ShownTeams
           <p>
             <span className={cn('font-medium', agent.state === 'failed' && 'text-bad-fg')}>{agent.state}</span>
             {note ? <span className="text-muted-foreground"> · {note}</span> : null}
-            {agent.modelSlot ? <span className="text-muted-foreground"> · {agent.modelSlot}</span> : null}
           </p>
+          {/* The tier, model and thinking level it runs on, as far as its records say. The whole model is on hover. */}
+          {runsOn.length ? <p title={runsOnFull(agent)} className="text-muted-foreground">{runsOn.join(' · ')}</p> : null}
           <p className="text-muted-foreground tabular-nums">
             Started {startText(agent, now) || 'at a time hobkin did not see'}
             {ended ? ` · ${agent.state === 'done' ? 'finished' : 'failed'} ${ended}` : ''}

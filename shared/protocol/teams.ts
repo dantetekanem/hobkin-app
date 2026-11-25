@@ -27,7 +27,11 @@ export interface TeamsAgent {
   name: string
   /** What it was asked, up to 2,000 characters. Empty when neither the run nor teams said. */
   task: string
+  /** Its teams tier, such as `read-collect`. */
   modelSlot?: string
+  /** The model (`provider/id`, or a harness's own name) and thinking level teams started it on, when its records say. */
+  model?: string
+  thinking?: string
   state: TeamsAgentState
   /** teams' phase or tool for a running agent, when its runtime file has one. */
   phase?: string

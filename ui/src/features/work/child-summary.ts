@@ -1,3 +1,4 @@
+import { runsOnFull } from '../teams/runs-on.ts'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
 
 /** Owned lifecycle and legacy teams reports stay distinct; neither proves the work is right. */
@@ -19,17 +20,21 @@ const WORD: Record<ChildState, string> = {
   stopped: 'never reported',
 }
 
+/** How many stand in each state, what is still out first: "1 running, 1 queued, 1 reported". */
+export function childCounts(children: readonly RunChild[]): string {
+  return ORDER.flatMap((state) => {
+    const count = children.filter((child) => child.state === state).length
+    return count ? [`${count} ${WORD[state]}`] : []
+  }).join(', ')
+}
+
 /** "3 helpers · 1 running, 1 queued, 1 reported", or nothing for a run that spawned none. */
 export function childrenSummary(children: readonly RunChild[]): string {
   if (children.length === 0) return ''
-  const counts = ORDER.flatMap((state) => {
-    const count = children.filter((child) => child.state === state).length
-    return count ? [`${count} ${WORD[state]}`] : []
-  })
-  return `${children.length === 1 ? '1 helper' : `${children.length} helpers`} · ${counts.join(', ')}`
+  return `${helpersCount(children)} · ${childCounts(children)}`
 }
 
-/** The helpers line in an agent page's row: how many, "1 helper" or "3 helpers", as the agents line beside it says. How each stands is on hover. */
+/** The helpers line in an agent page's row: how many, "1 helper" or "3 helpers", as the agents line beside it says. How each stands is in the list it opens. */
 export function helpersCount(children: readonly RunChild[]): string {
   if (children.length === 0) return ''
   return children.length === 1 ? '1 helper' : `${children.length} helpers`
@@ -55,14 +60,20 @@ const MEANING: Record<ChildState, string> = {
   cancelled: 'cancelled: execution ended after cancellation',
 }
 
-/** One child in full, for a tooltip or a screen reader. */
+/** One child in full, for a tooltip or a screen reader, with the tier, model and level it runs on as far as they are known. */
 export function describeChild(child: RunChild): string {
-  const who = [child.name, child.role, child.modelSlot].filter(Boolean).join(', ')
+  const who = [child.name, child.role].filter(Boolean).join(', ')
   const position = child.state === 'queued' && child.queuePosition ? `, number ${child.queuePosition} in line` : ''
   const last = [child.phase, child.activeTool].filter(Boolean).join(', ')
   const status = child.state === 'running' && last ? `; at the run's last status check: ${last}` : ''
   const meaning = child.id && child.state === 'failed' ? 'failed: owned execution failed' : MEANING[child.state]
-  return `${who}: ${meaning}${position}${status}`
+  const runsOn = runsOnFull(child)
+  return `${who}: ${meaning}${position}${status}${runsOn ? `; ${runsOn}` : ''}`
+}
+
+/** The children with what is still out first, then failures, then how the rest ended, each state in the order it came. */
+export function byStanding(children: readonly RunChild[]): RunChild[] {
+  return [...children].sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state))
 }
 
 /**

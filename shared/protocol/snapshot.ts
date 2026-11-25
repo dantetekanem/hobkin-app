@@ -105,6 +105,9 @@ export interface RunChild {
   name: string
   role?: string
   modelSlot?: string
+  /** The model (`provider/id`) and thinking level it runs on, when hobkin sends them. */
+  model?: string
+  thinking?: string
   /**
    * `reported`: its report reached the run, which says nothing of whether the work is right. `failed`: it could not
    * start or reported a failure. `stopped`: the run ended before it reported, so how it ended is unknown.

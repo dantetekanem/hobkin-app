@@ -1,5 +1,6 @@
 import type { TeamsAgent, TeamsAgents, TeamsAgentState, TeamsMessage } from '#shared/protocol/teams.ts'
 import { stampOf, type Stamp } from '../agent-activity/stamp.ts'
+import { runsOnFull } from './runs-on.ts'
 
 /**
  * How a run's pi-extended-teams agents read on its screen (`046-teams-layer`). Pure, so it is tested without a window.
@@ -123,13 +124,14 @@ export const MEANING: Record<TeamsAgentState, string> = {
   unknown: 'no report came, so how it ended is not known',
 }
 
-/** One agent in full, for a tooltip or a screen reader. */
+/** One agent in full, for a tooltip or a screen reader, with the tier, model and level it runs on as far as they are known. */
 export function describeTeamsAgent(agent: TeamsAgent, now: number): string {
   const { time, note } = standing(agent, now)
   const when = time ? ` ${agent.state === 'done' || agent.state === 'failed' ? 'at' : 'since'} ${stampText(time)}` : ''
   const doing = note ? `, ${note}` : ''
   const meaning = MEANING[agent.state] ? `; ${MEANING[agent.state]}` : ''
-  return `${agent.name}, ${agent.state}${when}${doing}${meaning}; asked: ${firstLine(agent.task)}`
+  const runsOn = runsOnFull(agent)
+  return `${agent.name}, ${agent.state}${when}${doing}${meaning}${runsOn ? `; ${runsOn}` : ''}; asked: ${firstLine(agent.task)}`
 }
 
 /** What the sheet has to show of its work besides what it was asked. */
