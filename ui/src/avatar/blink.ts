@@ -1,4 +1,5 @@
 import { useEffect, type RefObject } from 'react'
+import { faceMovement } from './face-motion.ts'
 
 /**
  * The faces' blinks (2026-11-23, the user: "Blinks can stay as a rare single blink"). A face blinks once every 6 to 10
@@ -55,8 +56,7 @@ function quiet(): boolean {
   if (typeof document === 'undefined' || document.visibilityState === 'hidden') return true
   const root = document.documentElement
   if (root.hasAttribute('data-away')) return true
-  const motion = root.getAttribute('data-motion')
-  return motion === 'still' || (motion !== 'lively' && Boolean(reduce?.matches))
+  return faceMovement(root.getAttribute('data-motion'), Boolean(reduce?.matches)) === 'still'
 }
 
 function waitBetweenBlinks(): number {

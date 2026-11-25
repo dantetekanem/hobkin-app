@@ -20,3 +20,21 @@ export function faceMotion({ size, mood, still }: { size: number; mood: Mood; st
   if (size >= SMALL_FACE_PX) return { parts: true, whole: null }
   return { parts: false, whole: mood }
 }
+
+/**
+ * How the faces move: they loop their mood's motion, play it when the mood changes and then rest, or hold still. It
+ * follows Settings' Movement (`<html data-motion>`, features/settings/store.ts) and whether the Mac asks for less motion.
+ */
+export type FaceMovement = 'loops' | 'plays on change' | 'still'
+
+/**
+ * Lively keeps every face looping its mood's motion, as the faces did before they moved on change (2026-11-24, the
+ * user: "why hobkin is not animated if lively is on?"), even when the Mac asks for less. Follow the Mac plays it when the
+ * mood changes, the light default (spec 052), unless the Mac asks for less. Still never moves. `motion` is null before
+ * Settings marks the page, which moves as Follow the Mac does.
+ */
+export function faceMovement(motion: string | null, reducedMotion: boolean): FaceMovement {
+  if (motion === 'lively') return 'loops'
+  if (motion === 'still' || reducedMotion) return 'still'
+  return 'plays on change'
+}
