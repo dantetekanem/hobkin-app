@@ -173,10 +173,11 @@ const SECTION = 'mb-1.5 text-[11.5px] font-medium tracking-[0.01em] text-muted-f
 
 /** Everything hobkin has of one agent, top to bottom. Exported for still renders. */
 export function TeamsAgentBody({ agent, hue, runName, now }: { agent: ShownTeamsAgent; hue: number; runName: string; now: number }) {
+  const models = useModelChoices()
   const { note } = standing(agent, now)
   const kept = whatIsKept(agent)
   const ended = endText(agent, now)
-  const runsOn = runsOnWords(agent, useModelChoices())
+  const runsOn = runsOnWords(agent, models)
   // Nothing of an agent that is no longer out still runs, so none of its steps is drawn as running.
   const settled = agent.state !== 'running' && agent.state !== 'queued'
   const steps = useMemo(() => {

@@ -40,7 +40,16 @@ export function TeamsStripView({ agents, open, onOpen, hue, runName, className }
     rows: <AgentRows agents={agents} hue={hue} onOpen={openFrom} />,
   }
   return (
-    <FoldLine drop="agents" faces={faces} count={agentsCount(agents)} summary={teamsSummary(agents)} live={teamsGlow(agents)} hue={hue} list={list} className={className}>
+    <FoldLine
+      drop="agents"
+      faces={faces}
+      count={agentsCount(agents)}
+      summary={teamsSummary(agents)}
+      live={teamsGlow(agents)}
+      hue={hue}
+      list={list}
+      className={className}
+    >
       <TeamsAgentSheet agents={agents} open={open} onOpen={onOpen} hue={hue} runName={runName} opener={() => opener.current} />
     </FoldLine>
   )

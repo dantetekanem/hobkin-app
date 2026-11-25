@@ -25,15 +25,26 @@ const thinkingWords = (level: string) => (level === 'off' ? 'thinking off' : `${
 
 /** Its tier, its model by the name the window's model lists give it, and its thinking level, for a row. */
 export function runsOnWords(agent: RunsOn, choices: readonly ModelChoice[]): string[] {
-  const words = [tierName(agent.modelSlot), modelWords(agent.model ?? null, choices), agent.thinking ? thinkingWords(agent.thinking) : null]
+  const words = [
+    tierName(agent.modelSlot),
+    modelWords(agent.model ?? null, choices),
+    agent.thinking ? thinkingWords(agent.thinking) : null,
+  ]
   return words.filter((word): word is string => Boolean(word))
 }
 
 /** The same in full, for a hover, as the pill's hover says it: "Read-collect tier: openai-codex/gpt-6-luna at max". */
 export function runsOnFull(agent: RunsOn): string {
   const tier = tierName(agent.modelSlot)
-  const level = agent.thinking
-  const model = agent.model ? (level ? `${agent.model} at ${level}` : agent.model) : level ? thinkingWords(level) : ''
+  const model = modelAtLevel(agent)
   if (tier && model) return `${tier}: ${model}`
   return tier ?? model
+}
+
+/** The whole model at its level, or the level alone when the model is not known. */
+function modelAtLevel({ model, thinking }: RunsOn): string {
+  if (model && thinking) return `${model} at ${thinking}`
+  if (model) return model
+  if (thinking) return thinkingWords(thinking)
+  return ''
 }

@@ -56,7 +56,9 @@ export function FoldLine({ drop, faces, count, summary, live, hue, list, childre
   const panelId = useId()
 
   const toggle = () => {
-    if (open && document.getElementById(panelId)?.contains(document.activeElement)) bar.current?.focus({ preventScroll: true })
+    // The keyboard inside the list as it closes goes back to the line.
+    const keyboardInList = document.getElementById(panelId)?.contains(document.activeElement)
+    if (open && keyboardInList) bar.current?.focus({ preventScroll: true })
     useDrop.getState().setOpen(drop, !open)
   }
 

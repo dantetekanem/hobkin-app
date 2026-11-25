@@ -49,10 +49,11 @@ const MIN_H_HELPED = 184
 const ROOMY = { left: 136, wire: 118, hob: 92 }
 const NARROW = { left: 84, wire: 56, hob: 64 }
 
-/** A node's satellites: rows this tall and apart, and as many as fit beside the node. */
-const SATELLITE = { row: 18, gap: 3, room: 3 }
-/** A node's satellites are their faces only, folded as an agent's page folds them: its page lists them. */
-const FACES = { wire: 14, width: 18 }
+/**
+ * A node's satellites: rows this tall and apart, as many as fit beside the node, and the room their wire and their faces
+ * take. They are faces only, folded as an agent's page folds them: its page lists them.
+ */
+const SATELLITE = { row: 18, gap: 3, room: 3, wire: 14, width: 18 }
 
 /** The nodes' spring: a new one bubbles up and overshoots a little, and a move between places settles the same way. */
 const NODE_SPRING = { type: 'spring', duration: 0.62, bounce: 0.32 } as const
@@ -197,7 +198,7 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
 
           <AnimatePresence initial={false}>
             {agents.map((agent, index) => (
-              <AgentNode key={agent.id} agent={agent} y={placeY(index)} left={nodeLeft} still={still} helpers={FACES} onStop={() => askToStop(agent)} />
+              <AgentNode key={agent.id} agent={agent} y={placeY(index)} left={nodeLeft} still={still} onStop={() => askToStop(agent)} />
             ))}
             {free.map((index) => (
               <Placed key={`free:${index}`} y={placeY(index)} left={nodeLeft} still={still} from={{ lift: 0, scale: 0.96 }}>
@@ -455,10 +456,8 @@ function Pulse({ signal, hue, quiet = false, from, toY, width, still, heartbeat 
   )
 }
 
-type Helpers = typeof FACES
-
 /** One agent's node, with its children beside it. It opens the agent's canvas, and Right reaches Stop on a work agent. */
-function AgentNode({ agent, y, left, still, helpers, onStop }: { agent: RunningAgent; y: number; left: number; still: boolean; helpers: Helpers; onStop: () => void }) {
+function AgentNode({ agent, y, left, still, onStop }: { agent: RunningAgent; y: number; left: number; still: boolean; onStop: () => void }) {
   const spawned = useRunChildren(agent.id)
   const summary = childrenSummary(spawned)
   const said = agent.asks ? `${agent.title}, waiting for you: ${agent.asks}.` : `${agent.title}, ${agent.project}, ${agent.doing}.`
@@ -504,7 +503,7 @@ function AgentNode({ agent, y, left, still, helpers, onStop }: { agent: RunningA
             Stop
           </Button>
         </div>
-        {spawned.length ? <Satellites spawned={spawned} hue={agent.hue} still={still} {...helpers} /> : null}
+        {spawned.length ? <Satellites spawned={spawned} hue={agent.hue} still={still} /> : null}
       </div>
     </Placed>
   )
@@ -514,7 +513,8 @@ function AgentNode({ agent, y, left, still, helpers, onStop }: { agent: RunningA
  * An agent's children, to the right of its node and wired to its pin. Each sits in its place on the nodes' spring
  * and moves with its node. A queued child's wire is dashed like a free place's, since it has not started.
  */
-function Satellites({ spawned, hue, still, wire, width }: { spawned: readonly RunChild[]; hue: number; still: boolean } & Helpers) {
+function Satellites({ spawned, hue, still }: { spawned: readonly RunChild[]; hue: number; still: boolean }) {
+  const { wire, width } = SATELLITE
   const { shown, more } = satellitesOf(spawned, SATELLITE.room)
   const rows = shown.length + (more ? 1 : 0)
   const top = (NODE_H - rows * SATELLITE.row - (rows - 1) * SATELLITE.gap) / 2

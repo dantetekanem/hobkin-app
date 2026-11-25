@@ -23,19 +23,43 @@ import { useRunChildren } from './children.ts'
  */
 export function HelpersLine({ helpers, hue, className }: { helpers: readonly RunChild[]; hue: number; className?: string }) {
   if (helpers.length === 0) return null
+
   // Each keeps the hue of its place among the helpers, as its face does in the agents list.
   const hueOf = (child: RunChild) => childHue(hue, helpers.indexOf(child))
-  const shown = byStanding(helpers)
-  const faces = shown.map((child) => ({ key: child.id ?? child.name, face: <ChildHood child={child} hue={hueOf(child)} size={14} /> }))
-  const list = { title: 'Helpers', counts: childCounts(helpers), label: 'Its helpers, running ones first', rows: <HelperRows helpers={shown} hueOf={hueOf} /> }
-  return <FoldLine drop="helpers" faces={faces} count={helpersCount(helpers)} summary={childrenSummary(helpers)} live={helpersGlow(helpers)} hue={hue} list={list} className={className} />
+  const outFirst = byStanding(helpers)
+  const faces = outFirst.map((child) => ({
+    key: keyOf(child),
+    face: <ChildHood child={child} hue={hueOf(child)} size={14} />,
+  }))
+  const list = {
+    title: 'Helpers',
+    counts: childCounts(helpers),
+    label: 'Its helpers, running ones first',
+    rows: <HelperRows helpers={outFirst} hueOf={hueOf} />,
+  }
+
+  return (
+    <FoldLine
+      drop="helpers"
+      faces={faces}
+      count={helpersCount(helpers)}
+      summary={childrenSummary(helpers)}
+      live={helpersGlow(helpers)}
+      hue={hue}
+      list={list}
+      className={className}
+    />
+  )
 }
+
+/** An owned helper by its id, a legacy teams row by its name. */
+const keyOf = (child: RunChild) => child.id ?? child.name
 
 /** The open list's rows: face, name and how it stands, then what it runs on. */
 function HelperRows({ helpers, hueOf }: { helpers: readonly RunChild[]; hueOf: (child: RunChild) => number }) {
   const models = useModelChoices()
   return helpers.map((child) => (
-    <li key={child.id ?? child.name} title={describeChild(child)} className="flex min-w-0 items-start gap-2.5 rounded-xl px-2 py-1.5 text-[13px] leading-snug">
+    <li key={keyOf(child)} title={describeChild(child)} className="flex min-w-0 items-start gap-2.5 rounded-xl px-2 py-1.5 text-[13px] leading-snug">
       <span className="mt-px">
         <ChildHood child={child} hue={hueOf(child)} size={16} />
       </span>
