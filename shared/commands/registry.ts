@@ -4,6 +4,7 @@ import { BACKUP_CADENCES, BACKUP_LIMIT_MAX, type BackupState } from '../backup/t
 import type { IntegrationsState } from '../integrations/wire.ts'
 import type { ExtensionsState, SkillFile, SkillsState } from '../pi-resources/wire.ts'
 import { BUILT_IN_THEMES, paletteProblems } from '../protocol/appearance.ts'
+import type { CatchUpState } from '../protocol/reports.ts'
 import { KEPT_ASKED_MAX, KEPT_ID_PATTERN, KEPT_NAME_MAX, type KeptThemes } from '../protocol/theme-history.ts'
 import { DRAWING_MAX_BYTES, type CanvasContent, type CanvasSaved, type CanvasState } from '../protocol/canvas.ts'
 import { HOBKIN_CLAUDE_EFFORTS, HOBKIN_MESSAGE_MAX, HOBKIN_TELL_MAX, HOBKIN_TITLE_MAX, type HobkinConversation, type HobkinReach, type HobkinSummary } from '../protocol/hobkins.ts'
@@ -1397,6 +1398,28 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ on: Type.Boolean() }, { additionalProperties: false }),
   },
+  'reports.catchup.read': {
+    description:
+      "Read the reports catch-up (069-report-catch-up): its daily time (`HH:MM` local, or null when off), the pile size that starts one (or null when off), whether one is running, when the last one finished, and how many unread reports no catch-up has covered yet.",
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
+  // Each catch-up spends a model call, so only the user's Settings change when they run.
+  'reports.catchup.set': {
+    description: "Change when hobkin writes a reports catch-up: `daily` is a local `HH:MM` or null for none, `pileUp` how many uncovered unread reports start one, or null for none. Answers the settings as they now are.",
+    runs: 'host',
+    args: Type.Object(
+      { daily: Type.Optional(Type.Union([Type.String({ pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }), Type.Null()])), pileUp: Type.Optional(Type.Union([Type.Integer({ minimum: 1, maximum: 1000 }), Type.Null()])) },
+      { additionalProperties: false },
+    ),
+  },
+  'reports.catchup.run': {
+    description: "Start a reports catch-up now: hobkin writes one short report of the unread reports no catch-up has covered, what matters in them and what looks not useful, and counts those reports as caught up once it finishes. With nothing to catch up on it starts nothing and says so.",
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
   // User-only, like a decision answer: agents may read a reminder but cannot claim the user completed it.
   'reminder.resolve': {
     description: 'Record the user’s explicit Done or Dismissed choice for an existing reminder occurrence. Never creates a reminder or sends anything.',
@@ -1657,6 +1680,9 @@ export interface CommandResults {
   'report.read': { ok: true }
   'short-reports.read': { on: boolean }
   'short-reports.set': { on: boolean }
+  'reports.catchup.read': CatchUpState
+  'reports.catchup.set': CatchUpState
+  'reports.catchup.run': { message: string }
   'reminder.resolve': { ok: true }
   'decision.answer': { message: string; handedOff: boolean }
   'learning.answer': { message: string }
