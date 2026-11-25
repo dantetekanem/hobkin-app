@@ -32,7 +32,7 @@ import {
   type EngineChoice,
   type EngineOffer,
 } from './rules.ts'
-import { useNewHobkin } from './store.ts'
+import { useNewHobkin, type SheetPrompt } from './store.ts'
 
 /** A hue for the durable hobkin the explanation shows. Any other than hobkin's own yellow. */
 const WORKER_HUE = 200
@@ -273,15 +273,7 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
       </header>
 
       <div className="scroll-quiet flex min-h-0 flex-col gap-5 overflow-y-auto px-7 py-5">
-        {prompt ? (
-          <Field label="First message">
-            {/* One line, whatever the prompt's length, so the sheet keeps its size. */}
-            <p className="flex min-w-0 items-baseline gap-3 text-[14px]">
-              <span className="min-w-0 flex-1 truncate">{prompt.text.trim()}</span>
-              {prompt.images ? <span className="shrink-0 text-[12px] text-muted-foreground">{prompt.images === 1 ? 'Its image stays in the draft' : 'Its images stay in the draft'}</span> : null}
-            </p>
-          </Field>
-        ) : null}
+        {prompt ? <FirstMessage text={prompt.text} images={prompt.images} /> : null}
         <Field label="Folder">
           <Select items={folders.map(({ cwd: value, label }) => ({ value, label }))} value={cwd} onValueChange={(value) => value && setCwd(String(value))}>
             <SelectTrigger aria-label="Folder" className={cn('w-full', FIELD_SELECT)}>
@@ -329,6 +321,19 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
         </Button>
       </footer>
     </form>
+  )
+}
+
+/** The prompt the sheet carries, on one line whatever its length, so the sheet keeps its size. */
+function FirstMessage({ text, images }: Pick<SheetPrompt, 'text' | 'images'>) {
+  const left = images === 1 ? 'Its image stays in the draft' : 'Its images stay in the draft'
+  return (
+    <Field label="First message">
+      <p className="flex min-w-0 items-baseline gap-3 text-[14px]">
+        <span className="min-w-0 flex-1 truncate">{text.trim()}</span>
+        {images ? <span className="shrink-0 text-[12px] text-muted-foreground">{left}</span> : null}
+      </p>
+    </Field>
   )
 }
 

@@ -46,23 +46,27 @@ test('the words leave the editor only once the hobkin started, and its images st
 
 test('a sheet closed or refused leaves the draft alone, and Command+N later opens it with no prompt', () => {
   let handedOff = 0
-  const sheet = useNewHobkin.getState()
-  sheet.openSheet({ text: 'Plan the release', images: 0, onStarted: () => handedOff++ })
-  assert.equal(useNewHobkin.getState().prompt?.text, 'Plan the release')
+  const prompt = { text: 'Plan the release', images: 0, onStarted: () => handedOff++ }
+  const mid = { kind: 'tier', tier: 'mid' } as const
+  const sheet = () => useNewHobkin.getState()
+
+  sheet().openSheet(prompt)
+  assert.equal(sheet().prompt?.text, 'Plan the release')
 
   // Closed, or a start the host refused: Start never got to remember a hobkin, so the editor keeps its words.
-  useNewHobkin.getState().closeSheet()
+  sheet().closeSheet()
   assert.equal(handedOff, 0)
-  useNewHobkin.getState().openSheet()
-  assert.equal(useNewHobkin.getState().prompt, null, 'Command+N carries no old prompt')
+
+  sheet().openSheet()
+  assert.equal(sheet().prompt, null, 'Command+N carries no old prompt')
 
   // Started: the prompt went with it, once.
-  useNewHobkin.getState().openSheet({ text: 'Plan the release', images: 0, onStarted: () => handedOff++ })
-  useNewHobkin.getState().remember({ id: 'h1' }, '~', { kind: 'tier', tier: 'mid' })
+  sheet().openSheet(prompt)
+  sheet().remember({ id: 'h1' }, '~', mid)
   assert.equal(handedOff, 1)
 
   // Started from Command+N, there is nothing to hand off.
-  useNewHobkin.getState().openSheet()
-  useNewHobkin.getState().remember({ id: 'h2' }, '~', { kind: 'tier', tier: 'mid' })
+  sheet().openSheet()
+  sheet().remember({ id: 'h2' }, '~', mid)
   assert.equal(handedOff, 1)
 })

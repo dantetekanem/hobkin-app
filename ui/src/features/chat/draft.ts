@@ -118,12 +118,14 @@ function returnWords(state: DraftState, words: readonly { id: string; text: stri
 /** What a modified Enter does in the full prompt editor: Shift+Control starts a durable hobkin with it, and any other Control or Command sends it to hobkin. */
 export function editorEnter({ ctrl, meta, shift }: { ctrl: boolean; meta: boolean; shift: boolean }): 'send' | 'durable' | null {
   if (ctrl && shift && !meta) return 'durable'
-  return ctrl || meta ? 'send' : null
+  if (ctrl || meta) return 'send'
+  return null
 }
 
 /** What the editor hands the New hobkin sheet: the words as written, and how many images stay behind. Images alone cannot start one. */
 export function hobkinPrompt({ text, attachments }: Pick<DraftState, 'text' | 'attachments'>): { text: string; images: number } | null {
-  return text.trim() ? { text, images: attachments.length } : null
+  if (!text.trim()) return null
+  return { text, images: attachments.length }
 }
 
 const midnight = (at: number) => {
@@ -202,10 +204,14 @@ export function draftReducer(state: DraftState, action: DraftAction): DraftState
       const sent = text && state.sent.at(-1) !== text ? [...state.sent, text].slice(-MOST_REMEMBERED) : state.sent
       return { ...state, text: '', attachments: [], from: null, place: 'input', leaving: false, recalled: null, sent }
     }
-    case 'handed-off':
-      // The editor closes, as the hobkin's page opens. Words that came in while the sheet was open stay with the rest.
+    case 'handed-off': {
+      // The editor closes either way, as the hobkin's page opens. Words that came in while the sheet was open stay.
       if (state.text !== action.text) return { ...state, place: 'input', leaving: false }
-      return { ...draftReducer(state, { type: 'sent' }), attachments: state.attachments }
+
+      // Gone as any message sent, but its images wait in the draft: hobkin.start takes none.
+      const sent = draftReducer(state, { type: 'sent' })
+      return { ...sent, attachments: state.attachments }
+    }
     case 'restored':
       return hasDraft(state) ? state : { ...state, text: action.text, attachments: action.attachments }
     case 'stopped':
