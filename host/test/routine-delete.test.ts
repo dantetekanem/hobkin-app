@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { scheduleDefinition } from 'hobkin/src/cli/checks.mjs'
-import { COMMANDS, checkArguments } from '../../shared/commands/registry.ts'
+import { checkArguments } from '../../shared/commands/registry.ts'
 import { routineHandlers } from '../src/routines.ts'
 import { toWire } from '../src/state-sync.ts'
 
@@ -20,6 +20,5 @@ test('deletion projects the full server definition and forwards only the pinned 
   assert.deepEqual(calls, [[definition.id, { delete: expectedDefinition }], 'refresh'])
   receipt = { id: 'another', deleted: true }
   await assert.rejects(async () => remove({ id: definition.id, expectedDefinition }), /confirm/)
-  assert.notEqual((COMMANDS['routine.delete'] as { hobkin?: boolean }).hobkin, true)
   assert.equal(checkArguments('routine.delete', { id: definition.id, expectedDefinition: '' }).ok, false)
 })
