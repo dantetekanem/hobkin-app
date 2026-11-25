@@ -303,14 +303,21 @@ export const COMMANDS = {
     },
   },
   'slash.list': {
-    description: 'List the slash commands of the message input: hobkin\'s own and the ones Pi offers, with how often each was run.',
+    description:
+      "List the slash commands of the message input: hobkin's own and the ones Pi offers, with how often each was run. With `run` (a work agent's run) or `hobkin` (a durable hobkin's id), what Pi offers that agent's own session instead.",
     runs: 'host',
-    args: nothing,
+    args: Type.Object({ run: Type.Optional(words(256)), hobkin: Type.Optional(hobkinId) }, { additionalProperties: false }),
+    rule: ({ run, hobkin }) => (run !== undefined && hobkin !== undefined ? 'name a run or a hobkin, not both' : null),
   },
   'slash.run': {
-    description: 'Run a slash command, as typing it in the message input does. `args` is what follows the command.',
+    description:
+      "Run a slash command, as typing it in the message input does. `args` is what follows the command. With `run` or `hobkin`, in that agent's own session, as Pi's terminal would: an extension command runs, and a prompt template or skill becomes the agent's message.",
     runs: 'host',
-    args: Type.Object({ name: Type.String({ pattern: '^/\\S+$', maxLength: 128 }), args: Type.Optional(Type.String({ maxLength: 65536 })) }, { additionalProperties: false }),
+    args: Type.Object(
+      { name: Type.String({ pattern: '^/\\S+$', maxLength: 128 }), args: Type.Optional(Type.String({ maxLength: 65536 })), run: Type.Optional(words(256)), hobkin: Type.Optional(hobkinId) },
+      { additionalProperties: false },
+    ),
+    rule: ({ run, hobkin }) => (run !== undefined && hobkin !== undefined ? 'name a run or a hobkin, not both' : null),
   },
   'avatar.wake': {
     description: 'Tell hobkin the user woke the sleeping avatar.',

@@ -56,7 +56,7 @@ import { scriptedModelAccess } from './scripted-access.ts'
 import type { ScriptedOptions } from './scripted.ts'
 import { listen, socketUrl, type HostServer } from './server.ts'
 import { SignIn } from './signin.ts'
-import { SlashCommands } from './slash.ts'
+import { SlashCommands, slashAgent } from './slash.ts'
 import { StateSync } from './state-sync.ts'
 import { readsOf, Windows } from './windows.ts'
 import { TurnRelay } from './turn-relay.ts'
@@ -506,6 +506,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       sync.hide(ids)
       publish()
     },
+    runs: () => (owner.snapshot?.runs ?? []) as RunSummary[],
   })
   const done = { ok: true } as const
   // Local backup of the home: automatic while this host runs, and on the user's word (never agent restore).
@@ -565,8 +566,12 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       })
       return { stopped: unsent !== null, unsent: unsent ?? [] }
     },
-    'slash.list': async () => ({ commands: await slash.list(owner.app) }),
-    'slash.run': ({ name, args = '' }) => name === '/reset' ? owner.resetMain(() => slash.run(hobkin(), name, args.trim())) : slash.run(hobkin(), name, args.trim()),
+    'slash.list': async (asked) => ({ commands: await slash.list(owner.app, slashAgent(asked)) }),
+    'slash.run': ({ name, args = '', ...asked }) => {
+      const agent = slashAgent(asked)
+      if (agent) return slash.run(hobkin(), name, args.trim(), agent)
+      return name === '/reset' ? owner.resetMain(() => slash.run(hobkin(), name, args.trim())) : slash.run(hobkin(), name, args.trim())
+    },
     'avatar.wake': () => {
       hobkin().moods.react({ event: 'woken' })
       return done
