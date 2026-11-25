@@ -29,6 +29,12 @@ export function childrenSummary(children: readonly RunChild[]): string {
   return `${children.length === 1 ? '1 helper' : `${children.length} helpers`} · ${counts.join(', ')}`
 }
 
+/** The helpers line in an agent page's row: how many, "1 helper" or "3 helpers", as the agents line beside it says. How each stands is on hover. */
+export function helpersCount(children: readonly RunChild[]): string {
+  if (children.length === 0) return ''
+  return children.length === 1 ? '1 helper' : `${children.length} helpers`
+}
+
 /** One child's state in a few words. A running one adds its tool or phase when the run last asked teams for them. */
 export function childLine(child: RunChild): string {
   const last = child.activeTool ?? child.phase

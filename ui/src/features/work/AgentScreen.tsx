@@ -35,7 +35,7 @@ import { runCommand, useHasHost, useHost, useHostEqual } from '@/lib/host/index.
 import { useAgentThreads, type AgentNote } from './agent-threads.ts'
 import { AgentWaits } from './AgentWaits.tsx'
 import { ChildCluster, ChildHood } from './ChildAgents.tsx'
-import { childHue, childLine, childrenSummary, describeChild, satellitesOf } from './child-summary.ts'
+import { childHue, childLine, childrenSummary, describeChild, helpersCount, satellitesOf } from './child-summary.ts'
 import { useRunChildren } from './children.ts'
 import { changeLine } from '@/features/chat/change-line.ts'
 import { sendChange } from '@/features/chat/send-change.ts'
@@ -515,8 +515,8 @@ function HelpersStrip({ runId, hue }: { runId: string; hue: number }) {
   return (
     <div {...liveIf(helpersGlow(children))} style={glowIn(hue)} className="aa-glow flex h-7 min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-2.5 pl-1.5 text-[12px] text-muted-foreground">
       <ChildCluster runId={runId} hue={hue} summaryId={id} />
-      <span className="truncate" title={childrenSummary(children)}>
-        {childrenSummary(children)}
+      <span className="truncate tabular-nums" title={childrenSummary(children)}>
+        {helpersCount(children)}
       </span>
     </div>
   )

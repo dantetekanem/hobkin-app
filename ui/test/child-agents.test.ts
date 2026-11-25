@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
-import { childLine, childrenSummary, describeChild, helpersNow, satellitesOf } from '../src/features/work/child-summary.ts'
+import { childLine, childrenSummary, describeChild, helpersCount, helpersNow, satellitesOf } from '../src/features/work/child-summary.ts'
 import { childrenFrom, mainChildrenFrom } from '../src/lib/host/frame.ts'
 import { applyHostMessage, applyLink, initialHostState } from '../src/lib/host/state.ts'
 
@@ -75,6 +75,12 @@ test('a run is summed up by how many it spawned and how each stands, what is sti
   assert.equal(childrenSummary([child('scout', 'reported'), child('fix', 'running'), child('review', 'queued')]), '3 helpers · 1 running, 1 queued, 1 reported')
   assert.equal(childrenSummary([child('scan', 'stopped'), child('lock', 'failed'), child('read', 'running'), child('more', 'running')]), '4 helpers · 2 running, 1 failed, 1 never reported')
   assert.equal(childrenSummary([child('only', 'queued')]), '1 helper · 1 queued')
+})
+
+test('the helpers line in the row says only how many, as the agents line does', () => {
+  assert.equal(helpersCount([]), '', 'a run that spawned none says nothing')
+  assert.equal(helpersCount([child('only', 'running')]), '1 helper')
+  assert.equal(helpersCount([child('scout', 'reported'), child('fix', 'running'), child('review', 'queued')]), '3 helpers')
 })
 
 test("a running child's line carries its last phase or tool only when the run asked for it", () => {

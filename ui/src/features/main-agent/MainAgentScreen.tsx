@@ -21,7 +21,7 @@ import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { turnStartedAt, doingNow as turnWord } from '@/features/chat/doing.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { ChildFaces } from '@/features/work/ChildAgents.tsx'
-import { childrenSummary } from '@/features/work/child-summary.ts'
+import { childrenSummary, helpersCount } from '@/features/work/child-summary.ts'
 import { useMainChildren } from '@/features/work/children.ts'
 import { useHasHost, useHost, useWatchJob } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
@@ -147,7 +147,9 @@ function Helpers({ helpers }: { helpers: readonly RunChild[] }) {
     <motion.div className="flex px-[10%] pb-2" initial={holdStill({ opacity: 0 }, still)} animate={{ opacity: 1, transition: tween.enter }}>
       <div {...liveIf(helpersGlow(helpers))} style={glowIn(HUE)} className="aa-glow flex h-7 min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-2.5 pl-1.5 text-[12px] text-muted-foreground">
         <ChildFaces spawned={helpers} hue={HUE} />
-        <span className="truncate">{childrenSummary(helpers)}</span>
+        <span className="truncate tabular-nums" title={childrenSummary(helpers)}>
+          {helpersCount(helpers)}
+        </span>
       </div>
     </motion.div>
   )
