@@ -52,10 +52,10 @@ test('a guide reads with its text, when it was written, the commit, its sources 
   assert.equal(read.commit, git(checkout, 'rev-parse', 'main'));
   assert.deepEqual(read.sources, ['README.md', 'bin/setup']);
   assert.ok(Date.parse(read.writtenAt));
-  assert.deepEqual({ ...read.lastRun, at: undefined }, {
-    at: undefined, by: 'guide', item: null, worked: false, reached: 'Set up once', note: 'db:create needs Postgres running.',
-  });
   assert.equal(read.refused, null);
+  const { at, ...lastRun } = read.lastRun;
+  assert.ok(Date.parse(at));
+  assert.deepEqual(lastRun, { by: 'guide', item: null, worked: false, reached: 'Set up once', note: 'db:create needs Postgres running.' });
 });
 
 test('a goal reads as hobkin\'s refusal with no text', t => {
@@ -99,16 +99,18 @@ test('the guide command records a run as it is given, by the guide look, a study
   const h = director(t);
   quietProject(h);
   const { id } = fileItem(h.root, 'api', { key: 'fix:a', kind: 'fix', title: 'Fix it', brief: 'Fix it.' });
+  const lastRun = () => readRunGuide(h.root, 'api').lastRun;
 
   await recordRun(h, { worked: true, reached: null, note: 'It answered at localhost:3000.' });
-  assert.deepEqual([readRunGuide(h.root, 'api').lastRun.by, readRunGuide(h.root, 'api').lastRun.item], ['guide', null]);
-  await recordRun(h, { worked: true, reached: null, note: 'Studied.' }, 'api', 'study');
-  assert.equal(readRunGuide(h.root, 'api').lastRun.by, 'study');
-  const told = await recordRun(h, { worked: false, reached: 'Database', note: 'The seed step is wrong.', item: id.slice(0, 4) });
+  assert.deepEqual([lastRun().by, lastRun().item], ['guide', null]);
 
+  await recordRun(h, { worked: true, reached: null, note: 'Studied.' }, 'api', 'study');
+  assert.equal(lastRun().by, 'study');
+
+  const told = await recordRun(h, { worked: false, reached: 'Database', note: 'The seed step is wrong.', item: id.slice(0, 4) });
   assert.equal(told.ok, true);
-  const { lastRun } = readRunGuide(h.root, 'api');
-  assert.deepEqual([lastRun.by, lastRun.item, lastRun.worked, lastRun.reached, lastRun.note], ['item', id, false, 'Database', 'The seed step is wrong.']);
+  const { at, ...run } = lastRun();
+  assert.deepEqual(run, { by: 'item', item: id, worked: false, reached: 'Database', note: 'The seed step is wrong.' });
 });
 
 test('the guide command refuses a wrong field in plain words and records nothing', async t => {
@@ -142,7 +144,6 @@ test('the guide is recorded as written only when its file changed since the last
   const first = written();
   assert.ok(first);
 
-  h.clock += 60000;
   commit(checkout, 'README.md', 'Run bin/dev.\n');
   await recordRun(h, { ...run, sources: ['README.md', 'Procfile.dev'] });
   assert.equal(written(), first, 'the same text is not written again');
@@ -247,8 +248,19 @@ test('the look and do prompts name the guide\'s file and command the runs are gi
   const cwd = mkdtempSync(join(tmpdir(), 'hobkin-guide-prompt-'));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   const promptOf = purpose => {
-    const { args } = buildInvocation({ id: 'f094b0ba-036c-4abc-9198-745fd1226765', harness: 'pi', cwd, model: null, effort: 'medium', prompt: 'x', sessionFile: join(cwd, 'job.jsonl'), purpose });
-    return args.flatMap((arg, index) => (arg === '--append-system-prompt' ? [args[index + 1]] : []))[1];
+    const { args } = buildInvocation({
+      id: 'f094b0ba-036c-4abc-9198-745fd1226765',
+      harness: 'pi',
+      cwd,
+      model: null,
+      effort: 'medium',
+      prompt: 'x',
+      sessionFile: join(cwd, 'job.jsonl'),
+      purpose,
+    });
+    // The background check's prompt comes first, then the work prompt.
+    const appended = args.flatMap((arg, index) => (arg === '--append-system-prompt' ? [args[index + 1]] : []));
+    return appended[1];
   };
 
   const look = promptOf('work-look');

@@ -68,6 +68,7 @@ export function requestRunGuide(root, slug) {
 }
 
 const oneLine = text => text?.replace(/\s+/g, ' ').trim() || null;
+const isFileList = value => Array.isArray(value) && value.every(file => typeof file === 'string' && file.trim());
 
 /** A run as a run reports it, checked before anything is written. `item` is the change whose run this was, by its id or the start of it. */
 function checkedRun(root, project, report) {
@@ -79,10 +80,9 @@ function checkedRun(root, project, report) {
   if (typeof worked !== 'boolean') throw Error('worked is true or false: whether the app answered where the guide says to open it.');
   if (reached !== null && typeof reached !== 'string') throw Error('reached is the last step that worked, in the guide\'s words, or null when it worked.');
   if (note !== null && typeof note !== 'string') throw Error('note is one line about the run.');
-  if (sources !== undefined && !(Array.isArray(sources) && sources.every(source => typeof source === 'string' && source.trim()))) {
-    throw Error('sources is a list of the project\'s files the guide was written from, such as README.md and bin/setup.');
-  }
+  if (sources !== undefined && !isFileList(sources)) throw Error('sources is a list of the project\'s files the guide was written from, such as README.md and bin/setup.');
   if (item !== undefined && typeof item !== 'string') throw Error('item is the id of the change whose run this was.');
+
   return {
     worked,
     reached: worked ? null : oneLine(reached),
@@ -130,8 +130,11 @@ export async function recordGuideRun(root, slug, report, caller, now = Date.now(
 
   const at = new Date(now).toISOString();
   const written = await noteWritten(root, project, sources, at);
-  const ran = { type: 'ran', at, by: run.item ? 'item' : caller ?? 'guide', ...run };
+  const by = run.item ? 'item' : caller ?? 'guide';
+  const ran = { type: 'ran', at, by, ...run };
   recordGuideLog(root, project.slug, ran);
-  const writtenWords = written ? ` The guide is recorded as written${written.commit ? ` at ${written.commit.slice(0, 7)}` : ''}.` : '';
-  return reply(`Recorded a run of the run guide for ${nameOf(project)}: ${ranWords(run)}.${writtenWords}`, { run: runOf(ran), written: Boolean(written) });
+
+  const said = [`Recorded a run of the run guide for ${nameOf(project)}: ${ranWords(run)}.`];
+  if (written) said.push(`The guide is recorded as written${written.commit ? ` at ${written.commit.slice(0, 7)}` : ''}.`);
+  return reply(said.join(' '), { run: runOf(ran), written: Boolean(written) });
 }
