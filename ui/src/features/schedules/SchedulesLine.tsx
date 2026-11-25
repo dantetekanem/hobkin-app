@@ -4,7 +4,7 @@ import { inOverlay } from '@/app/key-page.ts'
 import { useStill } from '@/app/still.ts'
 import { useDrop } from '@/features/agent-activity/drop.ts'
 import { useWakeAt } from '@/features/chat/use-now.ts'
-import { FoldLine } from '@/features/teams/FoldLine.tsx'
+import { FoldLine, type FoldList } from '@/features/teams/FoldLine.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { ScheduleSend } from './actions.ts'
 import { SCHEDULES_ORDER, ScheduleRows } from './ScheduleLine.tsx'
@@ -29,27 +29,35 @@ export function SchedulesLine({ agentId, hue, className }: { agentId: string; hu
 /** The line for given schedules, with no host: what `SchedulesLine` draws, and what a still render draws. */
 export function SchedulesLineView({ schedules, hue, main, className, send = sendSchedule }: { schedules: readonly AgentSchedule[]; hue: number; main: boolean; className?: string; send?: ScheduleSend }) {
   const still = useStill()
-  const ordered = useMemo(() => orderSchedules(schedules), [schedules])
-  const count = schedulesCount(ordered)
   const root = useRef<HTMLDivElement>(null)
-  // It draws again when the soonest comes due, to glow, and ticks for nothing else.
+  const ordered = useMemo(() => orderSchedules(schedules), [schedules])
   const now = Date.now()
-  useWakeAt(nextDueAt(ordered, now))
-  useScheduleKey(root, count !== null)
-
-  if (count === null) return null
   const line = scheduleLine(ordered, now)
+  const count = schedulesCount(ordered)
+  // It draws again when the soonest comes due, to glow, and ticks for nothing else.
+  useWakeAt(nextDueAt(ordered, now))
+  useScheduleKey(root, line !== null)
+
+  if (line === null || count === null) return null
+
+  const list: FoldList = {
+    title: 'Schedules',
+    counts: listCounts(ordered),
+    label: SCHEDULES_ORDER,
+    keys: '⌃⌥W',
+    rows: <ScheduleRows schedules={ordered} main={main} still={still} send={send} />,
+  }
   return (
     // Marked, so the main chat's line leaves Control+Option+W to this page while it has the keyboard.
     <div ref={root} data-schedule-line className={cn('flex min-w-0', className)}>
       <FoldLine
         drop="schedules"
-        faces={line ? [{ key: 'dot', face: <Dot lead={line.lead} /> }] : []}
+        faces={[{ key: 'dot', face: <Dot lead={line.lead} /> }]}
         count={count}
-        summary={line ? `${count}: ${line.text}` : count}
+        summary={`${count}: ${line.text}`}
         live={schedulesGlow(ordered, now)}
         hue={hue}
-        list={{ title: 'Schedules', counts: listCounts(ordered), label: SCHEDULES_ORDER, keys: '⌃⌥W', rows: <ScheduleRows schedules={ordered} main={main} still={still} send={send} /> }}
+        list={list}
       />
     </div>
   )
@@ -76,20 +84,36 @@ function useScheduleKey(root: RefObject<HTMLDivElement | null>, any: boolean) {
     if (!any) return
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return
-      const press = { key: event.key, code: event.code, ctrl: event.ctrlKey, alt: event.altKey, meta: event.metaKey, shift: event.shiftKey }
+      const press = {
+        key: event.key,
+        code: event.code,
+        ctrl: event.ctrlKey,
+        alt: event.altKey,
+        meta: event.metaKey,
+        shift: event.shiftKey,
+      }
       if (scheduleListKey(press, { open: false, inList: false }) !== 'toggle') return
       const element = root.current
       if (!element || !onShownPage(element) || inOverlay(event.target, document)) return
+
       event.preventDefault()
-      const drop = useDrop.getState()
-      const open = drop.open === 'schedules'
-      if (open && element.contains(document.activeElement)) element.querySelector<HTMLElement>('button')?.focus({ preventScroll: true })
-      drop.setOpen('schedules', !open)
-      if (!open) requestAnimationFrame(() => element.querySelector<HTMLElement>('[role="region"]')?.focus({ preventScroll: true }))
+      toggleByKey(element)
     }
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
   }, [root, any])
+}
+
+/** Opens the list with the keyboard in it, or closes it with the keyboard back on the line when it was inside. */
+function toggleByKey(line: HTMLElement) {
+  const drop = useDrop.getState()
+  if (drop.open === 'schedules') {
+    if (line.contains(document.activeElement)) line.querySelector<HTMLElement>('button')?.focus({ preventScroll: true })
+    drop.setOpen('schedules', false)
+    return
+  }
+  drop.setOpen('schedules', true)
+  requestAnimationFrame(() => line.querySelector<HTMLElement>('[role="region"]')?.focus({ preventScroll: true }))
 }
 
 /** The line is on the page shown, not one on its way out, and the keyboard is on that page. */

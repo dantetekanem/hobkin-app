@@ -52,8 +52,7 @@ export function walkSteps(event: KeyboardEvent<HTMLOListElement>) {
     // Up from the first step spills to the agents list, on this agent. Without a list it stays.
     if (at > 0) items[at - 1]!.focus()
     else focusAgentsDock()
-  }
-  else if (event.key === 'ArrowDown') {
+  } else if (event.key === 'ArrowDown') {
     if (at < items.length - 1) items[at + 1]!.focus()
     else focusTalkInput(current)
   } else if (event.key === 'Home') items[0]?.focus()

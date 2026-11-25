@@ -11,9 +11,13 @@ import { useExecution } from './store.ts'
  * box, from the agents list, or End. Null before any.
  */
 export function useStopResult(runId: string | null): string | null {
-  const result = useAgentControl((state) => (state.result && state.result.id === runId ? state.result.text : null))
-  const fromHost = useExecution((state) => Object.values(state.results).find((item) => item.receipt?.target.kind === 'run' && item.receipt.target.runId === runId)?.text ?? null)
-  return runId === null ? null : (fromHost ?? result)
+  const asked = useAgentControl((state) => (state.result?.id === runId ? state.result.text : null))
+  const received = useExecution((state) => {
+    const ofRun = Object.values(state.results).find(({ receipt }) => receipt?.target.kind === 'run' && receipt.target.runId === runId)
+    return ofRun?.text ?? null
+  })
+  if (runId === null) return null
+  return received ?? asked
 }
 
 /**

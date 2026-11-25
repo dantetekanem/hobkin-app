@@ -219,7 +219,13 @@ function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: Hobkin
   const onClaudeCode = useOnClaudeCode(id, hobkin)
   const status = useStopResult(hobkin?.run ?? null)
   const title = hobkin?.title ?? (state === 'starting' ? 'Starting the new hobkin' : 'This hobkin has ended')
-  const rename = useMemo(() => ({ max: HOBKIN_TITLE_MAX, send: async (next: string) => void (await runCommand('hobkin.rename', { id, title: next })) }), [id])
+  const rename = useMemo(() => {
+    const send = async (title: string) => {
+      await runCommand('hobkin.rename', { id, title })
+    }
+    return { max: HOBKIN_TITLE_MAX, send }
+  }, [id])
+  const line = hobkin ? `${folderName(hobkin.cwd)} · ${engineLabel(hobkin.engine, models)} · ${stateLabel(hobkin.state)}` : null
   return (
     <PageHeader
       agentId={hobkinAgentId(id)}
@@ -234,7 +240,7 @@ function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: Hobkin
       }
       title={title}
       rename={hobkin ? rename : undefined}
-      line={hobkin ? `${folderName(hobkin.cwd)} · ${engineLabel(hobkin.engine, models)} · ${stateLabel(hobkin.state)}` : null}
+      line={line}
       lineTitle={hobkin?.cwd}
       end={hobkin ? { ready: true, why: HOBKIN_END } : null}
       status={status}

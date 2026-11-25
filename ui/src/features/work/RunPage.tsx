@@ -77,6 +77,8 @@ export function RunPart({ agentId }: { agentId: string }) {
   const status = useStopResult(agentId)
   const hue = agent?.hue ?? 0
   const mood = finished ? 'idle' : (agent?.mood ?? 'idle')
+  const standing = finished ? 'finished' : waiting ? 'waiting for you' : agent?.doing
+  const line = agent ? `${agent.project} · ${standing} · ${agent.tier}` : null
 
   return (
     <PartFrame>
@@ -92,7 +94,7 @@ export function RunPart({ agentId }: { agentId: string }) {
           )
         }
         title={agent?.title ?? 'This agent has finished'}
-        line={agent ? `${agent.project} · ${finished ? 'finished' : waiting ? 'waiting for you' : agent.doing} · ${agent.tier}` : null}
+        line={line}
         end={agent && !finished ? { ready: canEnd, why: RUN_END } : null}
         status={status}
       />

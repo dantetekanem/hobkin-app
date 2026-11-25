@@ -165,11 +165,11 @@ export function listCounts(list: readonly AgentSchedule[]): string {
 
 /** When the soonest waiting schedule comes due, for the line to glow then. Null when none waits with time left. */
 export function nextDueAt(list: readonly AgentSchedule[], now: number): number | null {
-  const times = list.flatMap((schedule) => {
-    const next = stateOf(schedule) === 'waiting' ? timeOf(schedule.nextAt) : null
-    return next !== null && next > now ? [next] : []
-  })
-  return times.length ? Math.min(...times) : null
+  const upcoming = list
+    .filter((schedule) => stateOf(schedule) === 'waiting')
+    .map((schedule) => timeOf(schedule.nextAt))
+    .filter((next): next is number => next !== null && next > now)
+  return upcoming.length ? Math.min(...upcoming) : null
 }
 
 /** The line glows while a schedule runs its command or is due now (`glow.ts` in agent-activity holds the other lines' rules). */
