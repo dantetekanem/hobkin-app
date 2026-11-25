@@ -510,7 +510,7 @@ function Foot({ notice }: { notice: Session['notice'] }) {
   )
   return (
     <footer className="flex h-12 shrink-0 items-center gap-2.5 bg-background px-3 text-[12.5px] whitespace-nowrap text-muted-foreground shadow-[0_-1px_0_var(--cv-line)]">
-      <ModeSwitch withCode />
+      <ModeSwitch />
       <span className="ml-1.5 flex items-center gap-2.5">
         {hint('C', 'a comment')}
         <span aria-hidden="true">·</span>

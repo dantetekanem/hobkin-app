@@ -81,16 +81,15 @@ const CHOICES: { id: ReviewMode | 'code'; label: string; keys: string; tip: stri
  * "Code | Free Roam | Story" (specs 032 and 071): how the review is read, at the bottom, with each choice's key on it, in
  * the order the keys sit on the keyboard. Code is the code view. Free Roam and Story are the graph's modes: a click on
  * either, the one on or the other, starts it from the beginning, from the code view too. The keyboard goes back to the
- * review. `withCode` offers Code, wherever the review draws the code view.
+ * review.
  */
-export function ModeSwitch({ withCode = false }: { withCode?: boolean }) {
+export function ModeSwitch() {
   const store = useSessionStore()
   const mode = useSession((session) => session.mode)
   const look = useSession((session) => session.look)
-  const choices = withCode ? CHOICES : CHOICES.filter((choice) => choice.id !== 'code')
   return (
     <div role="group" aria-label="How to read the review" className="rv-float pointer-events-auto flex h-9 shrink-0 items-center gap-0.5 rounded-full p-1">
-      {choices.map((choice) => {
+      {CHOICES.map((choice) => {
         const on = choice.id === 'code' ? look === 'code' : look === 'graph' && mode === choice.id
         return (
           <Tooltip key={choice.id}>

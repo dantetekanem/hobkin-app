@@ -24,8 +24,10 @@ import { Dock, Notice } from './Chrome.tsx'
 import { clampShare, CodePanel, PANEL_SHARE, panelKey } from './code/CodePanel.tsx'
 import { useStory } from '@/features/work/story-store.ts'
 import { useStoryGone } from '@/features/work/use-story-waiting.ts'
+import { useSettings } from '@/features/settings/store.ts'
 import { DevTools } from './dev/DevTools.tsx'
 import { useDev } from './dev/dev.ts'
+import { CodeView, codeViewKey } from './diff/CodeView.tsx'
 import { EntranceContext } from './graph/entrance.tsx'
 import { planEntrance, type EntrancePlan } from './graph/entrance-plan.ts'
 import { Finder } from './graph/Finder.tsx'
@@ -259,7 +261,9 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
   const camera = useCamera()
   const reduced = useReduced()
   const treatment = useDev((dev) => dev.treatment)
-  const [session] = useState(() => createSession(review, reviewMemory, kept))
+  // A review opens in the look Settings › Reviews chose, or in the one it was left in for another page (spec 071).
+  const [session] = useState(() => createSession(review, reviewMemory, kept, { look: useSettings.getState().reviewView }))
+  const look = useStore(session, (state) => state.look)
   useEffect(() => session.connect(), [session])
   // The reviewer's memory is written at most once a second, and at once when the review closes or the window goes. A
   // review left for another page keeps its place, to come back to.
@@ -382,11 +386,16 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
         // closes itself. Neither ever closes the review.
         if (!reviewTakesEscape(target)) return
         let left = false
-        escapeReview(session.getState(), () => {
-          left = true
-          closing.current = true
-          useView.getState().closeReview()
-        })
+        escapeReview(
+          session.getState(),
+          () => {
+            left = true
+            closing.current = true
+            useView.getState().closeReview()
+          },
+          // In the code view, a selection of several lines goes back to the cursor's line first.
+          () => codeViewKey({ key: 'Escape', shift: false, alt: false }),
+        )
         // Whatever closed may have held the keyboard, such as the code panel. It stays in the review.
         if (!left && !element.contains(document.activeElement)) element.focus({ preventScroll: true })
         event.preventDefault()
@@ -405,6 +414,8 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
       const inCode = target.closest('[data-rv-panel]') != null
       const used = pressKey(session.getState(), { key: event.key, shift: event.shiftKey, alt: event.altKey }, {
         panelKey,
+        // The code view's own keys, while it is the look (spec 071).
+        codeKey: codeViewKey,
         // S hides the panel, or brings it back. The panel does it, and keeps the keyboard where it belongs.
         toggleSteps: () => steps?.dispatchEvent(new Event('rv-toggle')),
         // Shift+S puts the keyboard on "Make it a stack" in the corner beside "Refresh review", when the change has one. A key held down only repeats.
@@ -442,30 +453,42 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
 
   const stage = useMemo(() => ({ session, source, camera }), [camera, session, source])
   // What the review's panel and the outline leave of the canvas, at the right: the dock's room, and the proof's.
-  const room = canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP) - (outlineOpen ? OUTLINE_ROOM : 0)
+  const room = canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP) - (outlineOpen && look === 'graph' ? OUTLINE_ROOM : 0)
+  // The camera a review left for another page comes back to is for the graph's first showing. Once the code view has been
+  // shown, the graph frames where the story is when it comes back.
+  const [resume, setResume] = useState(() => resumedCamera(kept, session.getState().resumed))
+  useEffect(() => {
+    if (look === 'code') setResume(null)
+  }, [look])
 
   return (
     <StageProvider value={stage}>
       <MotionConfig reducedMotion={reduced ? 'always' : 'never'}>
         <EntranceContext.Provider value={entrance}>
           <div ref={root} tabIndex={-1} className="rv" data-reduced={reduced} data-treatment={treatment} data-far="false" data-farther="false" data-entrance={entrance?.quiet ? 'quiet' : undefined} data-rv-root>
-            <div ref={graph} className="absolute inset-0">
-              <Graph />
-            </div>
-            <StoryLayer
-              canvas={canvas}
-              panelHeight={panelHeight}
-              units={assessment?.units?.units}
-              ask={ask}
-              resume={resumedCamera(kept, session.getState().resumed)}
-            />
-            <Outline panelHeight={panelHeight} />
-            <WireCard />
+            {/* Graph or Code (spec 071): the graph with its story, outline, dock and code panel, or the code view, which
+                has its own line at the bottom with the switch, the input under the lines and the review's short words. */}
+            {look === 'graph' ? (
+              <>
+                <div ref={graph} className="absolute inset-0">
+                  <Graph />
+                </div>
+                <StoryLayer canvas={canvas} panelHeight={panelHeight} units={assessment?.units?.units} ask={ask} resume={resume} />
+                <Outline panelHeight={panelHeight} />
+                <WireCard />
+              </>
+            ) : (
+              <CodeView ask={ask} units={assessment?.units?.units} />
+            )}
             <Finder />
-            <Notice />
-            <Dock room={room} ask={ask} units={assessment?.units?.units} />
+            {look === 'graph' ? (
+              <>
+                <Notice />
+                <Dock room={room} ask={ask} units={assessment?.units?.units} />
+              </>
+            ) : null}
             <Panel canvas={canvas} loader={loader} live={live} close={close} verdict={verdict} ask={ask} landed={landed} />
-            <CodePanel height={panelHeight} windowHeight={windowHeight} units={assessment?.units?.units} ask={ask} />
+            {look === 'graph' ? <CodePanel height={panelHeight} windowHeight={windowHeight} units={assessment?.units?.units} ask={ask} /> : null}
             <ProofBeside canvas={canvas.width} room={room} root={root} keys={proofKeys} />
             {shortcuts ? (
               <Shortcuts
