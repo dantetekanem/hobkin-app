@@ -60,7 +60,8 @@ export interface Fresh {
  */
 export function sinceLastLook(list: readonly Report[], read: ReadonlySet<string>, attention: unknown): Fresh | null {
   const reads = (Array.isArray(attention) ? attention : []).map((row) => timeOf((row as { lastReadAt?: unknown } | null)?.lastReadAt as string))
-  const seen = list.filter(({ id }) => read.has(id)).map((report) => timeOf(report.at))
+  // A report a catch-up covered counts as read, but the user did not look at it then.
+  const seen = list.filter((report) => read.has(report.id) && report.readState !== 'caught-up').map((report) => timeOf(report.at))
   const since = Math.max(...[...reads, ...seen].filter((at): at is number => at !== null))
   if (!Number.isFinite(since)) return null
   const fresh: Fresh = { since, count: 0, worst: null, openId: null }
@@ -71,6 +72,14 @@ export function sinceLastLook(list: readonly Report[], read: ReadonlySet<string>
     if (fresh.worst === null || rank(tone) < rank(fresh.worst)) Object.assign(fresh, { worst: tone, openId: report.id })
   }
   return fresh
+}
+
+/**
+ * Whether the home offers Catch me up (069-report-catch-up): while an unread report is one a catch-up could cover.
+ * hobkin's catch-up leaves earlier catch-ups out, so one that is the only unread report offers nothing.
+ */
+export function catchUpOffered(list: readonly Report[], read: ReadonlySet<string>): boolean {
+  return list.some((report) => !read.has(report.id) && kindOf(report) !== 'catch-up')
 }
 
 export interface OutcomeDay {

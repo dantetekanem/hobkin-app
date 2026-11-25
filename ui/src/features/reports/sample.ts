@@ -1,4 +1,4 @@
-import type { Report } from './report.ts'
+import { countsAsRead, type Report } from './report.ts'
 
 /**
  * Sample reports, shaped as hobkin lists them, until the host supplies hobkin's own (012-reports-actions).
@@ -301,11 +301,34 @@ Read last week's review in [the archive](https://example.com/hobkin/reviews).`,
 | 15:00 | Dentist |`,
   },
   {
+    id: 'run-catch-up-yesterday',
+    title: 'Catch-up on 2 reports',
+    scheduleId: 'catch-up',
+    at: when(1, 8, 0),
+    outcome: 'completed',
+    body: `Useful: Two reports came in while you were away, and the backup check failed.
+
+## What happened
+
+- The nightly backup check failed: the backup bucket did not answer within 60 seconds. It tries again tonight.
+- Work mode finished the orchard's books by season, a large change that waits for a review.
+
+## Worth opening
+
+- [Backup check](hobkin-report:run-backup-check), to see whether the bucket is down or only slow.
+- [Keep the orchard's books by season](hobkin-report:run-orchard-books), before you merge its 5,216 lines.
+
+## Usually skipped
+
+- The reading list found nothing new in its last 10 runs, and you opened none of them. Running it once a week would save most of those runs.`,
+  },
+  {
     id: 'run-backup-check',
     title: 'Backup check',
     scheduleId: 'backup-check',
     at: when(2, 3, 0),
     outcome: 'failed',
+    readState: 'caught-up',
     body: `The run stopped: the backup bucket did not answer within 60 seconds.
 
 It tries again at 03:00 tomorrow. If it fails twice in a row, hobkin says so in the conversation.
@@ -321,6 +344,7 @@ ${FENCE}`,
     scheduleId: 'work.orchard.do',
     at: when(2, 16, 45),
     outcome: 'completed',
+    readState: 'caught-up',
     body: `Useful: The orchard's ledger now groups income and costs by season, with a report for each.
 Next: It is a large change. Review it before you merge it.
 
@@ -408,8 +432,9 @@ None of the 12 followed blogs posted since Monday.`,
   },
 ]
 
-/** What was already read when the sample opens. */
+/** What was already read when the sample opens: these, and the reports the sample catch-up covered. */
 export const sampleRead: string[] = [
+  ...sampleReports.filter(countsAsRead).map(({ id }) => id),
   'run-calendar-prep-today',
   'run-billing-look',
   'run-weekly-spend',

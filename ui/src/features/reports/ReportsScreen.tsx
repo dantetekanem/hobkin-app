@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { toast } from 'sonner'
 import { focusInput } from '@/app/keys.ts'
 import { Rise } from '@/app/Reveal.tsx'
 import { useStops } from '@/app/stops.ts'
@@ -178,6 +179,14 @@ export function ReportsScreen() {
     focusReader(id)
   }
 
+  // A link in a report to another one opens it as its row does. Stable, so the open report's Markdown is not drawn again.
+  const opening = useRef(openFrom)
+  opening.current = openFrom
+  const openLinked = useCallback((id: string) => {
+    if (!useReports.getState().inbox.reports.some((report) => report.id === id)) return void toast('That report is not in the list any more.')
+    opening.current(id, null)
+  }, [])
+
   // Going back slides the other way: the week comes in from the left as the report leaves to the right.
   const closeReader = () => {
     if (!openId) return
@@ -322,6 +331,7 @@ export function ReportsScreen() {
                   onClose={closeReader}
                   onReply={() => reply(openReport.id)}
                   onDelete={() => deleteReport(openReport.id)}
+                  onOpenReport={openLinked}
                 />
               ) : (
                 <Overview list={list} read={inbox.read} now={now} onOpen={openFrom} quiet={direction !== 0} />

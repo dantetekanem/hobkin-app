@@ -1,4 +1,4 @@
-import { CalendarClock, Workflow, type LucideIcon } from 'lucide-react'
+import { CalendarClock, Newspaper, Workflow, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils.ts'
 import { kindOf, triageOf, type Report, type ReportKind, type Tone } from './report.ts'
 
@@ -36,8 +36,8 @@ export const TONE_TEXT: Record<Tone, string> = {
   plain: 'text-muted-foreground',
 }
 
-export const KIND_ICON: Record<ReportKind, LucideIcon> = { scheduled: CalendarClock, done: Workflow }
-export const KIND_NAME: Record<ReportKind, string> = { scheduled: 'Routine', done: 'Work done' }
+export const KIND_ICON: Record<ReportKind, LucideIcon> = { scheduled: CalendarClock, done: Workflow, 'catch-up': Newspaper }
+export const KIND_NAME: Record<ReportKind, string> = { scheduled: 'Routine', done: 'Work done', 'catch-up': 'Catch-up' }
 
 const OUTCOME_WORD: Record<string, string> = { failed: 'Failed', incomplete: 'Stopped early', interrupted: 'Interrupted', cancelled: 'Cancelled' }
 

@@ -312,3 +312,10 @@ test('only valid report rows reach the reader and imported read state is preserv
   snapshot(undefined)
   assert.deepEqual(ids(), [])
 })
+
+test('a report a catch-up covered arrives read, and one hobkin sends with no read state arrives unread', () => {
+  hello()
+  snapshot([{ ...report, readState: 'caught-up' }, { ...report, id: 'local:recap:2' }])
+  assert.equal(useReports.getState().inbox.read.has(report.id), true)
+  assert.equal(useReports.getState().inbox.read.has('local:recap:2'), false)
+})

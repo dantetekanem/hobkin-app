@@ -1,12 +1,14 @@
-import { memo, useMemo, type ComponentProps } from 'react'
-import ReactMarkdown, { type Components } from 'react-markdown'
+import { createContext, memo, useContext, useMemo, type ComponentProps } from 'react'
+import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { foldsOf, type ReportPart } from './folds.ts'
+import { reportLinkOf } from './report-link.ts'
 
 /**
  * A report's Markdown, set for reading. What a run wrote is never markup of ours: raw HTML shows as the text it
  * is, a link keeps only a safe address and opens outside the app, and a picture is never fetched, because an
- * address a report chose could tell someone it was read. The one HTML it draws is a fold, `<details>` with its
+ * address a report chose could tell someone it was read. A link to another report (`report-link.ts`) opens it in
+ * the reader instead. The one HTML it draws is a fold, `<details>` with its
  * `<summary>` (`folds.ts`), whose inside is Markdown under these same rules.
  */
 
@@ -24,6 +26,29 @@ const PRE =
   'my-4 overflow-x-auto rounded-2xl bg-code-bg px-4 py-3 font-mono text-[13px] leading-[1.7] text-code-text [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[13px]'
 
 const LINK = 'underline decoration-border-strong underline-offset-[3px] transition-colors duration-[160ms] ease-[ease] hover:decoration-foreground'
+
+/** Opens the report a link names, in the reader. Where nothing provides it, such a link does nothing. */
+export const OpenReport = createContext<((id: string) => void) | null>(null)
+
+/** A link to a report keeps its address so its press can find the report. Every other address goes through react-markdown's own rule. */
+const keepReportLinks = (url: string, key: string) => (key === 'href' && reportLinkOf(url) !== null ? url : defaultUrlTransform(url))
+
+function Link({ node: _node, href, ...props }: ComponentProps<'a'> & { node?: unknown }) {
+  const openReport = useContext(OpenReport)
+  const id = reportLinkOf(href)
+  if (id === null) return <a {...props} href={href} target="_blank" rel="noopener noreferrer" className={LINK} />
+  return (
+    <a
+      {...props}
+      href={href}
+      onClick={(event) => {
+        event.preventDefault()
+        openReport?.(id)
+      }}
+      className={LINK}
+    />
+  )
+}
 
 const components: Components = {
   p: styled('p', 'my-3 first:mt-0 last:mb-0'),
@@ -49,7 +74,7 @@ const components: Components = {
       <table {...props} className="w-full border-collapse text-[14px]" />
     </div>
   ),
-  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" className={LINK} />,
+  a: Link,
   // A picture shows as its words, linked to where it is. Nothing loads until the user opens it.
   img: ({ alt, src }) => (
     <a href={typeof src === 'string' ? src : undefined} target="_blank" rel="noopener noreferrer" className={LINK}>
@@ -68,13 +93,13 @@ function Parts({ parts }: { parts: readonly ReportPart[] }) {
     <>
       {parts.map((part, index) =>
         part.kind === 'markdown' ? (
-          <ReactMarkdown key={index} remarkPlugins={plugins} components={components}>
+          <ReactMarkdown key={index} remarkPlugins={plugins} components={components} urlTransform={keepReportLinks}>
             {part.text}
           </ReactMarkdown>
         ) : (
           <details key={index} open={part.open} className="my-4">
             <summary className="cursor-pointer text-sm text-muted-foreground">
-              <ReactMarkdown remarkPlugins={plugins} components={components} allowedElements={LABEL_MARKS} unwrapDisallowed>
+              <ReactMarkdown remarkPlugins={plugins} components={components} urlTransform={keepReportLinks} allowedElements={LABEL_MARKS} unwrapDisallowed>
                 {part.summary}
               </ReactMarkdown>
             </summary>

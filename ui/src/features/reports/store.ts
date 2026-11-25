@@ -4,7 +4,7 @@ import { withoutNothingNew } from '#shared/reports/nothing-new.ts'
 import { hostStore, runCommand } from '../../lib/host/client.ts'
 import type { HostState } from '../../lib/host/state.ts'
 import { hasHost } from '../../lib/host/frame.ts'
-import type { Report } from './report.ts'
+import { countsAsRead, type Report } from './report.ts'
 import { createInbox, openReport, removeReport, settle, undoRemove, type Inbox, type KindFilter } from './inbox.ts'
 import { sampleRead, sampleReports } from './sample.ts'
 import { visitReports, watchReportsVisits } from './selection.ts'
@@ -147,7 +147,7 @@ function deleteInHobkin(): void {
   })
 }
 
-function isReport(value: unknown): value is Report & { readState?: unknown } {
+function isReport(value: unknown): value is Report {
   if (!value || typeof value !== 'object') return false
   const row = value as Record<string, unknown>
   return (
@@ -188,7 +188,7 @@ function syncReports(state: HostState, previous?: HostState): void {
   const hidden = sample ? [] : reports.filter((report) => deleting.has(report.id) || report.id === pending?.id)
   if (hidden.length) reports.splice(0, reports.length, ...reports.filter((report) => !hidden.includes(report)))
   const read = reports
-    .filter((report) => report.readState === 'read' || (!changedHome && current.inbox.read.has(report.id)))
+    .filter((report) => countsAsRead(report) || (!changedHome && current.inbox.read.has(report.id)))
     .map(({ id }) => id)
   const inbox = sample ? createInbox(sampleReports, sampleRead) : createInbox(reports, read)
   if (pending) inbox.removed = current.inbox.removed

@@ -1,3 +1,5 @@
+import type { ReportReadState } from '#shared/protocol/reports.ts'
+
 /**
  * A report as hobkin lists it (`src/cli/application.mjs`, `project`): what one finished run brought back.
  * Everything here reads a report the way hobkin's terminal app does (`src/cli/reports.mjs`, `src/cli/ui.mjs`),
@@ -21,6 +23,13 @@ export interface Report {
    * Only a report that has one carries it: none while Short reports is off, still being written, or not written.
    */
   short?: string
+  /** Read in the reader, or counted by a catch-up (069-report-catch-up). A report with neither is unread. */
+  readState?: ReportReadState
+}
+
+/** Whether hobkin counts the report as read: opened in the reader, or covered by a catch-up. Either empties its mark. */
+export function countsAsRead({ readState }: Report): boolean {
+  return readState === 'read' || readState === 'caught-up'
 }
 
 /** The short version to read first, or null when the report has none and reads as it always has. */
@@ -29,8 +38,11 @@ export function shortOf(report: Report): string | null {
   return typeof short === 'string' && short.trim() ? short.trim() : null
 }
 
-/** Scheduled: a routine ran. Done: work mode or another session finished something. */
-export type ReportKind = 'scheduled' | 'done'
+/** Scheduled: a routine ran. Done: work mode or another session finished something. Catch-up: hobkin's catch-up over unread reports. */
+export type ReportKind = 'scheduled' | 'done' | 'catch-up'
+
+/** The source of hobkin's own catch-up reports (069-report-catch-up). */
+export const CATCH_UP_SOURCE = 'catch-up'
 
 export type TriageLevel = 'critical' | 'blocked' | 'useful' | 'nothing'
 
@@ -45,18 +57,20 @@ export interface Triage {
 export type Tone = TriageLevel | 'plain'
 
 export function kindOf({ scheduleId }: Report): ReportKind {
+  if (scheduleId === CATCH_UP_SOURCE) return 'catch-up'
   const schedule = String(scheduleId ?? '')
   const isFinishedRun = schedule.startsWith('work.') || schedule.startsWith('session.')
   return isFinishedRun ? 'done' : 'scheduled'
 }
 
 /**
- * Where a report came from: the routine's name, the project work mode or another session. Work mode's schedules are
+ * Where a report came from: the routine's name, the project work mode, another session or hobkin's catch-up. Work mode's schedules are
  * `work.<project>.<lane>`, `work.discover` when it looks for projects, and `work.session` for another session; native
  * session reports use `session.<name>`.
  */
 export function sourceOf({ scheduleId }: Report): string {
   if (!scheduleId) return 'hobkin'
+  if (scheduleId === CATCH_UP_SOURCE) return 'Catch-up'
   if (scheduleId === 'work.discover') return 'Work mode'
   if (scheduleId === 'work.session' || scheduleId.startsWith('session.')) return 'Another session'
   const work = /^work\.(.+)\.[^.]+$/.exec(scheduleId)

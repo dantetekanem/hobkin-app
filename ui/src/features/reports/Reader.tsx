@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { cn } from '@/lib/utils.ts'
 import { kindOf, plainLine, readerParts, shortOf, sourceOf, type Report, type Triage, type TriageLevel } from './report.ts'
-import { ReportMarkdown } from './ReportMarkdown.tsx'
+import { OpenReport, ReportMarkdown } from './ReportMarkdown.tsx'
 import { clockTime, dayLabel, timeOf } from './time.ts'
 import { KIND_NAME, TONE_NAME, TONE_TEXT, kindIconOf } from './Tone.tsx'
 
@@ -24,6 +24,8 @@ interface ReaderProps {
   onClose: () => void
   onReply: () => void
   onDelete?: () => void
+  /** Opens the report a link in this one names (069-report-catch-up). Keep it stable, so the report is not drawn again. */
+  onOpenReport?: (id: string) => void
 }
 
 /**
@@ -31,7 +33,7 @@ interface ReaderProps {
  * one report to another the box stays where it is, and only the report inside it slides, the same way and as fast,
  * clipped by the box. Nothing else moves on its own. The box holds the keyboard while it is open.
  */
-export function Reader({ report, direction = 0, at, of, onStep, onClose, onReply, onDelete }: ReaderProps) {
+export function Reader({ report, direction = 0, at, of, onStep, onClose, onReply, onDelete, onOpenReport }: ReaderProps) {
   const [saved, setSaved] = useState<string | null>(null)
   useEffect(() => setSaved(null), [report.id])
   useEffect(() => watchReportRead(report.id), [report.id])
@@ -67,7 +69,9 @@ export function Reader({ report, direction = 0, at, of, onStep, onClose, onReply
           exit="exit"
           className="scroll-quiet absolute inset-0 overflow-y-auto overscroll-contain px-8 pt-[72px] pb-14 @max-[800px]:px-6"
         >
-          <Page report={report} />
+          <OpenReport value={onOpenReport ?? null}>
+            <Page report={report} />
+          </OpenReport>
           <div className="mx-auto mt-6 max-w-[660px]"><Button variant="outline" size="sm" onClick={() => setSaved(report.id)} title="View saved run (v)">View saved run <Kbd>v</Kbd></Button></div>
         </motion.div>
       </AnimatePresence>
@@ -136,6 +140,8 @@ function Page({ report }: { report: Report }) {
   const { triage, markdown } = readerParts(report)
   const at = timeOf(report.at)
   const KindIcon = kindIconOf(report)
+  const kind = KIND_NAME[kindOf(report)]
+  const source = sourceOf(report)
   // Chosen as the report opens. A short version that lands while it is open shows the next time, so nothing moves under the reader.
   const [short] = useState(() => shortOf(report))
   const full = (
@@ -153,7 +159,7 @@ function Page({ report }: { report: Report }) {
     <article className="mx-auto max-w-[660px]">
       <p className="eyebrow flex items-center gap-1.5">
         <KindIcon className="size-3 shrink-0" aria-hidden="true" />
-        {KIND_NAME[kindOf(report)]} · {sourceOf(report)}
+        {source === kind ? kind : `${kind} · ${source}`}
       </p>
       <h2 className="mt-2 font-heading text-[26px] leading-[1.15] font-semibold tracking-[-0.022em] text-balance">{report.title}</h2>
       <p className="mt-2 text-[13px] text-muted-foreground">
