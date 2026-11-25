@@ -5,7 +5,7 @@
  * a screen.
  */
 import type { AnchorSide, ReviewFile, ReviewNode, StoryStep } from '#shared/review/types.ts'
-import type { NoteTarget } from '../notes/notes.ts'
+import type { Note, NoteIntent, NoteTarget } from '../notes/notes.ts'
 
 export type ReviewLook = 'graph' | 'code'
 
@@ -71,19 +71,47 @@ export function stepShowing(
   partOf: (id: string) => ReviewNode | undefined,
   target: NoteTarget,
 ): string | null {
-  const shows = (step: Pick<StoryStep, 'focus'>) => step.focus.flatMap(expand)
-  const first = (test: (node: ReviewNode) => boolean) => steps.find((step) => shows(step).some((id) => {
-    const node = partOf(id)
-    return node != null && test(node)
-  }))?.id ?? null
+  const partsShownBy = (step: Pick<StoryStep, 'focus'>) => step.focus.flatMap(expand)
+  /** The first step with a part that passes `test`. */
+  const firstShowing = (test: (node: ReviewNode) => boolean): string | null => {
+    const step = steps.find((each) =>
+      partsShownBy(each).some((id) => {
+        const node = partOf(id)
+        return node != null && test(node)
+      }),
+    )
+    return step?.id ?? null
+  }
+  const inFile = (fileIds: ReadonlySet<string>) => (node: ReviewNode) => node.anchors.some((anchor) => fileIds.has(anchor.fileId))
 
   if (target.kind === 'lines') {
-    const covers = (node: ReviewNode) => node.anchors.some((anchor) => anchor.fileId === target.fileId && anchor.side === target.side && anchor.startLine <= target.endLine && target.startLine <= anchor.endLine)
-    return first(covers) ?? first((node) => node.anchors.some((anchor) => anchor.fileId === target.fileId))
+    const covers = (node: ReviewNode) =>
+      node.anchors.some(
+        (anchor) =>
+          anchor.fileId === target.fileId &&
+          anchor.side === target.side &&
+          anchor.startLine <= target.endLine &&
+          target.startLine <= anchor.endLine,
+      )
+    return firstShowing(covers) ?? firstShowing(inFile(new Set([target.fileId])))
   }
   if (target.kind === 'node') {
+    const showingPart = steps.find((step) => partsShownBy(step).includes(target.node))
+    if (showingPart) return showingPart.id
     const files = new Set(partOf(target.node)?.anchors.map((anchor) => anchor.fileId) ?? [])
-    return steps.find((step) => shows(step).includes(target.node))?.id ?? first((node) => node.anchors.some((anchor) => files.has(anchor.fileId)))
+    return firstShowing(inFile(files))
   }
   return null
+}
+
+/**
+ * The reviewer's note of a kind whose lines hold the selection, which C or D in the code view opens again instead of
+ * starting another, as pi-coder does. Undefined when there is none.
+ */
+export function noteHolding(notes: readonly Note[], intent: NoteIntent, selection: Extract<NoteTarget, { kind: 'lines' }>): Note | undefined {
+  return notes.find(({ author, intent: kind, target }) => {
+    if (author !== 'user' || kind !== intent || target.kind !== 'lines') return false
+    const sameSide = target.fileId === selection.fileId && target.side === selection.side
+    return sameSide && target.startLine <= selection.startLine && selection.endLine <= target.endLine
+  })
 }
