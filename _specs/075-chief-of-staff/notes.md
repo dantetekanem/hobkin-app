@@ -86,3 +86,16 @@ Memory:
 - LongMemEval for test categories: extraction, multi-session, temporal, knowledge updates, abstention. https://arxiv.org/abs/2410.10813
 
 Overkill for one user with at most 300 memories: a knowledge graph with PageRank, per-turn consolidation calls, four timestamps per fact, model-rated importance on every write.
+
+## 5. The main prompt is a set of case scripts
+
+`prompts/v2-runtime.md` has 26 sections and 306 lines (checked). Most sections script one case and say how it ends, and 25 lines tell the agent to tell, ask or offer. Some examples:
+
+- A held check: diagnose it, then ask, and change nothing before a yes (`:129-135`).
+- A session wake: tell the user what is left, or start a session only when the ask covers it (`:144`).
+- A brief: end with "What needs you" (`:50`).
+- A learning proposal: on a yes, write a plan and ask again (`:258`).
+- Report attention: change a routine only when the user asks (`:264`).
+- Running a check: "Do not trigger it proactively" (`:73`).
+
+Each new case adds a section, and each section hard-codes its own stopping point. A chief of staff handles hundreds of cases with one set of principles, one picture of what the user wants and one sense of what it may do alone. That is why the spec builds a core and a profile, and moves the case mechanics into reference loaded on demand.
