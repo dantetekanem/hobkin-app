@@ -116,9 +116,9 @@ export function hostRows(snapshot: WireSnapshot): WaitingRow[] {
         changed: null,
         links: [],
         item: null,
-        ...(proposal ? { answers: { by: 'learning' as const, id: text(entry.id) } } : {}),
+        ...(proposal ? { answers: { by: 'learning' as const, id: text(entry.id), cardId: `learning:${text(entry.id)}:${text(entry.at)}` } } : {}),
         ...(clears ? { answers: { by: 'work' as const, id: `${slug}:${item}`, slug, item } } : {}),
-        ...(projectProposal ? { answers: { by: 'proposal' as const, slug } } : {}),
+        ...(projectProposal ? { answers: { by: 'proposal' as const, slug, cardId: `project:${slug}:${text(entry.offeredAt)}` } } : {}),
         ...(!clears && !projectProposal && opensOf(group, entry) ? { opens: opensOf(group, entry) } : {}),
       })
     })

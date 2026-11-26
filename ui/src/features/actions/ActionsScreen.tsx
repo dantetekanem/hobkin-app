@@ -86,18 +86,16 @@ export function ActionsScreen() {
    */
   const giveToHobkin = (row: WaitingRow, given: Answer) => {
     const answers = row.answers
-    if (!answers) return
+    if (!answers || useActionItems.getState().answering.includes(row.id)) return
     const plan = answerCommand(answers, given)
     if ('refused' in plan) return say(plan.refused, true)
     startAnswering(row.id)
     const sent =
       plan.name === 'work.change'
         ? runCommand('work.change', plan.args)
-        : plan.name === 'work.proposal'
-          ? runCommand('work.proposal', plan.args)
-          : plan.name === 'learning.answer'
-            ? runCommand('learning.answer', plan.args)
-            : runCommand('decision.answer', plan.args)
+        : plan.name === 'action.answer'
+          ? runCommand('action.answer', plan.args)
+          : runCommand('decision.answer', plan.args)
     sent.then(
       (result) => {
         stopAnswering(row.id)

@@ -69,7 +69,7 @@ Before Discuss, only the last row had a way to chat ("Reply in chat", while work
 - A2. Opening a report marks it read in hobkin, and the unread mark clears.
 - A3. "Reply in chat" puts the report on the conversation input as an attachment, and the sent message reaches hobkin with that report.
 - A4. Action items lists every waiting item with a one-line summary and its source. The tab's count equals the number of rows.
-- A5. Answering an item by number, by arrows and Enter, or by typing another answer resolves it in hobkin, and it leaves the list.
+- A5. Answering an item by number, by arrows and Enter, or by typing another answer resolves it in hobkin, and it leaves the list. If the selection cannot be carried out, the desktop saves the actual choice and posts one Chat notice naming the card and the safe reason or unknown outcome. Only that card leaves the list, without marking its operation successful or repeating it.
 - A6. A question that timed out of the conversation is listed here with the same choices.
 - A7. Deleting a report removes it from the list and from the terminal app's list.
 - A8. With nothing waiting, Action items says so in one line.
@@ -85,7 +85,7 @@ Before Discuss, only the last row had a way to chat ("Reply in chat", while work
 - A2. `host/test/reports.test.ts` › "opening a report records the read"
 - A3. `host/test/reports.test.ts` › "a reply carries its report"
 - A4. `host/test/actions.test.ts` › "lists waiting items and counts them"
-- A5. `host/test/actions.test.ts` › "an answer resolves the item"
+- A5. `host/test/actions.test.ts` › "an answer resolves the item", the failed selection fixtures, and the successful Chat control; runtime `test/cli-action-dismissal.test.mjs` › failed Chat delivery, generated cards, double selection and interrupted receipt/reopen. Check: click a disposable failing card in the desktop and reload.
 - A6. `host/test/actions.test.ts` › "a timed-out question is listed"
 - A7. `host/test/reports.test.ts` › "delete uses hobkin's deleted list"
 - A8. check: open Action items on a home with nothing waiting.

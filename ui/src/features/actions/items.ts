@@ -141,7 +141,7 @@ export interface WaitingRow {
    * How hobkin takes the answer: its decision action, its learning action for a learning proposal, its work action for
    * a cleared step, or its work-mode answer for a project proposal (take or skip). Absent on sample rows.
    */
-  answers?: { by: 'decision' | 'learning'; id: string } | { by: 'work'; id: string; slug: string; item: string } | { by: 'proposal'; slug: string }
+  answers?: { by: 'decision'; id: string } | { by: 'learning'; id: string; cardId: string } | { by: 'work'; id: string; slug: string; item: string } | { by: 'proposal'; slug: string; cardId: string }
   /** Something hobkin keeps elsewhere, which opens where it is handled instead of being answered here. */
   opens?: { screen: 'reports'; report: string } | { screen: 'work' }
 }
@@ -250,8 +250,7 @@ export function isActionItem(row: WaitingRow): boolean {
 /** The host command an answer becomes, as hobkin takes it, or why it is refused. The choice's own value is its answer. */
 export type AnswerCommand =
   | { name: 'work.change'; args: { slug: string; item: string; action: 'done' } }
-  | { name: 'work.proposal'; args: { slug: string; answer: 'take' | 'skip' } }
-  | { name: 'learning.answer'; args: { id: string; value: 'yes' | 'later' | 'no' } }
+  | { name: 'action.answer'; args: { id: string; value: 'yes' | 'later' | 'no' | 'take' | 'skip' } }
   | { name: 'decision.answer'; args: { id: string; value: string } | { id: string; typed: string } }
   | { refused: string }
 
@@ -277,9 +276,9 @@ export function answerCommand(answers: NonNullable<WaitingRow['answers']>, given
     case 'work':
       return { name: 'work.change', args: { slug: answers.slug, item: answers.item, action: 'done' } }
     case 'proposal':
-      return { name: 'work.proposal', args: { slug: answers.slug, answer: given.value as 'take' | 'skip' } }
+      return { name: 'action.answer', args: { id: answers.cardId, value: given.value as 'take' | 'skip' } }
     case 'learning':
-      return { name: 'learning.answer', args: { id: answers.id, value: given.value as 'yes' | 'later' | 'no' } }
+      return { name: 'action.answer', args: { id: answers.cardId, value: given.value as 'yes' | 'later' | 'no' } }
     case 'decision':
       return { name: 'decision.answer', args: { id: answers.id, value: given.value } }
   }

@@ -44,7 +44,7 @@ test('a learning proposal is answered with the three choices hobkin offers for i
     },
   })
 
-  assert.deepEqual(rows[0]!.answers, { by: 'learning', id: 'a1b2c3' })
+  assert.deepEqual(rows[0]!.answers, { by: 'learning', id: 'a1b2c3', cardId: 'learning:a1b2c3:2026-11-09T09:00:00.000Z' })
   assert.deepEqual(rows[0]!.question.choices, [
     { value: 'yes', label: 'Yes, plan it' },
     { value: 'later', label: 'No, but ask me later' },
@@ -104,7 +104,7 @@ test('a work-mode project proposal is answered in place, taken or skipped, by it
     decisions: [],
     waiting: {
       asks: [
-        { kind: 'proposal', slug: 'hobkin-client', project: 'hobkin-client', title: 'hobkin-client', reason: 'A repository in ~/Poetry', answer: 'hobkin work choose hobkin-client [level], or skip hobkin-client', at: '2026-11-10T09:00:00.000Z' },
+        { kind: 'proposal', slug: 'hobkin-client', project: 'hobkin-client', title: 'hobkin-client', reason: 'A repository in ~/Poetry', answer: 'hobkin work choose hobkin-client [level], or skip hobkin-client', offeredAt: '2026-11-10T09:00:00.000Z' },
         { kind: 'allowance', title: 'Raise the daily budget', reason: 'The queue is long.' },
       ],
     },
@@ -112,7 +112,7 @@ test('a work-mode project proposal is answered in place, taken or skipped, by it
 
   const proposal = rows.find((row) => row.summary === 'hobkin-client')!
   assert.equal(proposal.opens, undefined, 'a project proposal is answered here, never the Work dead-end')
-  assert.deepEqual(proposal.answers, { by: 'proposal', slug: 'hobkin-client' })
+  assert.deepEqual(proposal.answers, { by: 'proposal', slug: 'hobkin-client', cardId: 'project:hobkin-client:2026-11-10T09:00:00.000Z' })
   assert.deepEqual(proposal.question.choices, [{ value: 'take', label: 'Take it' }, { value: 'skip', label: 'Skip' }])
   assert.deepEqual(answersOf(proposal, false), { choices: proposal.question.choices, words: false }, 'take or skip, no free text')
 
@@ -122,15 +122,17 @@ test('a work-mode project proposal is answered in place, taken or skipped, by it
 })
 
 test('each answer becomes hobkin\'s own command, and take/skip, learning and a cleared step refuse free text', () => {
-  assert.deepEqual(answerCommand({ by: 'proposal', slug: 'app' }, { value: 'take' }), { name: 'work.proposal', args: { slug: 'app', answer: 'take' } })
-  assert.deepEqual(answerCommand({ by: 'proposal', slug: 'app' }, { value: 'skip' }), { name: 'work.proposal', args: { slug: 'app', answer: 'skip' } })
+  const project = { by: 'proposal' as const, slug: 'app', cardId: 'project:app:2026-11-10T09:00:00.000Z' }
+  const learning = { by: 'learning' as const, id: 'a1b2c3', cardId: 'learning:a1b2c3:2026-11-09T09:00:00.000Z' }
+  assert.deepEqual(answerCommand(project, { value: 'take' }), { name: 'action.answer', args: { id: project.cardId, value: 'take' } })
+  assert.deepEqual(answerCommand(project, { value: 'skip' }), { name: 'action.answer', args: { id: project.cardId, value: 'skip' } })
   assert.deepEqual(answerCommand({ by: 'decision', id: 'd1' }, { value: 'yes' }), { name: 'decision.answer', args: { id: 'd1', value: 'yes' } })
   assert.deepEqual(answerCommand({ by: 'decision', id: 'd1' }, { typed: 'my own words' }), { name: 'decision.answer', args: { id: 'd1', typed: 'my own words' } })
-  assert.deepEqual(answerCommand({ by: 'learning', id: 'a1b2c3' }, { value: 'no' }), { name: 'learning.answer', args: { id: 'a1b2c3', value: 'no' } })
+  assert.deepEqual(answerCommand(learning, { value: 'no' }), { name: 'action.answer', args: { id: learning.cardId, value: 'no' } })
   assert.deepEqual(answerCommand({ by: 'work', id: 'app:x', slug: 'app', item: 'x' }, { value: 'done' }), { name: 'work.change', args: { slug: 'app', item: 'x', action: 'done' } })
 
-  assert.ok('refused' in answerCommand({ by: 'proposal', slug: 'app' }, { typed: 'x' }), 'a proposal is taken or skipped, not typed')
-  assert.ok('refused' in answerCommand({ by: 'learning', id: 'a1b2c3' }, { typed: 'x' }))
+  assert.ok('refused' in answerCommand(project, { typed: 'x' }), 'a proposal is taken or skipped, not typed')
+  assert.ok('refused' in answerCommand(learning, { typed: 'x' }))
   assert.ok('refused' in answerCommand({ by: 'work', id: 'app:x', slug: 'app', item: 'x' }, { typed: 'x' }))
   assert.ok(!('refused' in answerCommand({ by: 'decision', id: 'd1' }, { typed: 'x' })), 'a decision takes the user\'s own words')
 })

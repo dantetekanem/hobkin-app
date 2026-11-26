@@ -9,6 +9,8 @@ import { decisionHandlers } from '../src/decisions.ts'
 import { reportHandlers } from '../src/reports.ts'
 import type { WorkApp } from '../src/work.ts'
 import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
+import { hostRows } from '../../ui/src/features/actions/host.ts'
+import { answerCommand } from '../../ui/src/features/actions/items.ts'
 
 test('report reads persist telemetry only for listed reports and cannot answer an action', async () => {
   const reads: unknown[] = []
@@ -53,8 +55,8 @@ test("an answer goes through hobkin's own decision action, by choice or in the u
     value: { message: 'hobkin did words.', handedOff: false },
   })
   assert.deepEqual(calls, [
-    ['decide', 'd1', 'merge'],
-    ['words', 'd2', 'Ask me again tomorrow'],
+    ['decide', 'd1', 'merge', { actionItem: true }],
+    ['words', 'd2', 'Ask me again tomorrow', { actionItem: true }],
   ])
 
   // A choice or the user's words, never both and never neither. hobkin hears nothing of a malformed answer.
@@ -81,6 +83,18 @@ test("a refusal comes back in hobkin's own words", async () => {
     ok: false,
     error: { code: 'failed', message: 'That decision was already answered.' },
   })
+})
+
+test('generated cards pass their exact offer identity to the runtime fallback route', async () => {
+  const { calls, handlers } = fakeHobkin(() => ({ ok: false, message: 'Your choice was saved. See Chat for what happened.' }))
+  const id = 'project:fixture:2026-11-10T09:00:00.000Z'
+  assert.deepEqual(await runCommand(handlers, 'action.answer', { id, value: 'take' }), {
+    ok: true,
+    value: { message: 'Your choice was saved. See Chat for what happened.' },
+  })
+  assert.deepEqual(calls, [['actionItem', id, 'take']])
+  assert.equal((await runCommand(handlers, 'action.answer', { id, value: 'other' })).ok, false)
+  assert.equal(calls.length, 1)
 })
 
 test("a learning proposal is answered with hobkin's own learning action", async () => {
@@ -125,4 +139,55 @@ test('an answer resolves the item', { timeout: 60000 }, async (t) => {
   // An answer from a stale screen does not reach a question that is gone.
   const again = await client.command('decision.answer', { id: asked.id, value: 'no' })
   assert.equal(!again.ok && again.error.message, 'That decision was already answered.')
+})
+
+for (const fixture of [
+  { title: 'Unknown handler card?', given: { value: 'yes' }, choice: 'Try the harmless fixture', target: { kind: 'unavailable-fixture' }, reason: 'No action handler was available' },
+  { title: 'Missing work card?', given: { typed: 'Only the harmless fixture' }, choice: 'Only the harmless fixture', target: { kind: 'work', slug: 'fixture-missing', item: 'missing' }, reason: 'The action target was no longer available' },
+]) test(`failed Action Items selection (${fixture.title}) appears once in Chat and leaves only its card`, { timeout: 60000 }, async (t) => {
+  const root = join(temporaryDirectory(t), 'home')
+  initialize(root, { cwd: root })
+  const choices = [{ value: 'yes', label: 'Try the harmless fixture' }, { value: 'no', label: 'Skip it' }]
+  const card = fileDecision(root, { from: 'Fixture', question: fixture.title, choices, answerTo: fixture.target })
+  const other = fileDecision(root, { from: 'Fixture', question: 'Leave this card alone?', choices, answerTo: { kind: 'chat' } })
+  const host = await hostFor(t, { root })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  await client.live()
+  const rows = () => hostRows(client.view.snapshot)
+  await client.until(() => [card, other].every(({ id }) => rows().some(row => row.id === id)), 'fixture cards')
+  const { title, choice, given } = fixture
+  const plan = answerCommand(rows().find(row => row.id === card.id)!.answers!, given as { value: string } | { typed: string })
+  assert.equal('name' in plan && plan.name, 'decision.answer')
+  if (!('name' in plan)) throw Error('The card did not produce a command.')
+  const result = await client.command(plan.name, plan.args)
+  assert.equal(result.ok, true, 'the failure is reported in Chat rather than returned as a command error')
+  await client.until(view => view.messages.some(message => message.role === 'notice' && message.content.includes(title) && message.content.includes(choice) && message.content.includes(fixture.reason)), 'the selection and reason in Chat')
+  await client.until(() => !rows().some(row => row.id === card.id), 'the selected card gone')
+  assert.equal(rows().some(row => row.id === other.id), true)
+  await client.command(plan.name, plan.args)
+  assert.equal(client.view.messages.filter(message => message.content.includes(title) && message.content.includes(choice)).length, 1)
+  assert.deepEqual(openDecisions(root).map(({ id }) => id).sort(), [card.id, other.id].sort(), 'failed actions were not recorded as answered')
+  const refreshed = await Client.connect(host)
+  afterTest(t, () => refreshed.close())
+  await refreshed.live()
+  assert.deepEqual(hostRows(refreshed.view.snapshot).map(row => row.id), [other.id])
+  assert.equal(refreshed.view.messages.filter(message => message.content.includes(title) && message.content.includes(choice)).length, 1)
+})
+
+test('the desktop selection that can reach Chat still sends the actual answer', { timeout: 60000 }, async (t) => {
+  const root = join(temporaryDirectory(t), 'home')
+  initialize(root, { cwd: root })
+  const card = fileDecision(root, { from: 'Fixture', question: 'Harmless positive control?', choices: [{ value: 'yes', label: 'Yes, I see it' }, { value: 'no', label: 'No' }], answerTo: { kind: 'chat' } })
+  const host = await hostFor(t, { root })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  await client.live()
+  await client.until(view => hostRows(view.snapshot).some(row => row.id === card.id), 'the positive control card')
+  const command = answerCommand(hostRows(client.view.snapshot).find(row => row.id === card.id)!.answers!, { value: 'yes' })
+  if (!('name' in command)) throw Error('The card did not produce a command.')
+  assert.equal((await client.command(command.name, command.args)).ok, true)
+  await client.until(view => view.messages.some(message => message.role === 'user' && message.content.includes('Yes, I see it')), 'the real Chat answer')
+  assert.deepEqual(openDecisions(root), [])
+  assert.equal(client.view.messages.some(message => message.id === `notice:action-answer:${card.id}`), false)
 })

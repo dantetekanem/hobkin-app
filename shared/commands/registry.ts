@@ -1498,6 +1498,12 @@ export const COMMANDS = {
     args: Type.Object({ id: words(64), value: Type.Optional(words(64)), typed: Type.Optional(words(4000)) }, { additionalProperties: false }),
     rule: ({ value, typed }) => ((value === undefined) !== (typed === undefined) ? null : 'need "value" or "typed", and only one of them'),
   },
+  // A specific generated card in Action Items, not an agent-callable project or learning command.
+  'action.answer': {
+    description: 'Answer the exact project or learning card selected in Action Items. An unavailable action leaves the choice in Chat.',
+    runs: 'host',
+    args: Type.Object({ id: words(256), value: oneOf(['take', 'skip', 'yes', 'later', 'no']) }, { additionalProperties: false }),
+  },
   'learning.answer': {
     description:
       "Answer one of hobkin's learning proposals with its own learning action: `yes` plans it with the main agent in Chat, `later` asks again in a week, and `no` does not ask it again.",
@@ -1767,6 +1773,7 @@ export interface CommandResults {
   'reports.catchup.run': { message: string }
   'reminder.resolve': { ok: true }
   'decision.answer': { message: string; handedOff: boolean }
+  'action.answer': { message: string }
   'learning.answer': { message: string }
   /** How many it dismissed, and how many Action Items hobkin lists now. */
   'action.dismiss': { dismissed: number; remaining: number }
