@@ -92,6 +92,27 @@ export function lookAfterRoutines(root, { schedules, attention, partial = false,
   return { filed: filed.map(({ key }) => key), settled: settled.map(({ id }) => id) };
 }
 
+const HOUR_MS = 60 * 60000;
+// The last look for each home. A restart looks again at once, which files nothing the numbers did not move.
+const lookedAt = new Map();
+
+/**
+ * Once an hour from the host's tick, with the routines as the runner loaded them and the dashboard's attention rollup. Before the first
+ * refresh there is no rollup, so it waits for the next tick. An error about a file no routine came from means one did not load. A problem
+ * costs this look and nothing else.
+ */
+export function tickRoutineCare(root, { loaded, attention, now = Date.now() }) {
+  if (now - (lookedAt.get(root) ?? -Infinity) < HOUR_MS || !Array.isArray(loaded?.schedules) || !Array.isArray(attention)) return null;
+  lookedAt.set(root, now);
+  const { schedules, errors = [] } = loaded;
+  const partial = errors.some(({ path }) => !schedules.some(schedule => schedule.path === path));
+  try {
+    return lookAfterRoutines(root, { schedules, attention, partial, now });
+  } catch {
+    return null;
+  }
+}
+
 const lowerFirst = text => text.charAt(0).toLowerCase() + text.slice(1);
 
 /** Each new or newer template hobkin ships, as an item the user can take up or turn down. A version is its own key, so a newer one asks again. */
