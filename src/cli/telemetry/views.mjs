@@ -145,6 +145,36 @@ function questions(events) {
   };
 }
 
+const DESK_LEVELS = ['P0', 'P1', 'P2', 'P3'];
+
+/**
+ * What the desk did (075): the items it held for a digest or a pause, or only logged, the ones it let reach Chat on their own, which are
+ * its interruptions, and the digests with the items they carried.
+ */
+function desk(events) {
+  const held = ofType(events, 'desk_held');
+  const letThrough = ofType(events, 'desk_posted');
+  const digests = ofType(events, 'digest_posted');
+  const levels = own => ({ ...zeros(DESK_LEVELS), ...tally(own.map(({ level }) => level)) });
+  const digested = own => own.reduce((sum, { items }) => sum + (Number.isFinite(items) ? items : 0), 0);
+  const days = [...new Set([...held, ...letThrough, ...digests].map(({ at }) => localDay(at)))].toSorted();
+  const onDay = (own, day) => own.filter(({ at }) => localDay(at) === day);
+  return {
+    held: held.length,
+    heldByLevel: levels(held),
+    interruptions: letThrough.length,
+    interruptionsByLevel: levels(letThrough),
+    digests: digests.length,
+    digested: digested(digests),
+    byDay: Object.fromEntries(days.map(day => [day, {
+      held: onDay(held, day).length,
+      interruptions: onDay(letThrough, day).length,
+      digests: onDay(digests, day).length,
+      digested: digested(onDay(digests, day)),
+    }])),
+  };
+}
+
 function interruptions(events) {
   const notices = ofType(events, 'notice_posted').map(event => ({
     day: localDay(event.at),
@@ -152,10 +182,18 @@ function interruptions(events) {
     source: event.source ?? 'unknown',
     tone: event.tone ?? 'none',
   }));
-  const summary = own => ({ notices: own.length, bySource: tally(own.map(({ source }) => source)), byTone: tally(own.map(({ tone }) => tone)) });
+  // A digest is one notice that carries many items, so every other notice is a line outside the digests.
+  const digests = own => own.filter(({ source }) => source === 'digest').length;
+  const summary = own => ({
+    notices: own.length,
+    bySource: tally(own.map(({ source }) => source)),
+    byTone: tally(own.map(({ tone }) => tone)),
+    digests: digests(own),
+    outsideDigests: own.length - digests(own),
+  });
   const byHour = hours();
   for (const { hour } of notices) byHour[hour] += 1;
-  return { ...summary(notices), byDay: byDay(notices, summary), byHour };
+  return { ...summary(notices), byDay: byDay(notices, summary), byHour, desk: desk(events) };
 }
 
 function presence(events) {
@@ -220,7 +258,7 @@ function outward(events) {
  */
 export const TELEMETRY_VIEWS = {
   questions: { line: 'questions filed per day by source, how each ended, the median time to answer, whether the user was away when each came, repeats, and those answered without asking', view: questions },
-  interruptions: { line: 'Chat notices per day by source and tone, and how many came in each local hour', view: interruptions },
+  interruptions: { line: 'Chat notices per day by source and tone, how many were digests and how many came outside them, how many came in each local hour, and what the desk held, let through and digested by level', view: interruptions },
   presence: { line: 'when the user was first on each day, each return after 15 minutes or more away, and the minutes on in each local hour', view: presence },
   memory: { line: 'which shared memories agents recalled or had in their index, and the ones nobody used', view: memory },
   autonomy: { line: 'each task class\'s level, clean streak, overrides, undos, median review minutes and whether a promotion is due, from the local ledger', view: (_events, { root }) => autonomyView(root) },

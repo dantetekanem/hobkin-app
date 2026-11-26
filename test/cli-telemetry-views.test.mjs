@@ -122,11 +122,44 @@ test('interruptions: Chat notices per day by source and tone, and by local hour'
   assert.equal(view.notices, 3);
   assert.deepEqual(view.bySource, { session: 1, 'work-ship': 1, reminder: 1 });
   assert.deepEqual(view.byTone, { useful: 1, critical: 1, none: 1 });
-  assert.deepEqual(view.byDay['2026-11-25'], { notices: 2, bySource: { session: 1, 'work-ship': 1 }, byTone: { useful: 1, critical: 1 } });
+  assert.deepEqual(view.byDay['2026-11-25'], { notices: 2, bySource: { session: 1, 'work-ship': 1 }, byTone: { useful: 1, critical: 1 }, digests: 0, outsideDigests: 2 });
   assert.equal(view.byHour.length, 24);
   assert.equal(view.byHour[9], 2);
   assert.equal(view.byHour[14], 1);
   assert.equal(view.byHour.reduce((sum, count) => sum + count, 0), 3);
+});
+
+test('interruptions: digests apart from the lines outside them, and what the desk held, let through and digested, by level and day', t => {
+  const root = dataRoot(t);
+  recordEvent(root, 'desk_held', { source: 'report', level: 'P2', delivery: 'digest' }, local(25, 9));
+  recordEvent(root, 'desk_held', { source: 'reminder', level: 'P1', delivery: 'digest' }, local(25, 9, 30));
+  recordEvent(root, 'desk_posted', { source: 'report', level: 'P0', delivery: 'breakpoint', waitedMs: 0 }, local(25, 10));
+  recordEvent(root, 'notice_posted', { source: 'report', tone: 'critical' }, local(25, 10));
+  recordEvent(root, 'digest_posted', { items: 2, P1: 1, P2: 1, why: 'return' }, local(25, 13));
+  recordEvent(root, 'notice_posted', { source: 'digest', tone: 'useful' }, local(25, 13));
+  recordEvent(root, 'notice_posted', { source: 'memory', tone: 'quiet' }, local(26, 9));
+  recordEvent(root, 'desk_held', { source: 'session', level: 'P1', delivery: 'breakpoint' }, local(26, 9, 5));
+  recordEvent(root, 'desk_posted', { source: 'session', level: 'P1', delivery: 'breakpoint', waitedMs: 5 * MINUTE_MS }, local(26, 9, 10));
+  recordEvent(root, 'notice_posted', { source: 'session', tone: 'useful' }, local(26, 9, 10));
+
+  const view = telemetryView(root, 'interruptions', { days: 3, now: NOW });
+
+  assert.equal(view.notices, 4);
+  assert.equal(view.digests, 1);
+  assert.equal(view.outsideDigests, 3);
+  assert.deepEqual([view.byDay['2026-11-25'].digests, view.byDay['2026-11-25'].outsideDigests], [1, 1]);
+  assert.deepEqual(view.desk, {
+    held: 3,
+    heldByLevel: { P0: 0, P1: 2, P2: 1, P3: 0 },
+    interruptions: 2,
+    interruptionsByLevel: { P0: 1, P1: 1, P2: 0, P3: 0 },
+    digests: 1,
+    digested: 2,
+    byDay: {
+      '2026-11-25': { held: 2, interruptions: 1, digests: 1, digested: 2 },
+      '2026-11-26': { held: 1, interruptions: 1, digests: 0, digested: 0 },
+    },
+  });
 });
 
 test('presence: when the user was first on each day, each return with how long they were away, and time on by hour', t => {
