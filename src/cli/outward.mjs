@@ -7,6 +7,30 @@
 export const OUTWARD_KINDS = Object.freeze(['send', 'calendar-write', 'spend', 'delete', 'post']);
 export const OUTWARD_VERDICTS = Object.freeze(['allowed-by-rule', 'allowed-by-ask', 'would-block']);
 
+/**
+ * The kinds of work that stay at recommend or above unless the user has a standing rule: the outward kinds, committing the user's time,
+ * anything irreversible, and anything about health, money or law, with the plain words a task class or a card's kind uses for them. The
+ * autonomy ledger reads this list too (`autonomy.mjs`), so the two cannot drift.
+ */
+export const GUARDED_KINDS = Object.freeze([
+  ...OUTWARD_KINDS,
+  'email', 'reply', 'message', 'invite', 'pay', 'invoice', 'purchase', 'publish',
+  'commit-time', 'irreversible', 'tax', 'law', 'legal', 'health', 'medical', 'money', 'bank',
+]);
+
+/**
+ * Whether a task class or a card's kind is guarded: one of its words, split on `:` and `-`, is a guarded kind, or a guarded kind of two
+ * words is two of its words in a row. `send-email` and `code-branch:delete` are guarded, and `sender-check` and `calendar-read` are not.
+ */
+export function isGuardedKind(kind) {
+  if (typeof kind !== 'string') return false;
+  const words = kind.split(/[:-]/);
+  return GUARDED_KINDS.some(guarded => {
+    const parts = guarded.split('-');
+    return words.some((_, start) => parts.every((part, offset) => words[start + offset] === part));
+  });
+}
+
 // A tool's name as words: `mcp__gmail__gmail_sendDraft` is mcp, gmail, gmail, send, draft.
 const wordsOf = name => name.replace(/([a-z\d])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z\d]+/).filter(Boolean);
 

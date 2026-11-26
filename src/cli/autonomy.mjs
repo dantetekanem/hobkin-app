@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicJson } from './config.mjs';
+import { isGuardedKind } from './outward.mjs';
 
 /**
  * How much a task class may do alone (075-chief-of-staff). Trust belongs to a task class, never to an agent, because what an agent does
@@ -56,13 +57,6 @@ export const CODE_BRANCH_WORK = 'code-branch';
 /** The user's choices of 2026-11-26, the first rows: code branch work acts and reports in the digest. */
 export const SEEDED_LEVELS = Object.freeze({ [CODE_BRANCH_WORK]: 'report' });
 
-/**
- * The kinds of work that stay at recommend or above unless the user has a standing rule: sending anything in the user's name, spending,
- * deleting, committing the user's time to other people, anything irreversible, and anything about health, money or law. A kind is one of
- * these or starts with one and a hyphen, so `send-email` is guarded and `sender-check` is not.
- */
-export const STANDING_RULE_KINDS = ['send', 'spend', 'delete', 'commit-time', 'irreversible', 'health', 'money', 'law'];
-
 const TASK_CLASS = /^[a-z][a-z0-9-]{0,59}(?::[a-z0-9][a-z0-9-]{0,59})?$/;
 const GUARD_CEILING = LEVELS.indexOf('recommend');
 
@@ -74,11 +68,13 @@ function assertTaskClass(taskClass) {
 
 const kindOf = taskClass => taskClass.split(':')[0];
 
-/** Whether a class's kind stays at recommend or above without a standing rule. */
+/**
+ * Whether a class stays at recommend or above without a standing rule: sending anything in the user's name, spending, deleting, committing
+ * the user's time to other people, anything irreversible, and anything about health, money or law, by any word of the class (`outward.mjs`).
+ */
 export function needsStandingRule(taskClass) {
   assertTaskClass(taskClass);
-  const kind = kindOf(taskClass);
-  return STANDING_RULE_KINDS.some(guarded => kind === guarded || kind.startsWith(`${guarded}-`));
+  return isGuardedKind(taskClass);
 }
 
 /** A level no further from draft than the class may go. */

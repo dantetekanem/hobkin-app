@@ -8,7 +8,6 @@ import {
   LEVELS,
   PROMOTION_STREAK,
   SEEDED_LEVELS,
-  STANDING_RULE_KINDS,
   autonomyPath,
   declinePromotion,
   levelFor,
@@ -18,6 +17,7 @@ import {
   readAutonomy,
   recordOutcome,
 } from '../src/cli/autonomy.mjs';
+import { OUTWARD_KINDS } from '../src/cli/outward.mjs';
 import { telemetryView } from '../src/cli/telemetry/views.mjs';
 
 const NOW = Date.parse('2026-11-26T20:00:00Z');
@@ -177,14 +177,19 @@ test('a class at log has nowhere further to go', t => {
   assert.throws(() => promote(root, CODE_BRANCH_WORK, NOW), /already acts and logs/);
 });
 
-test('sending, spending, deleting, the user\'s time, the irreversible, health, money and law never go past recommend', t => {
+test('sending, posting, the calendar, spending, deleting, the user\'s time, the irreversible, health, money and law never go past recommend', t => {
   const root = home(t);
 
-  assert.deepEqual(STANDING_RULE_KINDS, ['send', 'spend', 'delete', 'commit-time', 'irreversible', 'health', 'money', 'law']);
-  for (const kind of ['send', 'send-email', 'spend:hobkin', 'delete-files', 'commit-time', 'irreversible', 'health', 'money-transfer', 'law']) {
+  for (const kind of OUTWARD_KINDS) assert.equal(needsStandingRule(kind), true, `the outward guard's ${kind}`);
+  for (const kind of ['send-email', 'spend:hobkin', 'delete-files', 'commit-time', 'irreversible', 'health', 'money-transfer', 'law', 'code-branch:delete']) {
     assert.equal(needsStandingRule(kind), true, kind);
   }
-  for (const kind of ['code-fix', 'sender-check', 'lawn-care', 'code-branch:delete']) assert.equal(needsStandingRule(kind), false, kind);
+  for (const kind of ['calendar-write:hobkin', 'email-reply', 'pay-invoice', 'reply', 'publish-post', 'tax-filing', 'send-mail', 'team-message', 'invite']) {
+    cleanRuns(root, kind, PROMOTION_STREAK);
+    assert.equal(promotionDue(root, kind), null, kind);
+    assert.throws(() => promote(root, kind, NOW), /standing rule/, kind);
+  }
+  for (const kind of ['code-fix', 'sender-check', 'lawn-care', 'postgres-upgrade', 'calendar-read', 'write-docs']) assert.equal(needsStandingRule(kind), false, kind);
 
   cleanRuns(root, 'send-email', PROMOTION_STREAK);
   assert.equal(promotionDue(root, 'send-email'), null);
