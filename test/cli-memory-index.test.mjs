@@ -20,6 +20,7 @@ import { indexStatus, MemoryIndex } from '../src/cli/memory-index.mjs';
 import { createQuestionTool } from '../src/cli/questions.mjs';
 import { startDashboard } from '../src/cli/ui.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
+import { readHeld } from '../src/cli/desk-queue.mjs';
 
 const ENTER = '\r';
 const FAST = { pollMs: 10, quietMs: 30, retryMs: 60 };
@@ -673,7 +674,7 @@ test('the dashboard opens and answers while qmd hangs, and a quit ends qmd', asy
   assert.equal(qmd.ended('update'), 0);
 });
 
-test('a missing qmd reaches Chat as one quiet line and leaves the rest working', async t => {
+test('a missing qmd is told once, in Chat or held for the next digest, and leaves the rest working', async t => {
   const { root } = fixture(t);
   const saved = process.env.PATH;
   process.env.PATH = mkdtempSync(join(tmpdir(), 'hobkin-no-qmd-'));
@@ -684,10 +685,13 @@ test('a missing qmd reaches Chat as one quiet line and leaves the rest working',
   const hobkin = openHobkin(root);
   cleanup(t, () => hobkin.close());
 
-  await hobkin.until(/qmd is not installed/);
+  // A quiet line may wait for the desk's next digest (075), so it counts on screen or held, never both and never twice.
+  const told = () => (hobkin.screen().match(/qmd is not installed/g) ?? []).length
+    + readHeld(root).filter(({ content }) => /qmd is not installed/.test(content)).length;
+  await settled(() => told() > 0, 'the missing qmd to be told');
   hobkin.send('Still fine?');
   await hobkin.until(/Reply: Still fine\?/);
-  assert.equal(hobkin.screen().match(/qmd is not installed/g).length, 1);
+  assert.equal(told(), 1);
 });
 
 test('the dashboard keeps the index current, and a signal stops it', async t => {
