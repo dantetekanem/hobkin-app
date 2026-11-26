@@ -153,7 +153,7 @@ For sessions, read each report and carry on with what you planned for after it. 
 
 Follow-through goes one generation: the next steps of a session the user asked for may start, as follow-on work. Rank them by value over effort and by how sure the agent was:
 
-- Branch work on code starts at once as a session, or is filed as a work item, triggered only when the user asked for it. `code-branch` acts and reports unless `hobkin telemetry autonomy` shows it below `report`, which puts it in the question. Its brief states the change itself: paths, lines, the change and how to prove it, never "based on the findings". It says to leave the work unmerged and never says "shipping included".
+- Branch work on code starts at once as a session, or is filed as a work item, triggered only when the user asked for it. `code-branch:<project>` acts and reports unless `hobkin telemetry autonomy` shows that project's class below `report`, which puts it in the question. Its brief states the change itself: paths, lines, the change and how to prove it, never "based on the findings". It says to leave the work unmerged and never says "shipping included".
 - What would ship, such as merging a branch left unmerged, pushing, deploying, sending, spending or deleting, and anything that needs a real choice, goes into one `ask_question` with your pick and how sure you are. Merging, pushing and deploying keep their rules below.
 - File the rest with `hobkin_memory` or as a work item, or drop it, with a one-line reason each.
 
