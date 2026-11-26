@@ -1,3 +1,4 @@
+import { userDay } from '../desk.mjs';
 import { AWAY_GAP_MS, localDay, readEvents } from '../events.mjs';
 import { readMemories } from '../memories.mjs';
 import { readMemoryUse } from '../memory-use.mjs';
@@ -15,6 +16,8 @@ const zeros = keys => Object.fromEntries(keys.map(key => [key, 0]));
 const hours = () => Array.from({ length: 24 }, () => 0);
 const pad = number => String(number).padStart(2, '0');
 const clock = time => `${pad(new Date(time).getHours())}:${pad(new Date(time).getMinutes())}`;
+// Presence counts by the user's day, which turns at 04:00 as the desk's does, so a night past midnight belongs to the day it started.
+const presenceDay = time => userDay(typeof time === 'number' ? time : Date.parse(time)).date;
 
 function tally(values) {
   const counts = new Map();
@@ -35,7 +38,7 @@ const byDay = (rows, summary) => Object.fromEntries([...Map.groupBy(rows, ({ day
 function sightings(events) {
   const daysWithFirst = new Set();
   return ofType(events, 'presence').filter(event => {
-    const day = localDay(event.at);
+    const day = presenceDay(event.at);
     const daysFirst = event.kind === 'first' && !daysWithFirst.has(day);
     if (daysFirst) daysWithFirst.add(day);
     return daysFirst || event.awayMs >= AWAY_GAP_MS;
@@ -69,7 +72,7 @@ function* byHourOf([start, end]) {
     const nextHour = new Date(time);
     nextHour.setMinutes(60, 0, 0);
     const until = Math.min(end, nextHour.getTime());
-    yield { day: localDay(time), hour: new Date(time).getHours(), ms: until - time };
+    yield { day: presenceDay(time), hour: new Date(time).getHours(), ms: until - time };
     time = until;
   }
 }
@@ -131,7 +134,7 @@ function presence(events) {
   const days = {};
   const dayOf = day => (days[day] ??= { firstOn: null, returns: [], onMs: 0 });
   for (const event of seen) {
-    const day = dayOf(localDay(event.at));
+    const day = dayOf(presenceDay(event.at));
     const moment = { at: event.at, local: clock(timeOf(event)), ...(Number.isFinite(event.awayMs) ? { awayMs: event.awayMs } : {}) };
     if (event.kind === 'first' && !day.firstOn) day.firstOn = moment;
     else day.returns.push(moment);

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { recordEvent } from '../src/cli/events.mjs';
+import { recordEvent, recordPresence } from '../src/cli/events.mjs';
 import { addMemory } from '../src/cli/memories.mjs';
 import { recordMemoryUse } from '../src/cli/memory-use.mjs';
 import { main } from '../src/cli/main.mjs';
@@ -118,6 +118,20 @@ test('presence: when the user was first on each day, each return with how long t
   const hours = Array.from({ length: 24 }, () => 0);
   Object.assign(hours, { 8: 120, 9: 105, 10: 90, 11: 120, 12: 60, 13: 60, 14: 60, 15: 60, 16: 60, 17: 60 });
   assert.deepEqual(view.minutesOnByHour, hours);
+});
+
+test('presence: a night past midnight belongs to the day it started, so the next morning is that day\'s first', t => {
+  const root = dataRoot(t);
+  recordPresence(root, { lastSeenAt: null, seenAt: local(24, 22) });
+  recordPresence(root, { lastSeenAt: iso(local(24, 23, 59)), seenAt: local(25, 0, 0) });
+  recordPresence(root, { lastSeenAt: iso(local(25, 1)), seenAt: local(25, 9) });
+
+  const { byDay } = telemetryView(root, 'presence', { days: 3, now: NOW });
+
+  assert.deepEqual(byDay, {
+    '2026-11-24': { firstOn: { at: iso(local(24, 22)), local: '22:00' }, returns: [], onMs: 180 * MINUTE_MS },
+    '2026-11-25': { firstOn: { at: iso(local(25, 9)), local: '09:00', awayMs: 8 * HOUR_MS }, returns: [], onMs: 0 },
+  });
 });
 
 test('a home with no events gives empty views', t => {

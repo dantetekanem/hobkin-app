@@ -1,5 +1,6 @@
 import { appendFileSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { userDay } from './desk.mjs';
 import { reportTriage } from './reports.mjs';
 import { usageLimitIn } from './work/usage.mjs';
 
@@ -39,15 +40,15 @@ export const localDay = time => new Date(time).toLocaleDateString('en-CA');
 const timeOf = value => (typeof value === 'number' ? value : Date.parse(value ?? ''));
 
 /**
- * When the user is on, as facts: `first` for the first sighting on a local day, and `returned` after a gap of 15 minutes or more. The event
- * is at the moment they were seen again, and they left `awayMs` before it. A smaller gap records nothing. It returns what it recorded, or
- * null, so the caller can keep `seenAt` as when they were last here.
+ * When the user is on, as facts: `first` for the first sighting on the user's day, which turns at 04:00 as the desk's does (`userDay`),
+ * and `returned` after a gap of 15 minutes or more. The event is at the moment they were seen again, and they left `awayMs` before it. A
+ * smaller gap records nothing. It returns what it recorded, or null, so the caller can keep `seenAt` as when they were last here.
  */
 export function recordPresence(root, { lastSeenAt, seenAt }) {
   const left = timeOf(lastSeenAt);
   const known = Number.isFinite(left) && seenAt >= left;
   const awayMs = known ? seenAt - left : undefined;
-  const first = !Number.isFinite(left) || localDay(left) !== localDay(seenAt);
+  const first = !Number.isFinite(left) || userDay(left).date !== userDay(seenAt).date;
   if (!first && !(awayMs >= AWAY_GAP_MS)) return null;
 
   const facts = { kind: first ? 'first' : 'returned', ...(awayMs === undefined ? {} : { awayMs }) };

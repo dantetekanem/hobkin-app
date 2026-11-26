@@ -50,6 +50,14 @@ test('a return after 15 minutes or more away is returned, and a smaller gap reco
   assert.deepEqual(presenceEvents(root).map(({ at, kind, awayMs }) => [at, kind, awayMs]), [[iso(left + 15 * MINUTE_MS), 'returned', 15 * MINUTE_MS]]);
 });
 
+test('the user\'s day turns at 04:00, as the desk\'s does, so a night past midnight is no new first', t => {
+  const root = dataRoot(t);
+
+  assert.equal(recordPresence(root, { lastSeenAt: iso(local(24, 23, 59, 50)), seenAt: local(25, 0, 0, 20) }), null);
+  assert.deepEqual(recordPresence(root, { lastSeenAt: iso(local(25, 1)), seenAt: local(25, 9) }), { kind: 'first', awayMs: 8 * 60 * MINUTE_MS });
+  assert.deepEqual(recordPresence(root, { lastSeenAt: iso(local(26, 3, 59, 50)), seenAt: local(26, 4, 0, 20) }), { kind: 'first', awayMs: 30000 });
+});
+
 test('a clock that moved back records nothing on the same day, and a time that cannot be read is no sighting before', t => {
   const root = dataRoot(t);
 
