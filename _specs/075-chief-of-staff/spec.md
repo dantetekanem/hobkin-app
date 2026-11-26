@@ -18,7 +18,8 @@ When a delegate, a routine or a work run finishes, hobkin turns what it found in
 
 - One follow-through rule for every result that lands: a session wake, a job that asked something, a routine report, a work run, a durable hobkin's message.
 - Branch work is the reversible unit, as work mode already treats it (`v2-runtime.md:198`). Merging, pushing, deploying, sending, spending and deleting keep their current rules: the user's ask, `ready`, and the YOLO switch. Follow-through adds no path to any of them.
-- Text in reports and agents' messages still grants nothing by itself. A follow-through start rests on the user's ask plus what the user set for follow-through (Open question 1).
+- Text in reports and agents' messages still grants nothing by itself. A follow-through start rests on the user's ask plus the "Follow through" setting in Settings: `branches` (the default), `ask` or `off`. The user chose this on 2026-11-26.
+- The investigator fixes covered findings in place when its tier is `mid` or higher and the fix is in its folder, so it keeps its context. Anything else goes back to hobkin as `next`. The user chose this on 2026-11-26.
 - A fix brief states the change itself (paths, lines, the change, how to prove it). It never says "based on the findings".
 - A dream pass never hard-deletes a memory. It closes or archives one, and every change shows in Chat with Undo.
 - Memory use stays in a local file. It is not a telemetry event, because memory names can be personal and usage events upload on enrolled machines.
@@ -55,9 +56,9 @@ Phase 1: follow through on delegate results.
 
 - [ ] S1 (A1). A job's report carries next steps. `hobkin_done` takes a `next` list, each with `do`, `kind` (fix, change, ask, watch, info), `where` (project or folder), `size`, `door` (branch or outward), `sure` and `evidence`. `session-job.md:27-29` asks for it. The wake row carries `next` beside `said`.
 - [ ] S2 (A1, A3). A "Follow through" section in `v2-runtime.md` replaces the last sentence of `:144` and the "so you can report" wording at `:11`. It ranks steps by value over effort, discounted by how sure the delegate is, then starts what is covered, bundles the rest into one `ask_question` with a pick for each, files work items or Action Items with their next action, and drops the rest with a one-line reason.
-- [ ] S3 (A1, A2). What a start rests on, as Open question 1 decides. Starts it covers pass `--approved`, since the user's setting is the yes the burst gate wants (`session.mjs:67-71`).
-- [ ] S4 (A1). Who fixes. An investigator whose tier is `mid` or higher fixes covered findings in its own folder before `hobkin_done`, which keeps its context. Anything else goes back to hobkin as `next`.
-- [ ] S5 (A1). Where a start goes. A project chosen in work mode gets an item with impact and effort, then `trigger`, so the queue, the budget, reviews and YOLO apply. Otherwise a session with `--wake`. Settle `session.mjs:26` against `session-job.md:17` (Open question 3).
+- [ ] S3 (A1, A2). The "Follow through" setting: `branches`, `ask` or `off` in Settings, read by the runtime and named in the main agent's runtime block. Starts it covers pass `--approved`, since the user's setting is the yes the burst gate wants (`session.mjs:67-71`).
+- [ ] S4 (A1). Who fixes. `session-job.md` tells an investigator whose tier is `mid` or higher to fix covered findings in its own folder before `hobkin_done`, when the setting is `branches`.
+- [ ] S5 (A1). Where a start goes. A project chosen in work mode gets an item with impact and effort, then `trigger`, so the queue, the budget, reviews and YOLO apply. Otherwise a session with `--wake`. Settle `session.mjs:26` against `session-job.md:17` (Open question 1).
 - [ ] S6 (A4). A default of two rounds per user ask: the investigation's fixes start, and what those fixes find goes into the bundled question. hobkin may go further when it says why. Starts still count against the agent limit and the token budget.
 - [ ] S7 (A1). Durable hobkins get the same rule for their own work in `durable.md`: after looking into something, fix what is covered in the same turn, then end with what was done and the one question.
 
@@ -76,7 +77,7 @@ Phase 3: close the loop.
 
 Phase 4: dreaming and memory injection.
 
-- [ ] S15 (A11). Record use in `runtime/memory-use.json`: each recall (`memory-tools.mjs:178`), each index build with the names it held, and each memory an agent says it relied on (a `used` list on `hobkin_done`; the main chat's signal is Open question 5). Start this early, because the score needs weeks of data.
+- [ ] S15 (A11). Record use in `runtime/memory-use.json`: each recall (`memory-tools.mjs:178`), each index build with the names it held, and each memory an agent says it relied on (a `used` list on `hobkin_done`; the main chat's signal is Open question 3). Start this early, because the score needs weeks of data.
 - [ ] S16 (A11). The index ranks inside its byte budget. The user's own facts and pinned memories come first. Then score = source weight (said by the user, then confirmed, then inferred) × activation (ACT-R, ln Σ t^-0.5 over uses, confirmations and changes) × match with the run's brief when there is one. About a fifth of the budget is kept for memories changed in the last 14 days. Durable hobkins and living jobs renew their index at compaction.
 - [ ] S17 (A10). A nightly dream pass while hobkin is idle, with a once-a-day receipt like `reflection.mjs:41-75`. It snapshots, reads changes and use since the last pass, then per group proposes add, update, merge, supersede, archive or nothing. A contradiction gets `until` and `supersededBy`, and an unclear one becomes one question. What keeps recurring becomes a suggested memory, or an AGENTS.md proposal that waits for the user's yes (`v2-runtime.md:173`). It archives memories past `until` and unconfirmed ones nobody used for 60 days, folds `memory.md` bullets that repeat a memory, and posts one Chat line with Undo. A `dream` author joins `MEMORY_AUTHORS`. It runs just before a compaction renews the main chat's prompt, or renews it after, so the 20-line since-note cap is not hit.
 - [ ] S18 (A12). Recall compares accent-stripped fields (`memories.mjs:99` against `:1057`), and memories join qmd so `qmd query` can match them by meaning (`memory-index.mjs:24-38`).
@@ -88,12 +89,7 @@ hobkin's working tree holds another writer's uncommitted edits in `v2-runtime.md
 
 ## Open questions
 
-1. What lets hobkin start a fix the user did not name?
-   - (a) The prompt says an ask to look into a problem covers fixing what it finds on a branch. Cheapest, but it cannot be turned off.
-   - (b) A "Follow through" setting in Settings: `branches` (default), `ask` or `off`. A little window work, and the user can turn it down. Recommended.
-   - (c) Always one question, with "Start the fixes" first. Safest, and still one key each time.
-2. Who does the fix: the investigator in place (keeps context, fewer agents) or a fresh session from hobkin (clean brief, the right tier). S4 proposes in place at `mid` or higher.
-3. Should chat-job branches register as Work items again, so `ready`, reviews and YOLO see them? That undoes part of 072's split. Recommended yes, for fixes started by follow-through only.
-4. Should a `Useful:` report with a `Next:` call also wake hobkin, or only `Critical:`?
-5. How does the main chat say which memories it used? It could add a hidden `used` line to each turn, which costs tokens, or hobkin could match memory names against its tool calls and reply.
-6. Which model and budget does the dream pass get? Proposed: the background binding, at most once a day, and only when memories or use changed.
+1. Should chat-job branches register as Work items again, so `ready`, reviews and YOLO see them? That undoes part of 072's split. Recommended yes, for fixes started by follow-through only.
+2. Should a `Useful:` report with a `Next:` call also wake hobkin, or only `Critical:`?
+3. How does the main chat say which memories it used? It could add a hidden `used` line to each turn, which costs tokens, or hobkin could match memory names against its tool calls and reply.
+4. Which model and budget does the dream pass get? Proposed: the background binding, at most once a day, and only when memories or use changed.
