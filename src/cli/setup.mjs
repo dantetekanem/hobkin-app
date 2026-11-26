@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { loadConfig } from './config.mjs';
@@ -50,7 +50,7 @@ const count = (number, word) => `${number} ${word}${number === 1 ? '' : 's'}`;
 const trouble = ({ absent }, call) => (absent ? 'Not installed.' : `\`${call}\` failed.`);
 
 /** A tool that is missing or broken becomes a row to read, never an error. */
-const askWith = exec => async (command, args, options) => {
+export const askWith = exec => async (command, args, options) => {
   try {
     return { text: String(await exec(command, args, options)) };
   } catch (error) {
@@ -135,18 +135,59 @@ function nodeRow(version) {
   );
 }
 
-async function gitRow(ask) {
-  const answer = await ask('git', ['--version']);
+/** On a Mac, /usr/bin/git only stands in for the command line tools: run without them, it asks to install them. */
+const APPLE_GIT = '/usr/bin/git';
 
-  if (answer.failed) {
+const isProgram = file => {
+  try {
+    accessSync(file, constants.X_OK);
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
+};
+
+/** The program a name runs from the PATH, as execFile finds it, or null. */
+const onPath = name => (process.env.PATH ?? '').split(delimiter).filter(Boolean).map(folder => join(folder, name)).find(isProgram) ?? null;
+
+/**
+ * git in facts, which the app's own setup words for itself: its version, or why it is missing. Apple's stand-in is
+ * never run. The git in the developer folder `xcode-select -p` names is asked instead, so a Mac without the command
+ * line tools is told so, and never asked to install them.
+ */
+export async function gitState(ask, { which = onPath, platform = process.platform } = {}) {
+  let git = 'git';
+  if (platform === 'darwin' && which('git') === APPLE_GIT) {
+    const folder = await ask('xcode-select', ['-p']);
+    const developer = folder.failed ? '' : folder.text.trim();
+    if (!developer) return { found: false, why: 'no-tools' };
+    git = join(developer, 'usr', 'bin', 'git');
+  }
+
+  const answer = await ask(git, ['--version']);
+  if (!answer.failed) return { found: true, version: answer.text.match(VERSION)?.[0] ?? null };
+  // The folder it names can be gone, as when the tools were deleted.
+  if (git !== 'git' && answer.absent) return { found: false, why: 'no-tools' };
+  return { found: false, why: answer.absent ? 'absent' : 'failed' };
+}
+
+async function gitRow(ask, options) {
+  const git = await gitState(ask, options);
+  if (git.found) return ready('git', `${git.version ?? 'Installed'}.`);
+
+  if (git.why === 'no-tools') {
     return missing(
       'git',
-      `${trouble(answer, 'git --version')} Work mode needs it for every project.`,
-      'Install it from https://git-scm.com/downloads.',
+      'The Mac\'s git needs the command line tools, and they are not installed. Work mode needs it for every project.',
+      'Run `xcode-select --install`.',
     );
   }
 
-  return ready('git', `${answer.text.match(VERSION)?.[0] ?? 'Installed'}.`);
+  return missing(
+    'git',
+    `${trouble({ absent: git.why === 'absent' }, 'git --version')} Work mode needs it for every project.`,
+    'Install it from https://git-scm.com/downloads.',
+  );
 }
 
 async function hobkinRow(ask) {
@@ -161,14 +202,20 @@ async function hobkinRow(ask) {
   );
 }
 
-async function ghRow(ask) {
+/** gh in facts: installed, and signed in as `gh auth status` says. That call reaches GitHub. */
+export async function ghState(ask) {
   const answer = await ask('gh', ['auth', 'status']);
+  return { installed: !answer.absent, signedIn: !answer.failed };
+}
 
-  if (answer.absent) {
+async function ghRow(ask) {
+  const { installed, signedIn } = await ghState(ask);
+
+  if (!installed) {
     return missing('gh', `Not installed. ${GH_USE}`, 'Install it from https://cli.github.com, then run `gh auth login`.');
   }
 
-  if (answer.failed) {
+  if (!signedIn) {
     return missing(
       'gh',
       `\`gh auth status\` says you are not signed in, or it could not reach GitHub. ${GH_USE}`,
@@ -273,6 +320,8 @@ export async function setupChecks(root, {
   nodeVersion = process.versions.node,
   piSdkVersion = installedPiSdk(),
   proofTools = inspectTools,
+  which = onPath,
+  platform = process.platform,
 } = {}) {
   const ask = askWith(exec);
   const home = readHome(root);
@@ -284,7 +333,7 @@ export async function setupChecks(root, {
     ...(home.problem ? [homeRow(root, home.problem)] : []),
     piRow(ask, launcher, piSdkVersion),
     nodeRow(nodeVersion),
-    gitRow(ask),
+    gitRow(ask, { which, platform }),
     hobkinRow(ask),
     ghRow(ask),
     models.then(answer => modelRow('Chat model', 'main.model', config?.main.model, answer)),

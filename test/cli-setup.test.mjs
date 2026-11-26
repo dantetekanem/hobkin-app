@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
 import { failureLine, main } from '../src/cli/main.mjs';
-import { formatSetup, setupChecks, setupGuide } from '../src/cli/setup.mjs';
+import { askWith, formatSetup, ghState, gitState, setupChecks, setupGuide } from '../src/cli/setup.mjs';
 
 const { engines, peerDependencies } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const piPackage = '@earendil-works/pi-coding-agent';
@@ -70,8 +70,11 @@ const java21 = { path: '/jdk/bin/java', version: '21.0.2', major: 21 };
 /** What the proof tools look like to setup, without running Java. */
 const proofToolsAre = ({ java = java21, jar = '/home/.hobkin/tools/tla/tla2tools.jar', tlapm = null } = {}) => async () => ({ java, jar, tlapm });
 
+/** A git found on the PATH that is not Apple's stand-in, so no check depends on the Mac it runs on. */
+const ownGit = { which: name => `/usr/local/bin/${name}` };
+
 async function checks(root, { tools, ...options } = {}) {
-  const rows = await setupChecks(root, { exec: fakeTools(tools).exec, nodeVersion: minimumNode, piSdkVersion: pinned, proofTools: proofToolsAre(), ...options });
+  const rows = await setupChecks(root, { exec: fakeTools(tools).exec, nodeVersion: minimumNode, piSdkVersion: pinned, proofTools: proofToolsAre(), ...ownGit, ...options });
   return Object.fromEntries(rows.map(row => [row.name, row]));
 }
 
@@ -96,6 +99,7 @@ test('a ready machine reads as ok, and setup only asks tools about themselves', 
     nodeVersion: minimumNode,
     piSdkVersion: pinned,
     proofTools: proofToolsAre(),
+    ...ownGit,
   });
 
   assert.deepEqual(rows.filter(row => row.state !== 'ok'), []);
@@ -195,6 +199,53 @@ test('git: installed or not', async t => {
   const row = (await checks(root, { tools: { 'git --version': absent } })).git;
   assert.equal(row.state, 'missing');
   assert.ok(row.fix);
+});
+
+test('git: Apple\'s /usr/bin/git is never run, so a Mac without the command line tools is never asked to install them', async t => {
+  const root = home(t);
+  const appleGit = { which: () => '/usr/bin/git', platform: 'darwin' };
+  const tools = '/Library/Developer/CommandLineTools';
+  const gitOf = async answers => {
+    const { exec, calls } = fakeTools(answers);
+    const rows = await setupChecks(root, { exec, nodeVersion: minimumNode, piSdkVersion: pinned, proofTools: proofToolsAre(), ...appleGit });
+    return { row: rows.find(row => row.name === 'git'), calls };
+  };
+
+  const noTools = await gitOf({ 'xcode-select -p': Object.assign(Error('xcode-select: error: unable to get active developer directory'), { code: 2 }) });
+  assert.equal(noTools.row.state, 'missing');
+  assert.match(noTools.row.detail, /command line tools/);
+  assert.match(noTools.row.fix, /xcode-select --install/);
+
+  const toolsGone = await gitOf({ 'xcode-select -p': `${tools}\n`, [`${tools}/usr/bin/git --version`]: absent });
+  assert.equal(toolsGone.row.state, 'missing');
+  assert.match(toolsGone.row.fix, /xcode-select --install/);
+
+  const ready = await gitOf({ 'xcode-select -p': `${tools}\n`, [`${tools}/usr/bin/git --version`]: 'git version 2.39.5 (Apple Git-154)\n' });
+  assert.equal(ready.row.state, 'ok');
+  assert.equal(ready.row.detail, '2.39.5.');
+
+  for (const { calls } of [noTools, toolsGone, ready]) {
+    assert.deepEqual(calls.filter(call => /(^|\/)git /.test(call) && !call.startsWith(tools)), [], 'neither git nor /usr/bin/git is run');
+  }
+
+  // Elsewhere /usr/bin/git is git itself.
+  const { exec, calls } = fakeTools();
+  await setupChecks(root, { exec, nodeVersion: minimumNode, piSdkVersion: pinned, proofTools: proofToolsAre(), which: () => '/usr/bin/git', platform: 'linux' });
+  assert.ok(calls.includes('git --version'));
+  assert.ok(!calls.includes('xcode-select -p'));
+});
+
+test('the git and gh probes answer in facts, for the app\'s own setup to word', async () => {
+  const askOf = answers => askWith(fakeTools(answers).exec);
+
+  assert.deepEqual(await gitState(askOf(), ownGit), { found: true, version: '2.50.1' });
+  assert.deepEqual(await gitState(askOf({ 'git --version': absent }), ownGit), { found: false, why: 'absent' });
+  assert.deepEqual(await gitState(askOf({ 'git --version': broken }), ownGit), { found: false, why: 'failed' });
+  assert.deepEqual(await gitState(askOf({ 'xcode-select -p': broken }), { which: () => '/usr/bin/git', platform: 'darwin' }), { found: false, why: 'no-tools' });
+
+  assert.deepEqual(await ghState(askOf()), { installed: true, signedIn: true });
+  assert.deepEqual(await ghState(askOf({ 'gh auth status': broken })), { installed: true, signedIn: false });
+  assert.deepEqual(await ghState(askOf({ 'gh auth status': absent })), { installed: false, signedIn: false });
 });
 
 test('the hobkin command: agents need it on their path', async t => {
