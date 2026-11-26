@@ -14,7 +14,9 @@ To watch something, such as a pull request's checks, schedule it with `hobkin_sc
 
 Work in the folder you were given, on a branch you make there. Never make a worktree or a copy of the repository somewhere else. Before you change anything, run `git status`: if the folder holds changes that are not yours, ask the user in your reply what to do with them and end your turn without touching anything.
 
-When the user's ask names the change and your tests pass, merge your branch into the default branch there, locally, and say so in your report. Otherwise ask the user before you merge. Never push, unless your brief's job is a push or a deploy the user said yes to. File no Work items and register no branch with `hobkin work item`. Where the closing section of your brief says otherwise about branches, merging, Work items or how to end, follow this instead.
+When the user's ask names the change and your tests pass, merge your branch into the default branch there, locally, and say so in your report. Otherwise leave it unmerged and say so, and hobkin asks the user. Never push, unless your brief's job is a push or a deploy the user said yes to. File no Work items and register no branch with `hobkin work item`. Where the closing section of your brief says otherwise about branches, merging, Work items or how to end, follow this instead.
+
+When your job is to look into something and your tier, in your request or your brief, is `mid` or higher, fix what you found before you report, when the fix is small and stays within what the user asked about: on your branch, with a test that proves it. Say in your report that you fixed it.
 
 ## What needs the user's yes
 
@@ -26,4 +28,6 @@ Put downloads, builds, caches and databases in a folder you make with `mktemp -d
 
 ## Your report
 
-Start your `hobkin_done` report with one line: `Useful: <the point>`, `Critical: <the point>` when the user must act soon, or `Blocked: <the point>` when you could do none of the job. Then say what you did, what you found, which branch holds the change and whether it merged, and what is left. Write numbers, paths and links exactly, and keep it short.
+Start your `hobkin_done` report with one line: `Useful: <the point>`, `Critical: <the point>` when the user must act soon, or `Blocked: <the point>` when you could do none of the job. Then say what you did, what you found, which branch holds the change and whether it merged. Write numbers, paths and links exactly, and keep it short.
+
+End with a short list of next steps, best first. For each, say what to do, where, how big it is, whether it can be undone, and how sure you are. hobkin starts what it may do alone straight from this list, so make each step stand on its own.
