@@ -28,7 +28,7 @@ const savedAt = entry => {
   return Number.isFinite(at) ? at : entry.message?.timestamp;
 };
 
-/** How many of a session's first bytes, and of the bytes before where its last read ended, tell a file written anew from one that grew. */
+/** How many bytes, at a session's start and right before where its last read ended, tell a file written anew from one that grew. */
 const MARK = 1024;
 const NEWLINE = 0x0a;
 
@@ -62,32 +62,36 @@ class SavedSession {
   /** Takes one parsed line: the header first, then entries that each name their parent. Anything else malformed is refused. */
   take(row) {
     if (!this.header) {
-      if (row?.type !== 'session' || !SESSION_VERSIONS.has(row.version) || typeof row.id !== 'string') throw Error('Unsupported Pi session format.');
+      const supported = row?.type === 'session' && SESSION_VERSIONS.has(row.version) && typeof row.id === 'string';
+      if (!supported) throw Error('Unsupported Pi session format.');
       this.header = true;
       return;
     }
+
     if (!row || typeof row.id !== 'string' || this.entries.has(row.id) || (row.parentId !== null && typeof row.parentId !== 'string')) {
       throw Error('The saved run has an invalid branch.');
     }
     const message = streamedMessage(row);
-    this.entries.set(row.id, { id: row.id, parentId: row.parentId, message, at: message ? savedAt(row) : undefined });
+    this.entries.set(row.id, {
+      id: row.id,
+      parentId: row.parentId,
+      message,
+      at: message ? savedAt(row) : undefined,
+    });
     this.last = row.id;
   }
 
-  /**
-   * Takes the bytes the file holds after `read`, up to `size`. A last line cut short by a write still under way is left out, to be
-   * read again once it is whole.
-   */
+  /** Takes what the file open at `handle` holds after `read`, up to `size`. */
   takeFrom(handle, size) {
-    const chunk = Buffer.allocUnsafe(size - this.read);
-    let length = 0;
-    while (length < chunk.length) {
-      const got = readSync(handle, chunk, length, chunk.length - length, this.read + length);
-      if (!got) break;
-      length += got;
-    }
-    const bytes = chunk.subarray(0, length);
+    const bytes = bytesBetween(handle, this.read, size);
+    let taken = this.takeLines(bytes);
+    const tookLastLine = this.takeUnterminated(bytes.toString('utf8', taken));
+    if (tookLastLine) taken = bytes.length;
+    this.advance(bytes, taken);
+  }
 
+  /** Takes each whole line of `bytes`, and says where the last of them ends. */
+  takeLines(bytes) {
     let taken = 0;
     for (let newline = bytes.indexOf(NEWLINE); newline !== -1; newline = bytes.indexOf(NEWLINE, taken)) {
       const line = bytes.toString('utf8', taken, newline);
@@ -95,34 +99,48 @@ class SavedSession {
       taken = newline + 1;
       this.unterminated = false;
     }
-    const rest = bytes.toString('utf8', taken);
-    if (rest.trim()) {
-      let row;
-      let whole = true;
-      try {
-        row = object(JSON.parse(rest));
-      } catch {
-        if (!this.header) throw Error('The saved run contains a malformed record.');
-        whole = false;
-      }
-      if (whole) {
-        this.take(row);
-        taken = bytes.length;
-        this.unterminated = true;
-      }
-    }
+    return taken;
+  }
 
-    if (this.start.length < MARK) this.start = Buffer.concat([this.start, bytes.subarray(0, Math.min(taken, MARK - this.start.length))]);
-    this.end = Buffer.from(Buffer.concat([this.end, bytes.subarray(Math.max(0, taken - MARK), taken)]).subarray(-MARK));
+  /**
+   * Takes a last line that has no newline yet when it parses whole, and says whether it did. One cut short by a write still under way
+   * is left out, to be read again once it is whole; before the header it is malformed.
+   */
+  takeUnterminated(line) {
+    if (!line.trim()) return false;
+    let row;
+    try {
+      row = object(JSON.parse(line));
+    } catch {
+      if (!this.header) throw Error('The saved run contains a malformed record.');
+      return false;
+    }
+    this.take(row);
+    this.unterminated = true;
+    return true;
+  }
+
+  /** Moves `read` past the first `taken` of `bytes`, keeping the file's first bytes and the bytes right before the new end. */
+  advance(bytes, taken) {
+    if (this.start.length < MARK) {
+      const more = bytes.subarray(0, Math.min(taken, MARK - this.start.length));
+      this.start = Buffer.concat([this.start, more]);
+    }
+    const before = Buffer.concat([this.end, bytes.subarray(Math.max(0, taken - MARK), taken)]);
+    this.end = Buffer.from(before.subarray(-MARK));
     this.read += taken;
   }
 
   /** Whether the file open at `handle`, `size` bytes long now, is this one grown: the same file, holding what was read where it was. */
   grownTo(handle, { dev, ino }, size) {
-    return dev === this.device && ino === this.inode && size >= this.read
-      && holds(handle, this.start, 0) && holds(handle, this.end, this.read - this.end.length)
-      // A last line read whole with no newline is whole only once the newline comes.
-      && (!this.unterminated || size === this.read || holds(handle, Buffer.of(NEWLINE), this.read));
+    const sameFile = dev === this.device && ino === this.inode;
+    if (!sameFile || size < this.read) return false;
+
+    const holdsWhatWasRead = holds(handle, this.start, 0) && holds(handle, this.end, this.read - this.end.length);
+    if (!holdsWhatWasRead) return false;
+
+    // A last line read whole with no newline is whole only once the newline comes.
+    return !this.unterminated || size === this.read || holds(handle, Buffer.of(NEWLINE), this.read);
   }
 
   /**
@@ -131,6 +149,7 @@ class SavedSession {
    */
   activeBranch() {
     if (this.branchEnd === this.last) return this.branch;
+
     const known = this.branch.at(-1);
     const added = [];
     const visited = new Set();
@@ -146,18 +165,32 @@ class SavedSession {
       added.push(entry);
       id = entry.parentId;
     }
+
     this.branch = before.concat(added.reverse());
     this.branchEnd = this.last;
     return this.branch;
   }
 }
 
+/** A whole line of the session, parsed. One that is no JSON is a malformed record. */
 function parsedLine(line) {
   try {
     return object(JSON.parse(line));
   } catch {
     throw Error('The saved run contains a malformed record.');
   }
+}
+
+/** The bytes of the file open at `handle` from `position` to `size`, or fewer when it was cut shorter meanwhile. */
+function bytesBetween(handle, position, size) {
+  const bytes = Buffer.allocUnsafe(size - position);
+  let length = 0;
+  while (length < bytes.length) {
+    const got = readSync(handle, bytes, length, bytes.length - length, position + length);
+    if (!got) break;
+    length += got;
+  }
+  return bytes.subarray(0, length);
 }
 
 /** Whether the file open at `handle` has `bytes` at `position`. */
@@ -201,28 +234,51 @@ function sessionOf(file) {
     sessions.set(file, kept);
     return kept;
   }
+
   const session = readSession(file, version === null ? null : kept);
   if (version === null) return session;
 
-  session.version = version === fileVersion(file) ? version : null;
+  const unchangedWhileRead = version === fileVersion(file);
+  session.version = unchangedWhileRead ? version : null;
   sessions.set(file, session);
+  forgetOldSessions();
+  return session;
+}
+
+/** Lets the sessions read least lately go while more are kept than fit, never the newest. */
+function forgetOldSessions() {
   let bytes = 0;
   for (const { read } of sessions.values()) bytes += read;
-  for (const [oldest, { read }] of sessions) {
-    if (sessions.size === 1 || (sessions.size <= MOST_SESSIONS && bytes <= MOST_SESSION_BYTES)) break;
-    sessions.delete(oldest);
+  for (const [file, { read }] of sessions) {
+    const fits = sessions.size <= MOST_SESSIONS && bytes <= MOST_SESSION_BYTES;
+    if (fits || sessions.size === 1) break;
+    sessions.delete(file);
     bytes -= read;
   }
-  return session;
 }
 
 /** Whether a message saved at `at` is between `since` and `until`, either of them open. One saved at no known time is in no bounds. */
 const within = (at, since, until) => (since === null && until === null)
   || (Number.isFinite(at) && (since === null || at >= since) && (until === null || at <= until));
 
+/**
+ * A feed that replays a branch: how many of the branch's entries it took (`fed`), the last of them (`end`), and when the message it
+ * takes now was saved (`at`), which is the feed's clock.
+ */
 function newReplay() {
-  const replay = { fed: 0, end: undefined, at: undefined };
+  const replay = { fed: 0, end: undefined, at: undefined, feed: null };
   replay.feed = new JobActivity({ mostOutput: MOST_OUTPUT, now: () => replay.at });
+  return replay;
+}
+
+/** The feed kept for `key` when what it took is the start of `branch`, else a new one. The bounds read least lately go first. */
+function replayOf(session, key, branch) {
+  const kept = session.replays.get(key);
+  session.replays.delete(key);
+  const tookStartOfBranch = kept && kept.fed <= branch.length && (kept.fed === 0 || branch[kept.fed - 1] === kept.end);
+  const replay = tookStartOfBranch ? kept : newReplay();
+  session.replays.set(key, replay);
+  if (session.replays.size > MOST_BOUNDS) session.replays.delete(session.replays.keys().next().value);
   return replay;
 }
 
@@ -233,13 +289,7 @@ function newReplay() {
  */
 function replayed(session, since, until) {
   const branch = session.activeBranch();
-  const key = `${since}:${until}`;
-  let replay = session.replays.get(key);
-  session.replays.delete(key);
-  const goesOn = replay && replay.fed <= branch.length && (replay.fed === 0 || branch[replay.fed - 1] === replay.end);
-  if (!goesOn) replay = newReplay();
-  session.replays.set(key, replay);
-  if (session.replays.size > MOST_BOUNDS) session.replays.delete(session.replays.keys().next().value);
+  const replay = replayOf(session, `${since}:${until}`, branch);
 
   for (let index = replay.fed; index < branch.length; index++) {
     const { message, at } = branch[index];
@@ -259,6 +309,7 @@ function replayed(session, since, until) {
     replay.feed.accept({ type: 'message_start', message });
     replay.feed.accept({ type: 'message_end', message });
   }
+
   replay.fed = branch.length;
   replay.end = branch.at(-1);
   return deepFreeze(replay.feed.snapshot());
@@ -299,8 +350,8 @@ export function runStepsBefore(file, { before = null, at = null, since = null, u
 export function runStepOutput(file, id) {
   const callId = typeof id === 'string' && id.startsWith('tool:') ? id.slice('tool:'.length) : null;
   if (!callId) return null;
-  const result = sessionOf(file).activeBranch()
-    .findLast(({ message }) => message?.role === 'toolResult' && message.toolCallId === callId)?.message;
+  const branch = sessionOf(file).activeBranch();
+  const result = branch.findLast(({ message }) => message?.role === 'toolResult' && message.toolCallId === callId)?.message;
   if (!result) return null;
   const output = outputText(result.content);
   return { id, output, length: output.length };

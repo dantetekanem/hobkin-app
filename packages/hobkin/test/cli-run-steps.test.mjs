@@ -146,17 +146,23 @@ test("every turn of a conversation is read from one parse of it, and reading ano
   writeFileSync(a, text([header('a'), ...ofA.lines]));
   writeFileSync(b, text([header('b'), ...ofB.lines]));
   const count = counting(t);
-  const each = (file, all) => count(() => all.map(bounds => runStepsBefore(file, bounds)));
+  const pagesOf = (file, all) => count(() => all.map(bounds => runStepsBefore(file, bounds)));
 
-  const first = each(a, [...ofA.bounds, {}]);
+  const first = pagesOf(a, [...ofA.bounds, {}]);
+  const ofB25 = pagesOf(b, ofB.bounds);
+  const again = pagesOf(a, [...ofA.bounds, {}]);
+  const output = count(() => runStepOutput(a, 'tool:call-3-b'));
+
   assert.equal(first.parses, 1 + ofA.lines.length, 'each line once, for all 25 turns and the whole');
-  assert.deepEqual(first.value[3].steps.map(step => step.id), ['message:3:0', 'tool:call-3-a', 'message:7:0', 'tool:call-3-b', 'message:11:0', 'tool:call-3-c', 'message:15:0']);
-  assert.ok(Object.isFrozen(runSteps(a, ofA.bounds[3])) && Object.isFrozen(runSteps(a, ofA.bounds[3])[1]), 'what every caller gets cannot be changed');
-  assert.equal(each(b, ofB.bounds).parses, 1 + ofB.lines.length);
-  const again = each(a, [...ofA.bounds, {}]);
+  assert.deepEqual(first.value[3].steps.map(step => step.id), [
+    'message:3:0', 'tool:call-3-a', 'message:7:0', 'tool:call-3-b', 'message:11:0', 'tool:call-3-c', 'message:15:0',
+  ]);
+  assert.equal(ofB25.parses, 1 + ofB.lines.length);
   assert.equal(again.parses, 0, "A's turns after B's are read from what A's parse kept");
   assert.deepEqual(again.value, first.value);
-  assert.deepEqual(count(() => runStepOutput(a, 'tool:call-3-b')), { value: { id: 'tool:call-3-b', output: 'ok call-3-b', length: 11 }, parses: 0 });
+  assert.deepEqual(output, { value: { id: 'tool:call-3-b', output: 'ok call-3-b', length: 11 }, parses: 0 });
+  const turnSteps = runSteps(a, ofA.bounds[3]);
+  assert.ok(Object.isFrozen(turnSteps) && Object.isFrozen(turnSteps[1]), 'what every caller gets cannot be changed');
 });
 
 test('a conversation that grows is parsed only for what it added, and reads as a first read of it does', t => {
@@ -164,30 +170,34 @@ test('a conversation that grows is parsed only for what it added, and reads as a
   const before = turns(0, 10);
   writeFileSync(file, text([header(), ...before.lines]));
   const count = counting(t);
-  const all = bounds => [...bounds, {}, { since: bounds[0].since }];
-  assert.equal(count(() => all(before.bounds).map(bounds => runSteps(file, bounds))).parses, 1 + before.lines.length);
+  // Each turn, the whole conversation, and the turn in flight with no end yet.
+  const all = bounds => [...bounds, {}, { since: bounds.at(-1).since }];
+  const read = bounds => count(() => all(bounds).map(one => runSteps(file, one)));
+  assert.equal(read(before.bounds).parses, 1 + before.lines.length);
 
-  // A new turn, and the turn in flight with no end yet.
+  // A new turn.
   const added = turns(10, 1, before.last);
   appendFileSync(file, text(added.lines));
   const bounds = [...before.bounds, ...added.bounds];
-  const grown = count(() => all(bounds).map(one => runSteps(file, one)));
+  const grown = read(bounds);
+  const whole = grown.value.at(-2);
   assert.equal(grown.parses, added.lines.length, 'only the new lines');
-  assert.equal(grown.value.at(-2).length, 11 * 7, 'the whole conversation, the new turn too');
+  assert.equal(whole.length, 11 * 7, 'the whole conversation, the new turn too');
   sameAsFirstRead(file, all(bounds), 'a grown conversation');
 
   // A line cut short by a write under way is left out, and read once it is whole.
   const next = turns(11, 1, added.last);
   const [line, ...rest] = next.lines;
   appendFileSync(file, line.slice(0, 40));
-  assert.deepEqual(runSteps(file), grown.value.at(-2), 'the line cut short is not there yet');
+  assert.deepEqual(runSteps(file), whole, 'the line cut short is not there yet');
   appendFileSync(file, `${line.slice(40)}\n`);
   sameAsFirstRead(file, all([...bounds, ...next.bounds]), 'the line once whole');
 
   // A whole last line with no newline yet, then the newline, as Pi mends a file it opens.
   appendFileSync(file, rest.join('\n'));
   sameAsFirstRead(file, all([...bounds, ...next.bounds]), 'a last line with no newline');
-  assert.equal(count(() => { appendFileSync(file, '\n'); return runSteps(file); }).parses, 0, 'the newline adds nothing to parse');
+  appendFileSync(file, '\n');
+  assert.equal(count(() => runSteps(file)).parses, 0, 'the newline adds nothing to parse');
   sameAsFirstRead(file, all([...bounds, ...next.bounds]), 'the newline added');
 
   // An entry that names an earlier one starts another branch, longer than the one it leaves, and the active branch is the one
@@ -203,10 +213,10 @@ test('a conversation that grows is parsed only for what it added, and reads as a
 test('a conversation written anew is parsed whole again, and a whole line that goes on is no longer whole', t => {
   const made = folder(t);
   const file = join(made, 'rewritten.jsonl');
-  const old = turns(0, 6);
-  writeFileSync(file, text([header(), ...old.lines]));
   const count = counting(t);
   const read = all => count(() => all.map(bounds => runSteps(file, bounds)));
+  const old = turns(0, 6);
+  writeFileSync(file, text([header(), ...old.lines]));
   read([...old.bounds, {}]);
 
   // Shorter than it was.
@@ -241,13 +251,14 @@ test('a conversation written anew is parsed whole again, and a whole line that g
   renameSync(moved, file);
   assert.equal(read([{}]).parses, 1 + other.lines.length + after.lines.length);
 
-  // Its first line changed in place, the rest the same, to a version no reader knows.
-  writeFileSync(file, text([header('another').replace('"version":3', '"version":4'), ...other.lines]));
+  // Its first line changed in place to a version no reader knows, the rest the same and as long.
+  const unknownVersion = header('another').replace('"version":3', '"version":4');
+  writeFileSync(file, text([unknownVersion, ...other.lines, ...after.lines]));
   assert.throws(() => runSteps(file), /Unsupported Pi session format/);
 
   // A last line read whole with no newline, that the next write goes on from, is a malformed record, as a first read finds.
-  const last = turn(9, other.last);
-  writeFileSync(file, text([header('another'), ...other.lines]) + last.lines.slice(0, -1).join('\n'));
+  const last = turn(10, after.last);
+  writeFileSync(file, text([header('another'), ...other.lines, ...after.lines]) + last.lines.slice(0, -1).join('\n'));
   sameAsFirstRead(file, [{}], 'a last line with no newline');
   appendFileSync(file, `${last.lines.at(-1)}\n`);
   assert.throws(() => runSteps(file), /malformed record/);
