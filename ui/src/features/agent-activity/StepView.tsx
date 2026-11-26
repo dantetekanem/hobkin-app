@@ -189,8 +189,8 @@ function Count({ value }: { value: number }) {
   return <span className="tabular-nums">{value}</span>
 }
 
-/** The row a group folds into. It opens to the list with Enter or a click. */
-function FoldRow({ icon: Icon, open, onToggle, children, failed = false }: { icon: LucideIcon; open: boolean; onToggle?: (press: MouseEvent<HTMLButtonElement>) => void; children: ReactNode; failed?: boolean }) {
+/** The row a group folds into. It opens to the list with Enter or a click. A schedule's wake on an agent's page is one too (`ScheduleWake.tsx`). */
+export function FoldRow({ icon: Icon, open, onToggle, children, failed = false }: { icon: LucideIcon; open: boolean; onToggle?: (press: MouseEvent<HTMLButtonElement>) => void; children: ReactNode; failed?: boolean }) {
   const content = (
     <>
       <Icon className={cn('size-3.5 shrink-0', failed ? 'text-bad-fg' : 'text-muted-foreground')} aria-hidden="true" />

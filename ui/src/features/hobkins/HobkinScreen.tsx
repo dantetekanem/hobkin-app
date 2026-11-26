@@ -15,6 +15,7 @@ import { AgentLines } from '@/features/agent-activity/AgentLines.tsx'
 import { atOf } from '@/features/agent-activity/steps.ts'
 import { withRuns, type RunsRow } from '@/features/schedules/runs.ts'
 import { ScheduleRunsItem } from '@/features/schedules/ScheduleRuns.tsx'
+import { ScheduleWakeItem } from '@/features/schedules/ScheduleWake.tsx'
 import { useScheduleRuns } from '@/features/schedules/use-schedule-runs.ts'
 import { earlierRow, useNewest, withEarlier } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
@@ -389,6 +390,8 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
                 saved ? <EarlierSteps key={row.key} row={saved} onMore={readOlder} /> : null
               ) : row.kind === 'said' ? (
                 <Said key={row.key} text={row.text} images={row.images} at={row.at} delivery={row.delivery} from={row.from} />
+              ) : row.kind === 'wake' ? (
+                <ScheduleWakeItem key={row.key} wake={row.wake} at={row.at} />
               ) : row.kind === 'step' ? (
                 // The same element whether its turn is in flight or over, so a step keeps its place as its turn ends.
                 <StepJob.Provider key={row.key} value={jobOf(row.run)}>

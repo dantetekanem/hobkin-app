@@ -4,6 +4,7 @@ import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import { exchangeOf, pauseOf, type ExchangeItem, type Step } from '../agent-activity/steps.ts'
 import type { Attachment } from '../chat/draft.ts'
 import { timeOf } from '../reports/time.ts'
+import { scheduleWakeOf, type ScheduleWake } from '../schedules/wake.ts'
 
 /**
  * The rules of a durable hobkin's page (`034-durable-hobkins`): when it reads the conversation again, the order its turns
@@ -158,10 +159,12 @@ const NO_STEPS: Readonly<Record<string, TurnActivity>> = {}
  * One row of the conversation. A row keeps its `key` in every state it shows in, so nothing on screen is drawn twice
  * or drops out while the host catches up: a message the user sent is keyed by when they pressed Enter. `at` is when the
  * row happened, which the page writes beside it: a message when it was asked or sent, an answer when its turn ended. A
- * step's time is its own (`atOf`). `run` is the run of the turn a row belongs to; a message on its way has none yet.
+ * step's time is its own (`atOf`). `run` is the run of the turn a row belongs to; a message on its way has none yet. A
+ * turn a schedule began opens with its wake (`wake.ts`) in its message's place.
  */
 export type PageRow =
   | { kind: 'said'; key: string; text: string; delivery: Delivery | null; from: string | null; at: number | null; images?: readonly Attachment[]; run?: string }
+  | { kind: 'wake'; key: string; wake: ScheduleWake; at: number | null; run: string }
   | { kind: 'step'; key: string; step: Step; ended: boolean; run: string }
   | { kind: 'answer'; key: string; turn: ShownTurn; at: number | null; run: string }
   | { kind: 'thinking'; key: 'working' }
@@ -246,7 +249,11 @@ export function pageRows(turns: readonly ShownTurn[], { sending, activity, finis
     const from = senderName(turn.from)
     // The message that began a turn was taken in once the turn began.
     const askedDelivery = from ? null : turn.begun ? 'received' : 'waiting'
-    if (turn.asked || images.images) {
+    // A schedule's wake is no one's words: it is one row named by its schedules, which opens to the whole message.
+    const wake = turn.asked ? scheduleWakeOf(turn.asked) : null
+    if (wake) {
+      rows.push({ kind: 'wake', key: turn.askedKey, wake, at: turn.askedWhen, run: turn.run })
+    } else if (turn.asked || images.images) {
       rows.push({ kind: 'said', key: turn.askedKey, text: turn.asked, delivery: askedDelivery, from, at: turn.askedWhen, ...images, run: turn.run })
     }
 

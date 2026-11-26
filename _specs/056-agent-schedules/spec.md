@@ -60,6 +60,7 @@ The user, 2026-11-23: "I also need schedule tasks to run inside Hobkin, like my 
 - A12. With no host the window shows sample schedules in each of the three places.
 - A13. A schedule a durable hobkin makes in any of its turns belongs to the hobkin, by its id, not to that turn's run, so its page lists it during that turn, during its later turns and after them (2026-11-25).
 - A14. In the agents list under the input, a durable hobkin's face sits in a ring lit in the sun, with a soft light a few pixels wide, while the hobkin keeps a live schedule, and the ring's title says "Has schedules". It holds still, and breathes by its opacity only while one of those schedules runs or is due; under Still, or when the Mac asks for less motion, it does not move. The face keeps its size and nothing near it moves (2026-11-26).
+- A15. On a durable hobkin's page, a turn that a schedule began opens with one quiet row where its message was, drawn as a tool call's row. The row names the schedules that woke the hobkin, each once, or says "Schedule" when it has no name to read. A click, Enter or Control+O opens it under itself to the whole `<hobkin-schedule>` message, its JSON laid out one field a line, and the rows below move down. Nothing beside it moves (2026-11-26). The user: "a hobkin-schedule message sucks, i can have the title and like a tool i should be able to expand".
 
 ## Proof
 
@@ -77,6 +78,7 @@ The user, 2026-11-23: "I also need schedule tasks to run inside Hobkin, like my 
 - A12. `ui/test/schedules.test.ts` › "the sample schedules keep counting down: a repeating one that came due moves on to its next time"
 - A13. In hobkin, `test/cli-agent-schedules-wakes.test.mjs` › "a schedule a durable hobkin's turn makes with its tool is the hobkin's own, by its id, and stays listed through its later turns"; here `ui/test/schedules.test.ts` › "the main chat shows only the schedules it made, and a page shows only its own agent’s"
 - A14. `ui/test/schedules.test.ts` › "a face in the agents list is lit while its agent keeps a live schedule, and breathes only while one runs or is due" and › "each face is lit by its own agent’s schedules alone, a durable hobkin’s and a run’s alike, by the id the list names it with"; `node scripts/perf/motion.ts ui/src/features/schedules/schedule-ring.css` passes; check: still renders of three durable rows (no schedule, lit, breathing held at its first frame), light and dark (2026-11-26), then the live window.
+- A15. `ui/test/schedule-wake.test.ts`, its four tests (the message is named by its schedules and opens to all of it, several names come once each, "Schedule" when no name or no JSON can be read, and any other message is no wake); `ui/test/hobkins-page.test.ts` › "a turn a schedule began is one row named by its schedule, where its message was, and not a message from anyone"; check: still renders of the row closed and open, light and dark (2026-11-26), then the live window.
 
 ## Steps
 
