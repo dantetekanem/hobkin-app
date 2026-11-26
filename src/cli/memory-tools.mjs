@@ -5,6 +5,7 @@ import {
   addMemory, changeMemory, forgetMemory, keepMemory, MEMORY_KINDS, MOST_DESCRIPTION, MOST_TEXT, recallMemories, restoreMemory, memorySecretKind, secretRefusal,
 } from './memories.mjs';
 import { rememberHeard, suggestMemory, suggestionOf } from './inbox.mjs';
+import { MEMORY_USERS, recordMemoryUse } from './memory-use.mjs';
 
 /**
  * The tools agents keep hobkin's memories with (057-shared-memory). `hobkin_recall` reads one whole, for every agent
@@ -168,17 +169,33 @@ function saved(root, params, { by, now }) {
 }
 
 /**
+ * Which memories a recall gave whole, as the reader that asked (`memory-use.mjs`). A count not written costs the count,
+ * never the recall.
+ */
+function noteRecalled(root, memories, owner, now) {
+  if (!memories.length || !MEMORY_USERS.includes(owner?.kind)) return;
+  try {
+    recordMemoryUse(root, { kind: 'recall', names: memories.map(memory => memory.name), by: owner.kind }, { now });
+  } catch {
+    // The recall stands.
+  }
+}
+
+/**
  * What an agent's memory tools reach, by who it is: `{ kind: 'main' }`, `{ kind: 'hobkin', id, title }` for a durable
  * hobkin, or `{ kind: 'run', id, title }` for a routine, a Work run or a session run. The first two read private
- * memories and remember at once; a run reads shared ones and suggests. `onChange` hears each change one makes, as
- * `{ change, name, did, description, by }`, so hobkin can post it in Chat.
+ * memories and remember at once; a run reads shared ones and suggests. Each recall counts what it gave as that reader's
+ * use. `onChange` hears each change one makes, as `{ change, name, did, description, by }`, so hobkin can post it in
+ * Chat.
  */
 export function memoryHandler(root, owner, { now = Date.now, onChange = () => {} } = {}) {
   const keeps = owner?.kind === 'main' || owner?.kind === 'hobkin';
   const handler = {
     recall: params => {
       if (!params?.name && !params?.kind && !params?.words) throw Error('Say what to recall: a name, a kind or words.');
-      const memories = recallMemories(root, params, { private: keeps, now: now() });
+      const at = now();
+      const memories = recallMemories(root, params, { private: keeps, now: at });
+      noteRecalled(root, memories, owner, at);
       const text = memories.length ? memories.map(memoryText).join('\n\n') : 'No memory matches. The index in your prompt lists every memory by name.';
       return { text, memories };
     },

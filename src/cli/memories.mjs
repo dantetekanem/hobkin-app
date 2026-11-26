@@ -3,6 +3,7 @@ import { appendFileSync, closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, o
 import { join } from 'node:path';
 import { writePrivate } from './reports.mjs';
 import { SECRET_SHAPES } from './feedback/draft.mjs';
+import { recordMemoryUse } from './memory-use.mjs';
 
 /**
  * What hobkin remembers for every agent it runs (057-shared-memory): one fact a memory, kept as one file in the home's
@@ -998,8 +999,9 @@ const inIndexOrder = (a, b) => INDEX_ORDER.indexOf(a.kind) - INDEX_ORDER.indexOf
  * The section an agent's prompt carries, built from the files: one line a memory under its kind's heading, in the
  * order of `INDEX_ORDER` and newest change first, within `maxBytes`, with a last line that says how many more there
  * are. A memory whose day has passed is left out, and private ones unless the reader may have them. `recall` names how
- * the reader reads one whole: `hobkin_recall`, `hobkin memory`, or nothing for an agent with neither. With no
- * memory, or a folder it cannot read, it is empty, so a prompt is as it was.
+ * the reader reads one whole: `hobkin_recall`, `hobkin memory`, or nothing for an agent with neither. `by` is who
+ * reads it, as `memorySnapshot` takes it. With no memory, or a folder it cannot read, it is empty, so a prompt is as it
+ * was.
  */
 export function memoryIndex(root, options = {}) {
   return memorySnapshot(root, options).index;
@@ -1016,15 +1018,18 @@ export function keepsMemories(root) {
 
 /**
  * The index an agent the user does not talk to reads: a routine, a Work run, a session run, a helper or a teams agent.
- * Never a private memory, within the smaller cap. `recall` names how it reads one whole, as `memoryIndex` takes it.
+ * Never a private memory, within the smaller cap. `recall` names how it reads one whole, as `memoryIndex` takes it:
+ * a run has it, and a helper or a teams agent, which has no tool for one, does not.
  */
-export const runIndex = (root, recall) => memoryIndex(root, { private: false, maxBytes: RUN_INDEX_BYTES, recall: recall ? 'run' : undefined });
+export const runIndex = (root, recall) => memoryIndex(root, { private: false, maxBytes: RUN_INDEX_BYTES, recall: recall ? 'run' : undefined, by: recall ? 'run' : 'helper' });
 
 /**
  * The index (`memoryIndex`) and what it was built from, one entry a memory not past, `{ name, description, version }`,
- * read in one pass, so a reader that keeps the index as written can tell later what changed since.
+ * read in one pass, so a reader that keeps the index as written can tell later what changed since. Each memory the
+ * index lists counts as a use by `by` (`memory-use.mjs`): `main`, `hobkin`, `run` or `helper`, the main chat unless
+ * said for a reader of private ones and a run for any other, and none for `null`.
  */
-export function memorySnapshot(root, { private: includePrivate = false, maxBytes = RUN_INDEX_BYTES, now = Date.now(), recall } = {}) {
+export function memorySnapshot(root, { private: includePrivate = false, maxBytes = RUN_INDEX_BYTES, now = Date.now(), recall, by = includePrivate ? 'main' : 'run' } = {}) {
   let shown;
   try {
     shown = scan(root, { includePrivate, now }).memories.filter(memory => !memory.past).sort(inIndexOrder);
@@ -1032,11 +1037,23 @@ export function memorySnapshot(root, { private: includePrivate = false, maxBytes
     return { index: '', entries: [] };
   }
   const entries = shown.map(({ name, description, version }) => ({ name, description, version }));
-  return { index: indexOf(shown, { maxBytes, recall }), entries };
+  const { text, count } = indexOf(shown, { maxBytes, recall });
+  if (by && count) noteListed(root, shown.slice(0, count), by, now);
+  return { index: text, entries };
 }
 
+/** Which memories an index listed, for `memory-use.mjs`. A count not written costs the count, never the prompt. */
+function noteListed(root, listed, by, now) {
+  try {
+    recordMemoryUse(root, { kind: 'index', names: listed.map(memory => memory.name), by }, { now });
+  } catch {
+    // The index stands.
+  }
+}
+
+/** The index's words and how many memories it lists, the rest left out for room. */
 function indexOf(shown, { maxBytes, recall }) {
-  if (!shown.length) return '';
+  if (!shown.length) return { text: '', count: 0 };
   let text = `## What hobkin remembers\n\n${HEAD(recall)}`;
   let size = bytes(text);
   const reserve = bytes(`\n\n${MORE(shown.length, recall)}`);
@@ -1052,7 +1069,7 @@ function indexOf(shown, { maxBytes, recall }) {
     count += 1;
     kind = memory.kind;
   }
-  return count < shown.length ? `${text}\n\n${MORE(shown.length - count, recall)}` : text;
+  return { text: count < shown.length ? `${text}\n\n${MORE(shown.length - count, recall)}` : text, count };
 }
 
 function score(memory, terms) {
