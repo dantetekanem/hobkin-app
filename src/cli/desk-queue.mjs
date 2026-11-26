@@ -221,7 +221,7 @@ export class Desk {
         kept.push(entry);
         continue;
       }
-      const { delivery } = deliveryFor({}, { ...context, level: entry.level });
+      const { delivery } = deliveryFor({ heldAt: entry.heldAt }, { ...context, level: entry.level });
       if (delivery === 'now' || (delivery === 'breakpoint' && context.atPause)) {
         queue.posting.push({ ...entry.notice, level: entry.level, at: iso(context.now) });
         events.push(['desk_posted', { source: entry.source, level: entry.level, delivery, waitedMs: context.now - Date.parse(entry.heldAt) }]);

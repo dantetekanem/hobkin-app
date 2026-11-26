@@ -21,6 +21,8 @@ const STOP_LEAD_MINUTES = 30;
 const DIGEST_HORIZON_MS = 4 * HOUR_MS;
 // A P0 waits for a break this close instead of interrupting.
 const NEAR_MS = 15 * MINUTE_MS;
+// A P0 waits this long at most for the user's pause, so a draft left in the input box or a long turn cannot hold it.
+const PAUSE_MOST_WAIT_MS = 5 * MINUTE_MS;
 // Quiet hours need this many days on to mean anything, and they always leave a working day's 8 hours open.
 const QUIET_DAYS = 5;
 const MOST_QUIET_HOURS = 16;
@@ -247,7 +249,8 @@ function holdAt(now, { day, quiet = [], present = false, timeZone }) {
  * it), in the next `digest`, or only in the `log`. `level` defaults to itemLevel's, against the next learned digest.
  * `moments` and `quiet` are what learnMoments and learnQuietHours learned. `day` is the day file, `{ events: [{ start, end }] }` with ISO
  * times, and `present` says whether the user is on now. Nothing but P0 is delivered during an event, or in quiet hours while the user is
- * away, and P0 waits for their end when it is near and comes before its deadline.
+ * away, and P0 waits for their end when it is near and comes before its deadline. An item's `heldAt` says since when it has waited, and a
+ * P0 waits five minutes at most for a pause.
  */
 export function deliveryFor(item, { now, level, moments = [], quiet = [], day, present = false, timeZone = machineZone() }) {
   const chosen = level ?? itemLevel(item, { now, nextDigest: nextDigestAt(moments, now, timeZone) });
@@ -273,8 +276,9 @@ export function deliveryFor(item, { now, level, moments = [], quiet = [], day, p
       : answer('now', `P0 cannot wait for ${hold.what} to end.`);
   }
   if (!present) return answer('now', 'P0 goes now, because the user is away and it interrupts nothing.');
-  return Number.isFinite(due) && due - now <= NEAR_MS
-    ? answer('now', 'P0 cannot wait for a pause, because its deadline is minutes away.')
+  if (Number.isFinite(due) && due - now <= NEAR_MS) return answer('now', 'P0 cannot wait for a pause, because its deadline is minutes away.');
+  return now - instant(item.heldAt) >= PAUSE_MOST_WAIT_MS
+    ? answer('now', `P0 has waited ${PAUSE_MOST_WAIT_MS / MINUTE_MS} minutes for a pause, so it goes now.`)
     : answer('breakpoint', 'P0 goes at the next pause in the user\'s work.');
 }
 

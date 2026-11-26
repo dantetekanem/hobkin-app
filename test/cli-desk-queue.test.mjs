@@ -200,6 +200,30 @@ test('a P0 waits while the user types, and posts at their next pause', async t =
   }
 });
 
+test('a P0 waits five minutes at most for a draft to leave the input box', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    app.lookForReturn();
+    const typing = () => { h.presence.value = { seenAt: h.clock.at, away: false, occupied: true }; };
+    typing();
+    await app.runtime.change(state => { state.runs.fix = workRun('fix', 'Critical: The tests broke on main.', h.clock.at); });
+    await app.refresh();
+    h.clock.at += 4 * MINUTE_MS;
+    typing();
+    assert.deepEqual(linesIn(await app.refresh(), 'The tests broke'), []);
+
+    h.clock.at += MINUTE_MS;
+    typing();
+    const view = await app.refresh();
+
+    assert.deepEqual(linesIn(view, 'The tests broke').map(({ level }) => level), ['P0']);
+    assert.deepEqual(readHeld(h.root), []);
+  } finally {
+    await app.close();
+  }
+});
+
 test('in quiet hours only a P0 reaches Chat while the user is away, and their return brings the rest in a digest', async t => {
   const h = fixture(t);
   // Nine days on from 08:00 to 18:00, so the hours from 18:00 to 08:00 are quiet.

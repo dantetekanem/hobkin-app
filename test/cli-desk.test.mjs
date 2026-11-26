@@ -217,6 +217,14 @@ test('P0 goes at the user\'s next pause, now when they are away or its deadline 
   assert.equal(deliveryFor({ deadline: iso('2026-11-23', '10:10') }, { ...learned, now: on('10:00'), level: 'P0' }).delivery, 'now');
 });
 
+test('P0 waits five minutes at most for a pause, so a draft left in the input box cannot hold it', () => {
+  const now = on('10:00');
+  assert.equal(deliveryFor({ heldAt: iso('2026-11-23', '09:56') }, { ...learned, now, level: 'P0' }).delivery, 'breakpoint');
+  const waited = deliveryFor({ heldAt: iso('2026-11-23', '09:55') }, { ...learned, now, level: 'P0' });
+  assert.equal(waited.delivery, 'now');
+  assert.match(waited.reason, /5 minutes/);
+});
+
 test('the level comes from the item and the next learned digest when none is given', () => {
   const delivery = deliveryFor({ source: 'routine', triage: 'useful', deadline: iso('2026-11-23', '12:00') }, { ...learned, now: on('10:00') });
   assert.equal(delivery.level, 'P0');
