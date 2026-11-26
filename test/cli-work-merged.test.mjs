@@ -384,7 +384,8 @@ test('an item can name a PR on any head, and the survey still counts only hobkin
   const { projects } = await survey(h, [merged(1, { headRefName: 'feature/by-hand' }), pull(2, { headRefName: 'feature/other' })]);
 
   assert.equal(read(h, byHand).state, 'merged');
-  assert.deepEqual(projects.api, { open: [], lastMergeAt: null, trees: 0 });
+  const { readAt: _readAt, ...counted } = projects.api;
+  assert.deepEqual(counted, { open: [], lastMergeAt: null, trees: 0 });
 });
 
 test('the survey counts every tree hobkin holds for a project, whatever made it, and none outside its trees', async t => {

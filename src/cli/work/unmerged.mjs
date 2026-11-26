@@ -55,6 +55,8 @@ const PATCH_CHECK_TIMEOUT_MS = 60000;
 // How many branches or PRs a survey reads at a time. On 2026-11-25 one project's 105 branches all at once took 22 s and 306 CPU seconds, most
 // of it the system juggling up to 88 git processes, and two at a time 28 s and 48 CPU seconds.
 const AT_ONCE = 2;
+// Which reading of a branch `readAt` is. A change to what `branchFacts` reads or how raises it, so nothing an older reading saved is kept.
+const READ_VERSION = 1;
 
 const run = promisify(execFile);
 export const ghWithin = timeout => async (args, cwd) => (await run('gh', args, { cwd, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
@@ -291,29 +293,50 @@ async function holdersOf(repo, sha) {
 
 // A branch a finished item names is that item's work, read like a hobkin branch, so it is no place for other work to have landed.
 async function usersBranches(repo, base, named = new Set()) {
-  const newestFirst = lines(await gitOrNothing(repo, 'for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', 'refs/heads'));
-  const theirs = newestFirst.filter(name => name !== base && !notTheUsers.some(prefix => name.startsWith(prefix)) && !BACKUP_BRANCH.test(name) && !named.has(name));
+  const listed = await gitOrNothing(repo, 'for-each-ref', '--sort=-committerdate', '--format=%(refname:short)%09%(objectname)', 'refs/heads');
+  const newestFirst = lines(listed).map(line => {
+    const [name, sha] = line.split('\t');
+    return { name, sha };
+  });
+  const theirs = newestFirst.filter(({ name }) => name !== base
+    && !notTheUsers.some(prefix => name.startsWith(prefix))
+    && !BACKUP_BRANCH.test(name)
+    && !named.has(name));
   return theirs.slice(0, MOST_BRANCHES_CHECKED);
 }
 
+/** Whether `other` holds every commit of `name` as a patch, or undefined when git cannot say. */
 async function holdsAllOf(repo, other, name) {
-  const commits = lines(await gitOrNothing(repo, 'cherry', other, name));
+  const answer = await gitOrFail(repo, 'cherry', other, name).catch(() => undefined);
+  if (answer === undefined) return undefined;
+  const commits = lines(answer);
   return commits.length > 0 && commits.every(line => line.startsWith('-'));
 }
 
-/** Where else this work sits. The newest branches of the user's are enough, because work lands on what is being worked on. */
-async function placesOf({ repo, name, sha, others }) {
+/**
+ * Where else this work sits. The newest branches of the user's are enough, because work lands on what is being worked on. `kept` is the last
+ * survey's unit at this same head: each of its `checked` answers holds while that branch is at the commit it was asked at, and the one that held is its `landedOn`.
+ */
+async function placesOf({ repo, name, sha, others, kept = null }) {
   const holders = (await holdersOf(repo, sha)).filter(([holder]) => holder !== name);
   // Landing any branch that holds this one brings it along, and this list says which. Which of them are finished layers of a stack is read from it (`stacks.mjs`).
   const heldBy = holders.filter(([, tip]) => tip !== sha).map(([holder]) => holder);
-  const merged = others.find(other => holders.some(([holder]) => holder === other));
-  if (merged) return { heldBy, landedOn: merged };
+  const merged = others.find(other => holders.some(([holder]) => holder === other.name));
+  if (merged) return { heldBy, landedOn: merged.name };
 
   // One at a time, because a survey already runs one of these for other branches of the project.
+  const checked = {};
+  let landedOn = null;
   for (const other of others) {
-    if (await holdsAllOf(repo, other, name)) return { heldBy, landedOn: other };
+    const askedAtThisHead = kept?.checked?.[other.name] === other.sha;
+    const holds = askedAtThisHead ? kept.landedOn === other.name : await holdsAllOf(repo, other.name, name);
+    if (holds !== undefined) checked[other.name] = other.sha;
+    if (holds) {
+      landedOn = other.name;
+      break;
+    }
   }
-  return { heldBy, landedOn: null };
+  return { heldBy, landedOn, ...(Object.keys(checked).length ? { checked } : {}) };
 }
 
 const plainPaths = ['-c', 'core.quotePath=false', 'diff', '--no-renames'];
@@ -341,22 +364,16 @@ export async function changeFacts(repo, base, name) {
   return { area, size: await sizeOfRange(repo, start, name) };
 }
 
-async function branchUnit({ repo, copies, tip, branch: { name, at, sha }, grades, others, previous }) {
-  // What it holds is measured from where it left its default branch. How far behind it is, and whether it conflicts, from where it lands.
+/** What git says of a branch. What it holds is measured from where it left its default branch. How far behind it is, and whether it conflicts, from where it lands. */
+async function branchFacts({ repo, copies, tip, name, sha }) {
   const start = await startOfChange(repo, copies, sha);
-  const change = await changeOf(repo, start, name);
-  const before = (previous.open ?? []).find(unit => unit.branch === name);
   const touched = await pathsOf(repo, start, name);
   // The TLA+ models at its head that cover what it touches, whose runs at that head speak for it (`proofs.mjs`).
   const models = await modelsAt(repo, sha, touched.paths);
   // The commits whose code this head still has, since only models changed after them, so a review of one still counts.
   const sameCode = await sameCodeAs(repo, start, name);
   return {
-    kind: 'branch',
-    branch: name,
-    sha,
     title: commitTitle(await gitOrNothing(repo, 'log', '-1', '--format=%B', name)),
-    openedAt: new Date(at).toISOString(),
     size: await sizeOfRange(repo, start, name),
     ...touched,
     ...(models.length ? { models } : {}),
@@ -365,9 +382,44 @@ async function branchUnit({ repo, copies, tip, branch: { name, at, sha }, grades
     // Not knowing is an answer, so nothing here can cost a project its survey.
     conflict: await conflictsWith(repo, tip, name).catch(() => null),
     onlyDocs: await changesOnlyDocs(repo, start, name),
+    change: await changeOf(repo, start, name),
+  };
+}
+
+/** The facts of `branchFacts` as the last survey wrote them, with a conflict git could not answer then asked again. */
+async function factsKept(repo, tip, name, kept) {
+  const { title, size, area, paths, deletedTests, models, sameCode, behind, conflict, onlyDocs, change } = kept;
+  return {
+    title,
+    size,
+    area,
+    paths,
+    deletedTests,
+    ...(models ? { models } : {}),
+    ...(sameCode ? { sameCode } : {}),
+    behind,
+    conflict: conflict ?? await conflictsWith(repo, tip, name).catch(() => null),
+    onlyDocs,
     change,
-    safety: await safetyOf({ repo, name, sha, change, grades, before, sameCode }),
-    ...await placesOf({ repo, name, sha, others }),
+  };
+}
+
+async function branchUnit({ repo, copies, tip, branch: { name, at, sha }, grades, others, previous, sameDefaults }) {
+  const before = (previous.open ?? []).find(unit => unit.branch === name);
+  // With the branch at the same head, and the default branch where it was (`sameDefaults`), what git said of it last time still holds.
+  const kept = before?.kind === 'branch' && before.sha === sha ? before : null;
+  const readBefore = Boolean(kept) && sameDefaults;
+  const { title, ...facts } = readBefore ? await factsKept(repo, tip, name, kept) : await branchFacts({ repo, copies, tip, name, sha });
+
+  return {
+    kind: 'branch',
+    branch: name,
+    sha,
+    title,
+    openedAt: new Date(at).toISOString(),
+    ...facts,
+    safety: await safetyOf({ repo, name, sha, change: facts.change, grades, before, sameCode: facts.sameCode ?? [] }),
+    ...await placesOf({ repo, name, sha, others, kept }),
   };
 }
 
@@ -424,7 +476,10 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   const bare = branches.filter(branch => !branch.merged && !withPull.has(branch.name) && !BACKUP_BRANCH.test(branch.name));
   const others = await usersBranches(repo, base, finished);
   const copies = await defaultCopies(repo, base);
-  const units = await inTurns(bare, branch => branchUnit({ repo, copies, tip, branch, grades, others, previous }));
+  // Where the default branch was when its branches were read, so the next survey reads again only a branch that moved, or all of them once this does.
+  const readAt = { version: READ_VERSION, tip, copies: lines(await gitOrNothing(repo, 'rev-parse', ...copies)) };
+  const sameDefaults = JSON.stringify(previous.readAt) === JSON.stringify(readAt);
+  const units = await inTurns(bare, branch => branchUnit({ repo, copies, tip, branch, grades, others, previous, sameDefaults }));
   const landed = await mergedHere({ repo, base, units, previous });
   // Git keeps no date for a local merge, so one seen now is dated now.
   const merges = [previous.lastMergeAt, landed.length ? new Date(now).toISOString() : null, ...ownPulls.map(pr => pr.mergedAt)];
@@ -451,6 +506,7 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
       open: [...openPulls, ...units],
       lastMergeAt: latest(merges),
       trees: await treesHeld(repo, trees),
+      readAt,
       ...(specs.length ? { models: { head: tip, specs } } : {}),
     },
     pulls,

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chooseProject } from '../src/cli/work/store.mjs';
 import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
-import { branched, repository } from './helpers/work-fixture.mjs';
+import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
 
@@ -20,6 +20,21 @@ function workspace(t) {
 }
 
 const survey = (h, gh = async () => '[]') => surveyUnmerged(h.root, { now: NOW, gh, reviews: join(h.base, 'auto-review') });
+const unit = (h, name, slug = 'api') => readUnmerged(h.root).projects[slug].open.find(({ branch }) => branch === name);
+
+/** Changes what the last survey wrote down, so a survey that reads a branch again says so by writing what git says instead. */
+function rewriteSaved(h, change) {
+  const file = join(h.root, 'work', 'unmerged.json');
+  const saved = JSON.parse(readFileSync(file, 'utf8'));
+  for (const project of Object.values(saved.projects)) project.open = project.open.map(change);
+  writeFileSync(file, JSON.stringify(saved));
+}
+
+function commitOn(checkout, branch, file, text) {
+  git(checkout, 'switch', '-q', branch);
+  commit(checkout, file, text);
+  git(checkout, 'switch', '-q', 'main');
+}
 
 /** The most `git` commands `work` had running at once, counted by a `git` on PATH that holds a slot while the real one runs. */
 async function mostGitAtOnce(t, work) {
@@ -51,6 +66,52 @@ async function mostGitAtOnce(t, work) {
   }
   return Math.max(...readFileSync(counts, 'utf8').split('\n').filter(Boolean).map(Number));
 }
+
+test('a branch that has not moved since the last survey keeps what was read of it, and one that moved is read again', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/still');
+  branched(h.checkout, 'hobkin/moving');
+  await survey(h);
+  rewriteSaved(h, saved => ({ ...saved, title: 'kept' }));
+  commitOn(h.checkout, 'hobkin/moving', 'more.txt', 'more\n');
+
+  await survey(h);
+
+  assert.equal(unit(h, 'hobkin/still').title, 'kept');
+  assert.equal(unit(h, 'hobkin/moving').title, 'more');
+});
+
+test('a default branch that moved has every branch read again', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/still');
+  await survey(h);
+  rewriteSaved(h, saved => ({ ...saved, title: 'kept' }));
+  commit(h.checkout, 'app.txt', 'main moved\n');
+
+  await survey(h);
+
+  assert.equal(unit(h, 'hobkin/still').title, 'hobkin/still');
+  assert.equal(unit(h, 'hobkin/still').behind, 1);
+});
+
+test('whether another branch of the user holds a change is asked once for the two heads, and again when either moves', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/copied', 'copied.txt', 'copied\n');
+  git(h.checkout, 'switch', '-q', '-c', 'release/now');
+  // -x makes the copy its own commit, even within the second the branch's was made.
+  git(h.checkout, 'cherry-pick', '-x', 'hobkin/copied');
+  git(h.checkout, 'switch', '-q', 'main');
+  await survey(h);
+  assert.equal(unit(h, 'hobkin/copied').landedOn, 'release/now');
+  rewriteSaved(h, saved => ({ ...saved, landedOn: null }));
+
+  await survey(h);
+  assert.equal(unit(h, 'hobkin/copied').landedOn, null);
+
+  commitOn(h.checkout, 'release/now', 'release.txt', 'release\n');
+  await survey(h);
+  assert.equal(unit(h, 'hobkin/copied').landedOn, 'release/now');
+});
 
 test('a survey of many branches runs at most two git commands at once', async t => {
   const h = workspace(t);
