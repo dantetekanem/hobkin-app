@@ -266,6 +266,18 @@ test('card fields are checked, and a card that fails is not filed', async t => {
   assert.deepEqual(openDecisions(root), []);
 });
 
+test('the filed event names the topic as a hash, never its words, so a question asked again can be counted', async t => {
+  const root = home(t);
+  await runDecideCommand(root, ['routine', 'site'], card({ kind: 'merge-small-fix' }), FILED);
+  await runDecideCommand(root, ['routine', 'bank'], card({ kind: 'merge-small-fix', question: 'Merge the readme fix?' }), FILED);
+
+  const filed = readEvents(root).filter(({ type }) => type === 'decision_filed');
+  assert.equal(filed.length, 2);
+  assert.match(filed[0].topic, /^[0-9a-f]{12}$/);
+  assert.equal(filed[0].topic, filed[1].topic, 'one kind is one topic');
+  assert.doesNotMatch(JSON.stringify(filed), /merge-small-fix|typo/);
+});
+
 const learnCard = (fields = {}) => card({ kind: 'merge-small-fix', learn: true, rule: 'From now on, small fixes merge without asking.', ...fields });
 
 test('a learn card answered with its pick becomes a standing rule, and the next routine asking that kind is answered by it', async t => {

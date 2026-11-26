@@ -13,7 +13,7 @@ const SHEET_ENDS = { answered: 'answered', escaped: 'dismissed', expired: 'expir
 const WHERE = ['away', 'on', 'unknown'];
 
 const timeOf = ({ at }) => Date.parse(at);
-const ofType = (events, type) => events.filter(event => event.type === type);
+const ofType = (events, ...types) => events.filter(event => types.includes(event.type));
 const zeros = keys => Object.fromEntries(keys.map(key => [key, 0]));
 const hours = () => Array.from({ length: 24 }, () => 0);
 const pad = number => String(number).padStart(2, '0');
@@ -79,11 +79,27 @@ function* byHourOf([start, end]) {
   }
 }
 
+/**
+ * When each topic was first answered, by the user or by its default, among the questions filed in these events. A question filed on a topic
+ * after that is a repeat: a filed one is one no rule settled, since a rule files nothing.
+ */
+function firstAnswers(events) {
+  const topicOf = new Map(ofType(events, 'decision_filed').filter(({ topic }) => topic).map(({ id, topic }) => [id, topic]));
+  const first = new Map();
+  for (const event of ofType(events, 'decision_answered', 'decision_defaulted')) {
+    const topic = topicOf.get(event.id);
+    if (topic) first.set(topic, Math.min(first.get(topic) ?? Infinity, timeOf(event)));
+  }
+  return first;
+}
+
 function questions(events) {
   const where = whereWasTheUser(sightings(events));
   const answered = new Map(ofType(events, 'decision_answered').map(event => [event.id, event]));
-  const settled = new Set(ofType(events, 'action_settled').map(({ id }) => id));
+  // Settled without the user's word: by evidence of it done, or by its pick at its deadline.
+  const settled = new Set(ofType(events, 'action_settled', 'decision_defaulted').map(({ id }) => id));
   const handed = new Set(ofType(events, 'action_handed').map(({ id }) => id));
+  const answeredFirst = firstAnswers(events);
   // A question the main agent asked in Chat is filed only when the user puts it off, so one still open is waiting for later.
   const endOf = ({ id, source }) => {
     if (answered.has(id)) return 'answered';
@@ -97,18 +113,23 @@ function questions(events) {
     ended: endOf(event),
     where: where(timeOf(event)),
     ms: answered.get(event.id)?.ms,
+    repeat: answeredFirst.get(event.topic) < timeOf(event),
   }));
   const summary = own => ({
     asked: own.length,
     bySource: tally(own.map(({ source }) => source)),
     ended: { ...zeros(QUESTION_ENDS), ...tally(own.map(({ ended }) => ended)) },
     whileAway: { ...zeros(WHERE), ...tally(own.map(({ where }) => where)) },
+    repeats: own.filter(({ repeat }) => repeat).length,
   });
   const sheetEnds = ofType(events, 'question_ended');
+  // Answered with nothing filed: from an answer of the last 30 days, or by a standing rule (decisions.mjs).
+  const recalled = ofType(events, 'decision_recalled');
 
   return {
     ...summary(asked),
     medianAnswerMs: median(asked.map(({ ms }) => ms)),
+    notAsked: { earlierAnswer: recalled.filter(({ by }) => by !== 'rule').length, standingRule: recalled.filter(({ by }) => by === 'rule').length },
     byDay: byDay(asked, summary),
     sheet: {
       shown: ofType(events, 'question_shown').length,
@@ -189,7 +210,7 @@ function outward(events) {
  * first, with `{ root, since, now }`, and returns facts only. A new view is one more entry here.
  */
 export const TELEMETRY_VIEWS = {
-  questions: { line: 'questions filed per day by source, how each ended, the median time to answer, and whether the user was away when each came', view: questions },
+  questions: { line: 'questions filed per day by source, how each ended, the median time to answer, whether the user was away when each came, repeats, and those answered without asking', view: questions },
   interruptions: { line: 'Chat notices per day by source and tone, and how many came in each local hour', view: interruptions },
   presence: { line: 'when the user was first on each day, each return after 15 minutes or more away, and the minutes on in each local hour', view: presence },
   memory: { line: 'which shared memories agents recalled or had in their index, and the ones nobody used', view: memory },

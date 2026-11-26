@@ -82,6 +82,9 @@ function cardFields(decision) {
   return given;
 }
 
+// A filed question names what it is about only as a hash, so the questions view can count one asked again after its answer without any words.
+const topicOf = ({ kind, key }) => (kind || key ? createHash('sha256').update(kind ? `kind:${kind}` : `key:${key}`).digest('hex').slice(0, 12) : null);
+
 // Every tick asks for the log many times over, so it is folded once per version of the file (`file-version.mjs`).
 const folded = new Map();
 const readAll = root => [...readVersioned(folded, logPath(root), () => foldLog(root), 64)];
@@ -145,7 +148,8 @@ function fileRecord(root, { key = null, from, question, tldr, choices, answerTo 
     at: known?.at ?? new Date(now).toISOString(),
     shown: known?.shown ?? shown,
   });
-  if (!known) recordEvent(root, 'decision_filed', { id, source: answerTo?.kind }, now);
+  const topic = topicOf({ kind: card.kind, key });
+  if (!known) recordEvent(root, 'decision_filed', { id, source: answerTo?.kind, ...(topic ? { topic } : {}) }, now);
   return { id };
 }
 

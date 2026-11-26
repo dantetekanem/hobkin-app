@@ -75,8 +75,35 @@ test('questions: asked per day by source, how each ended, the median time to ans
     bySource: { chat: 1, unknown: 1 },
     ended: { answered: 1, settled: 0, handed: 0, later: 0, open: 1 },
     whileAway: { away: 0, on: 0, unknown: 2 },
+    repeats: 0,
   });
   assert.deepEqual(view.sheet, { shown: 1, ended: { answered: 1, dismissed: 1, expired: 1 }, medianAnswerMs: 4000 });
+});
+
+test('questions: a default counts as settled, a recall or a rule as not asked, and a topic asked again after its answer as a repeat', t => {
+  const root = dataRoot(t);
+  const file = (id, day, hour, topic) => recordEvent(root, 'decision_filed', { id, source: 'routine', ...(topic ? { topic } : {}) }, local(day, hour));
+  file('a', 25, 9, 'aaa');
+  recordEvent(root, 'decision_answered', { id: 'a', source: 'routine', ms: MINUTE_MS }, local(25, 10));
+  file('b', 25, 11, 'aaa');
+  file('c', 25, 12, 'bbb');
+  recordEvent(root, 'decision_defaulted', { id: 'c', source: 'routine', ms: HOUR_MS }, local(25, 13));
+  file('d', 26, 9, 'bbb');
+  file('e', 26, 10, 'aaa');
+  file('f', 26, 11);
+  file('g', 24, 8, 'ccc');
+  recordEvent(root, 'decision_recalled', { routine: 'mail' }, local(26, 12));
+  recordEvent(root, 'decision_recalled', { routine: 'mail', by: 'rule' }, local(26, 12));
+  recordEvent(root, 'decision_recalled', { routine: 'site', by: 'rule' }, local(26, 13));
+
+  const view = telemetryView(root, 'questions', { days: 2, now: NOW });
+
+  assert.equal(view.asked, 6, 'g was filed before the two days');
+  assert.equal(view.ended.settled, 1, 'c took its pick at its deadline');
+  assert.equal(view.ended.answered, 1);
+  assert.equal(view.repeats, 3, 'b and e came after a was answered, and d after c defaulted');
+  assert.deepEqual([view.byDay['2026-11-25'].repeats, view.byDay['2026-11-26'].repeats], [1, 2]);
+  assert.deepEqual(view.notAsked, { earlierAnswer: 1, standingRule: 2 });
 });
 
 test('interruptions: Chat notices per day by source and tone, and by local hour', t => {
