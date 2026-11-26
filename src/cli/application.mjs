@@ -2013,11 +2013,14 @@ export class HobkinApplication {
     try {
       const root = this.runtime.directory;
       const state = readBriefState(root);
+      const lastSeenAt = new Date(presence.seenAt).toISOString();
       // The first sighting each day and each return after a gap, as facts the desk learns digest times and quiet hours from (075).
+      // When the user was last here moves with it at once, so trouble after it can never record the same sighting again.
       const sighted = recordPresence(root, { lastSeenAt: state.lastSeenAt, seenAt: presence.seenAt });
+      if (sighted) writeBriefState(root, { lastSeenAt });
       const since = returnedSince({ lastSeenAt: state.lastSeenAt, seenAt: presence.seenAt });
       const offer = since && state.offer?.since !== since ? this.offerAfter(root, since, now) : null;
-      const seen = sighted || seenMoved(state, presence.seenAt) ? { lastSeenAt: new Date(presence.seenAt).toISOString() } : {};
+      const seen = !sighted && seenMoved(state, presence.seenAt) ? { lastSeenAt } : {};
 
       const patch = { ...seen, ...(offer ? { offer } : {}) };
       if (Object.keys(patch).length) writeBriefState(root, patch);

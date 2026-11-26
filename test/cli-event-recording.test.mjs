@@ -564,3 +564,23 @@ test('the return look records the first sighting of a day and a return after a g
 
   assert.deepEqual(h.ofType('presence').map(({ kind, awayMs }) => [kind, awayMs]), [['first', undefined], ['returned', 40 * 60000]]);
 });
+
+test('a return look that fails after it records a sighting does not record the same sighting again', async t => {
+  const h = fixture(t);
+  const clock = { at: Date.parse('2026-01-05T14:00:00Z') };
+  const presence = { value: { seenAt: clock.at, away: false, occupied: false } };
+  const app = await h.openApp({ now: () => clock.at, intervalMs: 3600000, presence: () => presence.value });
+  try {
+    app.lookForReturn();
+    app.offerAfter = () => { throw Error('The brief offer broke.'); };
+    for (const step of [3 * 60 * 60000, 30000, 30000]) {
+      clock.at += step;
+      presence.value = { seenAt: clock.at, away: false, occupied: false };
+      app.lookForReturn();
+    }
+  } finally {
+    await app.close();
+  }
+
+  assert.deepEqual(h.ofType('presence').map(({ kind, awayMs }) => [kind, awayMs]), [['first', undefined], ['returned', 3 * 60 * 60000]]);
+});
