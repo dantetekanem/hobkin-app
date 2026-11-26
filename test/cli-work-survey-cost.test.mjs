@@ -5,7 +5,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
-import { chooseProject } from '../src/cli/work/store.mjs';
+import { chooseProject, proposeProject } from '../src/cli/work/store.mjs';
 import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
 
@@ -215,6 +215,18 @@ test('hobkin work sync with a project it does not know says so', async t => {
   const h = workspace(t);
 
   await assert.rejects(runWorkCommand(h.root, ['sync', 'nope']), /Unknown project: nope/);
+});
+
+test('hobkin work sync with a goal, or a project hobkin does not work on, says there is nothing to survey', async t => {
+  const h = workspace(t);
+  const novel = join(h.base, 'novel');
+  mkdirSync(novel);
+  proposeProject(h.root, { name: 'novel', path: novel, level: 'casual', kind: 'goal' });
+  chooseProject(h.root, 'novel');
+  proposeProject(h.root, { name: 'web', path: repository(h.base, 'web'), level: 'casual' });
+
+  await assert.rejects(runWorkCommand(h.root, ['sync', 'novel']), /novel is a goal/);
+  await assert.rejects(runWorkCommand(h.root, ['sync', 'web']), /web is not a project hobkin works on/);
 });
 
 test('two surveys of one home take turns', async t => {

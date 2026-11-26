@@ -15,7 +15,7 @@ import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { NEEDS_AN_OWNER, weighedRows } from './reads.mjs';
 import { layerUnder } from './stacks.mjs';
 import {
-  answerAllowance, assertLevel, chooseProject, doableKinds, dropProject, fileItem, itemTree, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, pickNow, prFile, putBackInQueue, readItems, readMode, readProject, realFolder,
+  answerAllowance, assertLevel, chooseProject, doableKinds, dropProject, fileItem, isGoal, itemTree, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, pickNow, prFile, putBackInQueue, readItems, readMode, readProject, realFolder,
   requestCancel, retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeDirections, writeMode,
 } from './store.mjs';
 import { BRANCH_PREFIX, currentBranch, defaultBranch, gitOrNothing, gitWithin, isMerged, landBranch, realPlace, retireTree, startRepository, worktreeOn } from './tree.mjs';
@@ -993,9 +993,17 @@ export function trustPattern(root, pattern, word) {
 }
 
 /** Asks `git` and `gh` now instead of at the next survey. Past a fetch they only read the repositories: all this changes is Hobkin's own record of its items. */
+/** The one project a sync names: one hobkin works on, and not a goal, which has no branches. */
+function projectToSurvey(root, reference) {
+  const project = findProject(root, reference);
+  if (isGoal(project)) throw Error(`${project.slug} is a goal, and a goal has no branches to survey.`);
+  if (project.state !== 'chosen') throw Error(`${project.slug} is not a project hobkin works on, so there is nothing to survey. hobkin work projects lists them.`);
+  return project;
+}
+
 /** The survey and closing pass now, of every project, or with `reference` only of that one. */
 export async function syncWork(root, reference) {
-  const only = reference ? findProject(root, reference).slug : null;
+  const only = reference ? projectToSurvey(root, reference).slug : null;
   const { settled, filed, retired, pulse } = await surveyAndClose(root, only ? { only } : {});
   const merged = settled.filter(({ state }) => state === 'merged').length;
   const back = settled.length - merged;
