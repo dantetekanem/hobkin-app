@@ -18,6 +18,7 @@ import {
   readAutonomy,
   recordOutcome,
 } from '../src/cli/autonomy.mjs';
+import { telemetryView } from '../src/cli/telemetry/views.mjs';
 
 const NOW = Date.parse('2026-11-26T20:00:00Z');
 
@@ -223,4 +224,20 @@ test('a task class is a short kind, with a project slug after a colon or none', 
   }
   assert.throws(() => recordOutcome(root, 'code-fix', { clean: true, reviewMinutes: -1 }, NOW), /reviewMinutes/);
   assert.equal(existsSync(autonomyPath(root)), false);
+});
+
+test('hobkin telemetry autonomy: each class\'s level, streak, overrides, undos, median review minutes and whether a promotion is due', t => {
+  const root = home(t);
+  cleanRuns(root, 'code-fix', PROMOTION_STREAK, { reviewMinutes: 2 });
+  recordOutcome(root, 'code-fix', { clean: true, reviewMinutes: 9 }, NOW);
+  recordOutcome(root, 'code-fix:hobkin', { clean: false, override: true, reviewMinutes: 12 }, NOW);
+
+  const view = telemetryView(root, 'autonomy', { days: 30, now: NOW });
+
+  assert.equal(view.view, 'autonomy');
+  assert.deepEqual(view.classes, {
+    [CODE_BRANCH_WORK]: { level: 'report', cleanStreak: 0, overrides: 0, undos: 0, medianReviewMinutes: null, promotionDue: false },
+    'code-fix': { level: 'recommend', cleanStreak: 6, overrides: 0, undos: 0, medianReviewMinutes: 2, promotionDue: true },
+    'code-fix:hobkin': { level: 'draft', cleanStreak: 0, overrides: 1, undos: 0, medianReviewMinutes: 12, promotionDue: false },
+  });
 });

@@ -1,3 +1,4 @@
+import { autonomyView } from '../autonomy.mjs';
 import { userDay } from '../desk.mjs';
 import { AWAY_GAP_MS, localDay, readEvents } from '../events.mjs';
 import { readMemories } from '../memories.mjs';
@@ -176,6 +177,7 @@ export const TELEMETRY_VIEWS = {
   interruptions: { line: 'Chat notices per day by source and tone, and how many came in each local hour', view: interruptions },
   presence: { line: 'when the user was first on each day, each return after 15 minutes or more away, and the minutes on in each local hour', view: presence },
   memory: { line: 'which shared memories agents recalled or had in their index, and the ones nobody used', view: memory },
+  autonomy: { line: 'each task class\'s level, clean streak, overrides, undos, median review minutes and whether a promotion is due, from the local ledger', view: (_events, { root }) => autonomyView(root) },
 };
 
 const NAMES = [...Object.keys(TELEMETRY_VIEWS), 'help'];

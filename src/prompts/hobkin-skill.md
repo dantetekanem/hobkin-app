@@ -66,6 +66,7 @@ These read saved state. They start nothing and call no model:
 | `hobkin telemetry interruptions [--days n]` | Chat notices per day by source and tone, as JSON, and `byHour`, the count in each local hour. |
 | `hobkin telemetry presence [--days n]` | When the user is on, as JSON: for each day the first sighting, each return after 15 minutes or more away with `awayMs`, and the time on, then `minutesOnByHour` for each local hour. On means using hobkin's window. |
 | `hobkin telemetry memory [--days n]` | Which shared memories agents used, as JSON: `used` with each memory's `recalls`, how often it was in an agent's index (`indexed`), when it was last used and by whom, and `unused`, the shared memories nobody used in that time. Private memories are left out. |
+| `hobkin telemetry autonomy` | How much each task class may do alone, as JSON, from the local ledger in `runtime/autonomy.json`. For each class: its `level` (`draft`, `recommend`, `deadline`, `report` or `log`), `cleanStreak`, `overrides`, `undos`, `medianReviewMinutes` and whether `promotionDue`. A class is `<kind>` or `<kind>:<project slug>`. `--days` does not narrow it. |
 | `hobkin telemetry help` | Each telemetry view in one line. |
 | `hobkin pending` | What is waiting on the user, across every routine and work mode, as JSON: the `total`, and one row per group with a `count`, a `label` and a short `fact`. |
 | `hobkin history` | History imported from the older Pi extension as JSON. Not recent runs. |
