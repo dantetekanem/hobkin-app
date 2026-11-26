@@ -53,7 +53,7 @@ async function turnOf(seat: OlderStepsSeat, run: SavedRun): Promise<Saved> {
   const id = run.hobkin?.id ?? ''
   const since = Date.parse(run.startedAt ?? '')
   if (run.kind !== 'background' || run.harness !== 'pi' || !HOBKIN_ID.test(id) || !Number.isFinite(since)) {
-    throw new Unavailable("This turn has no saved Pi conversation to read its steps from.")
+    throw new Unavailable('This turn has no saved Pi conversation to read its steps from.')
   }
   const why = "The hobkin's saved conversation is missing or unavailable: only a regular file in its own hobkins folder is read."
   const file = await ownFile(seat, 'hobkins', `${id}.jsonl`, why)
@@ -92,7 +92,7 @@ export function olderStepsHandlers(seat: OlderStepsSeat): Pick<HostHandlers, 'ac
   return {
     'activity.before': async ({ job, before, at }) => {
       const { file, since, until } = await sessionOf(seat, job)
-      return readSaved(() => runStepsBefore(file, { before: before ?? null, at: at ?? null, since: since ?? null, until: until ?? null }))
+      return readSaved(() => runStepsBefore(file, { before: before ?? null, at: at ?? null, since, until }))
     },
     'activity.output': async ({ job, id }) => {
       const { file } = await sessionOf(seat, job)

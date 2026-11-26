@@ -38,6 +38,32 @@ function joinsOf(feed: Feed): string | null | undefined {
   return feed.length >= FEED_STEPS ? feed[0]!.id : undefined
 }
 
+/**
+ * A turn's steps from the hobkin's conversation: the ones right before `oldest`, the host's oldest step of it, or its
+ * newest with none. None when the host cannot read them, as for a turn on Claude Code, and null when the connection
+ * went, so the page asks again once the host is back.
+ */
+async function readTurn(run: string, oldest: ActivityEntry | undefined): Promise<readonly ActivityEntry[] | null> {
+  const before = oldest ? { before: oldest.id, ...(oldest.at === undefined ? {} : { at: oldest.at }) } : {}
+  try {
+    const page = await runCommand('activity.before', { job: run, ...before })
+    return page.steps
+  } catch (error) {
+    return (error as { code?: string } | null)?.code === 'disconnected' ? null : NO_ENTRIES
+  }
+}
+
+/** A turn's steps: what was read before what the host holds, while it still joins it, then what the host holds, each step once. */
+function turnEntries(feed: Feed, read: Read | undefined): readonly ActivityEntry[] {
+  const held = feed ?? NO_ENTRIES
+  const joined = read && read.joins === joinsOf(feed) ? read.steps : NO_ENTRIES
+  if (!held.length) return joined
+
+  const heldIds = new Set(held.map(({ id }) => id))
+  const before = joined.filter(({ id }) => !heldIds.has(id))
+  return before.length ? [...before, ...held] : held
+}
+
 const timeReaders = new Map<string, (id: string) => EntryTime | undefined>()
 
 /** When this window first saw each of a turn's steps, one reader for each run, so a step drawn with it stays the same. */
@@ -74,35 +100,21 @@ export function useTurnSteps(runs: readonly string[], { live, cwd }: { live: str
       const feed = feeds[index]
       const joins = joinsOf(feed)
       const asked = `${run}\n${joins}`
-      if (run === live || joins === undefined || reads[run]?.joins === joins || asking.current.has(asked)) return
+      const unread = run !== live && joins !== undefined && reads[run]?.joins !== joins
+      if (!unread || asking.current.has(asked)) return
 
       asking.current.add(asked)
-      const oldest = joins === null ? undefined : feed![0]!
-      const before = oldest ? { before: oldest.id, ...(oldest.at === undefined ? {} : { at: oldest.at }) } : {}
-      void runCommand('activity.before', { job: run, ...before }).then(
-        (page) => {
-          asking.current.delete(asked)
-          setReads((all) => ({ ...all, [run]: { joins, steps: page.steps } }))
-        },
-        (error: unknown) => {
-          asking.current.delete(asked)
-          // Asked again once the host is back. Anything else it cannot read stays as the host holds it.
-          if ((error as { code?: string } | null)?.code !== 'disconnected') setReads((all) => ({ ...all, [run]: { joins, steps: NO_ENTRIES } }))
-        },
-      )
+      void readTurn(run, joins === null ? undefined : feed?.[0]).then((steps) => {
+        asking.current.delete(asked)
+        if (steps) setReads((all) => ({ ...all, [run]: { joins, steps } }))
+      })
     })
   }, [hosted, open, runs, feeds, reads, live])
 
   return useMemo(() => {
     const steps: Record<string, TurnActivity> = {}
     runs.forEach((run, index) => {
-      const feed = feeds[index] ?? NO_ENTRIES
-      const read = reads[run]
-      const joined = read && read.joins === joinsOf(feeds[index]) ? read.steps : NO_ENTRIES
-      // A step the host holds is not drawn twice.
-      const held = new Set(feed.map(({ id }) => id))
-      const before = joined.some(({ id }) => held.has(id)) ? joined.filter(({ id }) => !held.has(id)) : joined
-      const entries = before.length && feed.length ? [...before, ...feed] : before.length ? before : feed
+      const entries = turnEntries(feeds[index], reads[run])
       if (!entries.length) return
 
       const timeOf = timeOfTurn(run)

@@ -223,12 +223,16 @@ export function pageRows(turns: readonly ShownTurn[], { sending, activity, finis
   })
 
   const rows: PageRow[] = []
-  const saidIn = (turn: ShownTurn, note: PageNote): PageRow => ({ ...said(note, note === pending ? 'sending' : addedDelivery(turn, note)), run: turn.run })
+  const saidIn = (turn: ShownTurn, note: PageNote): PageRow => {
+    const delivery = note === pending ? 'sending' : addedDelivery(turn, note)
+    return { ...said(note, delivery), run: turn.run }
+  }
   // A turn's steps, with what the user added where it was sent.
   const exchange = (turn: ShownTurn, notes: readonly PageNote[], steps: TurnActivity, ended: boolean) => {
     const options = { seenAt: steps.seenAt, ended, cwd: steps.cwd, tasksOnLine: true }
     const items = exchangeOf(steps.entries, notes.map((note) => ({ ...note, id: saidKey(note.at) })), options)
-    for (const item of turn.live || !turn.reply ? items : beforeAnswer(items)) {
+    const answered = !turn.live && Boolean(turn.reply)
+    for (const item of answered ? beforeAnswer(items) : items) {
       if (item.kind !== 'note') {
         rows.push({ kind: 'step', key: `${turn.run}:${item.key}`, step: item, ended, run: turn.run })
         continue
@@ -248,7 +252,8 @@ export function pageRows(turns: readonly ShownTurn[], { sending, activity, finis
 
     const notes: readonly PageNote[] = turn === into && pending ? [...turn.notes, pending] : turn.notes
     const steps = turn.live ? activity : (finished[turn.run] ?? null)
-    if (steps) exchange(turn, notes, steps, turn.live ? turn.ending : true)
+    const ended = !turn.live || turn.ending
+    if (steps) exchange(turn, notes, steps, ended)
     else rows.push(...notes.map((note) => saidIn(turn, note)))
     if (!turn.live) rows.push({ kind: 'answer', key: `${turn.run}:answer`, turn, at: timeOf(turn.endedAt), run: turn.run })
   }

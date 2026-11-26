@@ -347,8 +347,11 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
   const offersOlder = saved !== null
   // The steps of each turn drawn so far, the one in flight among them, so they stay when it ends (`withDrawnTurns`).
   const [drawn, setDrawn] = useState<readonly string[]>([])
-  const stepsOf = useMemo(() => (run && !drawn.includes(run) ? [...drawn, run] : drawn), [drawn, run])
-  const finished = useTurnSteps(stepsOf, { live: run, cwd })
+  const turnsWithSteps = useMemo(() => (run && !drawn.includes(run) ? [...drawn, run] : drawn), [drawn, run])
+  const finished = useTurnSteps(turnsWithSteps, { live: run, cwd })
+  // A step reads a whole output from its own turn's run, and its times as that run's.
+  const jobOf = (turnRun: string) => (turnRun === run ? job : live ? turnRun : null)
+  const timeOfStep = (turnRun: string) => (turnRun === run && activity ? activity.timeOf : timeOfTurn(turnRun))
   // Each run of the hobkin's schedules stands where it happened, from hobkin's record of them (056).
   const runs = useScheduleRuns({ kind: 'hobkin', id })
   const rows = useMemo(() => {
@@ -386,9 +389,9 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
               ) : row.kind === 'said' ? (
                 <Said key={row.key} text={row.text} images={row.images} at={row.at} delivery={row.delivery} from={row.from} />
               ) : row.kind === 'step' ? (
-                // Each step reads a whole output from its own turn's run, and keeps its place as its turn ends.
-                <StepJob.Provider key={row.key} value={row.run === run ? job : live ? row.run : null}>
-                  <StepItem step={row.step} timeOf={row.run === run && activity ? activity.timeOf : timeOfTurn(row.run)} ended={row.ended} />
+                // The same element whether its turn is in flight or over, so a step keeps its place as its turn ends.
+                <StepJob.Provider key={row.key} value={jobOf(row.run)}>
+                  <StepItem step={row.step} timeOf={timeOfStep(row.run)} ended={row.ended} />
                 </StepJob.Provider>
               ) : row.kind === 'answer' ? (
                 <Answer key={row.key} turn={row.turn} at={row.at} />
