@@ -1,48 +1,62 @@
 # hobkin
 
-hobkin is an agent you chat with in the terminal. It runs checks on a schedule through the Pi coding agent and saves what they find as Markdown reports. In work mode, agents also work on your git projects in small changes, each on its own branch.
+hobkin is an agent you chat with in the terminal. It runs scheduled checks, called routines, through the Pi coding agent. It saves what they find as Markdown reports. It also has a work mode, where agents work on your git projects in small changes, each on its own branch.
 
 Website: https://hobkin.dev
 
 ## Run it
 
-You need Node 22.19 or newer, pnpm and Pi. Install the Pi version hobkin pins:
+You need Node 22.19 or newer, pnpm and Pi. hobkin needs one exact version of Pi. Install it with:
 
 ```sh
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.5.0
 ```
 
-Then run hobkin from a checkout:
+Then start hobkin from a checkout of its code:
 
 ```sh
 pnpm install
 pnpm hobkin
 ```
 
-The first time, hobkin asks you to sign in to a model, then opens and starts setup by itself: who you are, the services to connect and your first checks. `hobkin login` signs in again at any time, and `/setup` runs setup again. `hobkin setup` changes nothing: it checks Pi, git, `gh`, your models and routines, and says how to fix what is missing.
+The first time, hobkin asks you to sign in to a model. Then it opens and starts setup on its own. Setup asks who you are, which services to connect, and which checks you want first.
 
-If `hobkin` is on your PATH, run it from any directory. Otherwise, run the `hobkin` commands below as `pnpm hobkin` from the checkout. The first launch creates `~/.hobkin`, and later launches reopen the same conversation.
+- To sign in again at any time: `hobkin login`
+- To run setup again: type `/setup` in Chat
+- To check your install without changing anything: `hobkin setup`. It checks Pi, git, `gh`, your models and your routines, and tells you how to fix anything missing.
+
+The first launch creates `~/.hobkin`, the folder where hobkin keeps everything. Later launches reopen the same conversation. If `hobkin` is on your PATH, you can run it from any folder. If it is not, run each `hobkin` command in this README as `pnpm hobkin` from the checkout.
 
 Coming from pi-companion? Close it, then run `hobkin import`.
 
 ## Use it
 
-Chat opens ready to type. Ask the agent to run a check now, switch models or remember something. Reports holds finished checks. Routines shows when each check runs next. The Work Mode tab appears while work mode is on, and a running check gets a tab of its own.
+hobkin opens on the Chat tab, ready for you to type. In Chat you talk to the main agent. Ask it to run a check now, switch models or remember something. The other tabs:
+
+- Reports holds the reports of finished checks.
+- Routines shows when each check runs next.
+- Action Items lists everything waiting on you. It appears while anything is waiting.
+- Work Mode appears while work mode is on.
+- Each running check gets a tab of its own.
+
+Keys:
 
 - `Enter` sends a message or opens the selected report.
-- `Ctrl+V` attaches the image on the clipboard to your message and shows it above the input. `Esc` removes the last one.
+- `Ctrl+V` attaches the image on the clipboard to your message and shows it above the input. `Esc` removes the newest one.
 - `Left` and `Right` change tabs when your draft is empty.
 - `Up` and `Down` select a report. `Page Up` and `Page Down` scroll.
-- `r` or `m` in a report takes it to Chat, so you can reply to it.
+- `r` or `m` in a report takes you to Chat with that report, so you can reply to it.
 - `Esc` leaves a report or goes back to Chat.
-- `k` in a running check's tab cancels it.
+- `k` in a running check's tab cancels the check.
 - `Ctrl+C` clears your input. `Ctrl+Q` quits.
 
-Checks and work mode run only while hobkin is open, but agents already working in Herdr panes can outlive it: quitting asks whether to stop them or let them finish, and the next hobkin picks up what they did. On a Mac it keeps the machine awake for that long, and the display still dims and sleeps.
+Checks and work mode run only while hobkin is open. The exception is agents already working in Herdr panes, which can keep going after hobkin closes. When you quit, hobkin asks whether to stop them or let them finish. If you let them finish, the next time you open hobkin it picks up what they did.
+
+While hobkin runs on a Mac, it keeps the Mac from sleeping. The display still dims and sleeps as usual.
 
 ## Add a routine
 
-Ask the agent in Chat, or save this as `~/.hobkin/routines/daily/morning-recap.md`:
+To add a routine, ask the agent in Chat, or save a file like this as `~/.hobkin/routines/daily/morning-recap.md`:
 
 ```markdown
 ---
@@ -61,19 +75,27 @@ Ask the agent in Chat, or save this as `~/.hobkin/routines/daily/morning-recap.m
 Check this project for changes worth acting on. Cite the evidence.
 ```
 
-Set your own timezone and `cwd`. hobkin picks the file up by itself, and `hobkin routines` lists your checks and any errors. The [routine guide](src/prompts/routine-setup.md) covers weekly, monthly, one-time and hourly checks.
+Change `timezone` to yours, and `cwd` to the folder the check should work in. hobkin loads the new file on its own. To list your checks and any errors in their files: `hobkin routines`. The [routine guide](src/prompts/routine-setup.md) covers weekly, monthly, one-time and hourly checks.
 
 ## Work mode
 
-Type `/work` in Chat to turn it on or off. The first time, hobkin asks which folder to start from. It looks through the repositories there and proposes projects. Nothing starts until you take one: answer in Chat, or press `y` or `n` on its row in the Work Mode tab.
+Type `/work` in Chat to turn work mode on or off.
 
-Agents study each project you take and file items for what they find. All items go in one queue, graded P0 to P3, with P0 first. Turning work mode on starts nothing new by itself: hobkin offers the next few rows, and you start those, the first one, or let the whole queue run, so it starts by itself whenever a worker is free and the daily token budget allows it. Letting it run stays your choice the next time you turn work mode on. Work that finishes a branch, such as a rebase, a fix that gets it merged, a review or your note, goes ahead of new work and starts by itself either way.
+The first time, hobkin asks which folder to start from. It looks through the repositories in that folder and proposes projects. Nothing starts until you take a project. To answer, reply in Chat, or press `y` (take it) or `n` (skip it) on its row in the Work Mode tab.
 
-Every change happens on a `hobkin/*` branch, and git can bring it all back, so nothing waits for permission. Agents never commit to your default branch or merge into it. Deploying, publishing and deleting what git cannot bring back stay with you.
+Agents study each project you take. For each thing worth doing, they file an item. Items from all your projects go into one queue, graded P0 to P3. P0 runs first.
 
-If a project's folder is clean, idle and on its default branch, a run works there, so you will see its branch until the run ends. Otherwise it uses a worktree.
+Turning work mode on does not start new work by itself. First, hobkin offers you the next few rows of the queue in Action Items. You can start those rows, start only the first one, or let the whole queue run. If you let it run, hobkin starts the next item whenever an agent is free and the daily token budget allows it. hobkin keeps this choice for the next time you turn work mode on.
 
-Each project has a priority, which sets how often agents look at it, from every hour at P0 to once a week at P3, and the grade its items start at. It also has a PR setting, which is off by default. With PRs off, finished work is a local branch plus a saved description, listed on the Done subtab for you to review. `hobkin work pr <project> <item>` prints one. The `draft` and `published` settings open a PR instead.
+Some work finishes a branch that already exists: a rebase, a fix that gets the branch merged, a review, or a note you left. That work goes ahead of new work, and it starts by itself even if you have not let the queue run.
+
+Every change happens on a `hobkin/*` branch, and git can undo all of it. That is why agents do not wait for your permission. They never commit to your default branch or merge into it. Deploying, publishing and deleting anything git cannot bring back stay with you.
+
+When a project's folder is clean, idle and on its default branch, the agent works right in that folder. You will see its branch checked out there until the run ends. Otherwise, the agent works in a separate git worktree.
+
+Each project has a priority, P0 to P3. It sets two things: how often agents look at the project, from every hour at P0 to once a week at P3, and the grade its new items start at.
+
+Each project also has a PR setting, `off` by default. With PRs off, finished work stays on your machine as a local branch with a saved description. The Done subtab of the Work Mode tab lists it for you to review. To print one: `hobkin work pr <project> <item>`. The `draft` and `published` settings open a pull request instead.
 
 In the Work Mode tab:
 
@@ -83,43 +105,71 @@ In the Work Mode tab:
 - `s` skips a queue row or puts it back.
 - `Enter` on a queue row runs it next.
 
-The Done subtab lists finished work in three groups, and Decisions lists the same ones. READY TO MERGE is what one yes can land: it has proof, no conflict and no grade against its commit, and it brings no other branch along. REFRESH THEN MERGE is the same work behind its base. NEEDS YOU is the rest, and each card says what is in its way. A group starts with its action, such as `Merge all 9`. Enter opens a page with every title it will carry out, by project and in order, and one more Enter does exactly those, each at the commit its card showed. One that cannot go says why in Chat, and the rest still go.
+### Finished work
 
-Every card still opens by itself, the highest priority first, each with its safety grade. Enter opens a card's page, with the one risk its review named, where to look first and how to undo it. Below it the card says whether the work is finished and what it did, its proof, whether a review covers this commit, and what Merge does to which branch, then asks what to do, each choice in words: the arrows choose and Enter picks.
+Each piece of finished work shows as a card. The Done subtab and the Action Items tab sort the cards into the same three groups:
 
-- `Merge it` merges the branch on this machine and pushes nothing. A branch behind its base offers `Refresh and merge it`: an agent brings it up to date and runs its proof again, and hobkin merges it once that run ends well.
-- A card offers its merge first, graded or not, and `Get it reviewed` further down. Only a card rated risky at its commit offers its review first, and its merge says so. A review runs only when you ask for one.
-- `Show the diff` opens the diff, `Cancel it` says no and hobkin learns from it, and `Ask for changes` sends an agent back with the words you type. With work mode off or paused, asking for changes, a rebase or a review goes to the main agent, which starts a session on that branch.
-- A step only you can take offers `Mark it done`, `Talk it over in Chat` or `Not needed`, which says no and hobkin learns from it.
-- Under NOT LANDED, an older item that says done with work still on its branch waits until the next survey makes it finished work again. Its card can close it for good.
+- READY TO MERGE: work you can land with one yes. It has proof that it works, it has no conflict, no review rated its commit below safe, and merging it brings in no other branch.
+- REFRESH THEN MERGE: the same, except that the branch is behind its base.
+- NEEDS YOU: everything else. Each card says what is in its way.
 
-Whatever you do on a card, Chat says so in one line that names the project and the title, with the link for a PR. The main agent hears it with your next message. A group's yes gets the same line for each card, then one line that sums it up. A PR you merge from its card closes at once and leaves the list.
+Each group starts with its action, such as `Merge all 9`. Enter opens a page that lists every title the action covers, by project and in order. One more Enter carries out exactly those, each at the commit its card showed. If one cannot go, Chat says why, and the rest still go.
 
-Once you merge and push, hobkin watches what happens next. A check every half hour, with no model, sees whether origin has the change, whether CI passed and whether a revert landed, and a look reads the project's logs and errors. WATCHING on the Done subtab shows each change as it goes. When one goes wrong, hobkin files an urgent fix, and `hobkin work trouble <project> <item>` says so yourself. Agents never deploy, roll back or revert your default branch.
+You can also open each card on its own. Cards are listed highest priority first, each with its safety grade. Enter opens a card's page. It shows the main risk its review named, where to look first, and how to undo the change. Below that, the card says whether the work is finished and what it did, what proves it works, whether a review covers this commit, and which branch Merge changes. Then it asks what to do, with each choice written out: the arrows choose and Enter picks.
 
-With learning on, a change like one that already went well comes to you as an offer in Action Items, with what happened last time and the one risk to look at: Later, Merge it, Read it or Not this one. hobkin still merges only on your word.
+- `Merge it` merges the branch on this machine. It pushes nothing. A branch that is behind its base offers `Refresh and merge it` instead: an agent updates the branch and runs its proof again, and hobkin merges it if that run succeeds.
+- The merge choice comes first, whether or not the work has a grade, and `Get it reviewed` comes further down. The only exception is a card whose review rated its current commit risky. That card offers the review first, and its merge choice says the work is rated risky. A review runs only when you ask for one.
+- `Show the diff` opens the diff. `Cancel it` says no, and hobkin learns from your no. `Ask for changes` sends an agent back to the branch with the words you type. When work mode is off or paused, a request for changes, a rebase or a review goes to the main agent instead, and the main agent starts a session on that branch.
+- A card for a step only you can take offers `Mark it done`, `Talk it over in Chat` and `Not needed`. `Not needed` says no, and hobkin learns from it.
+- NOT LANDED holds older items marked done that still have work on their branch. Each one waits there until the next survey, hobkin's check of your repositories every half hour, turns it back into finished work. Its card can also close it for good.
 
-A question from a routine or work mode opens on screen for 30 seconds while you are there, then moves to the Action Items tab, so nothing stops for you. One that comes while you are away waits for you, and after ten minutes it goes to Decisions without opening. Each one has a one-line summary and numbered choices: press the number to answer, or pick the last row to answer in your own words. A routine that asks what you answered in the last 30 days gets your answer back and does not ask again.
+Whatever you do on a card, Chat shows one line with the project, the title and, for a PR, its link. The main agent learns of it with your next message. A yes to a whole group shows that line for each card, then one line that sums up the group. A PR you merge from its card closes at once and leaves the list.
 
-Action Items lists everything waiting on you, with work mode on or off: questions, finished branches, steps only you can take and reports with a call. Pick one and work on it there. Enter opens a row, and it asks the way a question does: each thing it can do in words, the arrows to choose and Enter to pick. A finished branch opens its page with its choices below, the same as in Done, and letters do nothing there except `r`, so a key meant for another tab cannot act on it. `r` on any row, or with its box open, talks it over in Chat.
+When 8 or more finished changes are waiting for you, hobkin stops starting new work. Instead, it brings you the next two as one decision, so finished work lands before the queue grows. Reviews, rebases, urgent work and the items you pick yourself still run. To let new work start anyway for the rest of the day: `hobkin work ship off`.
 
-When you come back after two hours or more to three or more things that came in, Chat says so in one line, such as `It's been a while. While you were away: 4 decisions, 6 reports (2 with a call) and 1 from work mode. Want a brief? Just say: brief me`. It asks nothing, and it comes once each time you come back, even after a night with hobkin closed. Say `brief me` and the main agent writes the brief: what matters most and why, what changed, then what needs you, numbered. Answer in your own words, such as `1 yes, 2 drop it`, and it carries each one out. A merge still takes your yes on its numbered line. `hobkin pending` prints what waits as JSON.
+When a background agent finishes, Chat says what it did. If it ran as a session, its report also appears in Reports.
 
-With 8 or more finished and waiting, hobkin starts no new work and brings the next two to move as one decision, so the queue gets healthy before it grows. Reviews, rebases, urgent work and your own picks still run, and `hobkin work ship off` lets new work start for the rest of the day.
+### After you merge
 
-When a background agent finishes, Chat says what it did, and a session's report joins Reports.
+After you merge and push a change, hobkin watches what happens next. Every half hour, a check that uses no model looks at whether origin has the change, whether CI passed and whether a revert landed. An agent also reads the project's logs and errors. WATCHING on the Done subtab shows how each change is doing.
 
-Once a week, Chat gets a review that says what is progressing and which projects look stale, then a few lines on what hobkin brought you, what you did with it and what it settled alone. It drops nothing itself, and `hobkin work review` prints it at any time. `hobkin telemetry` prints the same numbers.
+When a change goes wrong, hobkin files an urgent fix. To report a problem yourself: `hobkin work trouble <project> <item>`. Agents never deploy, roll back or revert your default branch.
 
-hobkin looks after itself too. When its own harness fails the same way 3 times in a day, it files a fix on its own project, or says so in one quiet line in Chat if you have not chosen that project. Work mode picks the fix up like any other item.
+Learning is a setting that lets hobkin learn from how earlier work turned out. With learning on, a change like one that already went well comes to you as an offer in Action Items. The offer says what happened last time and names the one risk to look at. It gives four choices: Later, Merge it, Read it or Not this one. hobkin still merges only when you say so.
+
+### Questions and Action Items
+
+A question from a routine or from work mode never holds up other work. If you are at the screen, the question opens for 30 seconds, then moves to the Action Items tab. If you are away when it comes, it waits for you, and after ten minutes it moves to Action Items without opening. Each question has a one-line summary and numbered choices. Press a number to answer, or pick the last row to answer in your own words. If a routine asks something you already answered in the last 30 days, it gets your earlier answer and does not ask again.
+
+The Action Items tab lists everything waiting on you, whether work mode is on or off: questions, finished branches, steps only you can take, and reports that ask you to act. Pick a row and deal with it there. Enter opens the row, and it asks what to do the way a question does: each choice in words, the arrows to choose and Enter to pick. A finished branch opens its page with its choices below, as in Done. There, letter keys do nothing except `r`, so a key meant for another tab cannot act on the card by mistake. `r` on any row, or with its box open, starts a conversation about it in Chat.
+
+### When you come back
+
+If you were away for two hours or more and three or more things came in, Chat tells you in one line, such as `It's been a while. While you were away: 4 decisions, 6 reports (2 with a call) and 1 from work mode. Want a brief? Just say: brief me`. The line asks nothing. It comes once each time you come back, even after a night with hobkin closed.
+
+Say `brief me` and the main agent writes a brief: what matters most and why, what changed, then a numbered list of what needs you. Answer in your own words, such as `1 yes, 2 drop it`, and it carries out each answer. A merge still needs your yes on its own numbered line. To print what is waiting as JSON: `hobkin pending`.
+
+### Weekly review and self-repair
+
+Once a week, hobkin posts a review in Chat. It says what is moving forward and which projects look stale. Then a few lines count what hobkin brought you, what you did with it, and what it settled without you. hobkin never drops a project by itself.
+
+- To print the review at any time: `hobkin work review`
+- To print the same numbers: `hobkin telemetry`
+
+hobkin also watches for its own failures. When it fails the same way 3 times in a day, it files a fix on its own project. If you have not taken hobkin as a work mode project, it posts one quiet line in Chat instead. Work mode picks up the fix like any other item.
 
 ## From your other agents
 
-Your other agent sessions, such as Pi or Claude Code in another project, can hand hobkin what matters to you. `hobkin skill install` puts hobkin's skill in `~/.pi/agent/skills`, and `--to` puts it in another agent's skills folder, such as `~/.claude/skills`. With it, an agent hands over:
+Agents you run elsewhere, such as Pi or Claude Code in another project, can pass hobkin things that matter to you. hobkin's skill teaches them how. To install it:
 
-- A date, with `hobkin remind <text> --on YYYY-MM-DD`. On that day Chat shows it, Decisions asks Done or Remind me tomorrow, and the main agent hears it.
-- A choice for later, with `hobkin decide --from <name>`. It waits in Decisions, and the main agent hears your answer.
-- A fact, with `hobkin remember <text>`. The main agent hears it with your next message, files it in its memory and says so.
+- For Pi: `hobkin skill install` puts it in `~/.pi/agent/skills`
+- For another agent: add `--to` with that agent's skills folder, as in `hobkin skill install --to ~/.claude/skills`
+
+With the skill, an agent can hand hobkin three kinds of things:
+
+- A date: `hobkin remind <text> --on YYYY-MM-DD`. On that day, Chat shows the reminder, Action Items asks Done or Remind me tomorrow, and the main agent hears about it.
+- A choice for you to make later: `hobkin decide --from <name>`. It waits in Action Items, and your answer goes to the main agent.
+- A fact: `hobkin remember <text>`. The main agent hears it with your next message, saves it to its memory and tells you.
 
 These commands write files on your machine and send nothing anywhere.
 
@@ -152,7 +202,7 @@ To send anything, your machine needs its own key from hobkin's server. It gets o
 
 ## Development checks
 
-Use pnpm 11.12.0, as pinned in `package.json`. `pnpm install` downloads the Node 26.3.1 development runtime declared in `devEngines.runtime`; pnpm scripts and their child commands use it without changing your global Node or pnpm launcher. The application still supports Node 22.19 or newer.
+Use pnpm 11.12.0, the version pinned in `package.json`. `pnpm install` downloads Node 26.3.1, the development runtime set in `devEngines.runtime`. pnpm scripts, and the commands they start, run on that Node. Your global Node and pnpm launcher stay as they are. hobkin itself still runs on Node 22.19 or newer.
 
 ```sh
 pnpm install
@@ -161,7 +211,11 @@ pnpm test:cli
 pnpm test:migration
 ```
 
-The CLI suite exercises qmd when it is installed, using temporary private indexes without loading embedding models. Its native addons must support the development runtime (Node 26 ABI 147). If `qmd --version` works but indexing fails, run `pnpm exec qmd --index probe status` from the checkout with both `XDG_CACHE_HOME` and `XDG_CONFIG_HOME` set to temporary directories; version output alone does not load the database addon. Use a compatible qmd installation rather than skipping these tests. The checkout denies the optional build scripts listed in `pnpm-workspace.yaml`; dependency preflight checks remain enabled.
+When qmd is installed, the CLI suite tests it too. The tests use temporary private indexes and do not load embedding models. qmd's native addons must support the development runtime (Node 26, ABI 147).
+
+`qmd --version` does not load qmd's database addon, so it can work while indexing fails. In that case, run `pnpm exec qmd --index probe status` from the checkout, with both `XDG_CACHE_HOME` and `XDG_CONFIG_HOME` set to temporary folders. If qmd does not work with this runtime, install a version that does. Do not skip these tests.
+
+The checkout turns off the optional build scripts listed in `pnpm-workspace.yaml`. Dependency preflight checks still run.
 
 ## Where to go next
 
