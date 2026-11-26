@@ -34,6 +34,7 @@ import {
   type EngineChoice,
   type EngineOffer,
 } from './rules.ts'
+import { openingFocus, startTakesKeyboard } from './sheet-keyboard.ts'
 import { useNewHobkin, type SheetPrompt } from './store.ts'
 
 /** A hue for the durable hobkin the explanation shows. Any other than hobkin's own yellow. */
@@ -50,7 +51,8 @@ const WORKER_HUE = 200
 export function NewHobkin() {
   const open = useNewHobkin((state) => state.open)
   const closeSheet = useNewHobkin((state) => state.closeSheet)
-  const first = useRef<HTMLElement | null>(null)
+  const first = useRef<HTMLButtonElement | null>(null)
+  const popup = useRef<HTMLDivElement | null>(null)
   /**
    * The hobkin this sheet started, kept until the sheet opens again. Once the sheet has gone the keyboard goes to its talk
    * box instead of back where it was. Base UI asks where focus returns only after the close has completed, so this is never
@@ -86,7 +88,8 @@ export function NewHobkin() {
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-scrim backdrop-blur-md transition-opacity duration-[320ms] ease-[ease] data-[ending-style]:opacity-0 data-[ending-style]:duration-[200ms] data-[starting-style]:opacity-0" />
         <Dialog.Popup
-          initialFocus={first}
+          ref={popup}
+          initialFocus={() => openingFocus(first.current, popup.current)}
           finalFocus={() => started.current === null}
           className={cn(
             'fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-48px)] w-[min(640px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] bg-background shadow-float outline-none',
@@ -111,7 +114,7 @@ export function NewHobkin() {
 }
 
 /** The explanation the first time, and the form after it. The sheet starts over each time it opens. */
-function Sheet({ first, onStarted }: { first: RefObject<HTMLElement | null>; onStarted: (id: string) => void }) {
+function Sheet({ first, onStarted }: { first: RefObject<HTMLButtonElement | null>; onStarted: (id: string) => void }) {
   const still = useStill()
   const [explaining, setExplaining] = useState(() => !introSeen())
   const view = explaining ? 'intro' : 'form'
@@ -141,7 +144,7 @@ function Sheet({ first, onStarted }: { first: RefObject<HTMLElement | null>; onS
 }
 
 /** How a durable hobkin differs from the main one, in plain words. */
-function Intro({ first, onOn }: { first: RefObject<HTMLElement | null>; onOn: () => void }) {
+function Intro({ first, onOn }: { first: RefObject<HTMLButtonElement | null>; onOn: () => void }) {
   return (
     <div className="flex flex-col gap-6 p-8">
       <div>
@@ -191,7 +194,7 @@ function Point({ face, title, children }: { face: ReactNode; title: string; chil
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
-function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | null>; onExplain: () => void; onStarted: (id: string) => void }) {
+function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLButtonElement | null>; onExplain: () => void; onStarted: (id: string) => void }) {
   const config = useTiers((state) => state.config)
   const follows = useTiers((state) => state.follows)
   const checks = useTiers((state) => state.checks)
@@ -247,6 +250,12 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
   const chooseAgain = wanted !== null && wanted.kind !== choice.kind
   const canStart = connected && loaded === source && !busy && !claudeMissing && !chooseAgain && args !== null
   const customModels = offers.find((offer) => offer.kind === 'pi')?.models ?? []
+  const form = useRef<HTMLFormElement | null>(null)
+  // Start is disabled until the model settings are read, so the sheet opened with the keyboard on itself
+  // (`sheet-keyboard.ts`): once Start can be pressed it takes it, unless the user moved it to a field.
+  useEffect(() => {
+    if (canStart && startTakesKeyboard(document.activeElement, form.current)) first.current?.focus()
+  }, [canStart, first])
 
   const start = async () => {
     if (!canStart || !args) return
@@ -272,6 +281,7 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
 
   return (
     <form
+      ref={form}
       className="flex min-h-0 flex-col"
       onSubmit={(event) => {
         event.preventDefault()
