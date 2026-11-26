@@ -96,8 +96,15 @@ function cardFields(decision) {
   return fields;
 }
 
-// A filed question names what it is about only as a hash, so the questions view can count one asked again after its answer without any words.
-const topicOf = ({ kind, key }) => (kind || key ? createHash('sha256').update(kind ? `kind:${kind}` : `key:${key}`).digest('hex').slice(0, 12) : null);
+/**
+ * A filed question names what it is about only as hashes, so the questions view can count one asked again after its answer without any words:
+ * its key as `topic`, and, when a standing rule could have settled it, its asker's kind as `kindTopic`.
+ */
+const hashOf = text => createHash('sha256').update(text).digest('hex').slice(0, 12);
+const topicsOf = decision => ({
+  ...(decision.key ? { topic: hashOf(`key:${decision.key}`) } : {}),
+  ...(ruleCouldAnswer(decision) ? { kindTopic: hashOf(`kind:${ruleAsker(decision)}:${decision.kind}`) } : {}),
+});
 
 // Every tick asks for the log many times over, so it is folded once per version of the file (`file-version.mjs`).
 const folded = new Map();
@@ -165,8 +172,7 @@ function fileRecord(root, { key = null, from, question, tldr, choices, answerTo 
     at: known?.at ?? new Date(now).toISOString(),
     shown: known?.shown ?? shown,
   });
-  const topic = topicOf({ kind: card.kind, key });
-  if (!known) recordEvent(root, 'decision_filed', { id, source: answerTo?.kind, ...(topic ? { topic } : {}) }, now);
+  if (!known) recordEvent(root, 'decision_filed', { id, source: answerTo?.kind, ...topicsOf({ ...card, key, answerTo, from }) }, now);
   return { id };
 }
 

@@ -278,16 +278,24 @@ test('card fields are checked, and a card that fails is not filed', async t => {
   assert.deepEqual(openDecisions(root), []);
 });
 
-test('the filed event names the topic as a hash, never its words, so a question asked again can be counted', async t => {
+test('the filed event names its key as a hash, and its kind only where a rule could have settled it, never their words', async t => {
   const root = home(t);
-  await runDecideCommand(root, ['routine', 'site'], card({ kind: 'merge-small-fix' }), FILED);
-  await runDecideCommand(root, ['routine', 'bank'], card({ kind: 'merge-small-fix', question: 'Merge the readme fix?' }), FILED);
+  await runDecideCommand(root, ['routine', 'site'], card({ key: 'typo', kind: 'merge-small-fix' }), FILED);
+  await runDecideCommand(root, ['routine', 'site'], card({ key: 'readme', kind: 'merge-small-fix', question: 'Merge the readme fix?' }), FILED);
+  await runDecideCommand(root, ['routine', 'docs'], card({ key: 'typo', kind: 'merge-small-fix' }), FILED);
+  await runDecideCommand(root, ['routine', 'site'], card({ key: 'mail', kind: 'email-reply' }), FILED);
+  await runDecideCommand(root, ['routine', 'site'], card({ key: 'decision-load:2026-W48' }), FILED);
 
   const filed = readEvents(root).filter(({ type }) => type === 'decision_filed');
-  assert.equal(filed.length, 2);
-  assert.match(filed[0].topic, /^[0-9a-f]{12}$/);
-  assert.equal(filed[0].topic, filed[1].topic, 'one kind is one topic');
-  assert.doesNotMatch(JSON.stringify(filed), /merge-small-fix|typo/);
+  const [typo, readme, docs, mail, week] = filed;
+  assert.match(typo.topic, /^[0-9a-f]{12}$/);
+  assert.notEqual(typo.topic, readme.topic, 'each key is its own topic');
+  assert.notEqual(typo.topic, docs.topic, 'and so is the same key from another routine');
+  assert.match(typo.kindTopic, /^[0-9a-f]{12}$/);
+  assert.equal(typo.kindTopic, readme.kindTopic, 'one routine\'s kind is one topic a rule could have settled');
+  assert.notEqual(typo.kindTopic, docs.kindTopic, 'a rule answers only its own routine');
+  assert.deepEqual([mail.kindTopic, week.kindTopic], [undefined, undefined], 'no rule settles a guarded kind, or a card without one');
+  assert.doesNotMatch(JSON.stringify(filed), /merge-small-fix|typo|readme|decision-load/);
 });
 
 const learnCard = (fields = {}) => card({ kind: 'merge-small-fix', learn: true, rule: 'From now on, small fixes merge without asking.', ...fields });

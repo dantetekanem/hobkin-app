@@ -80,9 +80,9 @@ test('questions: asked per day by source, how each ended, the median time to ans
   assert.deepEqual(view.sheet, { shown: 1, ended: { answered: 1, dismissed: 1, expired: 1 }, medianAnswerMs: 4000 });
 });
 
-test('questions: a default counts as settled, a recall or a rule as not asked, and a topic asked again after its answer as a repeat', t => {
+test('questions: a default counts as settled, a recall or a rule as not asked, and a key or a kind asked again after its answer as a repeat', t => {
   const root = dataRoot(t);
-  const file = (id, day, hour, topic) => recordEvent(root, 'decision_filed', { id, source: 'routine', ...(topic ? { topic } : {}) }, local(day, hour));
+  const file = (id, day, hour, topic, kindTopic) => recordEvent(root, 'decision_filed', { id, source: 'routine', ...(topic ? { topic } : {}), ...(kindTopic ? { kindTopic } : {}) }, local(day, hour));
   file('a', 25, 9, 'aaa');
   recordEvent(root, 'decision_answered', { id: 'a', source: 'routine', ms: MINUTE_MS }, local(25, 10));
   file('b', 25, 11, 'aaa');
@@ -92,17 +92,21 @@ test('questions: a default counts as settled, a recall or a rule as not asked, a
   file('e', 26, 10, 'aaa');
   file('f', 26, 11);
   file('g', 24, 8, 'ccc');
+  file('h', 25, 14, 'hhh', 'kkk');
+  recordEvent(root, 'decision_answered', { id: 'h', source: 'routine', ms: MINUTE_MS }, local(25, 15));
+  file('i', 26, 14, 'iii', 'kkk');
+  file('j', 26, 15, 'jjj', 'lll');
   recordEvent(root, 'decision_recalled', { routine: 'mail' }, local(26, 12));
   recordEvent(root, 'decision_recalled', { routine: 'mail', by: 'rule' }, local(26, 12));
   recordEvent(root, 'decision_recalled', { routine: 'site', by: 'rule' }, local(26, 13));
 
   const view = telemetryView(root, 'questions', { days: 2, now: NOW });
 
-  assert.equal(view.asked, 6, 'g was filed before the two days');
+  assert.equal(view.asked, 9, 'g was filed before the two days');
   assert.equal(view.ended.settled, 1, 'c took its pick at its deadline');
-  assert.equal(view.ended.answered, 1);
-  assert.equal(view.repeats, 3, 'b and e came after a was answered, and d after c defaulted');
-  assert.deepEqual([view.byDay['2026-11-25'].repeats, view.byDay['2026-11-26'].repeats], [1, 2]);
+  assert.equal(view.ended.answered, 2);
+  assert.equal(view.repeats, 4, 'b and e came after a was answered, d after c defaulted, and i, of h\'s kind, after h was answered');
+  assert.deepEqual([view.byDay['2026-11-25'].repeats, view.byDay['2026-11-26'].repeats], [1, 3]);
   assert.deepEqual(view.notAsked, { earlierAnswer: 1, standingRule: 2 });
 });
 

@@ -29,7 +29,6 @@ Last, ask one question. Pipe this to the `decide` command in your request, with 
 ```json
 {
   "key": "decision-load:2026-W48",
-  "kind": "decision-load",
   "question": "How heavy did deciding feel this week?",
   "tldr": "How heavy was deciding this week?",
   "choices": [

@@ -79,16 +79,18 @@ function* byHourOf([start, end]) {
   }
 }
 
+// What a filed question is about: its key, and its kind when a standing rule could have settled it (decisions.mjs).
+const topicsOf = ({ topic, kindTopic }) => [topic, kindTopic].filter(Boolean);
+
 /**
  * When each topic was first answered, by the user or by its default, among the questions filed in these events. A question filed on a topic
  * after that is a repeat: a filed one is one no rule settled, since a rule files nothing.
  */
 function firstAnswers(events) {
-  const topicOf = new Map(ofType(events, 'decision_filed').filter(({ topic }) => topic).map(({ id, topic }) => [id, topic]));
+  const topicsById = new Map(ofType(events, 'decision_filed').map(event => [event.id, topicsOf(event)]));
   const first = new Map();
   for (const event of ofType(events, 'decision_answered', 'decision_defaulted')) {
-    const topic = topicOf.get(event.id);
-    if (topic) first.set(topic, Math.min(first.get(topic) ?? Infinity, timeOf(event)));
+    for (const topic of topicsById.get(event.id) ?? []) first.set(topic, Math.min(first.get(topic) ?? Infinity, timeOf(event)));
   }
   return first;
 }
@@ -113,7 +115,7 @@ function questions(events) {
     ended: endOf(event),
     where: where(timeOf(event)),
     ms: answered.get(event.id)?.ms,
-    repeat: answeredFirst.get(event.topic) < timeOf(event),
+    repeat: topicsOf(event).some(topic => answeredFirst.get(topic) < timeOf(event)),
   }));
   const summary = own => ({
     asked: own.length,
