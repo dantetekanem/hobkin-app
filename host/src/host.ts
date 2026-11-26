@@ -83,6 +83,7 @@ import { setupNeedsHandlers } from './setup-needs.ts'
 import { workHandlers } from './work.ts'
 import { workQueueHandlers } from './work-queue.ts'
 import { guideHandlers } from './work-guide.ts'
+import { localTestOf } from './local-test.ts'
 import { catchUpHandlers } from './report-catch-up.ts'
 import { newProjectHandlers } from './work-new-project.ts'
 import { metricsHandlers } from './metrics.ts'
@@ -800,6 +801,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // An agent's schedules, cancelled, paused or run now from the window's list, through hobkin's own methods (056).
     ...newProjectHandlers({ root: () => hobkin().runtime.directory, refresh: () => hobkin().refresh() }),
     ...guideHandlers({ root: () => hobkin().runtime.directory, refresh: () => hobkin().refresh() }),
+    'work.local-test': ({ slug }) => localTestOf(hobkin().runtime.directory, slug),
     ...catchUpHandlers({ app: hobkin }),
     ...folderPickHandlers({ pick: options.pickFolder ?? (async () => null) }),
     ...scheduleHandlers({ operations: () => scheduleOperationsOf(hobkin()), schedules: () => agentSchedules.read(owner.snapshot), runs: () => scheduleRunsOf(hobkin()) }),
