@@ -34,15 +34,25 @@ const GROUPS: [string, ItemKind][] = [
   ['reports', 'routine'],
 ]
 
+/** The rules from Pi's AGENTS.md that Your directions lack (`038-resources`): a yes adds them, a no lasts until Pi's file changes. */
+const PI_DIRECTIONS_CHOICES = [
+  { value: 'yes', label: 'Yes, add them to my directions' },
+  { value: 'later', label: 'No, but ask me later' },
+  { value: 'no', label: "No, not until Pi's file changes" },
+]
+
 /**
  * What a learning proposal offers, in the words hobkin's terminal uses for it (`learningChoicesFor` in its
  * `src/cli/ui.mjs`). A proposal about a repo is never asked again for that repo.
  */
-const learningChoices = (scope: string) => [
-  { value: 'yes', label: 'Yes, plan it' },
-  { value: 'later', label: 'No, but ask me later' },
-  { value: 'no', label: scope.startsWith('work.') ? 'No, never again for this repo' : 'No, never again' },
-]
+const learningChoices = (scope: string) =>
+  scope === 'pi-directions'
+    ? PI_DIRECTIONS_CHOICES
+    : [
+        { value: 'yes', label: 'Yes, plan it' },
+        { value: 'later', label: 'No, but ask me later' },
+        { value: 'no', label: scope.startsWith('work.') ? 'No, never again for this repo' : 'No, never again' },
+      ]
 
 /** hobkin's `work done`: what the step left for the user is cleared, and any branch or PR stays as it is. */
 const DONE = { value: 'done', label: 'Mark it done' }
