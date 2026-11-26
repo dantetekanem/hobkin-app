@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { recordEvent } from '../src/cli/events.mjs';
+import { addMemory } from '../src/cli/memories.mjs';
+import { recordMemoryUse } from '../src/cli/memory-use.mjs';
 import { main } from '../src/cli/main.mjs';
 import { telemetryView, TELEMETRY_VIEWS } from '../src/cli/telemetry/views.mjs';
 
@@ -178,4 +180,19 @@ test('help names the views', async () => {
   await main(['--help'], output);
   assert.match(output.text(), /telemetry <view> \[--days n\]/);
   assert.match(output.text(), /telemetry help lists them all/);
+});
+
+test('the memory view lists the shared memories agents used and those nobody used, never a private one', t => {
+  const root = dataRoot(t);
+  const author = { by: { kind: 'main' }, source: { kind: 'chat' }, now: NOW - 2 * HOUR_MS };
+  addMemory(root, { name: 'lives-in-lisbon', kind: 'user', description: 'Lives in Lisbon since 2025' }, author);
+  addMemory(root, { name: 'tram-pass', kind: 'pointer', description: 'Monthly tram pass in the blue wallet' }, author);
+  addMemory(root, { name: 'partner-name', kind: 'user', description: 'Partner is called Ana', private: true }, author);
+  recordMemoryUse(root, { kind: 'recall', names: ['lives-in-lisbon', 'partner-name'], by: 'main' }, { now: NOW - HOUR_MS });
+
+  const { used, unused } = telemetryView(root, 'memory', { days: 30, now: NOW });
+
+  assert.deepEqual(used.map(({ name, recalls }) => [name, recalls]), [['lives-in-lisbon', 1]]);
+  assert.deepEqual(unused, [{ name: 'tram-pass', kind: 'pointer' }]);
+  assert.ok(!JSON.stringify({ used, unused }).includes('partner-name'), 'a private memory stays out of the view');
 });

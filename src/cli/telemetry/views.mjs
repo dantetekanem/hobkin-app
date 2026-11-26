@@ -1,4 +1,6 @@
 import { AWAY_GAP_MS, localDay, readEvents } from '../events.mjs';
+import { readMemories } from '../memories.mjs';
+import { readMemoryUse } from '../memory-use.mjs';
 
 const DAY_MS = 86400000;
 const MINUTE_MS = 60000;
@@ -148,10 +150,23 @@ function presence(events) {
  * The views `hobkin telemetry <view>` prints, each with its line for `hobkin telemetry help`. A view gets the events since `since`, oldest
  * first, with `{ root, since, now }`, and returns facts only. A new view is one more entry here.
  */
+/**
+ * Which shared memories agents recalled or had in their index, from the local memory-use file, and the shared ones nobody
+ * used in that time. A private memory is left out, as everywhere outside the main chat and durable hobkins (057).
+ */
+function memory(events, { root, since, now }) {
+  const { memories: shared } = readMemories(root, { private: false, now });
+  const names = new Set(shared.map(({ name }) => name));
+  const used = readMemoryUse(root, { days: Math.max(1, Math.round((now - since) / DAY_MS)), now }).filter(({ name }) => names.has(name));
+  const usedNames = new Set(used.map(({ name }) => name));
+  return { used, unused: shared.filter(({ name }) => !usedNames.has(name)).map(({ name, kind }) => ({ name, kind })) };
+}
+
 export const TELEMETRY_VIEWS = {
   questions: { line: 'questions filed per day by source, how each ended, the median time to answer, and whether the user was away when each came', view: questions },
   interruptions: { line: 'Chat notices per day by source and tone, and how many came in each local hour', view: interruptions },
   presence: { line: 'when the user was first on each day, each return after 15 minutes or more away, and the minutes on in each local hour', view: presence },
+  memory: { line: 'which shared memories agents recalled or had in their index, and the ones nobody used', view: memory },
 };
 
 const NAMES = [...Object.keys(TELEMETRY_VIEWS), 'help'];
