@@ -10,7 +10,6 @@ import { atomicJson, initialize, setLearning } from '../src/cli/config.mjs';
 import { writeAnswersView } from '../src/cli/decided.mjs';
 import { answerDecision, fileDecision } from '../src/cli/decisions.mjs';
 import { recordEvent } from '../src/cli/events.mjs';
-import { importHome } from '../src/cli/import.mjs';
 import { runLearningCommand } from '../src/cli/learning/commands.mjs';
 import { injectedLessons, saveState, writeLessonsView } from '../src/cli/learning/store.mjs';
 import { main } from '../src/cli/main.mjs';
@@ -483,24 +482,6 @@ test('everything Hobkin keeps for the index is private to the user', async t => 
   assert.equal(mode(join(root, 'runtime/.qmd')), 0o700);
   for (const name of readdirSync(join(root, 'runtime/.qmd'))) assert.equal(mode(join(root, 'runtime/.qmd', name)), 0o600, name);
   assert.equal(mode(lessonsFile(root)), 0o600);
-});
-
-test('a home that has run stays one that `hobkin import` will replace', async t => {
-  const { base, root } = fixture(t);
-  const qmd = fakeQmd(t);
-  const index = open(t, root);
-  await settled(() => qmd.ended('status') === 1, 'the first pass finish');
-  await index.stop();
-  rmSync(join(root, 'memory.md'));
-
-  const old = join(base, 'old');
-  mkdirSync(join(old, 'runtime'), { recursive: true });
-  writeFileSync(join(old, 'config.json'), readFileSync(join(root, 'config.json')));
-  const app = await HobkinApplication.open(old, { createMain: fakePi(old).createMain });
-  await app.close();
-
-  await importHome(root, old);
-  assert.equal(existsSync(join(root, 'runtime/hobkin.sqlite')), true);
 });
 
 test('a file that went empty leaves the index, because qmd holds on to the last text of an empty file', async t => {

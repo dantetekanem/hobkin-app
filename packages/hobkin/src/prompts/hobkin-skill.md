@@ -107,7 +107,7 @@ These change things. Use them only when the user asked, except the three in Hand
 | `hobkin reports delete ID...` | Deletes reports everywhere. Run receipts stay, so nothing replays. |
 | `hobkin reports catch-up` | Asks the running hobkin for one catch-up report over the unread reports no catch-up covered yet, on its fast model, and prints a `message`. When there are none, it says so and asks for nothing. |
 | `hobkin init` | Creates a workspace. |
-| `hobkin patterns-submit`, `upgrade-apply` | Model spend and migrations, with their own confirmation steps. |
+| `hobkin patterns-submit` | Model spend, with its own confirmation step. |
 
 
 ## Read results
