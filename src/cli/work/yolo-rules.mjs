@@ -45,13 +45,12 @@ export const RULE_DEFAULTS = {
   askPaths: SENSITIVE_WORDS,
   mergesAPass: 1,
   keptCurrent: 3,
-  backgroundADay: 20,
   tries: 3,
   reviewPulls: 'none',
 };
 
 /** The settings only all projects share: reviews are made for a repository, not for a project's rules. */
-export const ALL_PROJECTS_ONLY = ['keptCurrent', 'backgroundADay', 'tries', 'reviewPulls'];
+export const ALL_PROJECTS_ONLY = ['keptCurrent', 'tries', 'reviewPulls'];
 /** Where a score's lowest is kept, for each of the five questions. */
 export const FLOOR_RULES = Object.fromEntries(CRITERIA.map(criterion => [criterion, `floor${criterion[0].toUpperCase()}${criterion.slice(1)}`]));
 
@@ -120,7 +119,6 @@ const checks = {
     return count;
   },
   keptCurrent: countOrNone('Reviews kept current for a repository'),
-  backgroundADay: countOrNone('Background reviews a day'),
   tries: count => {
     if (!inRange(count, 1, MOST_TRIES)) throw Error(`Tries to get all five ratings is a whole number from 1 to ${MOST_TRIES}.`);
     return count;

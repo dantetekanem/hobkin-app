@@ -37,7 +37,7 @@ test('a home that set nothing has today\'s rules, and each default is what the c
   assert.equal(rules.mostAreas, 2);
   assert.deepEqual([rules.deletedTestsMayMerge, rules.oneWayUndoMayMerge, rules.earlierBranchesMayMerge, rules.leftNoteMayMerge], [false, false, false, false]);
   assert.equal(rules.mergesAPass, 1);
-  assert.deepEqual([rules.keptCurrent, rules.backgroundADay, rules.tries], [3, 20, 3]);
+  assert.deepEqual([rules.keptCurrent, rules.tries], [3, 3]);
   assert.equal(rules.reviewPulls, 'none');
   assert.deepEqual(rulesOf(root, null), rules);
   assert.deepEqual(Object.keys(RULE_DEFAULTS).toSorted(), Object.keys(rules).toSorted());
@@ -65,7 +65,6 @@ test('each setting takes its range and refuses what is outside it in plain words
   refused({ mergesAPass: 0 }, /1 to 5/);
   refused({ tries: 11 }, /1 to 10/);
   refused({ keptCurrent: 0 }, /1 or more, or none/);
-  refused({ backgroundADay: 1.5 }, /1 or more, or none/);
   refused({ askPaths: ['x'.repeat(81)] }, /80 characters/);
   refused({ askPaths: Array.from({ length: 101 }, (_, index) => `word${index}`) }, /100 words/);
   refused({ askPaths: [''] }, /plain text/);
@@ -75,9 +74,9 @@ test('each setting takes its range and refuses what is outside it in plain words
   refused({}, /Name a YOLO setting/);
   assert.equal(rulesOf(root, null).testsPass, true, 'the valid value in a refused call stayed unset');
 
-  setYoloRules(root, null, { mostLines: null, mostAreas: null, keptCurrent: null, backgroundADay: null, mergesAPass: 5, tries: 10, askPaths: [], lowestRate: 9.5 });
+  setYoloRules(root, null, { mostLines: null, mostAreas: null, keptCurrent: null, mergesAPass: 5, tries: 10, askPaths: [], lowestRate: 9.5 });
   const rules = rulesOf(root, null);
-  assert.deepEqual([rules.mostLines, rules.mostAreas, rules.keptCurrent, rules.backgroundADay], [null, null, null, null]);
+  assert.deepEqual([rules.mostLines, rules.mostAreas, rules.keptCurrent], [null, null, null]);
   assert.deepEqual([rules.mergesAPass, rules.tries, rules.askPaths, rules.lowestRate], [5, 10, [], 9.5]);
   assert.equal(readYolo(root).rate, 9.5, 'the lowest rate stays where the main switch keeps it');
   setYoloRules(root, null, { lowestRate: 1 });
