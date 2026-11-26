@@ -276,8 +276,17 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     return 0;
   }
   if (options.command === 'decisions') {
+    const root = workspaceRoot(options.root);
+    // `rules` lists what the user settled for good, and `always <id> [value]` answers a card and keeps that answer as a rule (075).
+    if (options.args[0] === 'rules') {
+      const { runRulesCommand } = await import('./standing-rules.mjs');
+      output.write(`${JSON.stringify(runRulesCommand(root, options.args.slice(1)), null, 2)}\n`);
+      return 0;
+    }
+    const { markAlways } = await import('./decisions.mjs');
+    const args = options.args[0] === 'always' ? markAlways(root, options.args.slice(1)) : options.args;
     const { runDecisionsCommand } = await import('./answer.mjs');
-    const result = await runDecisionsCommand(workspaceRoot(options.root), options.args, { typed: options.typed });
+    const result = await runDecisionsCommand(root, args, { typed: options.typed });
     output.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   }

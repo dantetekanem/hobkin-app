@@ -7,6 +7,7 @@ import { Readable } from 'node:stream';
 import { buildContext } from '../src/cli/context.mjs';
 import { answerDecision, decisionRow, fileDecision, findDecision, markShown, openDecisions, runDecideCommand } from '../src/cli/decisions.mjs';
 import { readEvents } from '../src/cli/events.mjs';
+import { readStandingRules, saveStandingRule } from '../src/cli/standing-rules.mjs';
 
 const yesNo = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
 const iso = time => new Date(time).toISOString();
@@ -259,4 +260,46 @@ test('card fields are checked, and a card that fails is not filed', async t => {
 
   for (const [fields, why] of refused) await assert.rejects(runDecideCommand(root, ['routine', 'site'], card(fields), FILED), why);
   assert.deepEqual(openDecisions(root), []);
+});
+
+const learnCard = (fields = {}) => card({ kind: 'merge-small-fix', learn: true, rule: 'From now on, small fixes merge without asking.', ...fields });
+
+test('a learn card answered with its pick becomes a standing rule, and the next routine asking that kind is answered by it', async t => {
+  const root = home(t);
+  const { id } = await runDecideCommand(root, ['routine', 'site'], learnCard(), FILED);
+  answerDecision(root, id, 'merge', FILED + 60000);
+
+  const [rule] = readStandingRules(root);
+  assert.deepEqual([rule.kind, rule.match, rule.then, rule.said, rule.by], ['answer', { kind: 'merge-small-fix' }, { answer: 'merge', label: 'Merge it' }, 'From now on, small fixes merge without asking.', 'user']);
+
+  const again = await runDecideCommand(root, ['routine', 'docs'], card({ kind: 'merge-small-fix', question: 'Merge the readme fix?' }), FILED + 40 * DAY_MS);
+
+  assert.deepEqual(openDecisions(root), [], 'nothing was filed, even past the 30 days of the key recall');
+  assert.deepEqual([again.ok, again.answer, again.label, again.rule.id, again.rule.said], [true, 'merge', 'Merge it', rule.id, rule.said]);
+  assert.match(again.message, /2026-11-26.*From now on, small fixes merge without asking\./);
+  const recalled = readEvents(root).filter(({ type }) => type === 'decision_recalled');
+  assert.deepEqual(recalled.map(({ routine, by }) => [routine, by]), [['docs', 'rule']]);
+});
+
+test('a learn card answered another way, or in the user\'s own words, keeps no rule', async t => {
+  const root = home(t);
+  const first = await runDecideCommand(root, ['routine', 'site'], learnCard(), FILED);
+  const second = await runDecideCommand(root, ['routine', 'docs'], learnCard(), FILED);
+
+  answerDecision(root, first.id, 'later', FILED);
+  answerDecision(root, second.id, 'typed', FILED, { typed: 'merge this one only' });
+
+  assert.deepEqual(readStandingRules(root), []);
+});
+
+test('a rule answers only a routine, only when its answer is a choice, and changed still asks', async t => {
+  const root = home(t);
+  saveStandingRule(root, { kind: 'answer', match: { kind: 'merge-small-fix' }, then: { answer: 'merge', label: 'Merge it' }, said: 'From now on, small fixes merge without asking.' }, FILED);
+
+  await runDecideCommand(root, ['work', 'api', 'abc'], card({ kind: 'merge-small-fix' }), FILED);
+  await runDecideCommand(root, [], card({ kind: 'merge-small-fix', key: 'other' }), FILED, 'Claude Code');
+  await runDecideCommand(root, ['routine', 'site'], card({ kind: 'merge-small-fix', key: 'close', choices: [{ value: 'later', label: 'Later' }, { value: 'close', label: 'Close it' }], recommended: 'close' }), FILED);
+  await runDecideCommand(root, ['routine', 'site'], card({ kind: 'merge-small-fix', changed: 'It touches the login now.' }), FILED);
+
+  assert.deepEqual(openDecisions(root).map(({ from }) => from), ['Work mode, api', 'Claude Code', 'Routine site', 'Routine site']);
 });
