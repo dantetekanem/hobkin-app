@@ -26,7 +26,8 @@ export interface Random {
 
 export function seeded(seed: number): Random {
   let state = seed
-  const next = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648
+  // 32-bit integer math: a plain multiply passes 2^53 and loses the low bits, which fell into a cycle of about 25 texts.
+  const next = () => (state = (Math.imul(state, 1103515245) + 12345) & 0x7fffffff) / 2147483648
   return {
     next,
     int: (low, high) => low + Math.floor(next() * (high - low + 1)),
