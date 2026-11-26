@@ -21,7 +21,7 @@ const PI_VERSION = peerDependencies[PI_PACKAGE];
 const MINIMUM_NODE = engines.node.replace('>=', '');
 
 const INSTALL_PI = `Run \`npm install -g --ignore-scripts ${PI_PACKAGE}@${PI_VERSION}\`.`;
-const MATCH_PI = `${INSTALL_PI} \`pi update\` moves Pi past that version, so skip it. To run a patched Pi, point \`launcher\` in config.json at it: docs/guide.md explains how, under "Start Pi through a launcher".`;
+const MATCH_PI = `${INSTALL_PI} \`pi update\` moves Pi past that version, so skip it. To run a patched Pi, point \`launcher\` in config.json at it: hobkin's runtime README explains how, under "Start Pi through a launcher".`;
 const SIGN_IN = 'Sign in to a provider. While Pi has no model it can use, hobkin\'s window shows Connect a model, with every way in. /login in `pi` is the same sign-in.';
 const GH_USE = 'Work mode uses it for GitHub PRs. A repository on another host works without it, through that host\'s own CLI, with less to read.';
 const INSTALL_QMD = 'Run `npm install -g @tobilu/qmd`. Hobkin finds it the next time it opens, and qmd downloads a 330 MB model the first time it indexes.';
@@ -85,7 +85,7 @@ function readHome(root) {
 const homeRow = (root, problem) => missing(
   'Hobkin folder',
   problem,
-  `Repair config.json in ${root}, or see docs/upgrade.md if a migration stopped partway.`,
+  `Repair config.json in ${root}.`,
 );
 
 const askPi = (ask, launcher, args) => {

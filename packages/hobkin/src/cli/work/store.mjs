@@ -32,7 +32,7 @@ export const efforts = ['small', 'medium', 'large'];
 export const doableKinds = ['attention', 'pr-fix', 'security', 'fix', 'update', 'chore', 'improvement', 'feature'];
 // `yours` is a step only a person can take, so it is filed like work and no agent ever takes it.
 const itemKinds = [...doableKinds, 'yours'];
-// The most agents work mode will ever run, whatever is asked for. The default sits well below it, and the reason is in docs/guide.md.
+// The most agents work mode will ever run, whatever is asked for. The default, DEFAULT_AGENTS, sits well below it.
 export const MAX_AGENTS = 100;
 
 const closedForGood = ['declined', 'dropped'];
@@ -397,7 +397,7 @@ export function setDailyTokens(root, tokens) {
 }
 
 /*
- * The workload: how much automated work runs (spec 053, docs/guide.md). Each setting is kept in the mode only once the user sets it, so a
+ * The workload: how much automated work runs (spec 053). Each setting is kept in the mode only once the user sets it, so a
  * home that never set one runs with the defaults: no cap on changes, work at any hour, ship first at 8, no pull request reviewed by itself.
  */
 

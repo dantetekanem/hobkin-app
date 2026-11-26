@@ -265,7 +265,7 @@ export function crashToOffer(root) {
 export const discardDraft = (root, id) => rmSync(fileIn(outboxFolder(root), id), { force: true });
 
 const SETTING_SAID = {
-  on: 'Feedback is on. A report still goes only after your yes to it, from /feedback in Chat.',
+  on: 'Feedback is on. A report still goes only after you say yes to exactly what it sends.',
   off: 'Feedback is off. Nothing goes to the server, not even what waits in the outbox. hobkin feedback on turns it back on.',
 };
 

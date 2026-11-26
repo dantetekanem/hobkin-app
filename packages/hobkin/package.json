@@ -5,10 +5,10 @@
   "license": "MIT",
   "packageManager": "pnpm@11.12.0",
   "type": "module",
-  "description": "A chat-first CLI agent with recurring Pi checks, work mode and a persistent Pi conversation.",
+  "description": "hobkin's runtime: the application, routines, work mode and the hobkin command that hobkin-client's host loads.",
   "bin": { "hobkin": "./src/cli/main.mjs" },
   "repository": "https://github.com/dantetekanem/hobkin",
-  "files": ["src", "README.md", "docs/guide.md", "docs/upgrade.md", "docs/legacy.md"],
+  "files": ["src", "README.md"],
   "peerDependencies": {
     "@earendil-works/pi-ai": "^1.5.0",
     "@earendil-works/pi-coding-agent": "1.5.0",
