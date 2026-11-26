@@ -4,7 +4,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { readOnce } from './one-read.mjs';
-import { gitOrNothing } from './tree.mjs';
+import { gitOrNothing, noteReadFailed } from './tree.mjs';
 
 /**
  * TLA+ models as work mode reads them (_specs/050-tla-proofs). A model lives in its project at `_specs/tla/<area>/<Machine>.tla`, and its `\* models:`
@@ -79,6 +79,7 @@ async function readSpec(repo, head, spec) {
       models: modeledFiles(stdout.toString('utf8')),
     };
   } catch {
+    noteReadFailed();
     return null;
   }
 }

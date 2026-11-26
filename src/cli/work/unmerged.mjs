@@ -11,7 +11,7 @@ import { readReviewGrades, reviewsFolder } from './grades.mjs';
 import { areaOf, isTestPath } from './patterns.mjs';
 import { readOnce } from './one-read.mjs';
 import { modelsAt, sameCodeAs, specsAt } from './proofs.mjs';
-import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, gitWithin, isMerged, realPlace } from './tree.mjs';
+import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, gitWithin, isMerged, readsNoting, realPlace } from './tree.mjs';
 import { chosenProjects, fileItem, isGoal, paths, readItems, readKeptJson, runnableStates, updateItem } from './store.mjs';
 
 export const SHIP_KIND = 'pr-fix';
@@ -408,12 +408,18 @@ async function factsKept(repo, tip, name, kept) {
   };
 }
 
+/** `branchFacts`, marked `readFailed` when git failed one of its reads, so the next survey reads the branch again rather than keep a wrong answer. */
+async function freshFacts(read) {
+  const { answer, failed } = await readsNoting(() => branchFacts(read));
+  return failed ? { ...answer, readFailed: true } : answer;
+}
+
 async function branchUnit({ repo, copies, tip, branch: { name, at, sha }, grades, others, previous, sameDefaults }) {
   const before = (previous.open ?? []).find(unit => unit.branch === name);
-  // With the branch at the same head, and the default branch where it was (`sameDefaults`), what git said of it last time still holds.
   const kept = before?.kind === 'branch' && before.sha === sha ? before : null;
-  const readBefore = Boolean(kept) && sameDefaults;
-  const { title, ...facts } = readBefore ? await factsKept(repo, tip, name, kept) : await branchFacts({ repo, copies, tip, name, sha });
+  // With the branch at the same head, read in full last time, and the default branch where it was (`sameDefaults`), what git said of it still holds.
+  const readBefore = Boolean(kept) && !kept.readFailed && sameDefaults;
+  const { title, ...facts } = readBefore ? await factsKept(repo, tip, name, kept) : await freshFacts({ repo, copies, tip, name, sha });
 
   return {
     kind: 'branch',

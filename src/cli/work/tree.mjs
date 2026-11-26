@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -17,7 +18,26 @@ const runGit = async (timeout, cwd, args) => (await run('git', ['-C', cwd, ...ar
 })).stdout;
 export const gitWithin = timeout => async (cwd, ...args) => (await runGit(timeout, cwd, args)).trim();
 const git = gitWithin(GIT_TIMEOUT_MS);
-export const gitOrNothing = (cwd, ...args) => git(cwd, ...args).catch(() => '');
+// The reads inside `readsNoting` that git failed and that answered as if it had said nothing, so what they answered is not kept.
+const failedReads = new AsyncLocalStorage();
+
+/** A read that answers without what git would have said marks it for `readsNoting`. Outside one, it changes nothing. */
+export function noteReadFailed() {
+  const reads = failedReads.getStore();
+  if (reads) reads.failed = true;
+}
+
+/** What `read` answers, and whether any git read inside it failed and answered nothing in its place. */
+export async function readsNoting(read) {
+  const reads = { failed: false };
+  const answer = await failedReads.run(reads, read);
+  return { answer, failed: reads.failed };
+}
+
+export const gitOrNothing = (cwd, ...args) => git(cwd, ...args).catch(() => {
+  noteReadFailed();
+  return '';
+});
 const firstLine = error => String(error.stderr || error.message || error).trim().split('\n', 1)[0];
 const heldElsewhere = error => /already (used by worktree|checked out)/.test(error.stderr || error.message);
 const inProgressMarks = ['MERGE_HEAD', 'rebase-merge', 'rebase-apply', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'BISECT_LOG'];

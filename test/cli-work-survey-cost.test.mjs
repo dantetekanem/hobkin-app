@@ -69,6 +69,29 @@ async function mostGitAtOnce(t, work) {
   return Math.max(...readFileSync(counts, 'utf8').split('\n').filter(Boolean).map(Number));
 }
 
+/** `work` with a `git` on PATH that fails every command whose arguments hold `failing`, and runs the real one for the rest. */
+async function withGitFailing(t, failing, work) {
+  const folder = mkdtempSync(join(tmpdir(), 'hobkin-git-failing-'));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  mkdirSync(join(folder, 'bin'));
+  const realGit = execFileSync('/bin/sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  const shim = join(folder, 'bin', 'git');
+  const script = [
+    '#!/bin/sh',
+    `case "$*" in *"${failing}"*) exit 128 ;; esac`,
+    `exec "${realGit}" "$@"`,
+  ];
+  writeFileSync(shim, `${script.join('\n')}\n`);
+  chmodSync(shim, 0o755);
+  const path = process.env.PATH;
+  process.env.PATH = `${join(folder, 'bin')}:${path}`;
+  try {
+    await work();
+  } finally {
+    process.env.PATH = path;
+  }
+}
+
 test('a branch that has not moved since the last survey keeps what was read of it, and one that moved is read again', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/still');
@@ -94,6 +117,22 @@ test('a default branch that moved has every branch read again', async t => {
 
   assert.equal(unit(h, 'hobkin/still').title, 'hobkin/still');
   assert.equal(unit(h, 'hobkin/still').behind, 1);
+});
+
+test('a branch git could not read in full is read again at the next survey', async t => {
+  const h = workspace(t);
+  mkdirSync(join(h.checkout, 'test'));
+  commit(h.checkout, 'test/a.test.js', 'a\n');
+  git(h.checkout, 'switch', '-qc', 'hobkin/drops-a-test');
+  git(h.checkout, 'rm', '-q', 'test/a.test.js');
+  git(h.checkout, 'commit', '-qm', 'Drop a test');
+  git(h.checkout, 'switch', '-q', 'main');
+  await withGitFailing(t, '--diff-filter=D', () => survey(h));
+  assert.deepEqual(unit(h, 'hobkin/drops-a-test').deletedTests, []);
+
+  await survey(h);
+
+  assert.deepEqual(unit(h, 'hobkin/drops-a-test').deletedTests, ['test/a.test.js']);
 });
 
 test('whether another branch of the user holds a change is asked once for the two heads, and again when either moves', async t => {
