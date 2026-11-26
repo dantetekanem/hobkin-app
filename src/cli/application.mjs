@@ -455,7 +455,7 @@ export class HobkinApplication {
       app.remote = new RemoteSender({ root: app.runtime.directory, fetch, now: app.now });
       app.learner = new Learner({ root: app.runtime.directory, telemetry: app.telemetry, now: app.now });
       // The desk (075): what comes in for Chat waits for a digest or the user's pause, unless it cannot wait.
-      app.desk = new Desk({ root: app.runtime.directory, now: app.now });
+      app.desk = new Desk({ root: app.runtime.directory, now: app.now, waiting: () => readPending(app.runtime.directory, { now: app.now() }) });
       // Pi's own AGENTS.md, learned from when it changes and asked about in Action Items; only in the Pi folder the host names (038-resources).
       app.piDirections = piAgentDir ? new PiDirectionsLearner({ root: app.runtime.directory, agentDir: piAgentDir, runHarness, now: app.now, onChange: () => app.requestRefresh() }) : null;
       app.runner = new HobkinRunner({

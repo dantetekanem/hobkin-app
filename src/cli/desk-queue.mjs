@@ -1,14 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicJson, loadConfig } from './config.mjs';
-import { readDay } from './day.mjs';
+import { dayLoad, readDay, TOO_FULL } from './day.mjs';
 import { deliveryFor, digestDue, learnMoments, learnQuietHours } from './desk.mjs';
 import { readEvents, recordEvent } from './events.mjs';
 import { readVersioned } from './file-version.mjs';
 import { isPresent } from './pending.mjs';
 
 /**
- * The desk's queue (075-chief-of-staff S3 to S5). Every line new to Chat comes here first. What cannot wait posts now or at the
+ * The desk's queue (075-chief-of-staff S3 to S5 and S13). Every line new to Chat comes here first. What cannot wait posts now or at the
  * user's next pause, what can wait is held in `runtime/desk.json` for the next digest, and P3 is only logged. A digest is one Chat message.
  * The file holds the lines as they would have posted, so it is the user's own data, never telemetry:
  *
@@ -39,6 +39,19 @@ const REPLIES = new Set(['answer', 'brief', 'card', 'feedback', 'memory', 'telem
 // A notice's tone is the triage the desk levels by. A quiet line is news that can wait, never nothing.
 const TRIAGE = { critical: 'critical', blocked: 'blocked', useful: 'useful', quiet: 'useful' };
 const RANK = { P0: 0, P1: 1, P2: 2, P3: 3 };
+// What waiting work takes of the day, as the morning brief counts it: about 15 minutes a review and 5 a decision. P1 work that lands counts as a review.
+const MINUTES_FOR = { read: 15, ready: 15, yours: 15, wrong: 15, questions: 5, todo: 5 };
+const LANDED_MINUTES = 15;
+
+const plural = (amount, noun, many = `${noun}s`) => `${amount} ${amount === 1 ? noun : many}`;
+// What can move to another day, least important first. What went wrong, P1 work and meetings with others never move.
+const MOVABLE = [
+  ['read', amount => `${plural(amount, 'branch', 'branches')} to read`],
+  ['yours', amount => `${plural(amount, 'step')} of your own`],
+  ['ready', amount => `${plural(amount, 'change')} ready to land`],
+  ['todo', amount => `${plural(amount, 'thing')} to do`],
+  ['questions', amount => plural(amount, 'question')],
+];
 
 const iso = time => new Date(time).toISOString();
 const sourceOf = ({ id }) => String(id ?? '').split(':')[1] ?? '';
@@ -107,15 +120,15 @@ const byLevelThenAge = (left, right) => RANK[left.level] - RANK[right.level] || 
 
 /**
  * One Chat message for what the desk held: the point first, then one line per item, those for today before those that can wait, oldest
- * first within each. `digest` marks it as one row, with each item's level and what lets the window act on a line, such as a memory's
- * Undo or the review it names.
+ * first within each. `room`, when P1 work landed on a day too full, is the line that says what to move, right after the point. `digest`
+ * marks it as one row, with each item's level and what lets the window act on a line, such as a memory's Undo or the review it names.
  */
-export function digestMessage(held, { now }) {
+export function digestMessage(held, { now, room = null }) {
   const items = held.toSorted(byLevelThenAge);
   const today = items.filter(({ level }) => RANK[level] <= RANK.P1).length;
   const wait = items.length - today;
   const counts = [today && `${today} for today`, wait && `${wait} that can wait`].filter(Boolean).join(', ');
-  const content = [`Digest: ${counts}.`, ...items.map(({ notice }) => `- ${flat(notice.content)}`)].join('\n');
+  const content = [`Digest: ${counts}.`, ...(room ? [room] : []), ...items.map(({ notice }) => `- ${flat(notice.content)}`)].join('\n');
   const at = iso(now);
   const levels = {};
   for (const { level } of items) levels[level] = (levels[level] ?? 0) + 1;
@@ -134,13 +147,48 @@ export function digestMessage(held, { now }) {
   };
 }
 
+const clockIn = (time, timeZone) => new Date(time).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', ...(timeZone ? { timeZone } : {}) });
+
+/**
+ * What to move so today fits once P1 work landed (075 S13), as one line, or null when none landed or the day fits. The load is the day's
+ * events, what waits in `hobkin pending` (`groups`) and the P1 work that landed, against what the day holds (`dayLoad`). The moves come
+ * least important first, until the day fits: the waiting work that can wait, then the user's own blocks that have not begun, latest first.
+ */
+export function roomLine({ day, groups = [], landed = 0, now }) {
+  if (!landed) return null;
+  const counts = Object.fromEntries(groups.map(({ name, count }) => [name, count]));
+  const waitingMinutes = Object.entries(MINUTES_FOR).reduce((sum, [name, minutes]) => sum + (counts[name] ?? 0) * minutes, 0) + landed * LANDED_MINUTES;
+  const load = dayLoad(day, { waitingMinutes });
+  if (!load.tooFull) return null;
+
+  const fits = load.capacityMinutes * TOO_FULL;
+  const ownBlocks = (day?.events ?? [])
+    .filter(({ start, withOthers }) => !withOthers && Date.parse(start) > now)
+    .toSorted((left, right) => Date.parse(right.start) - Date.parse(left.start))
+    .map(({ start, end }) => ({ words: `your ${clockIn(start, day.timezone)} block`, minutes: (Date.parse(end) - Date.parse(start)) / MINUTE_MS }));
+  const candidates = [
+    ...MOVABLE.flatMap(([name, words]) => (counts[name] ? [{ words: words(counts[name]), minutes: counts[name] * MINUTES_FOR[name] }] : [])),
+    ...ownBlocks,
+  ];
+  let left = load.loadMinutes;
+  const moves = [];
+  for (const { words, minutes } of candidates) {
+    if (left < fits) break;
+    moves.push(words);
+    left -= minutes;
+  }
+  const said = `Today is too full: about ${Math.round(load.loadMinutes / 60)} of ${load.capacityMinutes / 60} hours (${Math.round(load.ratio * 100)}%).`;
+  if (!moves.length) return `${said} Nothing waiting on you can move to make room.`;
+  return `${said} To make room, move ${moves.join(', then ')}${left >= fits ? ', and it still does not fit' : ''}.`;
+}
+
 /**
  * The desk of one running hobkin. `route` takes the lines new to Chat on each refresh, `look` comes on each look for the user's return,
- * and `markPosted` once the view that holds what was let go is saved.
+ * and `markPosted` once the view that holds what was let go is saved. `waiting` reads what waits in `hobkin pending`, for the room line.
  */
 export class Desk {
-  constructor({ root, now = Date.now, timeZone } = {}) {
-    Object.assign(this, { root, now, timeZone, posting: [], learned: null });
+  constructor({ root, now = Date.now, waiting = () => null, timeZone } = {}) {
+    Object.assign(this, { root, now, waiting, timeZone, posting: [], learned: null });
   }
 
   /** The digest moments and quiet hours learned from presence, again at most once an hour. */
@@ -272,7 +320,8 @@ export class Desk {
         const due = digestDue({ ...context, lastDigest: Number.isFinite(lastDigest) ? lastDigest : -Infinity, awayMs: returned?.awayMs });
         if (due.due) {
           const held = queue.held;
-          const digest = digestMessage(held, { now });
+          const landed = held.filter(({ level }) => RANK[level] <= RANK.P1).length;
+          const digest = digestMessage(held, { now, room: landed ? this.room(context, landed) : null });
           queue.posting.push(digest);
           queue.held = [];
           queue.lastDigestAt = iso(now);
@@ -284,6 +333,15 @@ export class Desk {
       return changed;
     } catch {
       return false;
+    }
+  }
+
+  /** The room line for this digest. Trouble reading what waits costs the digest that line and nothing else. */
+  room({ day, now }, landed) {
+    try {
+      return roomLine({ day, groups: (this.waiting()?.groups ?? []).filter(({ name }) => name !== 'held'), landed, now });
+    } catch {
+      return null;
     }
   }
 }

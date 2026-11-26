@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { atomicJson, initialize, loadConfig } from '../src/cli/config.mjs';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { writeBriefState } from '../src/cli/brief.mjs';
-import { deskPath, digestMessage, readHeld } from '../src/cli/desk-queue.mjs';
+import { dayPath } from '../src/cli/day.mjs';
+import { deskPath, digestMessage, readHeld, roomLine } from '../src/cli/desk-queue.mjs';
 import { readEvents, recordEvent } from '../src/cli/events.mjs';
 import { pendingCard } from '../src/cli/pending.mjs';
 import { writeMode } from '../src/cli/work/store.mjs';
@@ -80,6 +81,35 @@ test('a digest says the point first, then one line per item, those for today fir
   assert.deepEqual(message.digest.items.map(({ id, level }) => [id, level]), [['notice:reminder:b', 'P1'], ['notice:report:a', 'P2'], ['notice:remember:c', 'P2']]);
   assert.deepEqual(message.digest.items[2].memory, { change: 'x1', name: 'tea', did: 'added' }, 'a line keeps what lets the window offer its Undo');
   assert.equal(digestMessage(held.slice(0, 1), { now: local(20, 11) }).content.split('\n')[0], 'Digest: 1 that can wait.');
+});
+
+test('with P1 work on a day too full, the digest says what to move, least important first, until the day fits', () => {
+  const now = local(26, 9);
+  const day = {
+    workDay: true,
+    timezone: null,
+    hours: { start: iso(local(26, 9)), end: iso(local(26, 17)) },
+    events: [
+      { start: iso(local(26, 10)), end: iso(local(26, 13)), withOthers: true },
+      { start: iso(local(26, 14)), end: iso(local(26, 15)), withOthers: false },
+      { start: iso(local(26, 15)), end: iso(local(26, 16)), withOthers: false },
+    ],
+  };
+  const groups = [{ name: 'read', count: 2 }, { name: 'questions', count: 3 }, { name: 'wrong', count: 1 }];
+
+  // 5 hours of events, 30 minutes to read, 15 of questions, 15 for what went wrong and 15 for the P1 that landed: 375 of 480 minutes is under 80%.
+  assert.equal(roomLine({ day, groups, landed: 1, now }), null);
+  // Two more P1s make 405, past 384. Reading moves first and frees 30, so 375 fits.
+  assert.equal(roomLine({ day, groups, landed: 3, now }), 'Today is too full: about 7 of 8 hours (84%). To make room, move 2 branches to read.');
+  // Nine make 495. Reading, then the questions, then the latest block of the user's own, then the one before it, which brings 330.
+  assert.equal(roomLine({ day, groups, landed: 9, now }), 'Today is too full: about 8 of 8 hours (103%). To make room, move 2 branches to read, then 3 questions, then your 15:00 block, then your 14:00 block.');
+  // Thirteen make 555, and all of that leaves 390.
+  assert.equal(roomLine({ day, groups, landed: 13, now }), 'Today is too full: about 9 of 8 hours (116%). To make room, move 2 branches to read, then 3 questions, then your 15:00 block, then your 14:00 block, and it still does not fit.');
+  // A block that has begun can no longer move.
+  assert.equal(roomLine({ day, groups: [], landed: 13, now: local(26, 14, 30) }), 'Today is too full: about 8 of 8 hours (103%). To make room, move your 15:00 block, and it still does not fit.');
+  assert.equal(roomLine({ day, groups, landed: 0, now }), null, 'only P1 work landing asks for room');
+  assert.equal(roomLine({ day: { ...day, events: [day.events[0]] }, groups: [{ name: 'wrong', count: 20 }], landed: 2, now }),
+    'Today is too full: about 9 of 8 hours (106%). Nothing waiting on you can move to make room.');
 });
 
 test('a useful report waits for the next digest, stays in hobkin pending meanwhile, and the digest posts it when the user is back after a gap', async t => {
@@ -232,6 +262,34 @@ test('a line worked out again on each refresh is held once', async t => {
     assert.deepEqual(linesIn(view, 'Pi is missing'), []);
     assert.deepEqual(heldLines(h.root).filter(([, content]) => content.includes('Pi is missing')), [['P2', 'Pi is missing on this machine.']]);
     assert.equal(h.ofType('desk_held').filter(({ source }) => source === 'harness').length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('the digest says what to move when P1 work lands on a day too full', async t => {
+  const h = fixture(t);
+  const day = new Date(h.clock.at).toLocaleDateString('en-CA');
+  // Seven hours of meetings with others and one hour of the user's own after them.
+  atomicJson(dayPath(h.root), {
+    version: 1, date: day, workDay: true,
+    hours: { start: iso(local(20, 9)), end: iso(local(20, 18)) },
+    events: [{ start: iso(local(20, 11)), end: iso(local(20, 17)), withOthers: true }, { start: iso(local(20, 17)), end: iso(local(20, 18)), withOthers: false }],
+  });
+  const app = await h.openApp();
+  try {
+    app.lookForReturn();
+    await app.runtime.change(state => { state.runs.lease = finished('lease', 'Blocked: The lease needs a signature.', h.clock.at); });
+    await app.refresh();
+    h.clock.at += 40 * MINUTE_MS;
+    h.seen();
+    app.lookForReturn();
+    const [digest] = digestsIn(await app.refresh());
+
+    assert.deepEqual(digest.content.split('\n').slice(0, 2), [
+      'Digest: 1 for today.',
+      'Today is too full: about 7 of 8 hours (91%). To make room, move your 17:00 block.',
+    ]);
   } finally {
     await app.close();
   }
