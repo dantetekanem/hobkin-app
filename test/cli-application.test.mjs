@@ -2604,6 +2604,21 @@ test('a failure that is not about signing in does not send anyone to sign in', a
   assert.doesNotMatch(content, /hobkin login/);
 });
 
+test("a failure whose message is JSON, or JSON inside JSON as Gemini's are, shows the provider's own words", async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ intervalMs: 60000 });
+  t.after(() => app.close());
+  const words = 'Invalid JSON payload received. Unknown name "anyOf" at \'tools[0].function_declarations[4].parameters\'.';
+  const body = JSON.stringify({ error: { code: 400, message: words, status: 'INVALID_ARGUMENT' } }, null, 2);
+  for (const errorMessage of [body, JSON.stringify({ error: { message: `${body}\n`, code: 400, status: 'Bad Request' } })]) {
+    app.runtime.messages = () => [{ ...refused, errorMessage }];
+
+    const { content } = (await app.refresh()).messages.at(-1);
+
+    assert.equal(content, `The model did not answer: ${words}`, errorMessage);
+  }
+});
+
 test('a failure Pi retried past stays out of Chat', async t => {
   const h = fixture(t);
   const app = await h.openApp({ intervalMs: 60000 });

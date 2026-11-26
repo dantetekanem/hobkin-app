@@ -94,11 +94,26 @@ export { readLocalView } from './view.mjs';
 const textOf = message => (typeof message.content === 'string' ? message.content
   : (message.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n'));
 const SIGN_IN_TROUBLE = /\b40[13]\b|unauthori[sz]ed|authentication|api key|credential|log ?in\b/i;
+/**
+ * The provider's own words: the `message` of an error given as JSON, followed down through JSON held inside it, as a
+ * Gemini error that came without a JSON content type holds its whole body as text.
+ */
+const providerWords = text => {
+  for (let depth = 0; depth < 4; depth++) {
+    let body;
+    try { body = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)); } catch { break; }
+    const message = body?.error?.message ?? body?.message;
+    if (typeof message !== 'string' || !message.trim()) break;
+    text = message;
+  }
+  return text.trim();
+};
 /** A refused turn has no text of its own, so without this the chat just goes quiet. */
 const turnFailure = ({ stopReason, errorMessage }) => {
   if (stopReason !== 'error' || !errorMessage) return '';
 
-  const reason = errorMessage.match(/"message":"([^"]+)"/)?.[1] ?? errorMessage.split('\n', 1)[0];
+  const words = providerWords(errorMessage);
+  const reason = (words.match(/"message":"([^"]+)"/)?.[1] ?? words).split('\n', 1)[0];
   const fix = SIGN_IN_TROUBLE.test(errorMessage) ? ' Run `hobkin login` in a terminal, then reopen hobkin.' : '';
   return `The model did not answer: ${reason.slice(0, 300)}${fix}`;
 };
