@@ -18,6 +18,9 @@ const MOST_EACH = 12;
 const LONGEST_QUESTION = 600;
 const LONGEST_EXCERPT = 500;
 const LONGEST_TITLE = 200;
+// What the desk holds can run to many lines, and every one stays in `hobkin pending`, so a brief takes the first few, most urgent first.
+const MOST_HELD = 3;
+const LONGEST_HELD = 160;
 
 // "brief me", with or without a please, alone in the message. A longer request about one thing is a question like any other.
 const BRIEF_WORDS = /^\W*(?:please\s+)?brief me(?:\s+please)?\W*$/i;
@@ -158,6 +161,16 @@ const proposalFor = ({ id, title, question }) => ({
   question: flat(question, LONGEST_QUESTION),
 });
 
+const byLevelThenAge = (left, right) => String(left.level).localeCompare(String(right.level)) || String(left.at).localeCompare(String(right.at));
+
+// A row that lists its lines, as the desk's held row does, keeps its count and fact, and says how many lines it left out.
+function waitingRowFor(group) {
+  if (!Array.isArray(group.items)) return group;
+  const items = group.items.toSorted(byLevelThenAge).slice(0, MOST_HELD).map(item => ({ ...item, line: flat(item.line, LONGEST_HELD) }));
+  const more = group.items.length - items.length;
+  return { ...group, items, ...(more ? { more } : {}) };
+}
+
 const workFor = ({ branches = [], yours = [], wrong = [], asks = [], proposals = [] }) => ({
   branches: branches.slice(0, MOST_EACH).map(branchFor),
   yours: yours.slice(0, MOST_EACH).map(stepFor),
@@ -168,7 +181,8 @@ const workFor = ({ branches = [], yours = [], wrong = [], asks = [], proposals =
 
 /**
  * Everything a brief is written from: what waits, every open question with its choices, the reports that came in or still make a call, and the
- * work. Each report keeps its path, so the main agent opens one only when its excerpt is not enough. Nothing here reads or writes anything.
+ * work. Each report keeps its path, so the main agent opens one only when its excerpt is not enough. What the desk holds comes as its count,
+ * the oldest's age and its first few lines, and `hobkin pending` has the rest. Nothing here reads or writes anything.
  */
 export function briefMaterial({
   since,
@@ -191,12 +205,14 @@ export function briefMaterial({
     .toSorted(newestFirst);
 
   const workLists = [rows.branches, rows.yours, rows.wrong, rows.asks, rows.proposals].filter(Array.isArray);
-  const cut = decisions.length > 2 * MOST_EACH || news.length > MOST_EACH || workLists.some(list => list.length > MOST_EACH);
+  const groups = (waiting?.groups ?? []).map(waitingRowFor);
+  const cut = decisions.length > 2 * MOST_EACH || news.length > MOST_EACH || workLists.some(list => list.length > MOST_EACH)
+    || groups.some(({ more }) => more);
   return {
     since,
     now: new Date(now).toISOString(),
     guide,
-    waiting: { total: waiting?.total ?? 0, groups: waiting?.groups ?? [] },
+    waiting: { total: waiting?.total ?? 0, groups },
     decisions: decisions.slice(0, 2 * MOST_EACH).map(decisionFor),
     reports: news.slice(0, MOST_EACH).map(report => reportFor(report, read, reportPath)),
     work: workFor(rows),

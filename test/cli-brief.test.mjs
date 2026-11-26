@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import {
   AWAY_MS, BRIEF_BAR, arrivedCount, arrivedSince, asksForBrief, briefMaterial, briefNote, briefSince, offerLine, readBriefState, returnedSince, seenMoved, withoutBriefNote, writeBriefState,
 } from '../src/cli/brief.mjs';
+import { pendingCard } from '../src/cli/pending.mjs';
 
 const HOUR_MS = 3600000;
 const at = hours => new Date(Date.parse('2026-11-05T08:00:00Z') + hours * HOUR_MS).toISOString();
@@ -143,6 +144,22 @@ test('an older report comes only while it still makes a call, and a list cut sho
   assert.deepEqual(brief.reports.map(({ id }) => id), ['old:2']);
   assert.equal(brief.decisions.length, 24);
   assert.equal(brief.trimmed, true);
+});
+
+test('what the desk holds comes as a count, the oldest age and three short lines, most urgent first, and the rest stays in hobkin pending', () => {
+  const now = Date.parse(at(3));
+  const held = Array.from({ length: 70 }, (_, index) => ({ level: index === 50 ? 'P1' : 'P2', content: `Project ${index}: ${'x'.repeat(260)}`, at: at(2) }));
+  const waiting = pendingCard({ held, now });
+
+  const brief = material({ waiting });
+  const row = brief.waiting.groups.find(({ name }) => name === 'held');
+
+  assert.deepEqual([row.count, row.fact, row.more], [70, 'oldest 1 hour', 67]);
+  assert.deepEqual(row.items.map(({ level, line }) => [level, line.split(':')[0]]), [['P1', 'Project 50'], ['P2', 'Project 0'], ['P2', 'Project 1']]);
+  assert.ok(row.items.every(({ line }) => line.length <= 160));
+  assert.equal(brief.trimmed, true, 'so the main agent reads the rest with hobkin pending');
+  assert.equal(waiting.groups.find(({ name }) => name === 'held').items.length, 70, 'hobkin pending itself keeps every line');
+  assert.equal(JSON.parse(briefNote(brief).split('\n')[1]).decisions.length, 1, 'held lines never crowd out the decisions');
 });
 
 const inner = note => note.slice('<hobkin-brief>'.length, -'</hobkin-brief>\n\n'.length);
