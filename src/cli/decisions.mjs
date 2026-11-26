@@ -162,7 +162,7 @@ const ruleSaid = ({ kind, rule }, label) => rule ?? `From now on, questions of t
 
 /**
  * The user's answer that settles later cases of its kind: a learn card answered with its pick, or any card answered with the choice they
- * said always to take. The card was the read-back, so nothing more is asked.
+ * said always to take. The card was the read-back, so nothing more is asked. A default is never the user's yes, so it keeps no rule.
  */
 function keepAsRule(root, id, answer, now) {
   const decision = readAll(root).find(entry => entry.id === id);
@@ -172,10 +172,10 @@ function keepAsRule(root, id, answer, now) {
   saveStandingRule(root, { kind: 'answer', match: { kind: decision.kind }, then: { answer, label }, said: ruleSaid(decision, label) }, now);
 }
 
-/** An answer in the user's own words is `typed`, and `typed` keeps the words. */
-export function answerDecision(root, id, answer, now = Date.now(), { typed } = {}) {
-  append(root, { id, answer, ...(typed ? { typed } : {}), answeredAt: new Date(now).toISOString() });
-  if (!typed) keepAsRule(root, id, answer, now);
+/** An answer in the user's own words is `typed`, and `typed` keeps the words. One the card took at its deadline is `byDefault`. */
+export function answerDecision(root, id, answer, now = Date.now(), { typed, byDefault = false } = {}) {
+  append(root, { id, answer, ...(typed ? { typed } : {}), ...(byDefault ? { byDefault } : {}), answeredAt: new Date(now).toISOString() });
+  if (!typed && !byDefault) keepAsRule(root, id, answer, now);
 }
 
 /**
@@ -374,6 +374,51 @@ export async function runDecideCommand(root, args, input, now = Date.now(), from
     ? 'Filed in hobkin\'s Action Items. The user answers it there, and hobkin\'s main agent hears the answer, not this session, so carry on without it.'
     : 'Filed in Action Items. Carry on: the answer reaches you later.';
   return { ok: true, id, message };
+}
+
+// The askers of `hobkin decide`, the only cards that carry a deadline. hobkin's own questions carry their choices out in answer.mjs.
+const DEFAULT_ASKERS = ['routine', 'work', 'outside'];
+
+const isDueAt = now => ({ reversible, recommended, deadline, answerTo }) =>
+  reversible === true && Boolean(recommended) && Date.parse(deadline) <= now && DEFAULT_ASKERS.includes(answerTo?.kind);
+
+/**
+ * The asker hears the pick the way it hears an answer (`carryOutAnswer` in answer.mjs), in words that say nobody gave it. The modules that
+ * reach work mode and the inbox import this one, so they load here, when a default is due.
+ */
+async function tellDefault(root, { question, answerTo, from }, label, now) {
+  const said = `The user was asked: ${question} Nobody answered by its deadline, so it took the recommended choice: ${label}`;
+  if (answerTo.kind === 'routine') (await import('./checks.mjs')).noteForCheck(root, answerTo.id, said);
+  if (answerTo.kind === 'work') (await import('./work/controls.mjs')).askAgent(root, answerTo.slug, answerTo.item, said, { answering: true });
+  if (answerTo.kind === 'outside') {
+    (await import('./inbox.mjs')).handAnswer(root, { from, question, answer: `${label}, the recommended choice, because nobody answered by its deadline` }, now);
+  }
+}
+
+/**
+ * Each reversible card past its deadline takes its pick, settled by default and on record as `decision_defaulted`, never as the user's answer.
+ * A card whose asker cannot hear it stays open for the next tick. It never throws, so it cannot stop the host's tick. Gives the ids it settled.
+ */
+export async function tickDecisionDefaults(root, now = Date.now()) {
+  const settled = [];
+  let due = [];
+  try {
+    due = waitingDecisions(root).filter(isDueAt(now));
+  } catch {
+    return settled;
+  }
+  for (const decision of due) {
+    try {
+      const { id, recommended, choices, answerTo, at } = decision;
+      await tellDefault(root, decision, choices.find(choice => choice.value === recommended)?.label ?? recommended, now);
+      answerDecision(root, id, recommended, now, { byDefault: true });
+      recordEvent(root, 'decision_defaulted', { id, source: answerTo.kind, ms: now - Date.parse(at) }, now);
+      settled.push(id);
+    } catch {
+      // Its asker is gone or cannot take it now, so it waits, as an answer that cannot reach its asker does.
+    }
+  }
+  return settled;
 }
 
 const filedBy = ([kind, id]) => {

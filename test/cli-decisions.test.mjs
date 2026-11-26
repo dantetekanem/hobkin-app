@@ -4,9 +4,13 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { openCheck } from '../src/cli/checks.mjs';
 import { buildContext } from '../src/cli/context.mjs';
-import { answerDecision, decisionRow, fileDecision, findDecision, markShown, openDecisions, runDecideCommand } from '../src/cli/decisions.mjs';
+import {
+  answerDecision, answeredByUser, decisionRow, fileDecision, findDecision, markShown, openDecisions, runDecideCommand, tickDecisionDefaults,
+} from '../src/cli/decisions.mjs';
 import { readEvents } from '../src/cli/events.mjs';
+import { inboxToTell } from '../src/cli/inbox.mjs';
 import { readStandingRules, saveStandingRule } from '../src/cli/standing-rules.mjs';
 
 const yesNo = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
@@ -302,4 +306,52 @@ test('a rule answers only a routine, only when its answer is a choice, and chang
   await runDecideCommand(root, ['routine', 'site'], card({ kind: 'merge-small-fix', changed: 'It touches the login now.' }), FILED);
 
   assert.deepEqual(openDecisions(root).map(({ from }) => from), ['Work mode, api', 'Claude Code', 'Routine site', 'Routine site']);
+});
+
+test('a reversible card past its deadline takes its pick, the asker hears nobody answered, and it is no answer of the user\'s', async t => {
+  const root = home(t);
+  const { id } = await runDecideCommand(root, ['routine', 'site'], card({ reversible: true, deadline: LATER }), FILED);
+  const deadline = Date.parse(LATER);
+
+  assert.deepEqual(await tickDecisionDefaults(root, deadline - 1), []);
+  assert.deepEqual(await tickDecisionDefaults(root, deadline), [id]);
+
+  assert.deepEqual(openDecisions(root), []);
+  assert.deepEqual(answeredByUser(root), []);
+  assert.match(openCheck(root, 'site').memory.text, /The user was asked: Merge the typo fix\? Nobody answered by its deadline, so it took the recommended choice: Merge it/);
+  const defaulted = readEvents(root).filter(({ type }) => type === 'decision_defaulted');
+  assert.deepEqual(defaulted, [{ at: LATER, type: 'decision_defaulted', id, source: 'routine', ms: deadline - FILED }]);
+  assert.equal(readEvents(root).some(({ type }) => type === 'decision_answered'), false);
+  assert.deepEqual(await tickDecisionDefaults(root, deadline + 60000), [], 'once');
+});
+
+test('a default reaches another session\'s card through hobkin\'s main agent, and a learn card that defaults keeps no rule', async t => {
+  const root = home(t);
+  await runDecideCommand(root, [], learnCard({ reversible: true, deadline: LATER }), FILED, 'Claude Code');
+
+  await tickDecisionDefaults(root, Date.parse(LATER));
+
+  const [told] = inboxToTell(root, Date.parse(LATER));
+  assert.deepEqual([told.kind, told.from, told.answer], ['answer', 'Claude Code', 'Merge it, the recommended choice, because nobody answered by its deadline']);
+  assert.deepEqual(readStandingRules(root), [], 'only the user\'s yes keeps a rule');
+});
+
+test('a card that cannot be undone, has no pick, says nothing of undoing or whose deadline is ahead keeps waiting', async t => {
+  const root = home(t);
+  await runDecideCommand(root, ['routine', 'a'], card({ reversible: false, deadline: LATER }), FILED);
+  await runDecideCommand(root, ['routine', 'b'], card({ reversible: true, deadline: LATER, recommended: undefined }), FILED);
+  await runDecideCommand(root, ['routine', 'c'], card({ deadline: LATER }), FILED);
+  await runDecideCommand(root, ['routine', 'd'], card({ reversible: true, deadline: '2026-11-27T09:00:00Z' }), FILED);
+
+  assert.deepEqual(await tickDecisionDefaults(root, Date.parse(LATER) + 60000), []);
+  assert.equal(openDecisions(root).length, 4);
+});
+
+test('a card whose asker cannot hear the default stays open for the next tick, and the others still default', async t => {
+  const root = home(t);
+  const work = await runDecideCommand(root, ['work', 'gone', 'abc'], card({ reversible: true, deadline: LATER }), FILED);
+  const routine = await runDecideCommand(root, ['routine', 'site'], card({ reversible: true, deadline: LATER }), FILED);
+
+  assert.deepEqual(await tickDecisionDefaults(root, Date.parse(LATER)), [routine.id]);
+  assert.deepEqual(openDecisions(root).map(({ id }) => id), [work.id]);
 });
