@@ -217,40 +217,62 @@ const forecasts = (input: HomeInput) =>
     )
     .toSorted((a, b) => a.next!.at - b.next!.at)
 
+const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
+const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0
+const HOST_DAY = /^\d{4}-\d{2}-\d{2}$/
+/** hobkin's `YYYY-MM-DD` as this window's `dayKey`, which does not pad: `2026-11-06` is `2026-11-6`. */
+const hostDayKey = (day: string) => day.split('-').map(Number).join('-')
+
+/** The days in `snapshot.wins.days` that hobkin calls good, by `dayKey`. Null from an older host, which sends no days. */
+function goodDaysOf(value: unknown): ReadonlySet<string> | null {
+  if (!isRecord(value) || !Array.isArray(value.days)) return null
+
+  const good = new Set<string>()
+  for (const day of value.days) {
+    if (isRecord(day) && day.good === true && typeof day.day === 'string' && HOST_DAY.test(day.day)) {
+      good.add(hostDayKey(day.day))
+    }
+  }
+  return good
+}
+
+/**
+ * Today's wins from `snapshot.wins`. A day is good when work merged, or when it needed fewer decisions than the day
+ * before once it is over: answered decisions never count. An older host judged today before it was over (no `soFar`),
+ * or counted answered decisions into its streak (no `good`): there only merged work makes today good, and that streak
+ * is not shown.
+ */
 function winsOf(value: unknown): HomeModel['week']['wins'] {
-  if (
-    !value
-    || typeof value !== 'object'
-    || Array.isArray(value)
-    || !('today' in value)
-    || !('streak' in value)
-  ) {
-    return null
-  }
+  if (!isRecord(value) || !isRecord(value.today)) return null
+  const { today, streak } = value
+  const { merged } = today
+  if (!isCount(merged) || !isCount(streak)) return null
 
-  const today = value.today
-  if (
-    !today
-    || typeof today !== 'object'
-    || Array.isArray(today)
-    || !('merged' in today)
-    || !('decided' in today)
-  ) {
-    return null
+  const goodDayKeys = goodDaysOf(value)
+  return {
+    merged,
+    good: 'soFar' in today ? today.good === true : merged > 0,
+    streak: 'good' in today ? streak : null,
+    goodDays: goodDayKeys ? goodDayKeys.size : null,
   }
+}
 
-  const { merged, decided } = today
-  const streak = value.streak
-  if (
-    typeof merged !== 'number'
-    || typeof decided !== 'number'
-    || typeof streak !== 'number'
-    || ![merged, decided, streak].every(count => Number.isInteger(count) && count >= 0)
-  ) {
-    return null
+/** The week's runs by day, with its good days marked, and today's wins. */
+function weekOf(input: HomeInput): HomeModel['week'] {
+  const wins = winsOf(input.wins)
+  const goodDayKeys = wins && goodDaysOf(input.wins)
+  const days = outcomeWeek(input.reports, input.now).map(day => ({
+    ...day,
+    // Today follows today's wins, so a host that names no good days still marks today once work merged.
+    good: day.today ? wins?.good === true : goodDayKeys?.has(day.key) === true,
+  }))
+
+  return {
+    days,
+    completed: days.reduce((sum, day) => sum + day.completed, 0),
+    unfinished: days.reduce((sum, day) => sum + day.failed + day.stopped, 0),
+    wins,
   }
-
-  return { merged, decided, streak }
 }
 
 function problemsOf(input: HomeInput): HomeRow[] {
@@ -607,15 +629,15 @@ function stackParts(input: HomeInput, needs: Need[]): StackParts {
 
   const last: Candidate[] = []
   const wins = winsOf(input.wins)
-  if (new Date(input.now).getHours() >= 17 && wins && wins.merged + wins.decided > 0) {
+  if (new Date(input.now).getHours() >= 17 && wins?.good) {
     last.push(candidate(5, null, {
       id: 'today:wins',
       kind: 'today',
       label: 'Today',
       reason: 'Today',
       tone: 'ok',
-      title: `${wins.merged} merged · ${wins.decided} decided`,
-      detail: wins.streak > 1 ? `${wins.streak}-day streak` : null,
+      title: wins.merged ? `${wins.merged} merged` : 'A good day',
+      detail: wins.streak !== null && wins.streak > 1 ? `${wins.streak}-day streak` : null,
       primary: open(screen('work'), 'See Work'),
     }))
   }
@@ -845,7 +867,6 @@ export function homeParts(input: HomeInput): HomeParts {
   const atLeast = input.contributions.some(contribution => contribution.more)
   const problems = problemsOf(input).filter(row => kept(row.id))
   const fresh = sinceLastLook(input.reports, input.read, input.attention)
-  const days = outcomeWeek(input.reports, input.now)
   return {
     idle: null,
     header: {
@@ -868,12 +889,7 @@ export function homeParts(input: HomeInput): HomeParts {
       problems: { rows: problems.slice(0, 4), more: Math.max(0, problems.length - 4) },
       projects: { rows: projectsOf(input) },
       connections: connectionsOf(input),
-      week: {
-        days,
-        completed: days.reduce((sum, day) => sum + day.completed, 0),
-        unfinished: days.reduce((sum, day) => sum + day.failed + day.stopped, 0),
-        wins: winsOf(input.wins),
-      },
+      week: weekOf(input),
       yolo: yoloOf(input.work?.yolo),
     },
   }

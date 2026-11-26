@@ -395,7 +395,7 @@ test('week counts supplied completed and stopped records and validates wins as a
   assert.equal(model.week.days.length, 7)
   assert.equal(model.week.completed, 1)
   assert.equal(model.week.unfinished, 2)
-  assert.deepEqual(model.week.wins, { merged: 0, decided: 2, streak: 3 })
+  assert.deepEqual(model.week.wins, { merged: 0, good: false, streak: null, goodDays: null })
   for (const bad of [
     [],
     null,
@@ -410,6 +410,53 @@ test('week counts supplied completed and stopped records and validates wins as a
     assert.equal(homeModel(input({ wins: bad })).week.wins, null)
   }
   assert.equal(homeModel(input({ wins: { today: { merged: 0, decided: 0 }, streak: 0 } })).stack.some(card => card.kind === 'today'), false)
+})
+
+/** hobkin's wins on the test's day, 2026-11-12: six earlier days, of which the 7th, 10th and 11th were good, then today. */
+const hostWins = (today: Record<string, unknown>, streak: number) => {
+  const earlier = [6, 7, 8, 9, 10, 11].map(date => ({
+    day: `2026-11-${String(date).padStart(2, '0')}`,
+    merged: date === 10 ? 1 : 0,
+    decided: 4,
+    asked: 3,
+    good: [7, 10, 11].includes(date),
+    soFar: false,
+  }))
+  return { today, streak, days: [...earlier, { day: '2026-11-12', ...today }] }
+}
+
+test('today stays so far, however many decisions were answered, until work merges', () => {
+  const wins = hostWins({ merged: 0, decided: 6, asked: 1, good: null, soFar: true }, 2)
+
+  const model = homeModel(input({ wins }))
+
+  assert.deepEqual(model.week.wins, { merged: 0, good: false, streak: 2, goodDays: 3 })
+  assert.deepEqual(model.week.days.filter(day => day.good).map(day => day.key), ['2026-11-7', '2026-11-10', '2026-11-11'])
+  assert.equal(model.stack.some(card => card.kind === 'today'), false)
+})
+
+test('merged work makes today a good day, with its card in the evening', () => {
+  const wins = hostWins({ merged: 2, decided: 0, asked: 0, good: true, soFar: true }, 3)
+
+  const model = homeModel(input({ wins }))
+  const card = model.stack.find(entry => entry.kind === 'today')
+
+  assert.deepEqual(model.week.wins, { merged: 2, good: true, streak: 3, goodDays: 4 })
+  assert.equal(model.week.days.at(-1)?.good, true)
+  assert.deepEqual([card?.title, card?.detail], ['2 merged', '3-day streak'])
+})
+
+test('from an older host only merged work makes today good, and a streak that counted answers is not shown', () => {
+  // This host judged today before it was over: fewer decisions so far made it good.
+  const judgedEarly = homeModel(input({ wins: { today: { merged: 0, decided: 1, asked: 0, good: true }, streak: 1 } }))
+  // The oldest host counted answered decisions into its streak.
+  const countedAnswers = homeModel(input({ wins: { today: { merged: 1, decided: 9 }, streak: 5 } }))
+
+  assert.deepEqual(judgedEarly.week.wins, { merged: 0, good: false, streak: 1, goodDays: null })
+  assert.equal(judgedEarly.week.days.some(day => day.good), false)
+  assert.deepEqual(countedAnswers.week.wins, { merged: 1, good: true, streak: null, goodDays: null })
+  assert.deepEqual(countedAnswers.week.days.filter(day => day.good).map(day => day.today), [true])
+  assert.equal(countedAnswers.stack.find(card => card.kind === 'today')?.detail, null)
 })
 
 test('running and header use real occupancy, holds and since-last-look without writing inputs', () => {

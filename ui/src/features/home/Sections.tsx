@@ -212,16 +212,24 @@ export function Problems({ problems, unavailable }: { problems: HomeModel['probl
 /** The tallest bar's height, in pixels. */
 const BAR = 96
 
+/** Today in the week's footer: still so far until it is good. Answered decisions are not a win, so they are not counted. */
+function todayWords({ merged, good }: NonNullable<HomeModel['week']['wins']>): string {
+  if (!good) return `Today so far: ${merged ? `${merged} merged` : 'nothing merged'}`
+  return merged ? `Today: ${merged} merged, a good day` : 'Today: a good day'
+}
+
 export function Week({ week, unavailable }: { week: HomeModel['week']; unavailable: boolean }) {
   const still = useStill()
   const most = Math.max(1, ...week.days.map(day => day.completed + day.failed + day.stopped))
-  const won = week.wins !== null && week.wins.merged + week.wins.decided > 0
+  const { wins } = week
+  const streak = wins?.streak ?? 0
   const footer = [
-    week.wins ? `${week.wins.merged} merged and ${week.wins.decided} decided today` : null,
+    wins ? todayWords(wins) : null,
+    wins?.goodDays ? `${wins.goodDays} good ${wins.goodDays === 1 ? 'day' : 'days'}` : null,
     `${week.completed} runs done, ${week.unfinished} failed or stopped this week`,
   ].filter(Boolean).join(' · ')
   return (
-    <Section title="This week" aside={week.wins && week.wins.streak > 1 ? <span className="text-[13px] font-semibold text-sun-fg">{week.wins.streak}-day streak</span> : null}>
+    <Section title="This week" aside={streak > 1 ? <span className="text-[13px] font-semibold text-sun-fg">{streak}-day streak</span> : null}>
       {unavailable ? (
         <Empty icon={<CalendarClock />}>{WAITING}</Empty>
       ) : (
@@ -231,12 +239,12 @@ export function Week({ week, unavailable }: { week: HomeModel['week']; unavailab
               const total = day.completed + day.failed + day.stopped
               return (
                 <li key={day.key} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1.5">
-                  {day.today ? <Hob mood={won ? 'happy' : 'idle'} still={still} size={44} stage="var(--hb-surface)" className="-mb-3 shrink-0" /> : null}
+                  {day.today ? <Hob mood={day.good ? 'happy' : 'idle'} still={still} size={44} stage="var(--hb-surface)" className="-mb-3 shrink-0" /> : null}
                   <button
                     type="button"
                     disabled={!day.openId}
                     onClick={() => day.openId && openTarget({ to: 'report', id: day.openId })}
-                    aria-label={`${day.label}: ${day.completed} completed, ${day.failed} failed, ${day.stopped} stopped`}
+                    aria-label={`${day.label}: ${day.completed} completed, ${day.failed} failed, ${day.stopped} stopped${day.good ? ', a good day' : ''}`}
                     style={{ height: Math.max(6, total / most * BAR) }}
                     className="flex w-full max-w-[34px] flex-col overflow-hidden rounded-t-lg rounded-b-sm enabled:hover:opacity-80"
                   >
@@ -249,7 +257,8 @@ export function Week({ week, unavailable }: { week: HomeModel['week']; unavailab
                       <span className={cn('w-full flex-1', day.today ? 'bg-sun' : 'bg-border')} />
                     )}
                   </button>
-                  <span className={cn('font-mono text-[11px]', day.today ? 'font-semibold text-foreground' : 'text-muted-foreground')}>{day.label}</span>
+                  {/* A good day is underlined: a decoration, so the label keeps its box and nothing moves. */}
+                  <span className={cn('font-mono text-[11px]', day.today ? 'font-semibold text-foreground' : 'text-muted-foreground', day.good && 'underline decoration-sun decoration-2 underline-offset-[3px]')}>{day.label}</span>
                 </li>
               )
             })}

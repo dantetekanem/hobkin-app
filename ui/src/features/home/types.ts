@@ -37,7 +37,11 @@ export interface HomeInput {
   contributions: readonly HomeContributed[]
   routines: readonly RoutineFacts[]
   agents: readonly RunningAgent[]
-  /** `snapshot.wins`: `{ today: { merged, decided }, streak }` from hobkin, or anything else. Untrusted shape. */
+  /**
+   * `snapshot.wins` from hobkin: `{ today: { merged, decided, asked, good, soFar }, streak, days }`, each of `days`
+   * `{ day: 'YYYY-MM-DD', merged, decided, asked, good, soFar }`. An older host sends `{ today: { merged, decided }, streak }`.
+   * Untrusted shape.
+   */
   wins: unknown
   /** The host's reading of Pi's servers. Null before it has looked, or from a host that does not read Pi. */
   integrations: IntegrationsState | null
@@ -333,10 +337,20 @@ export interface HomeModel {
     summary: string | null
   }
   week: {
-    days: OutcomeDay[]
+    /** Each day's runs, and whether it was a good day. */
+    days: (OutcomeDay & { good: boolean })[]
     completed: number
     unfinished: number
-    wins: { merged: number; decided: number; streak: number } | null
+    wins: {
+      /** Changes merged today. */
+      merged: number
+      /** Today is a good day: work merged. Until then it is still so far. */
+      good: boolean
+      /** Good days in a row. Null from an older host, whose streak counted answered decisions. */
+      streak: number | null
+      /** The week's good days. Null from an older host, which does not say which days were good. */
+      goodDays: number | null
+    } | null
   }
   /** Null before hobkin has said how YOLO mode stands: an older host, or none. */
   yolo: HomeYolo | null
