@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defaultRoot } from './config.mjs';
 import { recordEvent } from './events.mjs';
 import { askCovers, outwardKind, outwardVerdict } from './outward.mjs';
 
@@ -9,7 +8,8 @@ import { askCovers, outwardKind, outwardVerdict } from './outward.mjs';
  * The guard for outward actions, first stage (075-chief-of-staff S17): it watches and blocks nothing. Each tool call that
  * acts outward in the user's name (`outward.mjs`) is recorded as one `outward_attempt` with its kind, the verdict a guard
  * would give, and the kind of run. It never records the call's arguments, recipients or text. The home is the one that
- * keeps the run's conversation, or else the one a `hobkin` command the agent runs would use (`defaultRoot`). Nothing loads it
+ * keeps the run's conversation, or else the one the run names in `HOBKIN_HOME`. With neither it records nothing, so a Pi
+ * outside hobkin, or a test, never writes into the user's real home. Nothing loads it
  * yet: it is meant for every run's Pi (`namingExtensions` in `harnesses.mjs`) and the main chat (`mainSdkResources` in
  * `pi-extensions.mjs`).
  */
@@ -35,7 +35,7 @@ function runKindOf(pi, file, env) {
 
 // Each hobkin conversation is kept one folder below its home, so a run records into the home it belongs to.
 const KEPT_IN = new Set(['sessions', 'jobs', 'hobkins']);
-const homeOf = file => (KEPT_IN.has(basename(dirname(file))) ? dirname(dirname(file)) : defaultRoot());
+const homeOf = (file, env) => (KEPT_IN.has(basename(dirname(file))) ? dirname(dirname(file)) : env.HOBKIN_HOME || null);
 
 // The user's standing rules, version 1 of `runtime/standing-rules.json`. A missing or broken file holds none.
 function standingRules(root) {
@@ -60,7 +60,8 @@ export default function outwardGuard(pi, { root, env = process.env } = {}) {
       const file = ctx?.sessionManager?.getSessionFile?.() ?? '';
       const run = runKindOf(pi, file, env);
       const askCovered = run === 'main' && askCovers(kind, said);
-      const home = root ?? homeOf(file);
+      const home = root ?? homeOf(file, env);
+      if (!home) return;
       recordEvent(home, 'outward_attempt', { kind, verdict: outwardVerdict({ kind, rules: standingRules(home), askCovered }), run });
     } catch {
       // Watching never stops a call.

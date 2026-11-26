@@ -263,3 +263,19 @@ test('the outward view counts attempts per day by kind, verdict and run, and whi
   assert.equal(await main(['telemetry', 'outward', '--days', '7', '--home', root], { write: text => chunks.push(text) }), 0);
   assert.equal(JSON.parse(chunks.join('')).view, 'outward');
 });
+
+test('a conversation kept outside a hobkin home records nothing, rather than guess a home', async t => {
+  const elsewhere = home(t);
+  const pi = fakePi();
+  outwardGuard(pi, { env: {} });
+  await pi.call('mcp__gmail__gmail_send', send, join(elsewhere, 'somewhere', 'a.jsonl'));
+  await pi.call('mcp__gmail__gmail_send', send);
+
+  assert.deepEqual(attempts(fallbackHome), [], 'no default home is written');
+  assert.deepEqual(attempts(elsewhere), []);
+
+  const named = home(t);
+  outwardGuard(pi, { env: { HOBKIN_HOME: named } });
+  await pi.call('mcp__gmail__gmail_send', send, join(elsewhere, 'somewhere', 'b.jsonl'));
+  assert.equal(attempts(named).length, 1, 'a home the run names in HOBKIN_HOME is used');
+});
