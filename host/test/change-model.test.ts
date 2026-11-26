@@ -128,6 +128,6 @@ test("a page shown reaches the runtime with the id, a runtime from before answer
   assert.deepEqual(await runCommand(none, 'hobkin.shown', { id: 'a1b2c3d4' }), { ok: true, value: { ok: true } })
   const tool = createClientTool({ run: (name, args) => runCommand(handlers, name, args) })
   const listed = (await tool.execute('1', { action: 'list' })).details as { name: string }[]
-  for (const name of ['hobkin.shown', 'hobkin.change', 'agent.change']) assert.ok(!listed.some((command) => command.name === name), `${name} is not listed for hobkin`)
+  assert.ok(!listed.some((command) => command.name === 'hobkin.shown'), 'hobkin.shown is not listed for hobkin')
   await assert.rejects(tool.execute('2', { action: 'run', name: 'hobkin.shown', args: { id: 'a1b2c3d4' } }), /cannot run/)
 })

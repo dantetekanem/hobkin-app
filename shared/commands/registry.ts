@@ -18,7 +18,7 @@ import { NUDGE_SCREENS } from '../protocol/nudge.ts'
 import { INTEGRATION_ID, type IntegrationManifest } from '../integration/manifest.ts'
 import type { SystemMetrics, UsageFacts } from '../protocol/system.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
-import type { ShellFields } from '../protocol/snapshot.ts'
+import type { ListedAgent, ShellFields } from '../protocol/snapshot.ts'
 import type { AgentScheduleRuns } from '../protocol/schedules.ts'
 import {
   COMPUTER_KINDS,
@@ -699,9 +699,10 @@ export const COMMANDS = {
     args: Type.Object({ path: Type.Optional(words(1024)), hobkin: Type.Optional(hobkinId) }, { additionalProperties: false }),
     hobkin: true,
   },
-  // Durable hobkins (`034-durable-hobkins`): the hobkins the user starts with Command+N and drives themselves. Starting,
-  // talking and ending are the window's, since they spend the user's subscriptions. hobkin may read, list and message
-  // them, and its message is always its own, never the user's.
+  // Durable hobkins (`034-durable-hobkins`): the hobkins the user starts with Command+N and drives themselves. Starting
+  // and talking are the window's, since they spend the user's subscriptions. hobkin may read, list and message them, and
+  // its message is always its own, never the user's. It ends one, or changes its model or thinking level, only when the
+  // user asks it to.
   'hobkin.start': {
     description:
       'Start a durable hobkin: a hobkin the user talks to directly, which keeps its conversation until the user ends it. `cwd` is the folder it works in, and `engine` what it runs on: a tier, Claude Code with nothing asked (with a model and a thinking level of its own), or a model Pi can reach with a thinking level. `text` is its first message: with none it starts waiting, and its first turn is the first message sent to it.',
@@ -734,9 +735,10 @@ export const COMMANDS = {
     args: Type.Object({ id: hobkinId }, { additionalProperties: false }),
   },
   'hobkin.end': {
-    description: 'End a durable hobkin: its turn in flight stops and it leaves the lists. Its conversation file stays on disk.',
+    description: 'End a durable hobkin: its turn in flight stops and it leaves the lists. Its conversation file stays on disk. hobkin ends one only when the user asks it to.',
     runs: 'host',
     args: Type.Object({ id: hobkinId }, { additionalProperties: false }),
+    hobkin: true,
   },
   'hobkin.rename': {
     description: 'Give a durable hobkin another name.',
@@ -755,10 +757,11 @@ export const COMMANDS = {
   },
   'hobkin.change': {
     description:
-      "Change the model or thinking level a durable hobkin works on, from the window's message box (/model, /effort). `model` is a full provider/model or a short name that only one model Pi can use matches. The turn in flight takes it from its next step, and every later turn keeps it. Refused for a hobkin on Claude Code or one that ended.",
+      "Change the model or thinking level a durable hobkin works on, from the window's message box (/model, /effort). `model` is a full provider/model or a short name that only one model Pi can use matches. The turn in flight takes it from its next step, and every later turn keeps it. Refused for a hobkin on Claude Code or one that ended. hobkin changes one only when the user asks it to.",
     runs: 'host',
     args: Type.Object({ id: hobkinId, model: Type.Optional(words(200)), effort: Type.Optional(oneOf(MAIN_EFFORTS)) }, { additionalProperties: false }),
     rule: ({ model, effort }) => (model !== undefined || effort !== undefined ? null : 'need a model or a thinking level to change'),
+    hobkin: true,
   },
   'hobkin.read': {
     description: "Read a durable hobkin's conversation: what it is, and each turn with what was asked, who asked it (`from`) and what it answered, oldest first.",
@@ -1285,11 +1288,19 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ job: words(256), id: words(512) }, { additionalProperties: false }),
   },
+  'agent.list': {
+    description:
+      "List the agents and routines that work or wait now, as the window's agents list has them: each with its run's id, title, state, model and thinking level, its tier and work item when it has them, and `onClaudeCode` for one whose model only Claude Code's settings change. hobkin's own conversation is not in it, and the durable hobkins are in `hobkin.list`. Read-only.",
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
   'agent.stop': {
     description:
-      "Stop an agent or routine that is running, by its run's id. A work agent stops the two ways hobkin's k stops one: `for-now` puts its item at the end of the queue, and `not-approved` records a no, so it does not run again. Its branch stays either way. Anything else is cancelled.",
+      "Stop an agent or routine that is running, by its run's id. A work agent stops the two ways hobkin's k stops one: `for-now` puts its item at the end of the queue, and `not-approved` records a no, so it does not run again. Its branch stays either way. Anything else is cancelled. hobkin stops one only when the user asks it to.",
     runs: 'host',
     args: Type.Object({ run: words(256), how: Type.Optional(oneOf(['for-now', 'not-approved'])) }, { additionalProperties: false }),
+    hobkin: true,
   },
   'agent.say': {
     description:
@@ -1316,10 +1327,11 @@ export const COMMANDS = {
   },
   'agent.change': {
     description:
-      "Change the model or thinking level of an agent that is working, by its run's id, from the window's message box (/model, /effort). `model` is a full provider/model or a short name that only one model Pi can use matches. The agent takes it from its next step. Refused for a finished agent, hobkin's own conversation and an agent on Claude Code.",
+      "Change the model or thinking level of an agent that is working, by its run's id, from the window's message box (/model, /effort). `model` is a full provider/model or a short name that only one model Pi can use matches. The agent takes it from its next step. Refused for a finished agent, hobkin's own conversation and an agent on Claude Code. hobkin changes one only when the user asks it to.",
     runs: 'host',
     args: Type.Object({ run: words(256), model: Type.Optional(words(200)), effort: Type.Optional(oneOf(MAIN_EFFORTS)) }, { additionalProperties: false }),
     rule: ({ model, effort }) => (model !== undefined || effort !== undefined ? null : 'need a model or a thinking level to change'),
+    hobkin: true,
   },
   // The schedules agents keep for themselves (056-agent-schedules), from the window's list. hobkin's own agents change
   // theirs with their own tools, so only the window sends these.
@@ -1736,6 +1748,7 @@ export interface CommandResults {
   /** hobkin's line for each row, in the order they went, and the line that sums them up. */
   'work.group': { message: string; lines: string[] }
   /** What hobkin did, in its own words. */
+  'agent.list': { agents: ListedAgent[] }
   'agent.stop': { message: string }
   /** `unsent`: what a turn the message interrupted never read, for the message box. */
   'agent.say': { queued: boolean; unsent?: TakenBack[] }

@@ -1,7 +1,7 @@
 import type { ImageContent, TakenBack, TalkQueue } from 'hobkin/src/cli/application.mjs'
-import type { KeptNote } from '#shared/protocol/hobkins.ts'
+import { isHobkinTurn, type KeptNote } from '#shared/protocol/hobkins.ts'
 import { ENDED_SCHEDULE_STATES, type AgentSchedule } from '#shared/protocol/schedules.ts'
-import type { RunSummary } from '#shared/protocol/snapshot.ts'
+import type { ListedAgent, RunSummary } from '#shared/protocol/snapshot.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
 import { imageContents, type AgentImages } from './attachments.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
@@ -62,7 +62,26 @@ const STOPS = { 'for-now': 'later', 'not-approved': 'decline' } as const
 
 const messageOf = (result: unknown) => String((result as { message?: unknown } | null)?.message ?? '')
 
-export function agentHandlers({ app, runs, models, images: attached, schedules }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say' | 'agent.change' | 'agent.dequeue' | 'agent.notes'> {
+/**
+ * An agent as the window lists one (`isAgentRun` in the UI): a run that works or waits, neither hobkin's own
+ * conversation nor a durable hobkin's turn, which `hobkin.list` lists by the hobkin's id.
+ */
+const isAgent = (run: RunSummary): run is RunSummary & { id: string } =>
+  (run.state === 'running' || run.state === 'waiting') && run.kind !== 'main' && typeof run.id === 'string' && !isHobkinTurn(run)
+
+/** What hobkin needs to find the agent the user names, and what it runs on. */
+const listed = ({ id, title, state, model, effort, tier, work, onClaudeCode }: RunSummary & { id: string }): ListedAgent => ({
+  run: id,
+  title,
+  state,
+  ...(model ? { model } : {}),
+  ...(effort ? { effort } : {}),
+  ...(tier ? { tier } : {}),
+  ...(work ? { work } : {}),
+  ...(onClaudeCode ? { onClaudeCode } : {}),
+})
+
+export function agentHandlers({ app, runs, models, images: attached, schedules }: AgentsSeat): Pick<HostHandlers, 'agent.list' | 'agent.stop' | 'agent.say' | 'agent.change' | 'agent.dequeue' | 'agent.notes'> {
   /**
    * The run, while it runs, or also while it waits for its time when `waits` says so (spec 053). hobkin's own
    * conversation is no agent: its turn stops from the input.
@@ -83,6 +102,7 @@ export function agentHandlers({ app, runs, models, images: attached, schedules }
   }
 
   return {
+    'agent.list': () => ({ agents: runs().filter(isAgent).map(listed) }),
     'agent.change': async ({ run: id, model, effort }) => {
       const run = runs().find((entry) => entry.id === id)
       if (run?.kind === 'main') throw new Unavailable("hobkin's own conversation changes its model in Settings.")

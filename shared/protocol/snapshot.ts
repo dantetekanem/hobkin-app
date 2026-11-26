@@ -94,6 +94,11 @@ export interface RunSummary {
   idleSince?: string
 }
 
+/** An agent as hobkin's `agent.list` gives it: its run's id, what it is, and what it runs on. */
+export interface ListedAgent extends Pick<RunSummary, 'title' | 'state' | 'model' | 'effort' | 'tier' | 'work' | 'onClaudeCode'> {
+  run: string
+}
+
 /** Bounded public owned descendants, or legacy teams rows without ancestry. Never a private transcript. */
 export interface RunChild {
   /** Exact runtime ancestry; absent on legacy teams rows. */

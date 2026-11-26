@@ -53,6 +53,7 @@ export function createClientTool({ run }: ClientToolOptions) {
       "appearance.set changes the app's color theme to five colors you choose, when the user asks for a theme such as a Matrix one. appearance.use puts the app on its own system, light or dark theme, which is how to go back from a custom theme.",
       'The app keeps every custom theme, newest first, up to 12: appearance.themes lists them with when each was made, and appearance.pick puts one back on, such as the one from yesterday or the one before this. appearance.rename and appearance.remove tidy the list.',
       "During a code review, the user's message says which review, step and node they are on. review.map reads the whole review; walk it one node at a time along each test's path, with review.code for a node's lines, review.show to move the user's view to what you are talking about, and review.note to leave a comment for each fix. The verdict, and sending the fixes to an agent, are the user's, in the review panel.",
+      'When the user asks you to stop or end an agent, or to put one on another model or thinking level, find it with agent.list or hobkin.list, then use agent.stop or hobkin.end, or agent.change or hobkin.change. Never do any of these on your own.',
       'Start with action "list". Never ask the user for a key, token or password: give them the steps from models.key-help instead.',
     ].join(' '),
     promptSnippet: "client: run the hobkin app's commands, such as listing model providers, starting a sign-in, or walking an open code review",

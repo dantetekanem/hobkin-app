@@ -71,7 +71,7 @@ function fixture(t: Parameters<typeof temporaryDirectory>[0], seat: Partial<Hobk
 
 const start = (cwd: string, engine: unknown = { kind: 'tier', tier: 'fast' }) => ({ text: 'Fix it.', cwd, engine })
 
-test('the main hobkin reads a hobkin\'s turns and cannot start one, end one or speak as the user', async (t) => {
+test('the main hobkin reads a hobkin\'s turns and cannot start one or speak as the user', async (t) => {
   const { handlers } = fixture(t)
   const tool = createClientTool({ run: (name, args) => runCommand(handlers, name, args) })
 
@@ -83,7 +83,6 @@ test('the main hobkin reads a hobkin\'s turns and cannot start one, end one or s
   const refused: [string, Record<string, unknown>][] = [
     ['hobkin.start', start('/tmp')],
     ['hobkin.say', { id: 'a1b2c3d4', text: 'Hello' }],
-    ['hobkin.end', { id: 'a1b2c3d4' }],
   ]
   for (const [name, args] of refused) {
     await assert.rejects(tool.execute('3', { action: 'run', name, args }), /cannot run/, name)

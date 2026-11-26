@@ -53,6 +53,7 @@ hobkin has the whole client in reach. It can do anything the user can do in the 
 - A8. Updating an open page changes only the blocks that differ, in place, without reloading the page.
 - A9. A page whose text block contains `<script>` and whose image block names a remote address shows the script as text and refuses the image.
 - A10. With no window open, a view command fails with a message that says the window is closed, and a host command still runs.
+- A11. When the user asks, hobkin finds an agent (`agent.list` for the agents and routines that work or wait, each with its model and thinking level; `hobkin.list` for durable hobkins), stops a run (`agent.stop`), ends a durable hobkin (`hobkin.end`), and puts either on another model or thinking level (`agent.change`, `hobkin.change`), as the window's End, /model and /effort do. The commands' descriptions and the `client` tool's tell hobkin never to do these on its own. `hobkin.start` and `hobkin.say` stay the window's. The user, 2026-11-26: "i want the main agent to be capable of killing or changing an agent model/effort if I ask".
 
 ## Proof
 
@@ -66,6 +67,7 @@ hobkin has the whole client in reach. It can do anything the user can do in the 
 - A8. `ui/test/pages.test.ts` › "patches changed blocks in place"
 - A9. `host/test/canvas.test.ts` › "refuses script and remote content"
 - A10. `host/test/client-tool.test.ts` › "view commands need a window"
+- A11. `host/test/agent-control.test.ts` › "agent.list lists the agents that work or wait, as the window lists them, each with its model and thinking level" and "hobkin finds, stops, ends and changes agents through its client tool, and still never talks to a durable hobkin as the user". Check: ask hobkin in Chat to put a running agent on another thinking level, then to stop it.
 
 ## Steps
 
@@ -75,3 +77,4 @@ hobkin has the whole client in reach. It can do anything the user can do in the 
 - [ ] S4 (A5). The trace near the avatar and the takeover rule.
 - [ ] S5 (A7, A9). Page files, validation and the `canvas` tool.
 - [ ] S6 (A7, A8). The Pages tab and the block renderers.
+- [x] S7 (A11). `agent.list`, and `agent.stop`, `agent.change`, `hobkin.end` and `hobkin.change` open to hobkin's `client` tool.
