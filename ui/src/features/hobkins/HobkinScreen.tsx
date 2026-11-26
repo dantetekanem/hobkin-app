@@ -25,6 +25,9 @@ import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepV
 import { useAgentActivity, useStepsMood } from '@/features/agent-activity/use-agent-activity.ts'
 import type { FollowStart } from '@/features/agent-activity/follow.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
+import { useWindowedList, WindowedRows } from '@/features/agent-activity/windowed-list.tsx'
+import { windowedSteps } from '@/features/agent-activity/windowed-place.ts'
+import { nearRows } from '@/features/agent-activity/windowed-rows.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import type { Attachment } from '@/features/chat/draft.ts'
 import { MessageText } from '@/features/chat/markdown.ts'
@@ -479,7 +482,10 @@ interface ConversationProps {
  * over from the time it is drawn (`turn-steps.ts`). It draws its turns newest first, so it watches and reads only the
  * turns that reach its newest rows (`useNewestFirst`).
  */
-const Conversation = memo(ConversationRows)
+const Conversation = memo(function Conversation(props: ConversationProps) {
+  // With the switch `hobkin:windowed-steps` on, only the rows in view and a view's height around them are drawn.
+  return windowedSteps() ? <WindowedConversation {...props} /> : <ConversationRows {...props} />
+})
 
 function ConversationRows({ id, prepared, turns, cwd, sending, problem, loading }: ConversationProps) {
   const still = useStill()
@@ -560,6 +566,140 @@ function ConversationRows({ id, prepared, turns, cwd, sending, problem, loading 
               ),
             )}
           </Arrivals>
+        </ShowStamps>
+        {loading ? <li className="self-center text-[13px] text-muted-foreground">Reading the conversation.</li> : null}
+        {problem ? (
+          <li role="alert" className="self-center text-[13px] text-bad-fg">
+            The conversation could not be read: {problem}
+          </li>
+        ) : null}
+      </ol>
+      {/* Stays just above the talk box while the user reads further up, and takes them back to the newest. */}
+      <div className="pointer-events-none sticky bottom-3 z-10 flex h-0 justify-center">
+        <AnimatePresence>
+          {scroll.pinned ? null : (
+            <motion.button
+              type="button"
+              onClick={scroll.jumpToLatest}
+              initial={holdStill({ opacity: 0, transform: 'translateY(10px) scale(0.96)' }, still)}
+              animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: spring.alive }, still)}
+              exit={holdStill({ opacity: 0, transform: 'translateY(10px) scale(0.96)', transition: tween.exit }, still)}
+              className="pointer-events-auto absolute bottom-0 flex h-8 items-center gap-1.5 rounded-full border border-border bg-card pr-1.5 pl-3 text-[12px] font-medium shadow-panel transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2"
+            >
+              <ArrowDown className="size-3.5" aria-hidden="true" />
+              Newest message
+              <Kbd>End</Kbd>
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  )
+}
+
+const rowKey = (row: ShownRow) => row.key
+/**
+ * How tall a row not drawn yet is guessed to be: a message's bubble of two lines, an answer of a few, a step folded to
+ * its row. Rows are measured as they are drawn, and kept, so a guess counts only until then.
+ */
+function rowHeight(row: ShownRow): number {
+  if (row.kind === 'said') return 60
+  if (row.kind === 'answer') return 160
+  if (row.kind === 'thinking') return 24
+  return 36
+}
+/** The thinking row is no step: the keyboard walks past it, as it has no `data-step`. */
+const canStand = (row: ShownRow) => row.kind !== 'thinking'
+/** The list's own gap and padding: `gap-3 pt-2 pb-3`. */
+const SPACING = { gap: 12, top: 8, bottom: 12 }
+/** How near the view, in rows, the place the live turn's older steps go is when the next page of them is read. */
+const NEAR_OLDER = 4
+
+/**
+ * The conversation drawn windowed, with the switch `hobkin:windowed-steps` on (windowed-list.tsx): only the rows in
+ * view and a view's height around them, the newest always, and spacers for the rest. Its turns' steps are read as their
+ * rows come into view (`useNewestFirst` with the rows drawn). There is no "Show 40 more": the live turn's older steps
+ * are read from its run's saved session by themselves as the place they go comes near the view, and asked again as the
+ * feed lets steps go only while they are in view or near it.
+ */
+function WindowedConversation({ id, prepared, turns, cwd, sending, problem, loading }: ConversationProps) {
+  const still = useStill()
+  const live = useHasHost()
+  const run = turns.find((turn) => turn.live)?.run ?? null
+  const activity = useAgentActivity(run)
+  const job = live && activity && !activity.sample ? run : null
+  const [olderNear, setOlderNear] = useState(false)
+  const older = useOlderSteps(job, { follows: olderNear })
+  const saved = earlierRow(0, { more: older.more, loading: older.loading, mayHaveOlder: job !== null && mayHaveOlder(activity?.entries) })
+  const [drawn, setDrawn] = useState<readonly string[]>(() => (prepared ? keptPage(id).drawn : NO_TURNS))
+  const turnsWithSteps = useMemo(() => (run && !drawn.includes(run) ? [...drawn, run] : drawn), [drawn, run])
+  const { finished, known } = useDrawnSteps(id, turnsWithSteps, { live: run, cwd })
+  const schedules = useScheduleRuns({ kind: 'hobkin', id })
+  const rows = useMemo(() => {
+    const entries = activity && older.steps.length ? [...older.steps, ...activity.entries] : activity?.entries
+    const liveSteps = activity && entries ? { entries, cwd: activity.cwd ?? cwd, seenAt: (id: string) => activity.timeOf(id)?.seen } : null
+    const said = pageRows(turns, { sending, activity: liveSteps, finished })
+    return withRuns(said, schedules, rowTime) as readonly ShownRow[]
+  }, [turns, sending, activity, older.steps, cwd, schedules, finished])
+  const list = useWindowedList({ name: hobkinAgentId(id), rows, keyOf: rowKey, estimate: rowHeight, walkable: canStand, spacing: SPACING })
+  const { scroll } = list
+  useNewestFirst(id, turnsWithSteps, setDrawn, { turns, rows, known, shown: list.shown, window: NEWEST_STEPS })
+
+  // The live turn's older steps go before its first step: the pages read so far, then the feed.
+  const { first, last } = useMemo(() => {
+    const first = job ? rows.findIndex((row) => row.kind === 'step' && row.key.startsWith(`${job}:`)) : -1
+    const read = new Set(older.steps.map((step) => `${job}:${step.id}`))
+    let last = first
+    while (last >= 0 && last + 1 < rows.length && read.has(rows[last + 1]!.key)) last += 1
+    return { first, last }
+  }, [rows, job, older.steps])
+  const nearFirst = first >= 0 && nearRows(list.inView, first, first, NEAR_OLDER)
+  const nearPages = first >= 0 && nearRows(list.inView, first, last + 1, NEAR_OLDER)
+  useEffect(() => setOlderNear(nearPages), [nearPages])
+  // Read once for each oldest step: a read that could not be answered is not asked again until the steps move.
+  const askedBefore = useRef<string | null>(null)
+  const oldest = older.steps[0]?.id ?? activity?.entries[0]?.id ?? null
+  const loadMore = older.loadMore
+  const readsOlder = saved?.kind === 'saved' && !saved.loading
+  useEffect(() => {
+    if (!nearFirst || !readsOlder || oldest === askedBefore.current) return
+    askedBefore.current = oldest
+    loadMore()
+  }, [nearFirst, readsOlder, oldest, loadMore])
+
+  const timeOf = activity?.timeOf
+  const draw = useCallback(
+    (row: ShownRow) =>
+      row.kind === 'said' ? (
+        <Said text={row.text} images={row.images} at={row.at} delivery={row.delivery} from={row.from} />
+      ) : row.kind === 'wake' ? (
+        <ScheduleWakeItem wake={row.wake} at={row.at} />
+      ) : row.kind === 'step' ? (
+        // A step reads a whole output from its own turn's run, and its times as that run's.
+        <StepJob.Provider value={row.run === run ? job : live ? row.run : null}>
+          <StepItem step={row.step} timeOf={row.run === run && timeOf ? timeOf : timeOfTurn(row.run)} ended={row.ended} />
+        </StepJob.Provider>
+      ) : row.kind === 'answer' ? (
+        <Answer turn={row.turn} at={row.at} />
+      ) : row.kind === 'schedule' ? (
+        <ScheduleRunsItem row={row} />
+      ) : row.kind === 'thinking' ? (
+        <Working run={run} />
+      ) : null,
+    [run, job, live, timeOf],
+  )
+
+  return (
+    <div
+      ref={scroll.scroller}
+      onScroll={scroll.onScroll}
+      // WebKit anchors no scroll here today; one that will must not move the view a second time (windowed-list.tsx).
+      className="scroll-quiet relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-[var(--page-gutter,10%)] [overflow-anchor:none] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
+    >
+      <ol ref={scroll.content} data-agent-exchange onKeyDown={walkSteps} aria-label="The conversation" className="mt-auto flex flex-col gap-3 pt-2 pb-3">
+        <ShowStamps>
+          {/* The rows drawn with the page are simply there. A row new to it arrives, and one scrolled back to does not. */}
+          <WindowedRows list={list} draw={draw} />
         </ShowStamps>
         {loading ? <li className="self-center text-[13px] text-muted-foreground">Reading the conversation.</li> : null}
         {problem ? (
