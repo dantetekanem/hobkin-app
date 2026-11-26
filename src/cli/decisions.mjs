@@ -142,8 +142,13 @@ function foldLog(root) {
   return [...byId.values()];
 }
 
-/** What is still open, oldest first, including what the user handed to the main agent. */
-export const openDecisions = root => readAll(root).filter(({ answer }) => answer === undefined);
+/**
+ * What is still open, oldest first, including what the user handed to the main agent. Each says when it takes its pick by itself
+ * (`defaultsAt`, its deadline), or null when it waits for the user, so the window never promises a pick hobkin will not take.
+ */
+export const openDecisions = root => readAll(root)
+  .filter(({ answer }) => answer === undefined)
+  .map(decision => ({ ...decision, defaultsAt: isDueAt(Infinity)(decision) ? decision.deadline : null }));
 
 /** What waits on the user: open, less what they handed to the main agent, which closes it once it is done. */
 export const waitingDecisions = root => openDecisions(root).filter(({ handedAt }) => !handedAt);

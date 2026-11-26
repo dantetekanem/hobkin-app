@@ -436,6 +436,16 @@ test('another session\'s card and a card of a guarded kind wait for the user, wh
   assert.deepEqual(inboxToTell(root, Date.parse(LATER) + 60000), []);
 });
 
+test('an open card says when it takes its pick by itself, and one that waits for the user says null', async t => {
+  const root = home(t);
+  await runDecideCommand(root, ['routine', 'site'], card({ reversible: true, deadline: LATER }), FILED);
+  await runDecideCommand(root, [], card({ reversible: true, deadline: LATER }), FILED, 'Claude Code');
+  await runDecideCommand(root, ['routine', 'mail'], card({ kind: 'email-reply', reversible: true, deadline: LATER }), FILED);
+  await runDecideCommand(root, ['routine', 'docs'], card({ reversible: false, deadline: LATER }), FILED);
+
+  assert.deepEqual(openDecisions(root).map(({ defaultsAt }) => defaultsAt), [LATER, null, null, null]);
+});
+
 test('a card that cannot be undone, has no pick, says nothing of undoing or whose deadline is ahead keeps waiting', async t => {
   const root = home(t);
   await runDecideCommand(root, ['routine', 'a'], card({ reversible: false, deadline: LATER }), FILED);
