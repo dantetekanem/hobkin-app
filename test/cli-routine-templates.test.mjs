@@ -79,7 +79,7 @@ test('a template can carry its version and what setup asks before writing it', t
 
   const byId = Object.fromEntries(templates.map(entry => [entry.id, entry]));
   assert.deepEqual([byId.garden.version, byId.garden.asks], [3, 'Which beds and crops should it keep track of?']);
-  assert.deepEqual([byId['morning-brief'].version, byId['morning-brief'].asks], [1, null], 'no version means the first one');
+  assert.deepEqual([byId['agent-sessions'].version, byId['agent-sessions'].asks], [1, null], 'no version means the first one');
   assert.match(errors.find(({ file }) => file.endsWith('bad-version.md')).message, /version/);
 });
 

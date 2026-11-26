@@ -6,6 +6,7 @@ group: day
 needs: calendar, code host
 effort: medium
 fits: Someone who wants one look in the morning to know what today holds, whether it fits, and what yesterday left open.
+version: 2
 ---
 
 Find their calendar yourself among the tools you have, such as an MCP server with calendar tools. Try the one your memory says worked first. Say in one short line which calendar you used. If you find none, say so.
