@@ -65,11 +65,11 @@ import { prView } from './work/reads.mjs';
 import { LandOffers, lastOfferAt, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { fileFirstPair } from './work/pairs.mjs';
 import { stalled } from './checks.mjs';
-import { DISMISSALS_FILE } from './action-dismissal.mjs';
+import { DISMISSALS_FILE, actionSelection, actionSelectionNotices, beginActionSelection, finishActionSelection, readDismissedActionIds } from './action-dismissal.mjs';
 import { fileDecision, findDecision, findOpenDecision, markShown, QUESTION_WAIT_MS, tickDecisionDefaults } from './decisions.mjs';
 import { isPresent } from './pending.mjs';
 import { Desk } from './desk-queue.mjs';
-import { readActionDecisions, readPending, readWaiting } from './pending-read.mjs';
+import { listActionItems, readActionDecisions, readPending, readWaiting } from './pending-read.mjs';
 import { arrivedCount, arrivedSince, asksForBrief, BRIEF_BAR, briefMaterial, briefNote, briefSince, offerLine, readBriefState, returnedSince, seenMoved, withoutBriefNote, writeBriefState } from './brief.mjs';
 import { readReportIds, reportReadStates } from './telemetry.mjs';
 import { carryOutAnswer } from './answer.mjs';
@@ -798,6 +798,9 @@ export class HobkinApplication {
     if (yesterday && !noticeIds.has(yesterday.id)) notices.push(yesterday);
     if (this.answerTrouble) notices.push(this.answerTrouble);
     this.answerTrouble = null;
+    for (const notice of actionSelectionNotices(this.runtime.directory, this.actionSelections)) {
+      if (!noticeIds.has(notice.id)) notices.push(notice);
+    }
     for (const line of this.memoryLines?.splice(0) ?? []) {
       if (noticeIds.has(line.id)) continue;
       notices.push(line);
@@ -1873,9 +1876,10 @@ export class HobkinApplication {
       fixRisk: () => fixRisk(root, slug, value, extra, this.now()),
       riskStays: () => riskStays(root, slug, value, extra, this.now()),
       pr: () => prView(root, slug, value),
-      decide: () => this.decide(slug, value),
-      words: () => this.answerWords(slug, value),
+      decide: () => this.decide(slug, value, extra?.actionItem),
+      words: () => this.answerWords(slug, value, extra?.actionItem),
       learning: () => this.answerLearning(slug, value),
+      actionItem: () => this.answerGeneratedCard(slug, value),
       mergePr: () => mergePullRequest(root, slug, value, extra),
       // The user approved a finished branch in a review: its PR opens at the commit they approved.
       publish: () => publishItem(root, slug, value, { ...extra, now: this.now() }),
@@ -1884,7 +1888,9 @@ export class HobkinApplication {
       // A group's one yes comes as its rows, in the order they go, in place of a project.
       group: () => mergeGroup(root, slug, { ...value, now: this.now() }),
     };
-    const result = await actions[action]();
+    const result = extra?.actionItem && ['decide', 'words'].includes(action)
+      ? await this.answerActionItem(action, slug, value, actions[action])
+      : await actions[action]();
     if (WALK_EVENTS[action]) recordEvent(root, WALK_EVENTS[action], { project: slug, item: value });
     for (const { action: walked, slug: project, item } of result?.walked ?? []) {
       if (WALK_EVENTS[walked]) recordEvent(root, WALK_EVENTS[walked], { project, item });
@@ -1901,29 +1907,87 @@ export class HobkinApplication {
     return result;
   }
 
-  /** The asker hears first, so an answer that cannot reach it stays open for another try. A merge that fails is the same: it throws, and the reason goes on screen. */
-  async decide(id, value) {
+  async answerActionItem(action, id, value, dispatch) {
+    const root = this.runtime.directory;
+    const earlier = this.actionSelectionReply(id);
+    if (earlier) return earlier;
+    const decision = findOpenDecision(root, id);
+    if (readDismissedActionIds(root).includes(id)) throw Error('That Action Item was already removed.');
+    const choice = action === 'words' ? value.trim() : findDecision(root, id, value).choice.label;
+    if (!choice) throw Error('Give one of its choices or your own words.');
+    return this.runActionSelection({ id, title: decision.tldr, choice }, dispatch);
+  }
+
+  async answerGeneratedCard(id, value) {
+    const root = this.runtime.directory;
+    const earlier = this.actionSelectionReply(id);
+    if (earlier) return earlier;
+    const card = listActionItems(root).items.find(item => item.id === id);
+    const [, target] = id.split(':');
+    if (card?.group === 'project') {
+      const choices = { take: 'Take it', skip: 'Skip' };
+      if (!Object.hasOwn(choices, value)) throw Error('That card does not have this choice.');
+      const dispatch = () => value === 'take' ? chooseProject(root, target) : skipProject(root, target);
+      return this.runActionSelection({ id, title: card.title, choice: choices[value] }, dispatch);
+    }
+    const proposal = card?.group === 'learning' && learningState(root).proposals.find(entry => entry.id === target);
+    if (!proposal) throw Error('That card is no longer available.');
+    const choices = {
+      yes: 'Yes, plan it',
+      later: 'No, but ask me later',
+      no: proposal.scope.startsWith('work.') ? 'No, never again for this repo' : 'No, never again',
+    };
+    if (!Object.hasOwn(choices, value)) throw Error('That card does not have this choice.');
+    return this.runActionSelection({ id, title: card.title, choice: choices[value] }, () => this.answerLearning(target, value, true));
+  }
+
+  actionSelectionReply(id) {
+    const earlier = actionSelection(this.runtime.directory, id);
+    if (!earlier || earlier.outcome === 'completed') return null;
+    return { ok: false, message: this.actionSelections?.has(id) ? 'Your choice is already being handled.' : 'Your choice was saved. See Chat for what happened.' };
+  }
+
+  /** The desktop card's selection and its fallback notice share a durable receipt. Never repeat the underlying action. */
+  async runActionSelection(selection, dispatch) {
+    const root = this.runtime.directory;
+    const { id } = selection;
+    const message = 'Your choice was saved. See Chat for what happened.';
+    try {
+      beginActionSelection(root, selection, this.now());
+    } catch {
+      throw Error('Your choice could not be saved. No action was attempted.');
+    }
+    (this.actionSelections ??= new Set()).add(id);
+    let result, outcome;
+    try {
+      result = await dispatch();
+      if (!result) outcome = 'unknown';
+      else outcome = result.ok === false ? (result.unavailable || 'unknown') : 'completed';
+    } catch {
+      outcome = 'unknown';
+    }
+    try {
+      finishActionSelection(root, id, outcome);
+    } catch {
+      // The saved selection still gives Chat an unknown-outcome notice after a failed completion write.
+      outcome = 'unknown';
+    } finally {
+      this.actionSelections.delete(id);
+    }
+    return outcome === 'completed' ? result : { ok: false, message };
+  }
+
+  /** The asker hears first; desktop selections keep their own durable fallback if it cannot hear. */
+  async decide(id, value, actionItem = false) {
     const root = this.runtime.directory;
     const { decision, choice } = findDecision(root, id, value);
     const { answerTo } = decision;
-    const result = await carryOutAnswer(root, id, { value }, this.now());
-    // A question the main agent asked and the user put off is answered here, and the main agent hears the choice in Chat, as if said there.
-    if (answerTo?.kind === 'chat') this.tellMain(decision, choice.label);
-    // Doing it with hobkin hands the item to the main agent in Chat, and it leaves Action Items. The main agent closes it once it is done.
-    if (result.handOff) {
-      this.showRow?.({ tab: 'chat' });
-      const { tldr, question, why, links = [], from, at, answerTo } = result.handOff;
-      const file = answerTo?.file && `${answerTo.subject === 'template' ? 'Template' : 'Routine'} file: ${answerTo.file}`;
-      const body = [
-        `${from ?? 'hobkin'}: ${tldr}`,
-        question !== tldr && question,
-        why && `Why the user: ${why}`,
-        ...links.map(({ label, url }) => `${label}: ${url}`),
-        file,
-        `Action item ID: ${id}`,
-      ];
-      void this.send(result.handOffText ?? 'Help me do this.', { id: `action:${id}`, title: 'Action item', at, body: body.filter(Boolean).join('\n') }).catch(() => {});
-    }
+    const deliverMain = actionItem ? this.deliverActionChoice.bind(this) : undefined;
+    const result = await carryOutAnswer(root, id, { value, deliverMain }, this.now());
+    if (result.ok === false) return result;
+    // The desktop path awaited delivery before recording an answer; the older paths keep their original behavior.
+    if (!actionItem && answerTo?.kind === 'chat') void this.tellMain(decision, choice.label).catch(() => {});
+    if (!actionItem && result.handOff) void this.deliverActionChoice(result.handOff, result.handOffText ?? 'Help me do this.', true).catch(() => {});
     if (answerTo?.kind === 'land' && value === 'walk') this.showDone?.();
     if (value === 'read' && ['merge', 'read'].includes(answerTo?.kind)) this.showDone?.(answerTo);
     if (answerTo?.kind === 'pair' && value === 'read') this.showDone?.();
@@ -1934,23 +1998,41 @@ export class HobkinApplication {
    * Their own words answer it, and whoever asked hears them. Hobkin's own questions have no asker to hear words, so the main agent gets them
    * with the question, in Chat, and acts on them there.
    */
-  async answerInWords(decision, words) {
+  async answerInWords(decision, words, actionItem = false) {
     const root = this.runtime.directory;
-    await carryOutAnswer(root, decision.id, { typed: words }, this.now());
-    if (!['work', 'routine', 'outside'].includes(decision.answerTo?.kind)) this.tellMain(decision, words);
-    await this.refresh();
+    const deliverMain = actionItem ? this.deliverActionChoice.bind(this) : undefined;
+    const result = await carryOutAnswer(root, decision.id, { typed: words, deliverMain }, this.now());
+    if (!actionItem && !['work', 'routine', 'outside'].includes(decision.answerTo?.kind)) void this.tellMain(decision, words).catch(() => {});
+    if (!actionItem) await this.refresh();
+    return result;
   }
 
   /** The user's answer goes to the main agent in Chat, with the question it answers. */
   tellMain(decision, words) {
     this.showRow?.({ tab: 'chat' });
-    void this.send(words, { ...aboutDecision(decision), id: `decision:${decision.id}`, kind: 'decision', at: decision.at }).catch(() => {});
+    return this.send(words, { ...aboutDecision(decision), id: `decision:${decision.id}`, kind: 'decision', at: decision.at });
+  }
+
+  deliverActionChoice(decision, words, handOff = false) {
+    if (!handOff) return this.tellMain(decision, words);
+    this.showRow?.({ tab: 'chat' });
+    const { id, tldr, question, why, links = [], from, at, answerTo } = decision;
+    const file = answerTo?.file && `${answerTo.subject === 'template' ? 'Template' : 'Routine'} file: ${answerTo.file}`;
+    const body = [
+      `${from ?? 'hobkin'}: ${tldr}`,
+      question !== tldr && question,
+      why && `Why the user: ${why}`,
+      ...links.map(({ label, url }) => `${label}: ${url}`),
+      file,
+      `Action item ID: ${id}`,
+    ];
+    return this.send(words, { id: `action:${id}`, title: 'Action item', at, body: body.filter(Boolean).join('\n') });
   }
 
   /** Words typed under a question in Decisions answer that question. */
-  async answerWords(id, words) {
-    await this.answerInWords(findOpenDecision(this.runtime.directory, id), words);
-    return { ok: true, message: 'Answered in your own words.' };
+  async answerWords(id, words, actionItem = false) {
+    const result = await this.answerInWords(findOpenDecision(this.runtime.directory, id), words, actionItem);
+    return result.ok === false ? result : { ok: true, message: 'Answered in your own words.' };
   }
 
   /** The oldest decision that has not had its moment on screen. The tick awaits nothing, so a log that cannot be read costs this look and nothing more. */
@@ -2153,10 +2235,15 @@ export class HobkinApplication {
   }
 
   /** The answer is the user's word, so it is recorded here and leaves Decisions at once. A yes also asks the main agent for the plan, as saying yes in Chat does, without holding the screen while it is busy. */
-  answerLearning(id, value) {
+  async answerLearning(id, value, actionItem = false) {
     const root = this.runtime.directory;
     const proposal = learningState(root).proposals.find(entry => entry.id === id);
     if (!proposal) throw Error('That proposal was already answered.');
+    const about = { id: `learning:${id}`, title: 'Learning proposal', at: proposal.at, body: `${proposalMessage(proposal)}\nProposal ID: ${id}` };
+    if (actionItem && value === 'yes') {
+      this.showRow?.({ tab: 'chat' });
+      await this.send('Yes, plan it.', about);
+    }
     runLearningCommand(root, ['answer', id, value], { now: this.now() });
     if (value === 'later') return { ok: true, message: `"${proposal.title}" comes up again in a week.` };
     if (value === 'no') {
@@ -2164,9 +2251,10 @@ export class HobkinApplication {
       return { ok: true, message: repo ? `No more learning proposals for ${repo}.` : `"${proposal.title}" will not come up again.` };
     }
 
-    this.showRow?.({ tab: 'chat' });
-    const about = { id: `learning:${id}`, title: 'Learning proposal', at: proposal.at, body: `${proposalMessage(proposal)}\nProposal ID: ${id}` };
-    void this.send('Yes, plan it.', about).catch(() => {});
+    if (!actionItem) {
+      this.showRow?.({ tab: 'chat' });
+      void this.send('Yes, plan it.', about).catch(() => {});
+    }
     if (proposal.kind === DIRECTIONS_KIND) return { ok: true, message: 'The main agent adds them to Your directions and says what it added.' };
     return { ok: true, message: 'The main agent writes the plan, and asks before changing anything.' };
   }

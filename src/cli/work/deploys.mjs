@@ -141,7 +141,7 @@ export async function answerDeploy(root, value, { slug, items: listedIds = [] },
   }
   assertDeploys(root, project);
   const going = readItems(root, slug).filter(item => listedIds.includes(item.id) && TO_DEPLOY.includes(item.deploy?.state));
-  if (!going.length) return { ok: true, message: `Nothing listed on ${name} still waits for a deploy, so nothing was handed on.` };
+  if (!going.length) return { ok: true, unavailable: true, message: `Nothing listed on ${name} still waits for a deploy, so nothing was handed on.` };
 
   const commit = await markDeploying(root, project, going, { handedAt: null, now });
   return { ok: true, message: `The main agent deploys ${changes(going.length)} on ${name} at ${commit.slice(0, SHORT_SHA)} next. Their issues close once it is verified live.` };

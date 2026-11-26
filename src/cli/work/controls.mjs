@@ -982,7 +982,7 @@ async function mergeOffered({ root, slug, rows, route, now }) {
 export async function answerOffer(root, offered, value, now = Date.now()) {
   const { slug } = offered;
   const rows = offeredIn(offered).filter(({ item }) => stateOf(root, slug, item) === 'branch');
-  if (!rows.length) return reply('That has already gone from the list, so nothing changed.');
+  if (!rows.length) return reply('That has already gone from the list, so nothing changed.', { unavailable: true });
   if (value === 'merge') return mergeOffered({ root, slug, rows, route: offered.also?.length ? 'batch' : 'offer', now });
   if (value === 'no') {
     const project = findProject(root, slug);

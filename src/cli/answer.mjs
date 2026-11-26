@@ -8,6 +8,7 @@ import { answerOffer, askAgent } from './work/controls.mjs';
 import { answerDeploy } from './work/deploys.mjs';
 import { answerPair } from './work/pairs.mjs';
 import { answerPickUp } from './work/pick-up.mjs';
+import { findItem, findProject } from './work/names.mjs';
 import { answerSubscriptionPause } from './work/subscription.mjs';
 
 const USAGE = 'Say `hobkin decisions` to list what is open, or `hobkin decisions answer <id> <value>`, with `--typed "<their words>"` in place of the value for an answer in their own words.';
@@ -45,12 +46,21 @@ function holdWhileTheyAct(root, { answerTo }, now) {
  * asker hears first, in the words the answer came in, so an answer that cannot reach it stays open for another try. A merge that fails is the
  * same: it throws, and the reason goes back to where they answered. Their own words carry out nothing by themselves: whoever hears them acts.
  */
-export async function carryOutAnswer(root, id, { value = null, typed = null } = {}, now = Date.now()) {
+export async function carryOutAnswer(root, id, { value = null, typed = null, deliverMain } = {}, now = Date.now()) {
   const words = typed?.trim() || null;
   if (!value && !words) throw Error('Give one of its choices or their own words.');
   const decision = findOpenDecision(root, id);
   const choice = words ? null : chosen(decision, value);
   const { question, answerTo, at, from } = decision;
+  const kind = answerTo?.kind;
+  // The desktop path must not acknowledge a choice that has no route. Typed words can still go to Chat.
+  const hasHandler = ['work', 'routine', 'outside', 'reminder', 'merge', 'pair', 'deploy', 'pickup', 'subscription', 'chat', 'routines', 'land', 'read'].includes(kind)
+    || (kind === 'action' && (answerTo.id || ['done', 'drop', 'hobkin'].includes(value)));
+  if (deliverMain && !words && !hasHandler) return { ok: false, unavailable: 'handler' };
+  if (deliverMain && kind === 'work') {
+    try { findItem(root, findProject(root, answerTo.slug), answerTo.item); }
+    catch { return { ok: false, unavailable: 'target' }; }
+  }
   const said = words
     ? `The user was asked: ${question} They answered in their own words: ${words}`
     : `The user was asked: ${question} They answered: ${choice.label}`;
@@ -63,12 +73,19 @@ export async function carryOutAnswer(root, id, { value = null, typed = null } = 
   const asked = words ? null : ROUTINE_ASKS[value];
   if (!words && value === 'hobkin' && isActionItem(decision)) {
     if (decision.handedAt) return { ok: true, message: 'hobkin already has it in Chat.' };
+    if (deliverMain) await deliverMain(decision, 'Help me do this.', true);
     handDecision(root, id, now);
     recordEvent(root, 'action_handed', { id, routine: answerTo?.id }, now);
     return { ok: true, handOff: decision, message: 'The main agent takes it in Chat, and it leaves Action Items.' };
   }
   if (words) await holdWhileTheyAct(root, decision, now);
   const came = words ? null : await carryOutChoice(root, decision, value, now);
+  if (deliverMain) {
+    if (came?.unavailable) return { ok: false, unavailable: 'target' };
+    if (came?.ok === false) return came;
+    if (asked && kind === 'routines') await deliverMain(decision, asked, true);
+    else if (kind === 'chat' || (words && !['work', 'routine', 'outside'].includes(kind))) await deliverMain(decision, words ?? choice.label);
+  }
   answerDecision(root, id, words ? 'typed' : value, now, { typed: words });
   recordEvent(root, 'decision_answered', { id, source: answerTo?.kind, ms: now - Date.parse(at) });
   // An answer that changes a routine or a template goes to the main agent, which makes the change and says what it did.
