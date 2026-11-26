@@ -1,5 +1,5 @@
 import { MotionConfig } from 'motion/react'
-import { lazy, Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { hostStore } from '@/lib/host/client.ts'
 import { useChat } from '@/features/chat/chat-store.ts'
@@ -27,10 +27,11 @@ import './away.ts'
 import { TiersLightbox } from '@/features/tiers/TiersLightbox.tsx'
 import { NewHobkin } from '@/features/hobkins/NewHobkin.tsx'
 import { NerdStatsPanel } from '@/features/settings/NerdStats.tsx'
+import { lazyScreen } from './lazy-screen.ts'
 import { UpdateNotice } from '@/features/update/UpdateNotice.tsx'
 
 // The first-run setup and the tour after it: code and style nobody needs once the setup is done.
-const FirstRunSetup = lazy(() => import('@/features/onboarding/FirstRunSetup.tsx').then((module) => ({ default: module.FirstRunSetup })))
+const FirstRunSetup = lazyScreen(() => import('@/features/onboarding/FirstRunSetup.tsx').then((module) => ({ default: module.FirstRunSetup })))
 
 /**
  * The app's frame. There are two things on screen: the chat, which is the screen itself, and the canvas,

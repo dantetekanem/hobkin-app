@@ -1,5 +1,6 @@
 import { Component, Fragment, type ErrorInfo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button.tsx'
+import { loadFailed } from './lazy-screen.ts'
 import { afterFailure, failedIn } from './screen-recovery.ts'
 import { useView } from './view-store.ts'
 
@@ -19,6 +20,8 @@ interface Failure {
   shown: boolean
   /** Counts each fresh draw, so the screen under the net is mounted anew. */
   attempt: number
+  /** The screen's code did not load: only a reload of the window can fetch it again. */
+  reload?: boolean
 }
 
 /**
@@ -33,8 +36,8 @@ export class ScreenBoundary extends Component<{ children: ReactNode; of?: string
   /** When this screen failed lately. */
   private failedAt: number[] = []
 
-  static getDerivedStateFromError(error: unknown): Pick<Failure, 'message' | 'shown'> {
-    return { message: error instanceof Error ? error.message : 'Unknown error', shown: false }
+  static getDerivedStateFromError(error: unknown): Pick<Failure, 'message' | 'shown' | 'reload'> {
+    return { message: error instanceof Error ? error.message : 'Unknown error', shown: false, reload: loadFailed(error) }
   }
 
   componentDidCatch(_error: unknown, info: ErrorInfo) {
@@ -80,7 +83,7 @@ export class ScreenBoundary extends Component<{ children: ReactNode; of?: string
           <p className="font-mono text-[12px] break-words text-muted-foreground">{this.state.message}</p>
           {this.state.where.length ? <p className="font-mono text-[12px] break-words text-muted-foreground">in {this.state.where.join(' › ')}</p> : null}
           <div className="flex gap-2">
-            <Button onClick={this.tryAgain}>Try again</Button>
+            {this.state.reload ? <Button onClick={() => location.reload()}>Reload</Button> : <Button onClick={this.tryAgain}>Try again</Button>}
             <Button
               variant="outline"
               onClick={() => {

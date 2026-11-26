@@ -1,5 +1,5 @@
 import { AnimatePresence, animate, motion, useMotionValue, type MotionValue, type Transition, type Variants } from 'motion/react'
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, type ComponentType, type CSSProperties } from 'react'
+import { Suspense, useEffect, useLayoutEffect, useRef, type ComponentType, type CSSProperties } from 'react'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { HomeScreen } from '@/features/home/HomeScreen.tsx'
 import { ReportsScreen } from '@/features/reports/ReportsScreen.tsx'
@@ -29,16 +29,17 @@ import { PAGE_TOP } from './screen-layout.ts'
 import { ScreenMenu } from './ScreenMenu.tsx'
 import { useStill } from './still.ts'
 import { partScreen } from '@/integration/screens.ts'
+import { lazyScreen } from './lazy-screen.ts'
 import { type CoreScreenId, type ScreenId } from './screens.ts'
 import { canvasGrowth, pageInsetMove, useView, type ScreenMotion } from './view-store.ts'
 
 // The menu's screens load with the frame. A screen loaded on demand slides in empty, and React shows it only once its
 // fallback has been up for a while, so its content would appear in place after the slide instead of sliding in.
-const IntegrationsScreen = lazy(() => import('@/features/integrations/IntegrationsScreen.tsx').then((module) => ({ default: module.IntegrationsScreen })))
-const SkillsScreen = lazy(() => import('@/features/skills/SkillsScreen.tsx').then((module) => ({ default: module.SkillsScreen })))
-const ExtensionsScreen = lazy(() => import('@/features/extensions/ExtensionsScreen.tsx').then((module) => ({ default: module.ExtensionsScreen })))
-const MemoryScreen = lazy(() => import('@/features/memory/MemoryScreen.tsx').then((module) => ({ default: module.MemoryScreen })))
-const ReviewScreen = lazy(() => import('@/features/review/ReviewScreen.tsx').then((module) => ({ default: module.ReviewScreen })))
+const IntegrationsScreen = lazyScreen(() => import('@/features/integrations/IntegrationsScreen.tsx').then((module) => ({ default: module.IntegrationsScreen })))
+const SkillsScreen = lazyScreen(() => import('@/features/skills/SkillsScreen.tsx').then((module) => ({ default: module.SkillsScreen })))
+const ExtensionsScreen = lazyScreen(() => import('@/features/extensions/ExtensionsScreen.tsx').then((module) => ({ default: module.ExtensionsScreen })))
+const MemoryScreen = lazyScreen(() => import('@/features/memory/MemoryScreen.tsx').then((module) => ({ default: module.MemoryScreen })))
+const ReviewScreen = lazyScreen(() => import('@/features/review/ReviewScreen.tsx').then((module) => ({ default: module.ReviewScreen })))
 
 /**
  * Screens that so far can show only sample data. While a host is connected they are not drawn: the user's own

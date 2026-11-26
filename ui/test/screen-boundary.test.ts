@@ -101,3 +101,18 @@ test('moving to another screen under the same net draws that screen, whatever th
   assert.equal(view.container.textContent, 'agent:a2')
   await view.unmount()
 })
+
+test('a screen whose code failed to load offers Reload, since a failed load is never tried again', async () => {
+  const { lazyScreen } = await import('../src/app/lazy-screen.ts')
+  const { Suspense } = await import('react')
+  const Gone = lazyScreen(() => Promise.reject(new Error('Failed to fetch dynamically imported module')))
+  const view = await mountView(() => createElement(ScreenBoundary, { of: 'memory', children: createElement(Suspense, { fallback: null }, createElement(Gone)) }))
+  await view.change(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  const said = view.container.textContent
+  assert.match(said, /Failed to fetch dynamically imported module/)
+  assert.match(said, /Reload/)
+  assert.doesNotMatch(said, /Try again/)
+  await view.unmount()
+})
