@@ -125,12 +125,30 @@ These commands write files on your machine and send nothing anywhere.
 
 ## What leaves your machine
 
-Your chats, reports, memory and event log stay on your machine. Your model provider and the tools you connect see what your agents work on. hobkin's own server gets only two things:
+Your chats, reports, memory and event history stay on your machine. Three kinds of data leave it.
 
-- **Usage counts, on by default.** Which parts of hobkin you used, and how runs, questions, decisions and crashes ended. They are fixed labels, counts and durations with new random ids, never a message, report, name, path or local id. Chat tells you the first time. `hobkin telemetry upload off` turns it off, and `hobkin telemetry upload status` shows what is sent and where.
-- **Feedback, only when you send it.** `/feedback` in Chat drafts a report and shows you its exact JSON and SHA-256 before anything is sent. hobkin removes emails, tokens, keys, credentials in URLs and home paths first, but it can miss some, so read the draft before you say yes. After a crash, the next start offers a crash report the same way. `hobkin feedback list` shows what you sent, `hobkin feedback delete <id>` deletes a report here and on the server, and `hobkin feedback off` stops sending, including anything still waiting.
+### Your agents' work goes to your AI model
 
-To send either one, your machine needs its own key from hobkin's server. It gets one with its first usage upload and keeps it in `runtime/remote.json`. If you turn usage upload off before that, hobkin never gets a key and sends nothing.
+Your messages, and whatever your agents read while they work, are sent to the model provider you use. A tool you connect, such as GitHub, gets whatever your agents send it.
+
+### Usage counts go to hobkin's server, unless you turn them off
+
+Usage counts say which parts of hobkin you used and how runs, questions, decisions and crashes ended. They hold fixed labels, counts and durations. They never hold a message, a report, a name or a file path, and each one gets a new random id that is not used anywhere on your machine. Chat tells you the first time they are sent.
+
+- To stop sending them: `hobkin telemetry upload off`
+- To see what is sent and where: `hobkin telemetry upload status`
+
+### Feedback goes to hobkin's server only when you send it
+
+Type `/feedback` in Chat to write a report. hobkin removes emails, tokens, keys, passwords in links and home folder paths from it, then shows you the exact JSON it will send. Nothing is sent until you say yes. The removal can miss things, so read the report first. After a crash, hobkin offers to send a crash report the same way.
+
+- To see what you sent: `hobkin feedback list`
+- To delete a report on your machine and on the server: `hobkin feedback delete <id>`
+- To stop sending feedback, including reports still waiting: `hobkin feedback off`
+
+### Sending nothing at all
+
+To send anything, your machine needs its own key from hobkin's server. It gets one the first time it sends usage counts, and keeps it in `runtime/remote.json`. If you turn usage counts off before that happens, your machine never gets a key and nothing goes to hobkin's server. If it already has a key, turn feedback off too.
 
 ## Development checks
 
