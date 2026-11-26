@@ -77,8 +77,9 @@ import { decisionHandlers } from './decisions.ts'
 import { actionDismissalHandlers } from './action-dismissals.ts'
 import { reportHandlers } from './reports.ts'
 import { ReminderReader, reminderHandlers } from './reminders.ts'
-import { proofHandlers, ProofsKeeper } from './proofs.ts'
+import { findTools, proofHandlers, ProofsKeeper } from './proofs.ts'
 import { proofToolsHandlers } from './setup-proof.ts'
+import { setupNeedsHandlers } from './setup-needs.ts'
 import { workHandlers } from './work.ts'
 import { workQueueHandlers } from './work-queue.ts'
 import { guideHandlers } from './work-guide.ts'
@@ -702,6 +703,13 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       home: () => owner.app?.runtime.directory ?? resolveDataRoot(root),
       install: options.installProofTools,
       found: () => proofs.findTools(),
+    }),
+    // Everything hobkin needs on this Mac, for the setup's review. Pi and the models are read as their own commands read them.
+    ...setupNeedsHandlers({
+      pi: async () => handlers['setup.pi']!({}),
+      models: async () => handlers['models.list']!({}),
+      proofTools: () => findTools(owner.app?.runtime.directory ?? resolveDataRoot(root)),
+      claude: async () => ({ settings: claudeCode.read(), status: await lookUpClaude() }),
     }),
     // A work computer's launcher, asked for and kept in the config (025-onboarding), then the main conversation starts behind it.
     'setup.launcher': async ({ command }) => {
