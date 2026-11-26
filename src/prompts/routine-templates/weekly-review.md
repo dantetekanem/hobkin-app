@@ -13,12 +13,12 @@ Read this week's reports with `hobkin reports` and <their notes>. Say what shipp
 Then add the parts below. Run each `hobkin` command with `--home` set to hobkin's data folder, the part of `checkMemory.path` before `/checks/`.
 
 - Days that were too full. Find the morning brief in `hobkin routines`, and read its reports from this week in `hobkin reports` by that `routineId`. Each has a load line, such as "About 6 of 8 hours are taken (75%).", and a day at 80% or more was too full. Name each such day with its line. A day with no brief is unknown, not a day that fit.
-- Decision load. From `hobkin telemetry questions --days 7`, the questions each day, in total and how many hobkin settled itself (`ended.settled`). From `hobkin telemetry interruptions --days 7`, the interruptions each day. From `hobkin telemetry presence --days 7`, when they were on. Questions should fall, so say whether they did against last week, from this routine's memory or `--days 14`. Keep this week's total in memory.
-- Autonomy moves to approve. From `hobkin telemetry autonomy`, each task class with `promotionDue`, with its level and clean streak. hobkin files the card for each, so file none.
+- Decision load. From `hobkin telemetry questions --days 7`, the questions each day, in total and how many hobkin settled itself (`ended.settled`). From `hobkin telemetry interruptions --days 7`, the interruptions each day. From `hobkin telemetry presence --days 7`, when they were on. Questions should fall, so say whether they did against last week, from this routine's memory or `--days 14`. Keep this week's total in memory. Add the repeats from the same view's `repeats`. From the `scoreboard` in `hobkin telemetry --days 7`, give `answers.under3s` of `answers.total`: answers that fast may be rubber stamps.
+- Autonomy moves to approve. From `hobkin telemetry autonomy`, each task class with `promotionDue`, with its level and clean streak. hobkin files the card for each, so file none. Its `overrides` and `undos` are totals, so give each class's change since the counts you kept in memory last week, and keep this week's.
 - Outward actions that would have been blocked. From `hobkin telemetry outward --days 7`, how many of each kind. This should be zero, so any count gets a line.
 - Routines to stop. hobkin's open items in `hobkin decisions` that offer to turn a routine off, and the routines marked `ignored` in `runtime/report-attention.json` in the data folder. Name each routine once, with how many of its latest reports were opened (`read` of `reports`).
 
-`hobkin telemetry help` lists the views this hobkin has. When `autonomy` or `outward` is not among them yet, leave that part out and do not mention it.
+`hobkin telemetry help` lists the views this hobkin has. When `autonomy` or `outward` is not among them yet, leave that part out and do not mention it. Do the same when the questions view has no `repeats` field yet.
 
 Change nothing. Do not turn a routine off, move a task class or answer an item. The user decides those in Action Items.
 
@@ -30,16 +30,14 @@ Last, ask one question. Pipe this to the `decide` command in your request, with 
 {
   "key": "decision-load:2026-W48",
   "kind": "decision-load",
-  "question": "How heavy did deciding feel this week, from 1 (light) to 7 (heavy)?",
+  "question": "How heavy did deciding feel this week?",
   "tldr": "How heavy was deciding this week?",
   "choices": [
-    { "value": "1", "label": "1, light" },
-    { "value": "2", "label": "2" },
-    { "value": "3", "label": "3" },
-    { "value": "4", "label": "4" },
-    { "value": "5", "label": "5" },
-    { "value": "6", "label": "6" },
-    { "value": "7", "label": "7, heavy" }
+    { "value": "very-light", "label": "Very light" },
+    { "value": "light", "label": "Light" },
+    { "value": "fine", "label": "Fine" },
+    { "value": "heavy", "label": "Heavy" },
+    { "value": "very-heavy", "label": "Very heavy" }
   ],
   "why": "Only the user knows how the week felt."
 }
