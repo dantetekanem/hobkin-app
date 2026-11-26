@@ -1,10 +1,11 @@
-import { ArrowDown, Reply } from 'lucide-react'
+import { ArrowDown, ChevronRight, Reply } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { memo, useEffect, useLayoutEffect, useRef } from 'react'
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { shellFields } from '#shared/protocol/snapshot.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { tellUnfold } from '@/features/agent-activity/unfold.ts'
 import { MemoryLine } from '@/features/memory/MemoryLine.tsx'
 import { ScheduleRuns } from '@/features/schedules/ScheduleRuns.tsx'
 import { useHost } from '@/lib/host/index.ts'
@@ -14,6 +15,7 @@ import { cn } from '@/lib/utils.ts'
 import { arrangementOf, arrivalsOf, drawnOf, isLive, type Drawn } from './chat-rows.ts'
 import { useChat } from './chat-store.ts'
 import type { DayGroup, Entry, MessageEntry, NoticeEntry } from './conversation.ts'
+import type { Digest, DigestLine } from './digest.ts'
 import { heldBy, type Holder } from './doing.ts'
 import { MessageText, risen, StreamingMarkdown, sunk } from './markdown.ts'
 import { shownTurn, stopLineId } from './stop-turn.ts'
@@ -289,6 +291,7 @@ const TONE_NAME: Record<NoticeEntry['tone'], string> = {
 function Notice({ entry }: { entry: NoticeEntry }) {
   const quiet = entry.tone === 'quiet'
   const { review } = entry
+  if (entry.digest) return <DigestNotice entry={entry} digest={entry.digest} />
   return (
     <>
       {/* The tone is said in words for a screen reader, and shown as a color for the eye. */}
@@ -297,15 +300,7 @@ function Notice({ entry }: { entry: NoticeEntry }) {
       <span className={cn('min-w-0 flex-1 text-[13px] leading-snug break-words', quiet ? 'text-muted-foreground' : 'text-foreground')}>
         {entry.text}
         {entry.count > 1 ? <span className="ml-1.5 text-muted-foreground tabular-nums">×{entry.count}</span> : null}
-        {review ? (
-          <button
-            type="button"
-            className="ml-2 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-2"
-            onClick={() => useView.getState().openReviewFor(review)}
-          >
-            Open review
-          </button>
-        ) : null}
+        {review ? <OpenReview review={review} /> : null}
         {entry.memory ? <MemoryLine note={entry.memory} /> : null}
         {entry.tone === 'system' ? <ContinueStopped line={entry.key} /> : null}
       </span>
@@ -315,6 +310,88 @@ function Notice({ entry }: { entry: NoticeEntry }) {
         </time>
       )}
     </>
+  )
+}
+
+function OpenReview({ review }: { review: string }) {
+  return (
+    <button
+      type="button"
+      className="ml-2 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-2"
+      onClick={() => useView.getState().openReviewFor(review)}
+    >
+      Open review
+    </button>
+  )
+}
+
+/**
+ * A digest from hobkin's desk (075-chief-of-staff S4): one row with its point, which opens in place to what it held,
+ * each line with its own Open review, or See and Undo. The row's line keeps its place and height open or closed, with
+ * the chevron at its end, and what opens pushes the conversation below it down. The view is told first, so it holds
+ * where the user reads instead of following the end.
+ */
+function DigestNotice({ entry, digest }: { entry: NoticeEntry; digest: Digest }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  const lines = useId()
+  const toggle = () => {
+    tellUnfold(box.current, open)
+    setOpen(!open)
+  }
+  return (
+    <div ref={box} className="flex min-w-0 flex-1 flex-col">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={open ? lines : undefined}
+        onClick={toggle}
+        className="-mx-2 flex h-6 min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 focus-visible:outline-2"
+      >
+        <span className={cn('size-1.5 shrink-0 rounded-full', TONE_DOT[entry.tone])} aria-hidden="true" />
+        <span className="sr-only">{TONE_NAME[entry.tone]}:</span>
+        <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{digest.point}</span>
+        {entry.at === null ? null : (
+          <time dateTime={new Date(entry.at).toISOString()} className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+            {clock.format(entry.at)}
+          </time>
+        )}
+        <ChevronRight
+          className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]', open && 'rotate-90')}
+          aria-hidden="true"
+        />
+      </button>
+      {open ? (
+        <div id={lines} className="flex min-w-0 flex-col gap-1.5 pt-1 pl-3.5">
+          {digest.notes.map((note, index) => (
+            <p key={index} className="text-[13px] leading-snug break-words text-muted-foreground">
+              {note}
+            </p>
+          ))}
+          <ul className="flex min-w-0 flex-col gap-1.5">
+            {digest.lines.map((line, index) => (
+              <DigestItem key={index} line={line} />
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** One line a digest held: a dot for whether it is for today, its words, and what it lets the user do. */
+function DigestItem({ line }: { line: DigestLine }) {
+  const today = line.level === 'P0' || line.level === 'P1'
+  return (
+    <li className="flex min-w-0 items-baseline gap-2">
+      <span className={cn('size-1 shrink-0 translate-y-[-2px] rounded-full', today ? 'bg-ok' : 'bg-border-strong')} aria-hidden="true" />
+      <span className="sr-only">{today ? 'For today:' : 'Can wait:'}</span>
+      <span className={cn('min-w-0 flex-1 text-[13px] leading-snug break-words', today ? 'text-foreground' : 'text-muted-foreground')}>
+        {line.text}
+        {line.review ? <OpenReview review={line.review} /> : null}
+        {line.memory ? <MemoryLine note={line.memory} /> : null}
+      </span>
+    </li>
   )
 }
 

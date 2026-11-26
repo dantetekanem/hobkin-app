@@ -1,11 +1,14 @@
 import { animate, type AnimationPlaybackControls } from 'motion/react'
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useStill } from '@/app/still.ts'
+import { UNFOLD } from '@/features/agent-activity/follow.ts'
 import { spring } from '@/lib/motion.ts'
 import { followAfter, START, type FollowEvent } from './follow.ts'
 
 /** Where a pointer or finger is let go, ending a drag. A touch that pans cancels its pointer while the finger is still down. */
 const RELEASES = ['pointerup', 'touchend', 'touchcancel']
+/** How long the view holds still once a row opened or closed in place, as an agent's transcript holds. */
+const HOLD_MS = 350
 
 /** How far the list is drawn below its place while it glides up into it. Zero at rest. */
 const liftOf = (list: HTMLElement) => new DOMMatrixReadOnly(getComputedStyle(list).transform).m42
@@ -86,6 +89,17 @@ export function usePinnedScroll(): PinnedScroll {
     observer.observe(list)
     observer.observe(element)
 
+    // A row the user opens or closes in place, such as a digest (`tellUnfold`), is read where it is: the view holds while
+    // it changes height, and follows again only if the end is still in view. The way down is offered only then, so it
+    // does not flash while a row closes at the end.
+    let settling: ReturnType<typeof setTimeout> | undefined
+    const unfold = () => {
+      follow.current = followAfter(follow.current, { type: 'unfold' })
+      clearTimeout(settling)
+      settling = setTimeout(() => tell({ type: 'settle', top: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }), HOLD_MS)
+    }
+    list.addEventListener(UNFOLD, unfold)
+
     // What the user does to read up. The scroll alone cannot tell it from layout.
     const wheel = (event: WheelEvent) => tell({ type: 'wheel', deltaY: event.deltaY, top: element.scrollTop })
     const key = (event: KeyboardEvent) => tell({ type: 'key', key: event.key, shiftKey: event.shiftKey })
@@ -99,6 +113,8 @@ export function usePinnedScroll(): PinnedScroll {
     for (const name of RELEASES) window.addEventListener(name, release, true)
     return () => {
       observer.disconnect()
+      list.removeEventListener(UNFOLD, unfold)
+      clearTimeout(settling)
       lift.current?.stop()
       element.removeEventListener('wheel', wheel)
       element.removeEventListener('keydown', key)

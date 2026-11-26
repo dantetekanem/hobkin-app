@@ -61,3 +61,12 @@ test('asking for the newest message follows again and ends any drag', () => {
   // The jump's own scroll down to the end keeps it, and layout after it does not stop it.
   assert.equal(run([scrolled(1400, 2000), scrolled(1380, 1980)], back).following, true)
 })
+
+test('a row opened in place holds the view where the user reads it, and follows again only once the end is back in view', () => {
+  const held = run([{ type: 'unfold' }], restingAtEnd)
+  assert.equal(held.following, false)
+  // Opened at the end: what it opened to runs past the view, so the view stays on the row.
+  assert.equal(run([{ type: 'settle', top: 1400, scrollHeight: 2300, clientHeight: CLIENT }], held).following, false)
+  // Closed again, or opened higher up with the end still in view: it follows again.
+  assert.equal(run([{ type: 'settle', top: 1400, scrollHeight: 2000, clientHeight: CLIENT }], held).following, true)
+})

@@ -1,8 +1,9 @@
 /**
  * When the conversation follows its newest message. Only the user reading up stops it: a wheel or trackpad moving up,
- * a key that reads up, or a drag upward on the conversation or its scroll bar. Layout moves the scroll too, as when
- * content shrinks, a glide settles or the input under the conversation changes height, and it never stops the
- * following. Scrolling back down to the end, or asking for the newest message, follows again.
+ * a key that reads up, or a drag upward on the conversation or its scroll bar. A row the user opens or closes in place
+ * holds the view where they read it, and once it settles the view follows again only if the end is in view. Layout
+ * moves the scroll too, as when content shrinks, a glide settles or the input under the conversation changes height,
+ * and it never stops the following. Scrolling back down to the end, or asking for the newest message, follows again.
  *
  * Without React or a window, so its rules are tested with plain numbers. `use-pinned-scroll.ts` gives it to the chat.
  */
@@ -31,6 +32,10 @@ export type FollowEvent =
   | { type: 'scroll'; top: number; scrollHeight: number; clientHeight: number }
   /** The user asked for the newest message. */
   | { type: 'jump' }
+  /** The user opens or closes a row in place, such as a digest: the view holds while it changes height. */
+  | { type: 'unfold' }
+  /** A moment after a row opened or closed, where the view is now. */
+  | { type: 'settle'; top: number; scrollHeight: number; clientHeight: number }
 
 export const START: Follow = { following: true, top: 0, pressed: false }
 
@@ -48,6 +53,10 @@ export function followAfter(state: Follow, event: FollowEvent): Follow {
       return { ...state, pressed: false }
     case 'jump':
       return { ...state, following: true, pressed: false }
+    case 'unfold':
+      return { ...state, following: false }
+    case 'settle':
+      return { ...state, top: event.top, following: event.scrollHeight - event.top - event.clientHeight <= SLACK }
     case 'scroll': {
       const atEnd = event.scrollHeight - event.top - event.clientHeight <= SLACK
       const moved = { ...state, top: event.top }

@@ -15,6 +15,24 @@ export type NoticeTone = 'critical' | 'blocked' | 'useful' | 'quiet'
 
 export type MessageRole = 'user' | 'assistant' | 'notice' | 'system' | 'custom' | 'bashExecution'
 
+/** How urgent hobkin's desk found an incoming line (075-chief-of-staff): P0 cannot wait, P1 is for today, P2 can wait, P3 is only logged. */
+export type NoticeLevel = 'P0' | 'P1' | 'P2' | 'P3'
+
+/** One line a digest holds, as it would have posted by itself, with what lets the window act on it. */
+export interface ChatDigestItem {
+  id: string
+  level?: NoticeLevel
+  content: string
+  memory?: MemoryNote
+  review?: string
+}
+
+/** On the one Chat message a digest posts: how many lines of each level it holds, and the lines. */
+export interface ChatDigest {
+  levels?: Partial<Record<NoticeLevel, number>>
+  items: readonly ChatDigestItem[]
+}
+
 export interface ShellFields {
   command: string
   output: string
@@ -57,6 +75,10 @@ export interface ChatMessage extends Partial<ShellFields> {
   tone?: NoticeTone
   /** On a line hobkin posts when an agent changes a memory (`057-shared-memory`): which, so the line offers Undo and See. */
   memory?: MemoryNote
+  /** On a line hobkin's desk let through by itself: how urgent it is. A hobkin from before sends none, and the line is as it always was. */
+  level?: NoticeLevel
+  /** On a digest: what it held. A hobkin from before sends none. */
+  digest?: ChatDigest
 }
 
 export interface RunSummary {

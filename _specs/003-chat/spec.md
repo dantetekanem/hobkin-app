@@ -60,6 +60,7 @@ The conversation column is the real, persistent hobkin conversation. The user re
 - A18. Running a command adds to its count, and the count survives a restart.
 - A19. A message that arrives while the user is looking rises into place on the same spring as the pieces of a canvas screen, and the messages above make room without a jump. Each new block of a streaming reply rises the same way, and text inside a block appears smoothly as it grows. History that was already there when the app opened does not move.
 - A20. A reply's first whole word shows within one step of reaching the window, before the reply ends, and the reply then grows a few words at a time, the line still being written included. A code block's opening, a table's header before its divider, a heading or list item with no word yet, and an emphasis, code span or link still open never show half drawn. Words already shown do not rise or fade in again as the reply grows, and the view keeps following it.
+- A21. A digest from hobkin's desk (075-chief-of-staff S4) is one row: its first line, its time and a chevron at the end. A press opens it in place to hobkin's note on what to move, if any, and one line per item, a dot for what is for today, each with its own Open review or See and Undo. The row's line keeps its place and height open or closed, what opens pushes the rows below it down, and the view holds where the user reads instead of following the end. Two digests never fold into one. A hobkin that sends no `digest` shows its lines as before.
 
 ## Proof
 
@@ -83,6 +84,7 @@ The conversation column is the real, persistent hobkin conversation. The user re
 - A18. `host/test/commands.test.ts` › "running a command counts it, across restarts"
 - A19. check: send a message to the scripted model and watch the reply stream in. Reload and see the history stay still.
 - A20. `ui/test/stream-buffer.test.ts` › "the line still being written shows up to its last whole word", "a paragraph grows a word at a time, and what showed stays", "a heading, list item or quote waits for its first whole word", "a code block waits for its first word of code, then grows as it arrives until it closes", "a table appears with its header and divider together, then a whole row at a time", "emphasis, code and links still open hold the rest of their line back", "no character is lost and the order holds, however the text arrives"; check: ask for a one paragraph answer and watch its first words show before it ends, the earlier words stay still while new ones fade in, and the view follow it. Not yet seen.
+- A21. `ui/test/conversation.test.ts` › "a digest is one row: its point, what hobkin says to move, and each line it held with its level and its own action" and "two digests with the same words stay two rows, and a host that sends no digest shows its lines as before"; `ui/test/chat-follow.test.ts` › "a row opened in place holds the view where the user reads it, and follows again only once the end is back in view"; check: still renders of a closed and an open digest, light and dark (2026-11-26), then the live window. Not yet seen live.
 
 ## Steps
 

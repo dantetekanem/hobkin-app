@@ -236,6 +236,60 @@ test('a notice that a review is ready carries the review, so the chat can open i
   assert.deepEqual(entries.map((entry) => (entry.kind === 'notice' ? entry.review ?? null : 'not a notice')), ['change:shop:4c9e21', null])
 })
 
+/** A digest as hobkin's desk posts it (075-chief-of-staff S4): the point, a line on what to move, then one line per item. */
+const digestMessage = (id: string, at: string): ChatMessage => ({
+  id, role: 'notice', tone: 'useful', at,
+  content: [
+    'Digest: 1 for today, 2 that can wait.',
+    'Today is too full: about 7 of 8 hours (91%). To make room, move your 17:00 block.',
+    '- The change review of "Round the total" in shop is ready.',
+    '- Memory tidy-desk added.',
+    '- Morning recap finished.',
+  ].join('\n'),
+  digest: {
+    levels: { P1: 1, P2: 2 },
+    items: [
+      { id: 'notice:client:review-ready:a', level: 'P1', content: 'The change review of "Round the total" in shop is ready.', review: 'change:shop:4c9e21' },
+      { id: 'notice:memory:b', level: 'P2', content: 'Memory tidy-desk added.', memory: { change: 'chg-1', name: 'tidy-desk', did: 'added' } },
+      { id: 'notice:routine:c', level: 'P2', content: 'Morning recap finished.' },
+    ],
+  },
+})
+
+test('a digest is one row: its point, what hobkin says to move, and each line it held with its level and its own action', () => {
+  const entries = buildConversation({ messages: [digestMessage('notice:digest:1', '2026-11-09T14:00:00Z')], now: NOW, timeZone: 'UTC' }).flatMap((day) => day.entries)
+
+  assert.equal(entries.length, 1)
+  const entry = entries[0]!
+  if (entry.kind !== 'notice') throw new Error('a digest is a notice')
+  assert.deepEqual(entry.digest, {
+    point: 'Digest: 1 for today, 2 that can wait.',
+    notes: ['Today is too full: about 7 of 8 hours (91%). To make room, move your 17:00 block.'],
+    lines: [
+      { text: 'The change review of "Round the total" in shop is ready.', level: 'P1', review: 'change:shop:4c9e21' },
+      { text: 'Memory tidy-desk added.', level: 'P2', memory: { change: 'chg-1', name: 'tidy-desk', did: 'added' } },
+      { text: 'Morning recap finished.', level: 'P2' },
+    ],
+  })
+})
+
+test('two digests with the same words stay two rows, and a host that sends no digest shows its lines as before', () => {
+  const twice = buildConversation({
+    messages: [digestMessage('notice:digest:1', '2026-11-09T14:00:00Z'), digestMessage('notice:digest:2', '2026-11-09T14:30:00Z')],
+    now: NOW,
+    timeZone: 'UTC',
+  }).flatMap((day) => day.entries)
+  assert.deepEqual(twice.map((entry) => entry.kind === 'notice' && entry.count), [1, 1])
+
+  // An older hobkin: no `digest`, no `level`, or a digest whose items cannot be read.
+  const older: ChatMessage[] = [
+    { id: 'plain', role: 'notice', content: 'Morning recap finished.', tone: 'quiet', at: '2026-11-09T14:40:00Z' },
+    { ...digestMessage('broken', '2026-11-09T14:41:00Z'), digest: { items: 'none' } } as unknown as ChatMessage,
+  ]
+  const shown = buildConversation({ messages: older, now: NOW, timeZone: 'UTC' }).flatMap((day) => day.entries)
+  assert.deepEqual(shown.map((entry) => entry.kind === 'notice' && 'digest' in entry), [false, false])
+})
+
 test("each run of the main chat's schedules stands among the messages where it ended, by day, and runs in a row fold", () => {
   const messages: ChatMessage[] = [
     { id: 'asked', role: 'user', content: 'Watch the deploy', at: '2026-11-08T23:58:00Z' },
