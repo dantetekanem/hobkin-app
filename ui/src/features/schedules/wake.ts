@@ -29,23 +29,35 @@ function bodyOf(json: string): unknown {
   }
 }
 
+/** One schedule's name, trimmed, or empty when it has none to read. */
+function nameOf(schedule: unknown): string {
+  if (typeof schedule !== 'object' || schedule === null || !('name' in schedule)) return ''
+  return typeof schedule.name === 'string' ? schedule.name.trim() : ''
+}
+
 /** The schedules' names, each once, in the order they come. */
 function namesOf(body: unknown): string[] {
-  const schedules = body && typeof body === 'object' && 'schedules' in body ? body.schedules : undefined
+  if (typeof body !== 'object' || body === null || !('schedules' in body)) return []
+  const { schedules } = body
   if (!Array.isArray(schedules)) return []
-  const names = schedules.map((schedule: unknown) => {
-    const name = schedule && typeof schedule === 'object' && 'name' in schedule ? schedule.name : undefined
-    return typeof name === 'string' ? name.trim() : ''
-  })
-  return [...new Set(names.filter(Boolean))]
+
+  const names = schedules.map(nameOf).filter(Boolean)
+  return [...new Set(names)]
 }
 
 /** A schedule's wake, read from the message that carries it. Null for any other message. */
 export function scheduleWakeOf(text: string): ScheduleWake | null {
   const block = BLOCK.exec(text)
   if (!block) return null
-  const body = bodyOf(block[1]!)
+
+  const [, json = ''] = block
+  const body = bodyOf(json)
   if (body === undefined) return { title: NO_NAME, text, language: null }
+
   const names = namesOf(body)
-  return { title: names.length ? names.join(', ') : NO_NAME, text: JSON.stringify(body, null, 2), language: 'json' }
+  return {
+    title: names.length ? names.join(', ') : NO_NAME,
+    text: JSON.stringify(body, null, 2),
+    language: 'json',
+  }
 }

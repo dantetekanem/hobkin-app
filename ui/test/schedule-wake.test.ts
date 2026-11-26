@@ -19,6 +19,7 @@ const CI = {
 
 test("a schedule's wake is named by its schedule and opens to the whole message, laid out", () => {
   const wake = scheduleWakeOf(block([CI]))
+
   assert.ok(wake)
   assert.equal(wake.title, 'Watch CI for #412')
   assert.equal(wake.language, 'json')
@@ -28,7 +29,10 @@ test("a schedule's wake is named by its schedule and opens to the whole message,
 
 test('a wake of several schedules names each once, in order', () => {
   const deploy = { ...CI, id: 'sch-2', name: 'Watch the deploy' }
-  const wake = scheduleWakeOf(block([CI, deploy, { ...CI, at: '2026-11-26T14:04:03.000Z' }]))
+  const ciAgain = { ...CI, at: '2026-11-26T14:04:03.000Z' }
+
+  const wake = scheduleWakeOf(block([CI, deploy, ciAgain]))
+
   assert.equal(wake?.title, 'Watch CI for #412, Watch the deploy')
 })
 

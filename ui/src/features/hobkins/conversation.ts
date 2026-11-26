@@ -250,7 +250,7 @@ export function pageRows(turns: readonly ShownTurn[], { sending, activity, finis
     // The message that began a turn was taken in once the turn began.
     const askedDelivery = from ? null : turn.begun ? 'received' : 'waiting'
     // A schedule's wake is no one's words: it is one row named by its schedules, which opens to the whole message.
-    const wake = turn.asked ? scheduleWakeOf(turn.asked) : null
+    const wake = scheduleWakeOf(turn.asked)
     if (wake) {
       rows.push({ kind: 'wake', key: turn.askedKey, wake, at: turn.askedWhen, run: turn.run })
     } else if (turn.asked || images.images) {

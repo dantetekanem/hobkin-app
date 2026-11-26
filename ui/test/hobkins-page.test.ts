@@ -213,14 +213,17 @@ test('a turn another hobkin began says who sent it and has no checks, and the us
 
 test("a turn a schedule began is one row named by its schedule, where its message was, and not a message from anyone", () => {
   const waiting: HobkinSummary = { ...summary, state: 'waiting', run: null, turns: 2 }
-  const wake = `<hobkin-schedule>\n${JSON.stringify({ schedules: [{ id: 'sch-1', name: 'Watch CI for #412', note: 'Read the checks.', what: 'fired' }] })}\n</hobkin-schedule>`
-  const conversation: HobkinConversation = { hobkin: waiting, turns: [turn(1, 'completed', 'Watching.'), { ...turn(2, 'completed', 'CI failed on lint.'), asked: wake }] }
+  const schedules = [{ id: 'sch-1', name: 'Watch CI for #412', note: 'Read the checks.', what: 'fired' }]
+  const wake = `<hobkin-schedule>\n${JSON.stringify({ schedules })}\n</hobkin-schedule>`
+  const woken = { ...turn(2, 'completed', 'CI failed on lint.'), asked: wake }
+  const conversation: HobkinConversation = { hobkin: waiting, turns: [turn(1, 'completed', 'Watching.'), woken] }
+
   const rows = pageRows(pageTurns(conversation, waiting, []), { sending: null, activity: null })
-  assert.deepEqual(
-    rows.map((row) => row.kind),
-    ['said', 'answer', 'wake', 'answer'],
-  )
-  const woke = rows[2] as Extract<PageRow, { kind: 'wake' }>
-  assert.equal(woke.wake.title, 'Watch CI for #412')
-  assert.deepEqual([woke.key, woke.at, woke.run], ['hobkin:0a1b2c3d:2:asked', Date.parse('2026-11-13T10:02:00.000Z'), 'hobkin:0a1b2c3d:2'])
+
+  assert.deepEqual(rows.map((row) => row.kind), ['said', 'answer', 'wake', 'answer'])
+  const row = rows[2] as Extract<PageRow, { kind: 'wake' }>
+  assert.equal(row.wake.title, 'Watch CI for #412')
+  assert.equal(row.key, 'hobkin:0a1b2c3d:2:asked', 'keyed as its message was')
+  assert.equal(row.at, Date.parse('2026-11-13T10:02:00.000Z'), 'timed when the turn was asked')
+  assert.equal(row.run, 'hobkin:0a1b2c3d:2')
 })
