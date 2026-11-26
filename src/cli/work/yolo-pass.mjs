@@ -16,7 +16,7 @@ import { readMode, readProject, retryItem, updateItem } from './store.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { holdProject, prepareProjects, readinessOf, readYolo, settleSwitches, yoloOnProject } from './yolo.mjs';
 import { FLOOR_RULES, floorsOf, RULE_DEFAULTS, rulesOf } from './yolo-rules.mjs';
-import { defaultPullGh, mergeOwnPull, pullCandidates, PULLS_OFF, pullSurveyed, signedInUser } from './yolo-pulls.mjs';
+import { defaultPullGh, mergeOwnPull, pullCandidates, PULLS_OFF, pullSurveyHolds, signedInUser } from './yolo-pulls.mjs';
 
 /**
  * The one place a change merges with no yes from the user. It runs after the director's own survey and returns at once while YOLO mode is off.
@@ -105,48 +105,52 @@ function landingHold({ landable, leftOut, row, rules }) {
 }
 
 /**
- * Why a finished change keeps asking the user and which setting holds it (null where no setting does), or null when it may merge by itself.
- * The first reason found is the one said. `rules` are YOLO mode's settings for the project (`yolo-rules.mjs`), and with none the usual ones,
+ * Every known reason a finished change cannot merge automatically, in the pass's existing priority order, with its setting (if any).
+ * The pass stops at the first reason; reporting can read the rest. `rules` are YOLO mode's settings for the project (`yolo-rules.mjs`), and with none the usual ones,
  * with the rate of `yolo`. `models` is what hobkin's own runs say of each TLA+ model covering the change, at its head (`changeModels`), and
  * `unmodeled` the machines the state machines look found that it touches with no model naming those files (`unmodeledIn`). Scores given before
  * commits that changed only models still count. `leftOut` is why the landing list leaves it out, in that list's words, when it does.
  */
-export function holdOf({ yolo, on, project, readiness, landable, leftOut = null, row, item, unit = {}, models = [], unmodeled = [], rules = { ...RULE_DEFAULTS, lowestRate: yolo.rate } }) {
-  if (!yolo.on) return asks('YOLO mode is off');
+export function* holdsOf({ yolo, on, project, readiness, landable, leftOut = null, row, item, unit = {}, models = [], unmodeled = [], rules = { ...RULE_DEFAULTS, lowestRate: yolo.rate } }) {
+  if (!yolo.on) yield asks('YOLO mode is off');
   // `on` is the project's own switch.
-  if (on === false) return asks('YOLO mode is off on its project');
-  if (project?.paused) return asks('its project is paused');
-  if (!readiness.ready) return asks(notReady(readiness), readiness.holds?.[0] ?? null);
+  if (on === false) yield asks('YOLO mode is off on its project');
+  if (project?.paused) yield asks('its project is paused');
+  if (!readiness.ready) yield asks(notReady(readiness), readiness.holds?.[0] ?? null);
   const unfixed = rules.brokenModelFixMayMerge ? brokenNotFixed(readiness, models) : null;
-  if (unfixed) return asks(unfixed, 'brokenModelFixMayMerge');
+  if (unfixed) yield asks(unfixed, 'brokenModelFixMayMerge');
   const left = landingHold({ landable, leftOut, row, rules });
-  if (left) return left;
-  if (!WAITS_TO_MERGE.includes(item.state)) return asks(`its item is ${item.state}, not finished work waiting to merge`);
-  if (item.state === 'pr' && !rules.mergePulls) return asks(PULLS_OFF, 'mergePulls');
-  if (row.holds && !rules.earlierBranchesMayMerge) return asks('it brings earlier branches with it', 'earlierBranchesMayMerge');
-  // The grades YOLO mode reads are Change Review's alone (`review-grades.mjs`): hobkin's own scored run, or a record written any other way, is not read.
-  if (item.review?.by !== GRADED_BY) return asks('its review has not rated it');
-
-  const { kind, rate, floors, head } = scoresOf(item.review, models, floorsOf(rules));
-  if (!scoresHoldAt(head, unit)) {
-    // Nothing takes a review's commits to a pull request, so a review that changed the change leaves its scores on a commit the pull request lacks.
-    if (item.state === 'pr' && unit.sha) return asks(`its review scored ${String(head).slice(0, SHORT_SHA)}, and its pull request is at ${unit.sha.slice(0, SHORT_SHA)}`);
-    return asks('its scores are for an older commit');
+  if (left) yield left;
+  if (!WAITS_TO_MERGE.includes(item.state)) {
+    yield asks(`its item is ${item.state}, not finished work waiting to merge`);
+    return;
   }
-  if (!rules.kinds.includes(kind)) return asks(`its review calls it ${kind}`, 'kinds');
+  if (item.state === 'pr' && !rules.mergePulls) yield asks(PULLS_OFF, 'mergePulls');
+  if (row.holds && !rules.earlierBranchesMayMerge) yield asks('it brings earlier branches with it', 'earlierBranchesMayMerge');
+  // The grades YOLO mode reads are Change Review's alone (`review-grades.mjs`): hobkin's own scored run, or a record written any other way, is not read.
+  const scores = item.review?.by === GRADED_BY ? scoresOf(item.review, models, floorsOf(rules)) : null;
+  const current = scores && scoresHoldAt(scores.head, unit);
+  if (!scores) yield asks('its review has not rated it');
+  else if (!current) {
+    // Nothing takes a review's commits to a pull request, so a review that changed the change leaves its scores on a commit the pull request lacks.
+    if (item.state === 'pr' && unit.sha) yield asks(`its review scored ${String(scores.head).slice(0, SHORT_SHA)}, and its pull request is at ${unit.sha.slice(0, SHORT_SHA)}`);
+    else yield asks('its scores are for an older commit');
+  } else if (!rules.kinds.includes(scores.kind)) yield asks(`its review calls it ${scores.kind}`, 'kinds');
   // The readiness work's own branches are features that never merge by themselves, whatever kinds the user lets through.
-  if (item.kind === 'feature' && (!rules.kinds.includes('feature') || String(item.key ?? '').startsWith('yolo:'))) return asks('its item is a feature', 'kinds');
+  if (item.kind === 'feature' && (!rules.kinds.includes('feature') || String(item.key ?? '').startsWith('yolo:'))) yield asks('its item is a feature', 'kinds');
   // A broken model is a floor, said before the proof score of 3 it leaves.
-  const model = models.find(({ state }) => state === 'broken') ?? models.find(({ state }) => state !== 'holds');
-  if (model) return asks(modelWords[model.state](model));
-  if (unmodeled.length) return asks(`it changes ${unmodeled[0].name}, a state machine no model covers yet`);
-  if (floors.length) return asks(`${floors[0].criterion} scored ${floors[0].score}, under ${floors[0].needs}`, FLOOR_RULES[floors[0].criterion]);
-  if (rate < rules.lowestRate) return asks(`its general rate is ${rate}, under ${rules.lowestRate}`, 'lowestRate');
+  for (const model of [...models.filter(({ state }) => state === 'broken'), ...models.filter(({ state }) => !['broken', 'holds'].includes(state))]) yield asks(modelWords[model.state](model));
+  for (const machine of unmodeled) yield asks(`it changes ${machine.name}, a state machine no model covers yet`);
+  if (current) {
+    for (const floor of scores.floors) yield asks(`${floor.criterion} scored ${floor.score}, under ${floor.needs}`, FLOOR_RULES[floor.criterion]);
+    if (scores.rate < rules.lowestRate) yield asks(`its general rate is ${scores.rate}, under ${rules.lowestRate}`, 'lowestRate');
+  }
   // What the survey read of a pull request comes first, since the change rules can only read a head this repository holds.
-  const surveyed = item.state === 'pr' ? pullSurveyed(item, unit) : null;
-  if (surveyed) return asks(surveyed);
-  return changeHoldsWith(item, unit, rules)[0] ?? null;
+  if (item.state === 'pr') for (const reason of pullSurveyHolds(item, unit)) yield asks(reason);
+  yield* changeHoldsWith(item, unit, rules);
 }
+
+export const holdOf = asked => holdsOf(asked).next().value ?? null;
 
 /** `holdOf`'s reason alone, or null when the change may merge by itself. */
 export const whyItAsks = asked => holdOf(asked)?.why ?? null;
