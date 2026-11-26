@@ -1,6 +1,6 @@
 /**
  * hobkin's reader of a run's steps from its saved Pi session (`src/cli/run-steps.mjs`), for what the run's live feed let
- * go. Typed here because hobkin ships plain JavaScript. Paths and signatures are those of `~/Poetry/hobkin` at commit
+ * go. Typed here because hobkin ships plain JavaScript. Paths and signatures are those of `packages/hobkin` at commit
  * acda3b0.
  */
 

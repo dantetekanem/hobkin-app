@@ -1,7 +1,7 @@
 /**
  * The part of hobkin's work store that files an item, typed here because hobkin ships plain JavaScript. It merges with
  * the declarations in `host/src/hobkin-work.d.ts` and `host/src/review/hobkin-review.d.ts`. Paths and signatures are those
- * of `~/Poetry/hobkin` on `main`. hobkin stays the owner of all of it.
+ * of `packages/hobkin` on `main`. hobkin stays the owner of all of it.
  */
 
 declare module 'hobkin/src/cli/work/store.mjs' {

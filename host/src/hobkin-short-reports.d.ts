@@ -1,6 +1,6 @@
 /**
  * hobkin's switch for short reports (051-short-reports), typed here because hobkin ships plain JavaScript. Paths and
- * signatures are those of `~/Poetry/hobkin` on `main`. hobkin stays the owner of the switch and of the short versions.
+ * signatures are those of `packages/hobkin` on `main`. hobkin stays the owner of the switch and of the short versions.
  */
 
 declare module 'hobkin/src/cli/short-reports.mjs' {

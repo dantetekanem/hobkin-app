@@ -1,7 +1,7 @@
 /**
  * hobkin's rules for what Chat shows of a message (`chatMessage` in its `src/cli/application.mjs`), which History
  * applies to earlier conversations. Typed here because hobkin ships plain JavaScript. Paths and signatures are those
- * of `~/Poetry/hobkin` at commit 3b6a085.
+ * of `packages/hobkin` at commit 3b6a085.
  */
 
 declare module 'hobkin/src/cli/holds.mjs' {

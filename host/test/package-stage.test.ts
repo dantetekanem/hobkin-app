@@ -80,7 +80,7 @@ test('writes the app package.json with only what the host imports, pinned', () =
     engines: { node: '>=22.19.0' },
     imports: { '#shared/*': './shared/*' },
     scripts: { dev: 'vite' },
-    dependencies: { react: '^19.3.1', ws: '^8.22.2', typebox: '^1.4.6', diff: '^9.0.0', hobkin: 'link:../hobkin' },
+    dependencies: { react: '^19.3.1', ws: '^8.22.2', typebox: '^1.4.6', diff: '^9.0.0', hobkin: 'link:packages/hobkin' },
     devDependencies: { vite: '^8.3.6' },
   }
   assert.deepEqual(undeclaredPackages(['ws', 'left-pad'], root), ['left-pad'])

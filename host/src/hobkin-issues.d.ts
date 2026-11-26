@@ -1,6 +1,6 @@
 /**
  * The parts of hobkin's GitHub issue work the host calls, typed here because hobkin ships plain JavaScript. Paths and signatures are those of
- * `~/Poetry/hobkin` on branch client/background-work at commit 7c028b9. hobkin stays the owner of all of it.
+ * `packages/hobkin` on branch client/background-work at commit 7c028b9. hobkin stays the owner of all of it.
  */
 
 declare module 'hobkin/src/cli/work/issues.mjs' {

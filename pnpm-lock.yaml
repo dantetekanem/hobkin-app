@@ -54,8 +54,8 @@ importers:
         specifier: ^9.0.0
         version: 9.0.0
       hobkin:
-        specifier: link:../hobkin
-        version: link:../hobkin
+        specifier: link:packages/hobkin
+        version: link:packages/hobkin
       lucide-react:
         specifier: ^1.70.0
         version: 1.70.0(@types/react@19.3.0)(react@19.3.1)

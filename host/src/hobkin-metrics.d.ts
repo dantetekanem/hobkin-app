@@ -1,6 +1,6 @@
 /**
  * hobkin's fold of work's numbers (`src/cli/work/metrics.mjs`), typed here because hobkin ships plain JavaScript. Paths
- * and signatures are those of `~/Poetry/hobkin` on `main`. hobkin stays the owner of all of it.
+ * and signatures are those of `packages/hobkin` on `main`. hobkin stays the owner of all of it.
  */
 
 declare module 'hobkin/src/cli/work/metrics.mjs' {

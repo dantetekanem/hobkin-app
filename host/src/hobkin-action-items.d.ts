@@ -1,6 +1,6 @@
 /**
  * hobkin's own Action Items list and dismissal, typed here because hobkin ships plain JavaScript. Paths and signatures
- * are those of `~/Poetry/hobkin` on `main`. hobkin stays the owner of all of it.
+ * are those of `packages/hobkin` on `main`. hobkin stays the owner of all of it.
  */
 
 declare module 'hobkin/src/cli/pending-read.mjs' {

@@ -1,6 +1,6 @@
 {
   "name": "hobkin-client",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -41,7 +41,7 @@
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
     "diff": "^9.0.0",
-    "hobkin": "link:../hobkin",
+    "hobkin": "link:packages/hobkin",
     "lucide-react": "^1.70.0",
     "motion": "^14.10.1",
     "react": "^19.3.1",

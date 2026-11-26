@@ -1,6 +1,6 @@
 /**
  * The parts of hobkin's work mode the host calls, typed here because hobkin ships plain JavaScript.
- * Paths and signatures are those of `~/Poetry/hobkin` at commit a78669a. hobkin stays the owner of all of it.
+ * Paths and signatures are those of `packages/hobkin` at commit a78669a. hobkin stays the owner of all of it.
  */
 
 declare module 'hobkin/src/cli/application.mjs' {

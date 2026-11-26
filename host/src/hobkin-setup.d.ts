@@ -1,6 +1,6 @@
 /**
  * The part of `hobkin setup` the setup's review reads git and gh through, typed here because hobkin ships plain
- * JavaScript. Paths and signatures are those of `~/Poetry/hobkin` on `main`.
+ * JavaScript. Paths and signatures are those of `packages/hobkin` on `main`.
  */
 
 declare module 'hobkin/src/cli/setup.mjs' {

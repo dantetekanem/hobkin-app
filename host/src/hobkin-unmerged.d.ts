@@ -1,6 +1,6 @@
 /**
  * The part of hobkin's merge bookkeeping the host uses to settle a pull request merged outside the app, typed here
- * because hobkin ships plain JavaScript. Paths and signatures are those of `~/Poetry/hobkin` on `main`.
+ * because hobkin ships plain JavaScript. Paths and signatures are those of `packages/hobkin` on `main`.
  */
 
 declare module 'hobkin/src/cli/work/unmerged.mjs' {
