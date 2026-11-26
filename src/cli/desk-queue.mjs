@@ -17,7 +17,8 @@ import { isPresent } from './pending.mjs';
  *     "held": [{ "id", "source", "level", "delivery", "heldAt", "notice" }],  waiting for a digest or a pause
  *     "posting": [notice],               let go and not yet in a saved view, so a crash in between posts them again rather than never
  *     "seen": { "<notice id>": "<when>" },  what the desk took, so a line worked out again on each refresh is taken once
- *     "lastDigestAt": "..."
+ *     "lastDigestAt": "...",
+ *     "returned": { "kind", "awayMs", "at" }  the user's return that waits with what is held until a digest takes it, or null
  *   }
  *
  * `"desk": { "enabled": false }` in config.json turns it off, and Chat posts as before. Without a presence source nothing could time a
@@ -88,7 +89,7 @@ function readQueue(root) {
   try {
     text = readFileSync(deskPath(root), 'utf8');
   } catch (error) {
-    if (error.code === 'ENOENT') return { version: VERSION, held: [], posting: [], seen: {}, lastDigestAt: null };
+    if (error.code === 'ENOENT') return { version: VERSION, held: [], posting: [], seen: {}, lastDigestAt: null, returned: null };
     throw error;
   }
   const saved = JSON.parse(text);
@@ -98,6 +99,7 @@ function readQueue(root) {
     posting: Array.isArray(saved.posting) ? saved.posting : [],
     seen: saved.seen && typeof saved.seen === 'object' ? saved.seen : {},
     lastDigestAt: saved.lastDigestAt ?? null,
+    returned: saved.returned && typeof saved.returned === 'object' ? saved.returned : null,
   };
 }
 
@@ -316,9 +318,16 @@ export class Desk {
       const context = this.context(now, presence, busy);
       const events = [];
       let changed = this.release(queue, context, events);
+      // A return waits with what is held until a digest takes it, so a look that cannot post one yet does not lose it. With nothing held
+      // there is nothing for it to bring, and what comes in after it waits for the next return.
+      const pending = queue.held.length ? (returned ? { ...returned, at: iso(now) } : queue.returned) : null;
+      if (pending !== queue.returned) {
+        queue.returned = pending;
+        changed = true;
+      }
       if (queue.held.length) {
         const lastDigest = Date.parse(queue.lastDigestAt ?? '');
-        const due = digestDue({ ...context, lastDigest: Number.isFinite(lastDigest) ? lastDigest : -Infinity, awayMs: returned?.awayMs, held: queue.held });
+        const due = digestDue({ ...context, lastDigest: Number.isFinite(lastDigest) ? lastDigest : -Infinity, returned: queue.returned, held: queue.held });
         if (due.due) {
           const held = queue.held;
           const landed = held.filter(({ level }) => RANK[level] <= RANK.P1).length;
@@ -326,6 +335,7 @@ export class Desk {
           queue.posting.push(digest);
           queue.held = [];
           queue.lastDigestAt = iso(now);
+          queue.returned = null;
           events.push(['digest_posted', { items: held.length, ...digest.digest.levels, why: due.why }]);
           changed = true;
         }

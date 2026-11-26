@@ -9,8 +9,8 @@ const WEEK_MS = 7 * DAY_MS;
 const DAY_MINUTES = 24 * 60;
 // A night that runs past midnight belongs to the day it started, so the user's day turns at 04:00.
 const DAY_TURNS_MINUTES = 4 * 60;
-// Away this long is a break. Shorter is a coffee.
-const BREAK_MS = 30 * MINUTE_MS;
+// Away this long is a break, and seeing the user after it a return: the gap the presence log counts (AWAY_GAP_MS in events.mjs).
+const RETURN_GAP_MS = 15 * MINUTE_MS;
 // Digests come about three times a day and never hourly (notes §3).
 const MOST_DIGESTS = 3;
 const DIGEST_GAP_MS = 2 * HOUR_MS;
@@ -111,7 +111,7 @@ export function learnMoments(presenceEvents, { now, days = 14, timeZone = machin
     const dayLeft = dayOf(gone.date);
     dayLeft.stop = Math.max(dayLeft.stop, gone.minute);
     // A break starts and ends on the same day, and the longest one is the day's main break.
-    const longestBreak = gone.date === seen.date && event.awayMs >= BREAK_MS && event.awayMs > day.longest;
+    const longestBreak = gone.date === seen.date && event.awayMs >= RETURN_GAP_MS && event.awayMs > day.longest;
     if (longestBreak) Object.assign(day, { back: seen.minute, longest: event.awayMs });
   }
   const learned = [...byDay].filter(([date, { first }]) => date < today && Number.isFinite(first)).map(([, day]) => day);
@@ -293,14 +293,17 @@ function waitedTooLong(held, { now, moments, timeZone }) {
   return forToday.some(entry => waited(entry) >= P1_MOST_WAIT_MS) ? 'P1 has waited four hours with no digest time learned' : null;
 }
 
+// The first sighting of the day is a return, a new user's too, who has no time away yet.
+const isReturn = returned => returned?.kind === 'first' || returned?.awayMs >= RETURN_GAP_MS;
+
 /**
  * Whether a digest should post now, and `why`. The user must be on, with no event holding deliveries. What is `held` that can wait no
  * longer (waitedTooLong) brings it at the user's pause (`atPause`). Otherwise the last digest must be at least two hours back, and a
- * learned moment must have come since, or, with none learned yet, the user has just come back after a gap (`awayMs`, from the presence
- * event that saw them return).
+ * learned moment must have come since, or, with none learned yet, the user has come back after a gap or is on for the first time today
+ * (`returned`, the presence facts of that sighting).
  */
 export function digestDue({
-  now, moments = [], lastDigest = -Infinity, present = false, atPause = present, held = [], awayMs, day, quiet = [], timeZone = machineZone(),
+  now, moments = [], lastDigest = -Infinity, present = false, atPause = present, held = [], returned = null, day, quiet = [], timeZone = machineZone(),
 }) {
   if (!present) return { due: false, reason: 'The user is not on.' };
   const hold = holdAt(now, { day, quiet, present, timeZone });
@@ -313,7 +316,7 @@ export function digestDue({
   }
   if (now - lastDigest < DIGEST_GAP_MS) return { due: false, reason: 'The last digest was less than two hours ago.' };
   if (!moments.length) {
-    return awayMs >= BREAK_MS
+    return isReturn(returned)
       ? { due: true, why: 'return', reason: 'The user is back after a gap, and no digest time is learned yet.' }
       : { due: false, reason: 'No digest time is learned yet, so the digest waits for the user to return after a gap.' };
   }

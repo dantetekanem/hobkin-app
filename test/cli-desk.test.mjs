@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { deliveryFor, digestDue, itemLevel, learnMoments, learnQuietHours, nextDigestAt, userDay } from '../src/cli/desk.mjs';
+import { AWAY_GAP_MS } from '../src/cli/events.mjs';
 
 // Every date here is in November 2026, after the clocks went back, so Toronto is five hours behind UTC all month.
 const timeZone = 'America/Toronto';
@@ -305,8 +306,15 @@ test('P1 waits no longer than its day: past the day\'s last digest time, past th
 
 test('before any moment is learned, a digest comes when the user returns after a gap', () => {
   const given = { moments: [], quiet: [], timeZone, present: true, now: on('13:05') };
-  assert.equal(digestDue({ ...given, lastDigest: on('09:00'), awayMs: 45 * MINUTE }).due, true);
-  assert.equal(digestDue({ ...given, lastDigest: on('09:00'), awayMs: 10 * MINUTE }).due, false);
+  assert.equal(digestDue({ ...given, lastDigest: on('09:00'), returned: { kind: 'returned', awayMs: 45 * MINUTE } }).due, true);
+  assert.equal(digestDue({ ...given, lastDigest: on('09:00'), returned: { kind: 'returned', awayMs: 10 * MINUTE } }).due, false);
   assert.equal(digestDue({ ...given, lastDigest: on('09:00') }).due, false);
-  assert.equal(digestDue({ ...given, lastDigest: on('12:00'), awayMs: HOUR }).due, false);
+  assert.equal(digestDue({ ...given, lastDigest: on('12:00'), returned: { kind: 'returned', awayMs: HOUR } }).due, false);
+});
+
+test('a return is the gap the presence log counts, and the first sighting of the day is one too', () => {
+  const given = { moments: [], quiet: [], timeZone, present: true, now: on('13:05') };
+  assert.equal(digestDue({ ...given, returned: { kind: 'returned', awayMs: AWAY_GAP_MS } }).why, 'return');
+  assert.equal(digestDue({ ...given, returned: { kind: 'returned', awayMs: AWAY_GAP_MS - MINUTE } }).due, false);
+  assert.equal(digestDue({ ...given, returned: { kind: 'first' } }).why, 'return', 'a new user\'s first sighting has no time away');
 });
