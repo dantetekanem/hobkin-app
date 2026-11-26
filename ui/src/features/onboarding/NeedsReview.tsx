@@ -13,22 +13,32 @@ const GROUP_NAMES: Record<SetupNeedGroup, string> = {
   optional: 'Optional',
 }
 
-/** What a missing need's mark says: one hobkin needs to run or to work on code is a cross, the rest only a ring. */
+/** The groups hobkin cannot do without: a need missing there is marked as wrong, and elsewhere only as not there. */
 const NEEDED: readonly SetupNeedGroup[] = ['run', 'code']
 
 const reasonOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
+/** A fix the window runs itself, through one of the setup's own install commands. */
+type SetupInstall = Exclude<SetupFix, { kind: 'sign-in' } | { kind: 'command' }>
+
 /** Runs one of the setup's own installs. A TLA+ setup that did not go through says why, as a failed install does. */
-async function install(fix: Exclude<SetupFix, { kind: 'sign-in' } | { kind: 'command' }>): Promise<void> {
+async function install(fix: SetupInstall): Promise<void> {
   if (fix.kind === 'install-package') {
     await runCommand('setup.install-package', { name: fix.name })
     return
   }
-  if (fix.what === 'node') await runCommand('setup.install-node')
-  else if (fix.what === 'pi') await runCommand('setup.install-pi')
-  else {
-    const { ok, message } = await runCommand('setup.install-proof-tools')
-    if (!ok) throw Error(message)
+
+  switch (fix.what) {
+    case 'node':
+      await runCommand('setup.install-node')
+      return
+    case 'pi':
+      await runCommand('setup.install-pi')
+      return
+    case 'proof-tools': {
+      const { ok, message } = await runCommand('setup.install-proof-tools')
+      if (!ok) throw Error(message)
+    }
   }
 }
 
@@ -59,25 +69,35 @@ interface NeedRowProps {
   onFix: (need: SetupNeed) => void
 }
 
-/** One need on two lines that keep their height, found or not, so nothing below moves when it changes. */
-function NeedRow({ need, fixing, waiting, onFix }: NeedRowProps) {
+function NeedMark({ need }: { need: SetupNeed }) {
+  if (need.found) return <Check className="size-4 text-ok-fg" aria-hidden="true" />
+  if (NEEDED.includes(need.group)) return <X className="size-4 text-destructive" aria-hidden="true" />
+  return <Circle className="size-3 text-border-strong" aria-hidden="true" />
+}
+
+/** The fix at the end of a row: a command to copy, or a button for the setup's own install or sign-in. */
+function FixControl({ need, fixing, waiting, onFix }: NeedRowProps) {
   const { fix } = need
-  let mark = <Check className="size-4 text-ok-fg" aria-hidden="true" />
-  if (!need.found) mark = NEEDED.includes(need.group) ? <X className="size-4 text-destructive" aria-hidden="true" /> : <Circle className="size-3 text-border-strong" aria-hidden="true" />
+  if (!fix) return null
+  if (fix.kind === 'command') return <CommandToCopy command={fix.command} />
 
-  let control: ReactNode = null
-  if (fix?.kind === 'command') control = <CommandToCopy command={fix.command} />
-  else if (fix) {
-    control = (
-      <Button variant="outline" size="sm" className="min-w-[76px]" disabled={fixing || waiting} onClick={() => onFix(need)}>
-        {fix.kind === 'sign-in' ? 'Connect' : fixing ? 'Installing' : 'Install'}
-      </Button>
-    )
-  }
+  let label = fixing ? 'Installing' : 'Install'
+  if (fix.kind === 'sign-in') label = 'Connect'
+  return (
+    <Button variant="outline" size="sm" className="min-w-[76px]" disabled={fixing || waiting} onClick={() => onFix(need)}>
+      {label}
+    </Button>
+  )
+}
 
+/** One need on two lines that keep their height, found or not, so nothing below moves when it changes. */
+function NeedRow(props: NeedRowProps) {
+  const { need } = props
   return (
     <li className="flex h-11 items-center gap-3 px-2">
-      <span className="grid size-5 shrink-0 place-items-center">{mark}</span>
+      <span className="grid size-5 shrink-0 place-items-center">
+        <NeedMark need={need} />
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
           <span className="truncate font-heading text-[13.5px] font-medium">{need.name}</span>
@@ -90,7 +110,7 @@ function NeedRow({ need, fixing, waiting, onFix }: NeedRowProps) {
         </div>
       </div>
       <span className="sr-only">{need.found ? 'found' : 'missing'}</span>
-      {control}
+      <FixControl {...props} />
     </li>
   )
 }
@@ -137,6 +157,7 @@ export function NeedsReview({ onSignIn, onBusy, children, listClassName }: Needs
     const how = need.fix
     if (!how || how.kind === 'command') return
     if (how.kind === 'sign-in') return onSignIn()
+
     setFixing(need.id)
     setTrouble(null)
     onBusy?.(true)
@@ -157,7 +178,15 @@ export function NeedsReview({ onSignIn, onBusy, children, listClassName }: Needs
   }
 
   return (
-    <NeedsView needs={needs} reading={reading} fixing={fixing} trouble={trouble} onFix={(need) => void fix(need)} onLookAgain={lookAgain} listClassName={listClassName}>
+    <NeedsView
+      needs={needs}
+      reading={reading}
+      fixing={fixing}
+      trouble={trouble}
+      onFix={(need) => void fix(need)}
+      onLookAgain={lookAgain}
+      listClassName={listClassName}
+    >
       {children}
     </NeedsView>
   )
@@ -188,7 +217,13 @@ export function NeedsView({ needs, reading, fixing, trouble, onFix, onLookAgain,
                 <h3 className="eyebrow px-2 pb-0.5">{GROUP_NAMES[group]}</h3>
                 <ul>
                   {inGroup.map((need) => (
-                    <NeedRow key={need.id} need={need} fixing={fixing === need.id} waiting={fixing !== null && fixing !== need.id} onFix={onFix} />
+                    <NeedRow
+                      key={need.id}
+                      need={need}
+                      fixing={fixing === need.id}
+                      waiting={fixing !== null && fixing !== need.id}
+                      onFix={onFix}
+                    />
                   ))}
                 </ul>
               </section>

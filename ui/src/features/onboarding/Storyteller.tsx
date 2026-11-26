@@ -832,7 +832,15 @@ export function Storyteller() {
             />
           ) : null}
           {asking?.kind === 'connect' ? <ConnectPanel key="connect" onDone={(outcome) => answer({ account: outcome }, facts)} still={still} /> : null}
-          {asking?.kind === 'needs' ? <NeedsPanel key="needs" top={stage.y + footBelow(stage.scale) + 28} onDone={() => tell('answered', facts)} onBusy={setBusy} still={still} /> : null}
+          {asking?.kind === 'needs' ? (
+            <NeedsPanel
+              key="needs"
+              top={stage.y + footBelow(stage.scale) + 28}
+              onDone={() => tell('answered', facts)}
+              onBusy={setBusy}
+              still={still}
+            />
+          ) : null}
         </AnimatePresence>
 
         <motion.div

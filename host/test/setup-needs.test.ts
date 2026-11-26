@@ -39,11 +39,19 @@ const PRINTS: Record<string, string> = {
 
 const failed = (code: number | string) => Object.assign(Error('Command failed'), { code })
 
+interface MacChanges extends Partial<SetupNeedsOptions> {
+  /** Where a program is, or null where it is not, over a ready Mac's. */
+  programs?: Record<string, string | null>
+  /** What a line prints, or the error it fails with, over a ready Mac's. */
+  prints?: Record<string, string | Error>
+}
+
 /** A Mac as the review reads it: what Pi, the models, the tools and Claude Code say, and the programs that answer. */
-function mac({ programs = {}, prints = {}, ...over }: { programs?: Record<string, string | null>; prints?: Record<string, string | Error> } & Partial<SetupNeedsOptions> = {}) {
+function mac({ programs = {}, prints = {}, ...readers }: MacChanges = {}) {
   const calls: string[] = []
   const where = { ...PROGRAMS, ...programs }
   const answers = { ...PRINTS, ...prints }
+
   const options: SetupNeedsOptions = {
     pi: async () => pi(),
     models: async () => ({ providers: [{ id: 'openai-codex', name: 'OpenAI Codex', connected: true }] }),
@@ -53,66 +61,74 @@ function mac({ programs = {}, prints = {}, ...over }: { programs?: Record<string
     exec: async (file, args) => {
       const line = [file, ...args].join(' ')
       calls.push(line)
+
       const answer = answers[line]
       if (answer instanceof Error) throw answer
       if (answer === undefined) throw Error(`Unexpected command: ${line}`)
       return answer
     },
     platform: 'darwin',
-    ...over,
+    ...readers,
   }
   return { options, calls }
 }
 
-const byId = (needs: SetupNeed[]) => Object.fromEntries(needs.map((need) => [need.id, need]))
+/** The review of that Mac, each need by its id, and every program line it ran. */
+async function review(changes: MacChanges = {}) {
+  const { options, calls } = mac(changes)
+  const { needs } = await readSetupNeeds(options)
+  return { list: needs, needs: Object.fromEntries(needs.map((need): [string, SetupNeed] => [need.id, need])), calls }
+}
 
 test('a ready Mac: every need is found, in the review order, with its version, and only programs that say what they are run', async () => {
-  const { options, calls } = mac()
-  const { needs } = await readSetupNeeds(options)
+  const { list, needs, calls } = await review()
 
   assert.deepEqual(
-    needs.map(({ id, group }) => `${group} ${id}`),
+    list.map(({ id, group }) => `${group} ${id}`),
     ['run node', 'run pi', 'run sign-in', 'code git', 'code gh', 'features package:pi-coder', 'features tla', 'features agentic-search', 'features claude', 'optional qmd'],
   )
-  assert.deepEqual(needs.filter((need) => !need.found || need.problem || need.fix), [])
-  const found = byId(needs)
+  assert.deepEqual(list.filter((need) => !need.found || need.problem || need.fix), [])
   assert.deepEqual(
-    ['node', 'pi', 'git', 'gh', 'agentic-search', 'claude', 'qmd'].map((id) => found[id]!.version),
+    ['node', 'pi', 'git', 'gh', 'agentic-search', 'claude', 'qmd'].map((id) => needs[id]!.version),
     ['22.19.0', '1.5.0', '2.50.1', '2.92.0', '0.8.0', '2.1.323', '2.1.0'],
   )
-  assert.ok(needs.every((need) => need.name && need.neededBy))
+  assert.ok(list.every((need) => need.name && need.neededBy))
   assert.deepEqual(calls.toSorted(), Object.keys(PRINTS).toSorted())
 })
 
 test('git missing, or the Mac stand-in without the command line tools, which is never run', async () => {
-  const absent = byId((await readSetupNeeds(mac({ programs: { git: null } }).options)).needs).git!
-  assert.equal(absent.found, false)
-  assert.deepEqual(absent.fix, { kind: 'command', command: 'xcode-select --install' })
+  const installTools = { kind: 'command', command: 'xcode-select --install' }
 
-  const noTools = mac({ programs: { git: '/usr/bin/git' }, prints: { '/usr/bin/xcode-select -p': failed(2) } })
-  const shim = byId((await readSetupNeeds(noTools.options)).needs).git!
-  assert.equal(shim.found, false)
-  assert.match(shim.problem ?? '', /command line tools/)
-  assert.deepEqual(shim.fix, { kind: 'command', command: 'xcode-select --install' })
+  const absent = (await review({ programs: { git: null } })).needs.git!
+  assert.equal(absent.found, false)
+  assert.deepEqual(absent.fix, installTools)
+
+  const noTools = await review({ programs: { git: '/usr/bin/git' }, prints: { '/usr/bin/xcode-select -p': failed(2) } })
+  const standIn = noTools.needs.git!
+  assert.equal(standIn.found, false)
+  assert.match(standIn.problem ?? '', /command line tools/)
+  assert.deepEqual(standIn.fix, installTools)
   assert.deepEqual(noTools.calls.filter((line) => line.includes('git')), [], 'no git ran')
 
   // With the tools, their own git answers.
-  const tools = mac({
+  const withTools = await review({
     programs: { git: '/usr/bin/git' },
-    prints: { '/usr/bin/xcode-select -p': '/Library/Developer/CommandLineTools\n', '/Library/Developer/CommandLineTools/usr/bin/git --version': 'git version 2.39.5 (Apple Git-154)\n' },
+    prints: {
+      '/usr/bin/xcode-select -p': '/Library/Developer/CommandLineTools\n',
+      '/Library/Developer/CommandLineTools/usr/bin/git --version': 'git version 2.39.5 (Apple Git-154)\n',
+    },
   })
-  const real = byId((await readSetupNeeds(tools.options)).needs).git!
-  assert.equal(real.found, true)
-  assert.equal(real.version, '2.39.5')
-  assert.ok(!tools.calls.some((line) => line.startsWith('/usr/bin/git')))
+  assert.equal(withTools.needs.git!.found, true)
+  assert.equal(withTools.needs.git!.version, '2.39.5')
+  assert.ok(!withTools.calls.some((line) => line.startsWith('/usr/bin/git')))
 })
 
 test('gh missing, or not signed in', async () => {
-  const missing = byId((await readSetupNeeds(mac({ programs: { gh: null } }).options)).needs).gh!
-  assert.equal(missing.found, false)
-  assert.deepEqual(missing.fix, { kind: 'command', command: 'brew install gh' })
+  const absent = (await review({ programs: { gh: null } })).needs.gh!
+  assert.equal(absent.found, false)
+  assert.deepEqual(absent.fix, { kind: 'command', command: 'brew install gh' })
 
-  const signedOut = byId((await readSetupNeeds(mac({ prints: { '/opt/homebrew/bin/gh auth status': failed(1) } }).options)).needs).gh!
+  const signedOut = (await review({ prints: { '/opt/homebrew/bin/gh auth status': failed(1) } })).needs.gh!
   assert.equal(signedOut.found, false)
   assert.match(signedOut.problem ?? '', /signed in/)
   assert.equal(signedOut.version, '2.92.0')
@@ -120,14 +136,22 @@ test('gh missing, or not signed in', async () => {
 })
 
 test("what is missing offers the setup's own install where it has one, and otherwise a command to copy", async () => {
-  const { options } = mac({
-    pi: async () => pi({ installed: false, version: null, matches: false, canInstall: false, node: { found: false, version: null, installs: '22.19.0' }, packages: [{ name: 'pi-coder', adds: 'A diff viewer.', installed: false }] }),
+  // A Mac with no Node, so no npm and no Pi, nothing signed in, no TLA+ tools, and the programs missing.
+  const bareMac = pi({
+    installed: false,
+    version: null,
+    matches: false,
+    canInstall: false,
+    node: { found: false, version: null, installs: '22.19.0' },
+    packages: [{ name: 'pi-coder', adds: 'A diff viewer.', installed: false }],
+  })
+  const { needs } = await review({
+    pi: async () => bareMac,
     models: async () => ({ providers: [{ id: 'openai-codex', name: 'OpenAI Codex', connected: false }] }),
     proofTools: () => ({ java: null, tlc: null, tlaps: null }),
     claude: async () => ({ settings: { enabled: true }, status: claudeStatus({ signedIn: false }) }),
     programs: { 'agentic-search': null, qmd: null },
   })
-  const needs = byId((await readSetupNeeds(options)).needs)
 
   const gaps = Object.values(needs).filter((need) => !['git', 'gh'].includes(need.id))
   assert.ok(gaps.every((need) => !need.found && need.problem && need.fix))
@@ -142,21 +166,22 @@ test("what is missing offers the setup's own install where it has one, and other
   assert.deepEqual(needs.qmd!.fix, { kind: 'command', command: 'npm install -g @tobilu/qmd' })
 
   // With npm the window installs Pi, and with Pi the package.
-  const npm = mac({ pi: async () => pi({ version: '0.9.0', matches: false, packages: [{ name: 'pi-coder', adds: '', installed: false }] }) })
-  const installs = byId((await readSetupNeeds(npm.options)).needs)
+  const oldPi = pi({ version: '0.9.0', matches: false, packages: [{ name: 'pi-coder', adds: '', installed: false }] })
+  const installs = (await review({ pi: async () => oldPi })).needs
   assert.deepEqual(installs.pi!.fix, { kind: 'install', what: 'pi' })
   assert.equal(installs.pi!.version, '0.9.0')
   assert.deepEqual(installs['package:pi-coder']!.fix, { kind: 'install-package', name: 'pi-coder' })
 })
 
 test('Node older than Pi needs, and Claude Code only while its agents are on', async () => {
-  const old = byId((await readSetupNeeds(mac({ pi: async () => pi({ node: { found: true, version: '22.9.0', installs: '22.19.0' } }) }).options)).needs).node!
-  assert.equal(old.found, false)
-  assert.equal(old.version, '22.9.0')
-  assert.match(old.problem ?? '', /22\.19/)
+  const oldNode = pi({ node: { found: true, version: '22.9.0', installs: '22.19.0' } })
+  const node = (await review({ pi: async () => oldNode })).needs.node!
+  assert.equal(node.found, false)
+  assert.equal(node.version, '22.9.0')
+  assert.match(node.problem ?? '', /22\.19/)
 
-  const off = mac({ claude: async () => ({ settings: { enabled: false }, status: claudeStatus({ installed: false }) }) })
-  assert.equal(byId((await readSetupNeeds(off.options)).needs).claude, undefined)
+  const claudeOff = await review({ claude: async () => ({ settings: { enabled: false }, status: claudeStatus({ installed: false }) }) })
+  assert.equal(claudeOff.needs.claude, undefined)
 })
 
 test('a read that fails or takes too long is said on its row, and the rest still answer', async () => {
@@ -167,9 +192,11 @@ test('a read that fails or takes too long is said on its row, and the rest still
     },
     timeoutMs: 20,
   })
-  const needs = byId((await setupNeedsHandlers(options)['setup.needs']!({})).needs)
 
-  for (const id of ['pi', 'node', 'sign-in']) assert.equal(needs[id]!.found, false, id)
-  assert.equal(needs.git!.found, true)
-  assert.equal(needs.qmd!.found, true)
+  const { needs } = await setupNeedsHandlers(options)['setup.needs']!({})
+
+  const byId = Object.fromEntries(needs.map((need) => [need.id, need]))
+  for (const id of ['pi', 'node', 'sign-in']) assert.equal(byId[id]!.found, false, id)
+  assert.equal(byId.git!.found, true)
+  assert.equal(byId.qmd!.found, true)
 })
