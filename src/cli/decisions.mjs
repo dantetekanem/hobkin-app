@@ -18,6 +18,12 @@ const DAY_MS = 86400000;
 const REMEMBERED_MS = 30 * DAY_MS;
 const MOST_LINKS = 6;
 const LONGEST_URL = 2048;
+const SURE = ['high', 'medium', 'low'];
+const KIND = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const LONGEST_RULE = 300;
+// What a card says about itself besides its question (075): how sure the asker is, whether it can be undone, when it takes its pick, which
+// class it belongs to so precedents can match it, and whether its answer should become a standing rule, said back in `rule`.
+const CARD_FIELDS = ['sure', 'reversible', 'deadline', 'kind', 'learn', 'rule'];
 
 const logPath = root => join(root, 'decisions.jsonl');
 
@@ -44,13 +50,35 @@ function append(root, event) {
   appendFileSync(logPath(root), `${JSON.stringify(event)}\n`, { mode: 0o600 });
 }
 
-function assertDecision({ question, choices, recommended }) {
+function assertCard({ sure, reversible, deadline, kind, learn, rule, recommended }, now) {
+  if (sure !== undefined && !SURE.includes(sure)) throw Error('`sure` is high, medium or low.');
+  if (reversible !== undefined && typeof reversible !== 'boolean') throw Error('`reversible` is true or false.');
+  if (deadline !== undefined && !(Date.parse(deadline) > now)) throw Error('`deadline` is a time still to come, such as 2026-11-26T17:00:00Z.');
+  if (kind !== undefined && (typeof kind !== 'string' || !KIND.test(kind))) throw Error('`kind` is a short class in lowercase words joined by hyphens, such as merge-small-fix.');
+  if (learn !== undefined && typeof learn !== 'boolean') throw Error('`learn` is true or false.');
+  if (rule !== undefined && (typeof rule !== 'string' || !rule.trim() || rule.length > LONGEST_RULE)) throw Error(`\`rule\` is one sentence of up to ${LONGEST_RULE} characters.`);
+  if (!learn) return;
+  if (!kind) throw Error('`learn` needs `kind`, so the rule can match later cases.');
+  if (!rule) throw Error('`learn` needs `rule`, the sentence that says the rule back, such as "From now on, ...".');
+  if (!recommended) throw Error('`learn` needs `recommended`, the choice the rule would take.');
+}
+
+function assertDecision({ question, choices, recommended, ...card }, now = Date.now()) {
   if (typeof question !== 'string' || !question.trim()) throw Error('A decision needs a question.');
   const values = new Set((choices ?? []).map(choice => choice?.value));
   const complete = (choices ?? []).every(choice => choice?.value && choice?.label);
   const fits = choices?.length >= FEWEST_CHOICES && choices.length <= MOST_CHOICES;
   if (!complete || !fits || values.size !== choices.length) throw Error(`A decision needs ${FEWEST_CHOICES} to ${MOST_CHOICES} distinct choices, each with a value and a label.`);
   if (recommended && !values.has(recommended)) throw Error('`recommended` has to be the value of one of its choices.');
+  assertCard({ ...card, recommended }, now);
+}
+
+/** The card fields that were given, as kept: a deadline as one ISO time and a rule trimmed. */
+function cardFields(decision) {
+  const given = Object.fromEntries(CARD_FIELDS.filter(name => decision[name] !== undefined).map(name => [name, decision[name]]));
+  if (given.deadline) given.deadline = new Date(given.deadline).toISOString();
+  if (given.rule) given.rule = given.rule.trim();
+  return given;
 }
 
 // Every tick asks for the log many times over, so it is folded once per version of the file (`file-version.mjs`).
@@ -95,8 +123,8 @@ export function answeredByUser(root, since = 0) {
   return readAll(root).filter(({ id, answer }) => answer !== undefined && answeredIds.has(id));
 }
 
-function fileRecord(root, { key = null, from, question, tldr, choices, answerTo = null, recommended = null, why = null, changed = null, links = [], reports = [], shown = false }, now) {
-  assertDecision({ question, choices, recommended });
+function fileRecord(root, { key = null, from, question, tldr, choices, answerTo = null, recommended = null, why = null, changed = null, links = [], reports = [], shown = false, ...card }, now) {
+  assertDecision({ question, choices, recommended, ...card }, now);
   const known = key && openDecisions(root).find(decision => decision.key === key);
   const id = known?.id ?? randomUUID();
   append(root, {
@@ -110,6 +138,7 @@ function fileRecord(root, { key = null, from, question, tldr, choices, answerTo 
     recommended,
     why: shortReason(why),
     changed: shortReason(changed),
+    ...cardFields(card),
     ...(links.length || known?.links ? { links: links.map(shortLink) } : {}),
     ...(reports.length || known?.reports ? { reports: [...new Set([...(known?.reports ?? []), ...reports])] } : {}),
     at: known?.at ?? new Date(now).toISOString(),
@@ -208,8 +237,14 @@ export function findDecision(root, id, value) {
   return { decision, choice };
 }
 
-/** A decision as the main agent reads it, to tell the user about and to answer: who asked, what, and each choice by its value. */
-export const decisionRow = ({ id, from, answerTo, at, question, choices = [], recommended = null, why = null }) => ({
+// A row's `kind` says who asked, so the card's own class goes by `class` there.
+function rowCard(card) {
+  const { kind, ...fields } = cardFields(card);
+  return kind ? { ...fields, class: kind } : fields;
+}
+
+/** A decision as the main agent reads it, to tell the user about and to answer: who asked, what, each choice by its value, and its card fields. */
+export const decisionRow = ({ id, from, answerTo, at, question, choices = [], recommended = null, why = null, ...card }) => ({
   id,
   from: from ?? 'hobkin',
   kind: answerTo?.kind ?? null,
@@ -218,6 +253,7 @@ export const decisionRow = ({ id, from, answerTo, at, question, choices = [], re
   choices: choices.map(({ value, label }) => ({ value, label })),
   recommended: recommended ?? null,
   why: why ?? null,
+  ...rowCard(card),
 });
 
 const whereTo = ([kind, ...names], from) => {
@@ -274,7 +310,7 @@ export async function runDecideCommand(root, args, input, now = Date.now(), from
   for await (const chunk of input) text += chunk;
   const { key, changed, ...asked } = JSON.parse(text);
   const asker = whereTo(args, from);
-  assertDecision(asked);
+  assertDecision(asked, now);
   const outside = asker.answerTo.kind === 'outside';
   // Another session's key stays apart from hobkin's own, so it can never reach one of hobkin's questions.
   const scope = outside ? ['outside'] : args;

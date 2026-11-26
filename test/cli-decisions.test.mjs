@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { buildContext } from '../src/cli/context.mjs';
-import { answerDecision, fileDecision, findDecision, markShown, openDecisions, runDecideCommand } from '../src/cli/decisions.mjs';
+import { answerDecision, decisionRow, fileDecision, findDecision, markShown, openDecisions, runDecideCommand } from '../src/cli/decisions.mjs';
 import { readEvents } from '../src/cli/events.mjs';
 
 const yesNo = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
@@ -211,4 +211,52 @@ test('a work run always files, because its one use of decide is deleting what gi
 
   assert.equal(again.answer, undefined);
   assert.equal(openDecisions(root).length, 1);
+});
+
+const laterOrMerge = [{ value: 'later', label: 'Later' }, { value: 'merge', label: 'Merge it' }];
+const card = (fields = {}) => Readable.from([JSON.stringify({ question: 'Merge the typo fix?', choices: laterOrMerge, recommended: 'merge', ...fields })]);
+const FILED = Date.parse('2026-11-26T09:00:00Z');
+const LATER = '2026-11-26T17:00:00.000Z';
+
+test('a card keeps how sure the asker is, whether it can be undone, its deadline, its kind and what it would learn', async t => {
+  const root = home(t);
+  const fields = { sure: 'medium', reversible: true, deadline: LATER, kind: 'merge-small-fix', learn: true, rule: 'From now on, small fixes merge without asking.' };
+
+  await runDecideCommand(root, ['routine', 'site'], card(fields), FILED);
+
+  const [filed] = openDecisions(root);
+  assert.deepEqual({ sure: filed.sure, reversible: filed.reversible, deadline: filed.deadline, kind: filed.kind, learn: filed.learn, rule: filed.rule }, fields);
+  assert.equal(filed.recommended, 'merge', 'recommended stays the pick');
+  const { kind, ...rest } = fields;
+  const row = decisionRow(filed);
+  assert.deepEqual([row.kind, row.class], ['routine', kind], 'the row\'s kind says who asked, so the card\'s class goes by class');
+  assert.deepEqual(Object.entries(row).filter(([name]) => name in rest), Object.entries(rest));
+});
+
+test('a card without those fields is filed as before, and the row leaves them out', async t => {
+  const root = home(t);
+
+  await runDecideCommand(root, ['routine', 'site'], card(), FILED);
+
+  const [filed] = openDecisions(root);
+  for (const name of ['sure', 'reversible', 'deadline', 'kind', 'learn', 'rule']) assert.equal(Object.hasOwn(filed, name), false, name);
+  assert.deepEqual(Object.keys(decisionRow(filed)), ['id', 'from', 'kind', 'at', 'question', 'choices', 'recommended', 'why']);
+});
+
+test('card fields are checked, and a card that fails is not filed', async t => {
+  const root = home(t);
+  const refused = [
+    [{ sure: 'very' }, /`sure` is high, medium or low/],
+    [{ reversible: 'yes' }, /`reversible` is true or false/],
+    [{ deadline: 'tomorrow' }, /`deadline` is a time still to come/],
+    [{ deadline: '2026-11-25T09:00:00Z' }, /`deadline` is a time still to come/],
+    [{ kind: 'Merge small fix!' }, /`kind` is a short class/],
+    [{ learn: true, kind: 'merge-small-fix' }, /`learn` needs `rule`/],
+    [{ learn: true, rule: 'From now on, merge.' }, /`learn` needs `kind`/],
+    [{ learn: true, kind: 'merge-small-fix', rule: 'From now on, merge.', recommended: undefined }, /`learn` needs `recommended`/],
+    [{ rule: 'x'.repeat(301) }, /`rule` is one sentence/],
+  ];
+
+  for (const [fields, why] of refused) await assert.rejects(runDecideCommand(root, ['routine', 'site'], card(fields), FILED), why);
+  assert.deepEqual(openDecisions(root), []);
 });
