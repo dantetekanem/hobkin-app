@@ -1,7 +1,25 @@
 import { randomUUID } from 'node:crypto'
 import type { QuestionAnswer, QuestionRequest } from 'hobkin/src/cli/application.mjs'
-import type { PendingQuestion } from '#shared/protocol/question.ts'
+import type { Decision } from 'hobkin/src/cli/decisions.mjs'
+import { cardFacts, type CardFacts, type PendingQuestion } from '#shared/protocol/question.ts'
 import { Unavailable } from './commands.ts'
+
+/** What hobkin knows about a filed question beyond its words. */
+export type FiledDetails = Partial<Pick<PendingQuestion, 'from' | 'tldr' | 'recommended' | 'why'>> & CardFacts
+
+/**
+ * A filed question as the sheet shows it: who filed it, its summary, its pick and why, and what the card says of itself
+ * (075 S7). hobkin asks it with its words and choices only, so the rest comes from its record. What it does not say is left out.
+ */
+export function filedDetails({ from, tldr, recommended, why, ...card }: Decision): FiledDetails {
+  return {
+    ...(from ? { from } : {}),
+    ...(tldr ? { tldr } : {}),
+    ...(recommended ? { recommended } : {}),
+    ...(why ? { why } : {}),
+    ...cardFacts({ ...card, recommended }),
+  }
+}
 
 /** A question to ask. One that another agent asks names who asks and gives its summary line, as a filed question does. */
 export type AskRequest = QuestionRequest & { from?: string; tldr?: string }
@@ -16,8 +34,8 @@ export interface QuestionsOptions {
   canShow: () => boolean
   /** Whether the user is writing a message. A question nobody waits on stays out of their way. */
   typing: () => boolean
-  /** What hobkin knows about a filed question beyond its words: who asked, why, and what they recommend. */
-  describe?: (request: QuestionRequest) => Partial<Pick<PendingQuestion, 'from' | 'tldr' | 'recommended' | 'why'>>
+  /** What hobkin knows about a filed question beyond its words: who asked, why, what they recommend, and what the card says of itself. */
+  describe?: (request: QuestionRequest) => FiledDetails
   /** A cap on how long a question nobody waits on stays up. hobkin's own time applies without it. */
   maxWaitMs?: number
 }

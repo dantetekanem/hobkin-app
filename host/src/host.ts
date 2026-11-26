@@ -52,7 +52,7 @@ import { openableUrl } from './open.ts'
 import { LauncherModels, withLauncher, type Launcher } from './launcher-models.ts'
 import { piModelAccess, type LiveModelAccess, type ModelAccess } from './model-access.ts'
 import { HomeOwner } from './owner.ts'
-import { Questions } from './questions.ts'
+import { Questions, filedDetails } from './questions.ts'
 import { scriptedModelAccess } from './scripted-access.ts'
 import type { ScriptedOptions } from './scripted.ts'
 import { listen, socketUrl, type HostServer } from './server.ts'
@@ -275,12 +275,10 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     canShow: connected,
     typing: () => user.typing,
     maxWaitMs: options.questionWaitMs,
-    // hobkin passes on only the words of a filed question. Who filed it, why, and what they recommend is on record.
+    // hobkin passes on only the words of a filed question. Who filed it, why, what they recommend and what its card says is on record.
     describe: ({ question }) => {
       const filed = owner.filedQuestion(question)
-      if (!filed) return {}
-      const { from, tldr, recommended, why } = filed
-      return { ...(from ? { from } : {}), ...(tldr ? { tldr } : {}), ...(recommended ? { recommended } : {}), ...(why ? { why } : {}) }
+      return filed ? filedDetails(filed) : {}
     },
   })
 

@@ -375,6 +375,14 @@ declare module 'hobkin/src/cli/decisions.mjs' {
     recommended?: string | null
     why?: string | null
     shown?: boolean
+    answerTo?: { kind: string; [key: string]: unknown } | null
+    /** What a `hobkin decide` card says of itself (075). hobkin writes null for one not given, and a card filed before them has none. */
+    sure?: 'high' | 'medium' | 'low' | null
+    reversible?: boolean | null
+    deadline?: string | null
+    kind?: string | null
+    learn?: boolean | null
+    rule?: string | null
   }
 
   /** What still waits for the user, oldest first. */

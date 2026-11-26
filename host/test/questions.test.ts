@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import type { AskMessage } from '#shared/protocol/messages.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
-import { Questions } from '../src/questions.ts'
+import type { Decision } from 'hobkin/src/cli/decisions.mjs'
+import { Questions, filedDetails } from '../src/questions.ts'
 
 const QUESTION = 'The staging deploy is ready. Promote it to production?'
 const CHOICES = [
@@ -67,6 +68,20 @@ test('a host that closes takes its question away as no answer, and does not put 
   // Put off would leave it in Action Items while the next start asks it again. Undefined lets hobkin ask it again instead.
   assert.equal(await asked, undefined)
   assert.equal(questions.current(), null)
+})
+
+test('a filed card goes on the sheet with who filed it, its pick and what it says of itself, and leaves out what it does not say', () => {
+  const filed: Decision = {
+    id: 'd1', question: QUESTION, choices: [...CHOICES, { value: 'always', label: 'Always: From now on, promote staging on Fridays.' }],
+    from: 'Routine release-train', tldr: 'Promote staging?', recommended: 'promote', why: 'The checks passed.', answerTo: { kind: 'routine', id: 'release-train' },
+    sure: 'high', reversible: true, deadline: '2026-11-26T22:00:00.000Z', kind: 'promote-staging', learn: true, rule: 'From now on, promote staging on Fridays.',
+  }
+  assert.deepEqual(filedDetails(filed), {
+    from: 'Routine release-train', tldr: 'Promote staging?', recommended: 'promote', why: 'The checks passed.',
+    sure: 'high', reversible: true, defaultsAt: '2026-11-26T22:00:00.000Z', learn: true,
+  })
+  // A card filed before hobkin kept these, or one that gives none of them, asks as it always has.
+  assert.deepEqual(filedDetails({ id: 'd2', question: QUESTION, choices: CHOICES, recommended: null, why: null, sure: null, reversible: null, deadline: null, learn: null }), {})
 })
 
 test("an agent's question keeps its sender and summary and gets no recommendation from a filed decision", async () => {
