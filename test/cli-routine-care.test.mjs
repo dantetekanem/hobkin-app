@@ -57,4 +57,7 @@ test('a problem looking costs this look and never reaches the tick', t => {
   const missing = join(home(t), 'gone');
 
   assert.equal(tickRoutineCare(missing, { loaded: { schedules: [routine('news')], errors: [] }, attention: [seen('news')], now: NOW }), null);
+  for (const errors of [[null], 'unreadable']) {
+    assert.equal(tickRoutineCare(home(t), { loaded: { schedules: [routine('news')], errors }, attention: [seen('news')], now: NOW }), null, String(errors));
+  }
 });

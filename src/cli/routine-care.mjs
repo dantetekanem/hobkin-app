@@ -104,9 +104,9 @@ const lookedAt = new Map();
 export function tickRoutineCare(root, { loaded, attention, now = Date.now() }) {
   if (now - (lookedAt.get(root) ?? -Infinity) < HOUR_MS || !Array.isArray(loaded?.schedules) || !Array.isArray(attention)) return null;
   lookedAt.set(root, now);
-  const { schedules, errors = [] } = loaded;
-  const partial = errors.some(({ path }) => !schedules.some(schedule => schedule.path === path));
   try {
+    const { schedules, errors = [] } = loaded;
+    const partial = errors.some(({ path }) => !schedules.some(schedule => schedule.path === path));
     return lookAfterRoutines(root, { schedules, attention, partial, now });
   } catch {
     return null;
