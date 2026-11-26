@@ -3,6 +3,7 @@ import { userDay } from '../desk.mjs';
 import { AWAY_GAP_MS, localDay, readEvents } from '../events.mjs';
 import { readMemories } from '../memories.mjs';
 import { readMemoryUse } from '../memory-use.mjs';
+import { OUTWARD_VERDICTS } from '../outward.mjs';
 
 const DAY_MS = 86400000;
 const MINUTE_MS = 60000;
@@ -168,6 +169,21 @@ function memory(events, { root, since, now }) {
   return { used, unused };
 }
 
+/** Outward calls agents made (`outward-guard-extension.mjs`), per day by kind, verdict and run, and the kinds a guard would have blocked. */
+function outward(events) {
+  const attempts = ofType(events, 'outward_attempt').map(event => ({
+    day: localDay(event.at), kind: event.kind ?? 'unknown', verdict: event.verdict ?? 'unknown', run: event.run ?? 'unknown',
+  }));
+  const summary = own => ({
+    attempts: own.length,
+    byKind: tally(own.map(({ kind }) => kind)),
+    byVerdict: { ...zeros(OUTWARD_VERDICTS), ...tally(own.map(({ verdict }) => verdict)) },
+    byRun: tally(own.map(({ run }) => run)),
+    wouldBlock: tally(own.filter(({ verdict }) => verdict === 'would-block').map(({ kind }) => kind)),
+  });
+  return { ...summary(attempts), byDay: byDay(attempts, summary) };
+}
+
 /**
  * The views `hobkin telemetry <view>` prints, each with its line for `hobkin telemetry help`. A view gets the events since `since`, oldest
  * first, with `{ root, since, now }`, and returns facts only. A new view is one more entry here.
@@ -178,6 +194,7 @@ export const TELEMETRY_VIEWS = {
   presence: { line: 'when the user was first on each day, each return after 15 minutes or more away, and the minutes on in each local hour', view: presence },
   memory: { line: 'which shared memories agents recalled or had in their index, and the ones nobody used', view: memory },
   autonomy: { line: 'each task class\'s level, clean streak, overrides, undos, median review minutes and whether a promotion is due, from the local ledger', view: (_events, { root }) => autonomyView(root) },
+  outward: { line: 'outward calls agents made per day by kind, verdict and run, and the kinds a guard would have blocked. Nothing is blocked yet', view: outward },
 };
 
 const NAMES = [...Object.keys(TELEMETRY_VIEWS), 'help'];

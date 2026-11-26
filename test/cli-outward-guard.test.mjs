@@ -8,9 +8,11 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
-import { readEvents } from '../src/cli/events.mjs';
+import { readEvents, recordEvent } from '../src/cli/events.mjs';
+import { main } from '../src/cli/main.mjs';
 import outwardGuard, { outwardGuardExtension, RUN_KIND_ENV } from '../src/cli/outward-guard-extension.mjs';
 import { TRANSPORT_TYPES, transportEvent, transportId } from '../src/cli/telemetry/events.mjs';
+import { telemetryView } from '../src/cli/telemetry/views.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
 
 function home(t) {
@@ -213,4 +215,36 @@ test('Pi loads the guard by its path, shows it each call\'s tool and arguments, 
 
   assert.deepEqual(sent, ['someone@example.invalid'], 'the call ran');
   assert.deepEqual(attempts(root).map(({ kind, verdict, run }) => ({ kind, verdict, run })), [{ kind: 'send', verdict: 'allowed-by-ask', run: 'main' }]);
+});
+
+test('the outward view counts attempts per day by kind, verdict and run, and which kinds would have been blocked', async t => {
+  const root = home(t);
+  // Local times, because a day is the user's.
+  const at = (day, hour) => new Date(2026, 10, day, hour).getTime();
+  const attempt = (day, hour, kind, verdict, run) => recordEvent(root, 'outward_attempt', { kind, verdict, run }, at(day, hour));
+  attempt(25, 9, 'send', 'would-block', 'routine');
+  attempt(25, 10, 'send', 'allowed-by-ask', 'main');
+  attempt(26, 8, 'calendar-write', 'would-block', 'unknown');
+  attempt(26, 9, 'post', 'allowed-by-rule', 'work');
+  recordEvent(root, 'notice_posted', { source: 'session' }, at(26, 9));
+
+  const view = telemetryView(root, 'outward', { days: 30, now: at(26, 20) });
+
+  assert.equal(view.attempts, 4);
+  assert.deepEqual(view.byKind, { send: 2, 'calendar-write': 1, post: 1 });
+  assert.deepEqual(view.byVerdict, { 'allowed-by-rule': 1, 'allowed-by-ask': 1, 'would-block': 2 });
+  assert.deepEqual(view.byRun, { routine: 1, main: 1, unknown: 1, work: 1 });
+  assert.deepEqual(view.wouldBlock, { send: 1, 'calendar-write': 1 });
+  assert.deepEqual(Object.keys(view.byDay), ['2026-11-25', '2026-11-26']);
+  assert.deepEqual(view.byDay['2026-11-25'], {
+    attempts: 2, byKind: { send: 2 }, byVerdict: { 'allowed-by-rule': 0, 'allowed-by-ask': 1, 'would-block': 1 },
+    byRun: { routine: 1, main: 1 }, wouldBlock: { send: 1 },
+  });
+
+  const empty = telemetryView(home(t), 'outward', { days: 7, now: at(26, 20) });
+  assert.deepEqual([empty.attempts, empty.byVerdict, empty.wouldBlock, empty.byDay], [0, { 'allowed-by-rule': 0, 'allowed-by-ask': 0, 'would-block': 0 }, {}, {}]);
+
+  const chunks = [];
+  assert.equal(await main(['telemetry', 'outward', '--days', '7', '--home', root], { write: text => chunks.push(text) }), 0);
+  assert.equal(JSON.parse(chunks.join('')).view, 'outward');
 });
