@@ -6,11 +6,12 @@ import { recordEvent } from './events.mjs';
 import { askCovers, outwardKind, outwardVerdict } from './outward.mjs';
 
 /**
- * The guard for outward actions, first stage (075-chief-of-staff S17): it watches and blocks nothing. hobkin loads it
- * into every run's Pi (`extensionPaths` in `pi-extensions.mjs`). Each tool call that acts outward in the user's name
- * (`outward.mjs`) is recorded as one `outward_attempt` with its kind, the verdict a guard would give, and the kind of
- * run. It never records the call's arguments, recipients or text. The home is the one a `hobkin` command the agent runs
- * would use (`defaultRoot`), as for `agent-directions-extension.mjs`.
+ * The guard for outward actions, first stage (075-chief-of-staff S17): it watches and blocks nothing. Each tool call that
+ * acts outward in the user's name (`outward.mjs`) is recorded as one `outward_attempt` with its kind, the verdict a guard
+ * would give, and the kind of run. It never records the call's arguments, recipients or text. The home is the one that
+ * keeps the run's conversation, or else the one a `hobkin` command the agent runs would use (`defaultRoot`). Nothing loads it
+ * yet: it is meant for every run's Pi (`namingExtensions` in `harnesses.mjs`) and the main chat (`mainSdkResources` in
+ * `pi-extensions.mjs`).
  */
 export const outwardGuardExtension = fileURLToPath(import.meta.url);
 
@@ -23,15 +24,18 @@ const RUN_KINDS = ['main', 'routine', 'session', 'work', 'durable'];
  * conversation in `sessions/main…`, a durable hobkin in `hobkins/`, and only a session job has `hobkin_done`
  * (`done-extension.mjs`). Routines and Work runs both keep theirs in `jobs/`, so without the variable they are `unknown`.
  */
-function runKindOf(pi, ctx, env) {
+function runKindOf(pi, file, env) {
   if (RUN_KINDS.includes(env[RUN_KIND_ENV])) return env[RUN_KIND_ENV];
-  const file = ctx?.sessionManager?.getSessionFile?.() ?? '';
   const folder = basename(dirname(file));
   if (folder === 'sessions' && basename(file).startsWith('main')) return 'main';
   if (folder === 'hobkins') return 'durable';
   if (pi.getAllTools().some(tool => tool.name === 'hobkin_done')) return 'session';
   return 'unknown';
 }
+
+// Each hobkin conversation is kept one folder below its home, so a run records into the home it belongs to.
+const KEPT_IN = new Set(['sessions', 'jobs', 'hobkins']);
+const homeOf = file => (KEPT_IN.has(basename(dirname(file))) ? dirname(dirname(file)) : defaultRoot());
 
 // The user's standing rules, version 1 of `runtime/standing-rules.json`. A missing or broken file holds none.
 function standingRules(root) {
@@ -43,7 +47,7 @@ function standingRules(root) {
   }
 }
 
-export default function outwardGuard(pi, { root = defaultRoot(), env = process.env } = {}) {
+export default function outwardGuard(pi, { root, env = process.env } = {}) {
   // The latest words given to this Pi. Only the main chat's are the user's own: every other run starts from a stored prompt.
   let said = '';
   pi.on('input', event => {
@@ -53,9 +57,11 @@ export default function outwardGuard(pi, { root = defaultRoot(), env = process.e
     try {
       const kind = outwardKind(event?.toolName, event?.input);
       if (!kind) return;
-      const run = runKindOf(pi, ctx, env);
+      const file = ctx?.sessionManager?.getSessionFile?.() ?? '';
+      const run = runKindOf(pi, file, env);
       const askCovered = run === 'main' && askCovers(kind, said);
-      recordEvent(root, 'outward_attempt', { kind, verdict: outwardVerdict({ kind, rules: standingRules(root), askCovered }), run });
+      const home = root ?? homeOf(file);
+      recordEvent(home, 'outward_attempt', { kind, verdict: outwardVerdict({ kind, rules: standingRules(home), askCovered }), run });
     } catch {
       // Watching never stops a call.
     }

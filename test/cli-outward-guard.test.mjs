@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import {
   createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager,
 } from '@earendil-works/pi-coding-agent';
@@ -14,6 +14,11 @@ import outwardGuard, { outwardGuardExtension, RUN_KIND_ENV } from '../src/cli/ou
 import { TRANSPORT_TYPES, transportEvent, transportId } from '../src/cli/telemetry/events.mjs';
 import { telemetryView } from '../src/cli/telemetry/views.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
+
+// No test here may reach the user's real home, so the home any default falls back to is a throwaway one.
+const fallbackHome = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-outward-fallback-')));
+process.env.HOBKIN_HOME = fallbackHome;
+after(() => rmSync(fallbackHome, { recursive: true, force: true }));
 
 function home(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-outward-')));
@@ -112,6 +117,16 @@ test('a standing rule for that kind allows it, and a missing or broken rules fil
   assert.equal(await verdict(), 'allowed-by-rule');
   writeFileSync(rules, JSON.stringify({ version: 2, rules: [{ kind: 'outward', match: 'calendar-write', then: 'allow' }] }));
   assert.equal(await verdict(), 'would-block');
+});
+
+test('without a home named, an attempt lands in the home that keeps the conversation', async t => {
+  for (const folder of ['sessions', 'jobs', 'hobkins']) {
+    const root = home(t);
+    const pi = fakePi();
+    outwardGuard(pi, { env: {} });
+    await pi.call('mcp__gmail__gmail_send', send, join(root, folder, folder === 'sessions' ? 'main.jsonl' : 'a.jsonl'));
+    assert.equal(attempts(root).length, 1, folder);
+  }
 });
 
 test('watching never stops a call, even when nothing can be written or the conversation cannot be read', async t => {
