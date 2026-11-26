@@ -32,6 +32,29 @@ export function recordEvent(root, type, facts = {}, now = Date.now()) {
   }
 }
 
+/** A gap this long or longer is time away, so seeing the user after it is a return. */
+export const AWAY_GAP_MS = 15 * 60000;
+// A person's day, because that is how anyone reads these.
+export const localDay = time => new Date(time).toLocaleDateString('en-CA');
+const timeOf = value => (typeof value === 'number' ? value : Date.parse(value ?? ''));
+
+/**
+ * When the user is on, as facts: `first` for the first sighting on a local day, and `returned` after a gap of 15 minutes or more. The event
+ * is at the moment they were seen again, and they left `awayMs` before it. A smaller gap records nothing. It returns what it recorded, or
+ * null, so the caller can keep `seenAt` as when they were last here.
+ */
+export function recordPresence(root, { lastSeenAt, seenAt }) {
+  const left = timeOf(lastSeenAt);
+  const known = Number.isFinite(left) && seenAt >= left;
+  const awayMs = known ? seenAt - left : undefined;
+  const first = !Number.isFinite(left) || localDay(left) !== localDay(seenAt);
+  if (!first && !(awayMs >= AWAY_GAP_MS)) return null;
+
+  const facts = { kind: first ? 'first' : 'returned', ...(awayMs === undefined ? {} : { awayMs }) };
+  recordEvent(root, 'presence', facts, seenAt);
+  return facts;
+}
+
 const runFacts = ({ id, kind, work, scheduleId }) => ({ id, kind, lane: work?.lane, routine: scheduleId, project: work?.slug, item: work?.item });
 
 // A limit is the provider saying stop, which says nothing about hobkin, and a routine's failure has only its error to show it. `undefined` leaves the fact out.
@@ -147,8 +170,7 @@ const meanMs = events => {
   const timed = events.filter(({ ms }) => Number.isFinite(ms));
   return timed.length ? sumOf(timed, 'ms') / timed.length : null;
 };
-// A person's day, because that is how anyone reads these.
-const dayOf = ({ at }) => new Date(at).toLocaleDateString('en-CA');
+const dayOf = ({ at }) => localDay(at);
 
 function runTotals(runs, nameOf) {
   const totals = {};
