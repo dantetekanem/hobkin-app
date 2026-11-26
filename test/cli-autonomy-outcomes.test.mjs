@@ -5,15 +5,37 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { carryOutAnswer } from '../src/cli/answer.mjs';
 import { PROMOTION_STREAK, noteOutcome, readAutonomy } from '../src/cli/autonomy.mjs';
+import { initialize } from '../src/cli/config.mjs';
 import { markAlways, openDecisions } from '../src/cli/decisions.mjs';
 import { readStandingRules } from '../src/cli/standing-rules.mjs';
+import { askAgent, declineItem, declineStopped, mergeItem, mergePullRequest } from '../src/cli/work/controls.mjs';
+import { pulseLaunches } from '../src/cli/work/launches.mjs';
+import { chooseProject, fileItem, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { branched, git, repository } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-11-26T20:00:00Z');
+const HOUR = 3600000;
+const BRANCH_WORK = 'code-branch:api';
 
 function home(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-autonomy-outcomes-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
+}
+
+/** A home with one code project, `api`, on a real repository. */
+function workspace(t) {
+  const base = home(t);
+  const root = join(base, 'home');
+  initialize(root, { cwd: base });
+  const checkout = repository(base, 'api');
+  chooseProject(root, checkout, 'important', NOW);
+  return { base, root, checkout };
+}
+
+function finished(h, branch, change = {}) {
+  const { id } = fileItem(h.root, 'api', { key: branch, kind: 'fix', title: branch, brief: 'Evidence and first change.' }, NOW);
+  return updateItem(h.root, 'api', id, { state: 'branch', branch, ...change }, NOW);
 }
 
 const cleanRuns = (root, taskClass, count) => {
@@ -85,4 +107,76 @@ test('an outcome the ledger cannot take never stops the work it records', t => {
   const root = home(t);
 
   assert.equal(noteOutcome(root, 'Not A Class', { clean: true }, NOW), null);
+});
+
+test('a local merge is a clean run of the project\'s branch work, with the minutes the user took to read it', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/1-fix', 'fix.txt', 'fix\n');
+  const item = finished(h, 'hobkin/1-fix');
+
+  await mergeItem(h.root, 'api', item.id, { read: 'diff', readMs: 3 * 60000, now: NOW });
+
+  const row = readAutonomy(h.root)[BRANCH_WORK];
+  assert.deepEqual([row.level, row.runs, row.cleanStreak, row.reviewMinutes.recent], ['report', 1, 1, [3]]);
+});
+
+test('a PR merged from its card or by YOLO mode is a clean run', async t => {
+  const h = workspace(t);
+  const item = finished(h, 'hobkin/7-fix', { state: 'pr', pr: 'https://example.invalid/pull/7' });
+  const merged = { state: 'MERGED', mergedAt: '2026-11-26T21:00:00Z', mergeCommit: { oid: 'abc123' }, headRefName: 'hobkin/7-fix' };
+  const gh = async args => {
+    if (args[1] === 'list') return JSON.stringify([{ url: 'https://example.invalid/pull/7' }]);
+    return args[1] === 'view' ? JSON.stringify(merged) : '';
+  };
+
+  await mergePullRequest(h.root, 'api', item.id, { gh, now: NOW });
+
+  const row = readAutonomy(h.root)[BRANCH_WORK];
+  assert.deepEqual([row.runs, row.cleanStreak, row.overrides], [1, 1, 0]);
+});
+
+test('the user\'s no, from a card or a stopped run, and a branch sent back are overrides that move the class back a level at once', t => {
+  const h = workspace(t);
+  writeMode(h.root, { enabled: true });
+  const declined = finished(h, 'hobkin/no');
+  const stopped = finished(h, 'hobkin/stopped');
+  const sentBack = finished(h, 'hobkin/back');
+
+  declineItem(h.root, 'api', declined.id, NOW);
+  assert.deepEqual([readAutonomy(h.root)[BRANCH_WORK].level, readAutonomy(h.root)[BRANCH_WORK].overrides], ['deadline', 1]);
+
+  declineStopped(h.root, 'api', stopped.id, NOW);
+  askAgent(h.root, 'api', sentBack.id, 'Rename it.', { now: NOW });
+
+  const row = readAutonomy(h.root)[BRANCH_WORK];
+  assert.deepEqual([row.level, row.runs, row.overrides, row.cleanStreak], ['draft', 3, 3, 0]);
+});
+
+test('a run\'s own question answered sends the agent on and says nothing against the work', t => {
+  const h = workspace(t);
+  writeMode(h.root, { enabled: true });
+  const item = finished(h, 'hobkin/asked');
+
+  askAgent(h.root, 'api', item.id, 'Yes, go on.', { answering: true, now: NOW });
+
+  assert.equal(readAutonomy(h.root)[BRANCH_WORK], undefined);
+});
+
+test('a revert of a landed change is one undo, however many pulses see it', async t => {
+  const h = workspace(t);
+  const pulse = now => pulseLaunches(h.root, { now, gh: async () => '[]', fetch: async () => ({ ok: true }) });
+  branched(h.checkout, 'hobkin/1-change', 'change.txt', 'changed\n');
+  git(h.checkout, 'merge', '-q', '--no-ff', '--no-edit', '-m', 'Merge: Change', 'hobkin/1-change');
+  const sha = git(h.checkout, 'rev-parse', 'HEAD');
+  const { id } = fileItem(h.root, 'api', { key: 'change', kind: 'fix', title: 'Change', brief: 'Evidence and first change.' }, NOW);
+  updateItem(h.root, 'api', id, { state: 'merged', branch: 'hobkin/1-change', landed: { sha, at: new Date(NOW).toISOString(), route: 'key' } }, NOW);
+  await pulse(NOW + HOUR);
+  assert.equal(readAutonomy(h.root)[BRANCH_WORK], undefined, 'a merge no one undid is no undo');
+
+  git(h.checkout, 'revert', '--no-edit', '-m', '1', sha);
+  await pulse(NOW + 2 * HOUR);
+  await pulse(NOW + 3 * HOUR);
+
+  const row = readAutonomy(h.root)[BRANCH_WORK];
+  assert.deepEqual([row.undos, row.runs, row.level], [1, 0, 'deadline']);
 });

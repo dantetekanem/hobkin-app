@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { promisify } from 'node:util';
 import lockfile from 'proper-lockfile';
+import { codeBranchClass, noteOutcome } from '../autonomy.mjs';
 import { atomicJson } from '../config.mjs';
 import { readReviewGrades, reviewsFolder } from './grades.mjs';
 import { areaOf, isTestPath } from './patterns.mjs';
@@ -623,7 +624,9 @@ export function closeMergedPull(root, slug, item, pull, now = Date.now()) {
   // A PR merges at its host's head, which the last survey read, so no local branch tip is read for it.
   const found = { tips: new Map(), before };
   const outcome = mergedOutcome(item, pull, found, new Date(now).toISOString());
-  return updateItem(root, slug, item.id, outcome, now);
+  const closed = updateItem(root, slug, item.id, outcome, now);
+  noteOutcome(root, codeBranchClass(slug), { clean: true }, now);
+  return closed;
 }
 
 function outcomeOf(item, found, at, items) {

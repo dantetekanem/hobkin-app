@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, sep } from 'node:path';
 import { promisify } from 'node:util';
+import { codeBranchClass, noteOutcome } from '../autonomy.mjs';
 import { fileActionItem } from '../decisions.mjs';
 import { followsUp } from './after-merge.mjs';
 import { shortPath } from './chat.mjs';
@@ -556,6 +557,7 @@ export async function mergeItem(root, reference, id, { route = 'chat', read = 'n
     .catch(error => { throw Error(whyNoMerge(error, base, title)); });
   const landing = { ...facts, route, read, readMs, spot: Boolean(offer?.spot) };
   const closed = await closeWhatLanded({ root, repo, slug: project.slug, merged: item, target, landing, now });
+  noteOutcome(root, codeBranchClass(project.slug), { clean: true, ...(readMs > 0 ? { reviewMinutes: readMs / 60000 } : {}) }, now);
   const others = closed - 1;
   const alongside = others > 0 ? ` It brought ${others} earlier ${others === 1 ? 'branch' : 'branches'} with it.` : '';
   const message = `Merged "${title}" into ${base} on ${nameOf(project)}.${alongside} Nothing was pushed.`;
@@ -725,6 +727,7 @@ function pushbackOn(root, { slug }, { branch, pushbacks = [] }, now) {
 
 function recordNo(root, project, item, now) {
   updateItem(root, project.slug, item.id, { state: 'declined', ...pushbackOn(root, project, item, now) }, now);
+  noteOutcome(root, codeBranchClass(project.slug), { clean: false, override: true }, now);
 }
 
 /** A no is the user's answer, and it is what learning reads. The branch stays, so changing their mind costs nothing. */
@@ -870,6 +873,7 @@ export function askAgent(root, reference, id, note, { answering = false, toMainA
   const words = note?.trim();
   const finished = isFinished(item);
   const sentBack = finished && !answering ? pushbackOn(root, project, item, now) : {};
+  if (finished && !answering) noteOutcome(root, codeBranchClass(project.slug), { clean: false, override: true }, now);
   const held = answering ? null : whyWorkModeWaits(readMode(root), now);
   if (held && toMainAgent && finished && item.branch) {
     return handOff(root, { project, item, why: held, now, also: sentBack }, noteJob(words));

@@ -247,6 +247,9 @@ export function declinePromotion(root, taskClass) {
   });
 }
 
+/** Branch work on code in one work-mode project, by its slug. */
+export const codeBranchClass = slug => `${CODE_BRANCH_WORK}:${slug}`;
+
 const isAskingFor = taskClass => ({ answerTo }) => answerTo?.kind === 'autonomy' && answerTo.taskClass === taskClass;
 
 /** Files the promotion question when the class is due and none is open for it, whatever level that one would move the class to. */

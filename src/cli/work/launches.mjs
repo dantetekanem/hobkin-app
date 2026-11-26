@@ -1,3 +1,4 @@
+import { codeBranchClass, noteOutcome } from '../autonomy.mjs';
 import { recordEvent } from '../events.mjs';
 import { canWatch, readSignals } from './signals.mjs';
 import { chosenProjects, fileItem, paths, readItems, readLaunches, recordLaunch } from './store.mjs';
@@ -237,6 +238,7 @@ function settleOne({ root, slug, items, signals, health, reached, now }, launch,
   const why = launch.outcome === 'trouble' ? null : troubleSeen(launch, reading, items);
   if (why) {
     const fix = recordTrouble(root, slug, launch, item, { why }, now);
+    if (reading.revert) noteOutcome(root, codeBranchClass(slug), { undo: true }, now);
     return { trouble: [{ slug, item: launch.item, why }], filed: fix ? [fix] : [] };
   }
   if (launch.stage === 'closed') return {};
