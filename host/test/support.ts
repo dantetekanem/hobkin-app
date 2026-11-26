@@ -17,7 +17,8 @@ import { startHost, type HostOptions, type RunningHost } from '../src/host.ts'
 import type { ModelAccess } from '../src/model-access.ts'
 import type { PiAuthInteraction } from '../src/pi.ts'
 
-const WAIT_MS = 10000
+// How long a test waits for something that must happen. Long enough for a Pi turn while hobkin's own agents run suites on this Mac.
+const WAIT_MS = 30_000
 
 const cleanups = new WeakMap<TestContext, (() => unknown)[]>()
 
