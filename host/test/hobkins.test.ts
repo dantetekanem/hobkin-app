@@ -6,7 +6,7 @@ import type { HobkinConversation, HobkinSummary } from '#shared/protocol/hobkins
 import { createClientTool } from '../src/client-tool.ts'
 import { runCommand, Unavailable, type HostHandlers } from '../src/commands.ts'
 import { hobkinHandlers, type HobkinsSeat } from '../src/hobkins.ts'
-import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
+import { afterTest, Client, fakeCommands, fakeModelAccess, hostFor, temporaryDirectory } from './support.ts'
 
 const summary: HobkinSummary = {
   id: 'a1b2c3d4',
@@ -139,6 +139,44 @@ test('a Claude hobkin is refused with the reason while Claude Code cannot run', 
   assert.equal(calls.length, 1, 'a tier is not held back by it')
 })
 
+test('launch provenance requires a compatible engine and a runtime that can save it before starting', async (t) => {
+  const { handlers, calls, home } = fixture(t)
+  for (const [engine, selectedTier] of [
+    [{ kind: 'claude' }, 'mid'],
+    [{ kind: 'pi', model: 'anthropic/x', effort: 'high' }, null],
+  ]) {
+    const outcome = await runCommand(handlers, 'hobkin.start', { cwd: home, engine, selectedTier })
+    assert.equal(!outcome.ok && outcome.error.code, 'unavailable')
+  }
+  for (const [engine, selectedTier] of [
+    [{ kind: 'claude' }, null],
+    [{ kind: 'pi', model: 'anthropic/x', effort: 'high' }, 'mid'],
+    [{ kind: 'tier', tier: 'mid' }, 'mid'],
+    [{ kind: 'claude' }, 'unknown'],
+  ]) {
+    const outcome = await runCommand(handlers, 'hobkin.start', { cwd: home, engine, selectedTier })
+    assert.equal(outcome.ok, false)
+  }
+  assert.deepEqual(calls, [])
+})
+
+test('a failed provenance write reports the created hobkin instead of requesting another launch', async (t) => {
+  const calls: string[] = []
+  const receipt = { id: summary.id, run: null }
+  const { handlers, home } = fixture(t, {}, {
+    start: async () => (calls.push('start'), receipt),
+    change: async () => { calls.push('change'); throw new Error('Save failed') },
+  })
+  const outcome = await runCommand(handlers, 'hobkin.start', { cwd: home, engine: { kind: 'claude', model: 'sonnet', effort: 'high' }, selectedTier: 'mid' })
+  assert.equal(outcome.ok, true)
+  if (outcome.ok) {
+    const created = outcome.value as typeof receipt & { warning: string }
+    assert.deepEqual({ id: created.id, run: created.run }, receipt)
+    assert.match(created.warning, /Save failed/)
+  }
+  assert.deepEqual(calls, ['start', 'change'])
+})
+
 test('a Pi model that cannot run is refused with the reason', async (t) => {
   const seen: unknown[] = []
   const { handlers, calls, home } = fixture(t, { modelProblem: (model, effort) => (seen.push([model, effort]), 'Anthropic is not connected.') })
@@ -195,6 +233,50 @@ test('a message to a hobkin passes the time the user sent it on unchanged, and l
     ['say', 'a1b2c3d4', { text: 'Go on.', sentAt: 1763114400000 }],
     ['say', 'a1b2c3d4', { text: 'And then?' }],
   ])
+})
+
+test('launch provenance is native record data, read in snapshots and after reopening', async (t) => {
+  const root = join(temporaryDirectory(t), 'home')
+  // This scripted host starts no models; the fake executable only satisfies the installed Claude check.
+  const { bin } = fakeCommands(t, ['claude'])
+  const path = process.env.PATH
+  process.env.PATH = `${bin}:${path ?? ''}`
+  afterTest(t, () => { if (path === undefined) delete process.env.PATH; else process.env.PATH = path })
+  const host = await hostFor(t, { root, access: async () => fakeModelAccess({ stored: ['openai'] }).access })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  await client.live()
+  const cwd = temporaryDirectory(t)
+  const claude = { kind: 'claude', model: 'sonnet', effort: 'high' }
+  const pi = { kind: 'pi', model: 'openai/gpt-test', effort: 'high' }
+  const choices = [
+    { engine: claude, selectedTier: 'mid' },
+    { engine: pi, selectedTier: null },
+    { engine: pi },
+    { engine: claude },
+    { engine: { kind: 'tier', tier: 'mid' } },
+  ]
+  const kept: { id: string; engine: unknown }[] = []
+  for (const choice of choices) {
+    const started = await client.run<{ id: string; run: null; warning?: string }>('hobkin.start', { cwd, ...choice })
+    assert.equal(started.run, null)
+    assert.equal(started.warning, undefined)
+    const engine = choice.selectedTier === undefined ? choice.engine : { ...choice.engine, tier: choice.selectedTier }
+    kept.push({ id: started.id, engine })
+    const read = await client.run<HobkinConversation>('hobkin.read', { id: started.id })
+    assert.deepEqual(read.hobkin.engine, engine)
+    await client.until((view) => JSON.stringify(view.snapshot.hobkins?.find((item) => item.id === started.id)?.engine) === JSON.stringify(engine), 'snapshot to preserve provenance')
+  }
+  client.close()
+  await host.close()
+
+  const reopened = await Client.connect(await hostFor(t, { root }))
+  afterTest(t, () => reopened.close())
+  await reopened.live()
+  for (const { id, engine } of kept) {
+    assert.deepEqual(reopened.view.snapshot.hobkins?.find((item) => item.id === id)?.engine, engine)
+    assert.deepEqual((await reopened.run<HobkinConversation>('hobkin.read', { id })).hobkin.engine, engine)
+  }
 })
 
 test('a hobkin started from the window runs its turn, waits, takes another message and ends', async (t) => {

@@ -169,6 +169,8 @@ export function chosenFolder(offers: readonly FolderOffer[], last: string | null
 }
 
 export interface StartForm {
+  /** The selected radio row, distinct from the engine it launches. */
+  choice?: EngineChoice
   cwd: string
   engine: HobkinEngine | null
   /** The prompt the sheet carries from the full prompt editor, if any. */
@@ -180,11 +182,13 @@ export interface StartForm {
  * no first message unless the sheet carries a prompt: then that prompt is its first message. Without one the hobkin waits
  * for its first message on its page, and that message names it.
  */
-export function startArgs({ cwd, engine, text }: StartForm): CommandArgs<'hobkin.start'> | null {
+export function startArgs({ cwd, engine, choice, text }: StartForm): CommandArgs<'hobkin.start'> | null {
   const folder = cwd.trim()
   if (!folder || !engine) return null
   const words = text?.trim()
-  return { cwd: folder, engine, ...(words ? { text: words } : {}) }
+  const selection = choice?.kind === 'tier' && engine.kind === 'claude' ? { selectedTier: choice.tier }
+    : choice?.kind === 'pi' ? { selectedTier: null } : {}
+  return { cwd: folder, engine, ...selection, ...(words ? { text: words } : {}) }
 }
 
 /** What a durable hobkin runs on, in a few words. */
@@ -194,7 +198,7 @@ export function engineLabel(engine: HobkinEngine, models: readonly ModelChoice[]
     // Its model and effort, where they are not Claude Code's own.
     const model = CLAUDE_MODEL_CHOICES.find(({ value }) => value !== 'default' && value === engine.model)?.label
     const effort = engine.effort && engine.effort !== 'default' ? EFFORT_NAMES[engine.effort].toLowerCase() : null
-    return ['Claude Code', model, effort].filter(Boolean).join(' · ')
+    return [engine.tier && TIER_INFO[engine.tier].label, 'Claude Code', model, effort].filter(Boolean).join(' · ')
   }
 
   // A model Pi no longer lists goes by its id, without the provider.

@@ -58,7 +58,9 @@ export const AgentModelPill = memo(function AgentModelPill({ agent }: { agent: R
   const runs = useAgentRuns(agent)
   const models = useModelChoices()
   const named = useMemo(() => [...models, ...claudeChoices()], [models])
-  const words = runs.tier ? tierWords(runs.tier) : (modelWords(runs.current.model, named) ?? 'model')
+  const engine = agent.durable?.engine
+  const custom = engine?.kind === 'pi' && engine.tier === null
+  const words = runs.tier ? tierWords(runs.tier) : custom ? 'Custom' : (modelWords(runs.current.model, named) ?? 'model')
   const full = runs.tier ? `${tierWords(runs.tier)}: ${fullName(runs.current)}` : fullName(runs.current)
   const offer = changeTarget(agent)
   if ('why' in offer) {

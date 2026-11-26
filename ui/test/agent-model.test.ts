@@ -60,6 +60,13 @@ test('a durable hobkin runs on its tier engine, or on the tier whose model and l
   assert.equal(agentTierOf(hobkin({ kind: 'claude', model: 'opus' }), undefined, { model: 'claude-code/opus', effort: null }, byTier), null)
 })
 
+test('a reloaded ⌘N badge uses the recorded choice, not a matching tier in Settings', () => {
+  const max = hobkin({ kind: 'claude', tier: 'max', model: 'opus', effort: 'high' })
+  const custom = hobkin({ kind: 'pi', tier: null, model: astra.id, effort: 'xhigh' })
+  assert.equal(agentTierOf(max, undefined, TIERS.max, byTier), 'max')
+  assert.equal(agentTierOf(custom, undefined, TIERS.high, byTier), null)
+})
+
 test('a tier choice sends what the tier runs with now, only what differs', () => {
   assert.deepEqual(changeForTier({ model: opus.id, effort: 'low' }, TIERS.high), { model: astra.id, effort: 'xhigh' })
   assert.deepEqual(changeForTier(TIERS.mid, TIERS.high), { effort: 'xhigh' })

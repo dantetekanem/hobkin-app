@@ -67,6 +67,9 @@ export function agentTierOf(
   current: AgentModel,
   tierModel: (tier: TierId) => AgentModel,
 ): TierId | null {
+  const engine = agent.durable?.engine
+  // ⌘N records the selected row separately from its binding. Null means the user explicitly chose Custom.
+  if (engine?.tier !== undefined) return engine.tier
   const recorded = recordedTier(agent, run)
   if (agent.onClaudeCode && !agent.durable) return recorded
   if (!recorded && agent.durable?.engine.kind !== 'pi') return null

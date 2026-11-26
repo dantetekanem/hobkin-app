@@ -20,6 +20,8 @@ declare module 'hobkin/src/cli/application.mjs' {
   export interface DurableHobkins {
     /** With no `text` it starts waiting, and `run` is null: its first turn is the first message sent to it. */
     start(args: { cwd: string; engine: HobkinEngine; text?: string; title?: string }): Promise<{ id: string; run: string | null }>
+    /** Atomically updates the native records and refreshes the runtime's record cache. */
+    change?<T>(update: (records: Record<string, { engine: HobkinEngine }>) => T): Promise<T>
     /**
      * `sentAt` is when the user sent the words, on the window's clock, for the timing of the turn. `queue` is how they wait
      * for a working hobkin's turn; an interrupting message gives back what that turn never read (`unsent`).

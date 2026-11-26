@@ -708,9 +708,14 @@ export const COMMANDS = {
       'Start a durable hobkin: a hobkin the user talks to directly, which keeps its conversation until the user ends it. `cwd` is the folder it works in, and `engine` what it runs on: a tier, Claude Code with nothing asked (with a model and a thinking level of its own), or a model Pi can reach with a thinking level. `text` is its first message: with none it starts waiting, and its first turn is the first message sent to it.',
     runs: 'host',
     args: Type.Object(
-      { cwd: words(1024), engine: hobkinEngine, text: Type.Optional(words(HOBKIN_MESSAGE_MAX)), title: Type.Optional(words(HOBKIN_TITLE_MAX)) },
+      { cwd: words(1024), engine: hobkinEngine, selectedTier: Type.Optional(Type.Union([tierName, Type.Null()])), text: Type.Optional(words(HOBKIN_MESSAGE_MAX)), title: Type.Optional(words(HOBKIN_TITLE_MAX)) },
       { additionalProperties: false },
     ),
+    rule: ({ engine, selectedTier }) => {
+      if (selectedTier === undefined) return null
+      const { kind } = engine as { kind: string }
+      return (selectedTier === null ? kind === 'pi' : kind === 'claude') ? null : 'selectedTier must name a Claude-backed tier or be null for a custom Pi model'
+    },
   },
   'hobkin.say': {
     description:
@@ -1642,7 +1647,7 @@ export interface CommandResults {
   'canvas.read': CanvasContent
   'canvas.save': CanvasSaved
   /** The new hobkin's id, and the run of its first turn, or null when it was started with no first message. */
-  'hobkin.start': { id: string; run: string | null }
+  'hobkin.start': { id: string; run: string | null; warning?: string }
   /** `started`: the words began a new turn. `queued`: they were handed to the turn in flight. `run` is that turn's run. */
   /** `unsent`: what a turn the message interrupted never read, for the message box. */
   'hobkin.say': { started: boolean; queued: boolean; run: string; unsent?: TakenBack[] }

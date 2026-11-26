@@ -50,9 +50,13 @@ test('the selected tier follows a saved override changed while the form is open'
   assert.deepEqual([max.model, max.effort, max.claude], ['Claude Code · opus', 'max', opus])
   assert.deepEqual(engineOf(choice, models, before), choice)
   assert.deepEqual(after.slice(0, 3), before.slice(0, 3))
-  const args = startArgs({ cwd: '~', engine: engineOf(choice, models, after) })
+  const args = startArgs({ cwd: '~', choice, engine: engineOf(choice, models, after) })
   assert.deepEqual(checkArguments('hobkin.start', args), { ok: true })
-  assert.deepEqual(args, { cwd: '~', engine: { kind: 'claude', ...opus } })
+  assert.deepEqual(args, { cwd: '~', selectedTier: 'max', engine: { kind: 'claude', ...opus } })
+  const custom = { kind: 'pi', model: models[0]!.id, effort: 'medium' } as const
+  const explicit = startArgs({ cwd: '~', choice: custom, engine: engineOf(custom, models, after) })
+  assert.deepEqual(explicit, { cwd: '~', selectedTier: null, engine: custom })
+  assert.deepEqual(checkArguments('hobkin.start', explicit), { ok: true })
 })
 
 test('the form offers what can run and starts with a folder alone', () => {

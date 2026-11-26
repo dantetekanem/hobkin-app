@@ -270,7 +270,8 @@ const HOBKIN_END = 'Its turn stops and it leaves the list. Its conversation stay
 function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: HobkinSummary | undefined; state: PageState; mood: ReturnType<typeof doingOf>['mood']; split: boolean }) {
   const models = useModelChoices()
   const onClaudeCode = useOnClaudeCode(id, hobkin)
-  const status = useStopResult(hobkin?.run ?? null)
+  const warning = useNewHobkin((store) => store.started?.id === id ? store.started.warning : null)
+  const status = useStopResult(hobkin?.run ?? null) ?? warning
   const title = hobkin?.title ?? (state === 'starting' ? 'Starting the new hobkin' : 'This hobkin has ended')
   const rename = useMemo(() => {
     const send = async (title: string) => {

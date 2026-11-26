@@ -5,6 +5,7 @@ import type { ClaudeChoice, EngineChoice } from './rules.ts'
 /** A hobkin this window started. It starts with no message, so its first turn begins on its page. */
 interface StartedHobkin {
   id: string
+  warning?: string
 }
 
 /** A prompt the sheet carries from the full prompt editor: its words become the new hobkin's first message. */

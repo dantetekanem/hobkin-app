@@ -68,8 +68,9 @@ export function hobkinHandlers({ app, claudeMissing, modelProblem, models, home 
   }
 
   return {
-    'hobkin.start': async ({ text, cwd, engine, title }) => {
-      durable()
+    'hobkin.start': async ({ text, cwd, engine, title, selectedTier }) => {
+      const hobkins = durable()
+      if (selectedTier !== undefined && !hobkins.change) throw new Unavailable('This hobkin cannot save the launch selection yet. Restart the app to load it.')
       const path = folder(cwd)
       if (engine.kind === 'claude') {
         const missing = await claudeMissing()
@@ -79,7 +80,20 @@ export function hobkinHandlers({ app, claudeMissing, modelProblem, models, home 
         const problem = await modelProblem(engine.model, engine.effort)
         if (problem) throw new Unavailable(problem)
       }
-      return ask((hobkins) => hobkins.start({ cwd: path, engine, ...(text === undefined ? {} : { text }), ...(title === undefined ? {} : { title }) }))
+      const started = await ask((all) => all.start({ cwd: path, engine, ...(text === undefined ? {} : { text }), ...(title === undefined ? {} : { title }) }))
+      if (selectedTier === undefined) return started
+      try {
+        await hobkins.change!((records) => {
+          const saved = records[started.id]?.engine
+          if (saved?.kind === 'claude' && selectedTier !== null) saved.tier = selectedTier
+          else if (saved?.kind === 'pi' && selectedTier === null) saved.tier = null
+          else throw new Error('The created hobkin no longer has the selected engine.')
+        })
+      } catch (error) {
+        // The hobkin already exists. Return its receipt so the caller never launches a duplicate.
+        return { ...started, warning: `The hobkin started, but its launch selection could not be saved: ${error instanceof Error ? error.message : String(error)}` }
+      }
+      return started
     },
     'hobkin.say': ({ id, text, images = [], noteId, sentAt, queue }) => ask(async (hobkins) => {
       // The images attached for it go with the words, and a message of pictures alone gets hobkin's own words.

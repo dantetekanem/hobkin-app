@@ -14,10 +14,11 @@ export type HobkinEngine =
   /**
    * The installed Claude Code, with nothing asked. `model` is one of its aliases, and `default` or none is the account's
    * own. `effort` is one of its levels, and `default` or none passes no level, so Claude Code uses its own.
+   * `tier` records a Cmd+N tier choice, not a runtime binding.
    */
-  | { kind: 'claude'; model?: ClaudeModel; effort?: HobkinClaudeEffort }
-  /** Any model Pi can reach, as `provider/id`, with one of its thinking levels. */
-  | { kind: 'pi'; model: string; effort: Effort }
+  | { kind: 'claude'; model?: ClaudeModel; effort?: HobkinClaudeEffort; tier?: TierId }
+  /** Any model Pi can reach, as `provider/id`, with one of its thinking levels; `tier: null` records an explicit Custom launch. */
+  | { kind: 'pi'; model: string; effort: Effort; tier?: null }
 
 export const HOBKIN_ENGINE_KINDS = ['tier', 'claude', 'pi'] as const
 

@@ -242,7 +242,7 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
 
   const choice = shownChoice(wanted, offers, claudeStart(last.claude, claude?.settings))
   const engine = engineOf(choice, models, offers)
-  const args = startArgs({ cwd, engine, text: prompt?.text })
+  const args = startArgs({ cwd, choice, engine, text: prompt?.text })
   const claudeMissing = engine?.kind === 'claude' && !claude?.status.installed
   const chooseAgain = wanted !== null && wanted.kind !== choice.kind
   const canStart = connected && loaded === source && !busy && !claudeMissing && !chooseAgain && args !== null
@@ -254,7 +254,7 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
     setProblem(null)
     try {
       const started = await runCommand('hobkin.start', args)
-      remember({ id: started.id }, cwd, choice)
+      remember(started, cwd, choice)
       onStarted(started.id)
     } catch (error) {
       // The host's own sentence, in place: a folder that is not there, an engine that cannot run, the most it keeps.
@@ -282,6 +282,8 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
         // own keeps it: a button does what it says, a select opens or chooses, and Start submits the form itself.
         if (event.key !== 'Enter' || event.defaultPrevented || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
         if (event.nativeEvent.isComposing) return
+        // Enter on a Claude radio may select it, but only the named Start action approves the unattended launch.
+        if (engine?.kind === 'claude') return
         if (event.target instanceof Element && event.target.closest('button:not([role="radio"]), [role="combobox"], [role="listbox"], [role="option"]')) return
         event.preventDefault()
         void start()
@@ -327,16 +329,19 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
             {choice.kind === 'pi' ? <Custom key="custom" models={customModels} choice={choice} onChoose={setChosen} /> : null}
             {choice.kind === 'claude' ? <ClaudeOptions key="claude" choice={choice} onChoose={setChosen} /> : null}
           </AnimatePresence>
+          {engine?.kind === 'claude' && (
+            <p className="mt-1 text-[13px] text-muted-foreground">Claude Code uses your subscription and can read files, edit them, and run commands without asking.</p>
+          )}
         </Field>
       </div>
 
       <footer className="flex items-center gap-3 border-t border-border px-7 py-4">
         <p role={problem ? 'alert' : undefined} className={cn('min-w-0 flex-1 text-[12px] leading-snug', problem || !connected ? 'text-bad-fg' : 'text-muted-foreground')}>
-          {status ?? (engine?.kind === 'claude' ? CLAUDE_LINE : (
+          {status ?? (
             <span className="flex items-center gap-1.5">
               <Kbd>↵</Kbd> starts it
             </span>
-          ))}
+          )}
         </p>
         <Dialog.Close render={<Button type="button" variant="ghost" />}>Cancel</Dialog.Close>
         <Button

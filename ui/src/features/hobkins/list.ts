@@ -31,7 +31,7 @@ type Activity = Record<string, Parameters<typeof doingOf>[0]>
 
 /** The tier a durable hobkin reads as: its own, or the nearest one to its thinking. Claude Code says no level, so mid. */
 function tierOf(engine: HobkinEngine): Tier {
-  if (engine.kind === 'tier') return engine.tier
+  if ('tier' in engine && engine.tier) return engine.tier
   if (engine.kind === 'pi') return TIER_BY_EFFORT[engine.effort] ?? 'mid'
   return 'mid'
 }
