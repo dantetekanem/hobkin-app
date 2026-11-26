@@ -402,6 +402,23 @@ test('a line worked out again on each refresh is held once', async t => {
   }
 });
 
+test('a held line worked out again posts once when the desk is turned off', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    writeMode(h.root, { harnessLines: [{ key: 'harness:pi', line: 'Pi is missing on this machine.', at: iso(h.clock.at) }] });
+    await app.refresh();
+    assert.deepEqual(heldLines(h.root), [['P2', 'Pi is missing on this machine.']]);
+
+    h.deskOff();
+    const view = await app.refresh();
+
+    assert.equal(linesIn(view, 'Pi is missing').length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
 test('the digest says what to move when P1 work lands on a day too full', async t => {
   const h = fixture(t);
   const day = new Date(h.clock.at).toLocaleDateString('en-CA');

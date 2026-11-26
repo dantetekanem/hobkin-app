@@ -284,7 +284,9 @@ export class Desk {
       }
       if (changed || events.length) this.save(queue, events, now);
       this.posting = queue.posting.map(({ id }) => id);
-      return [...post, ...queue.posting.filter(({ id }) => !inChat.has(id))];
+      // A line the desk let go can come fresh again in the same refresh, as a held one does when the desk is turned off, and it posts once.
+      const posted = new Set([...inChat, ...post.map(({ id }) => id)]);
+      return [...post, ...queue.posting.filter(({ id }) => !posted.has(id))];
     } catch {
       this.posting = [];
       return plain;
