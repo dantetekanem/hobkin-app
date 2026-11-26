@@ -79,7 +79,7 @@ hobkin runs the user's day the way a good chief of staff does, through the routi
 - A8. A task class moves to a lower level only after the user's yes, and back up after an override, with no question.
 - A9. No send, spend, delete or commitment of the user's time happens without a standing rule or the user's own ask. The tool layer refuses it and logs the refusal. The count stays at zero.
 - A10. An opening of 15 minutes or more gets at most one offer sized to it, or a break. Nothing deep is offered within 30 minutes of a meeting.
-- A11. The weekly review shows the days that were too full, questions per day (in total and outside digests; this should fall), the rubber-stamp signal, overrides and repeats. It also asks one question: "How heavy did deciding feel?" on a scale of 1 to 7.
+- A11. The weekly review shows the days that were too full, questions per day (in total and outside digests; this should fall), the rubber-stamp signal, overrides and repeats. It also asks one question a week: "How heavy did deciding feel?", answered Very light, Light, Fine, Heavy or Very heavy.
 - A12. A scenario bank of at least 200 cases covering the day, the desk, decisions and delegation has a score before any change. Each phase holds or raises it, with zero breaks of A9.
 
 ## Proof
