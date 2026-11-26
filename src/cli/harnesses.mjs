@@ -26,6 +26,7 @@ import { memoryKeeperExtension } from './memory-keeper-extension.mjs';
 import { MEMORY_TOOLS, memoryTools } from './memory-tools.mjs';
 import { integrationExtension } from './integration-extension.mjs';
 import { loadSkillExtension } from './load-skill-extension.mjs';
+import { outwardGuardExtension, RUN_KIND_ENV } from './outward-guard-extension.mjs';
 import { integrationEnvironment, isIntegrationCall, serveIntegration } from './integrations.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
@@ -170,6 +171,7 @@ export function buildInvocation(request) {
  * A job that loads tools gets its extensions named up front, so Pi leaves out what Hobkin does not use. Its Pi also
  * loads `load_skill` (`load-skill-extension.mjs`, 070-load-skill) ahead of the rest, so an extension that sets the
  * whole prompt keeps the list of skills it words, and hobkin's guard against the code tool crash (`code-tool-crash.mjs`).
+ * It loads the outward guard, which watches and blocks nothing (`outward-guard-extension.mjs`, 075-chief-of-staff S17).
  * A job that lives until its agent says it is done (`untilDone` on its request) gets `hobkin_done` (`done-extension.mjs`,
  * 072-jobs-live-until-done), and one that keeps schedules (`schedules` on its request) gets `hobkin_schedule` and
  * `hobkin_schedules` (`schedule-extension.mjs`) in place of the Pi scheduler, whose timers would live only in this
@@ -184,13 +186,15 @@ export const namingExtensions = run => async (request, options) => {
   const memories = Object.hasOwn(MEMORY_EXTENSIONS, request.memories ?? '') ? MEMORY_EXTENSIONS[request.memories] : null;
   const offer = options?.integrations?.offer;
   const leaveOut = [...(schedules ? ['pi-scheduler'] : []), ...(memories ? LEFT_OUT_WITH_MEMORIES : [])];
-  const extensions = [loadSkillExtension, ...await extensionPaths(request.cwd, { leaveOut }), codeToolGuardExtension,
+  const extensions = [loadSkillExtension, ...await extensionPaths(request.cwd, { leaveOut }), codeToolGuardExtension, outwardGuardExtension,
     ...(request.untilDone === true ? [doneExtension] : []), ...(schedules ? [scheduleExtension] : []), ...(memories ? [memories] : []),
     ...(offer ? [integrationExtension] : [])];
   // Naming them comes before the process starts, so the turn's stages show how long it took.
   const turn = { since: asked, origin: 'run', ...options?.turn, marks: { ...options?.turn?.marks, resolved: Date.now() } };
-  const offered = offer ? { env: { ...request.env, ...integrationEnvironment(offer) } } : {};
-  return run({ ...request, extensions, ...offered }, { ...options, turn });
+  // The outward guard records which kind of run each outward call came from (075-chief-of-staff S17).
+  const runKind = request.purpose === 'durable' ? 'durable' : workPurposes.includes(request.purpose) ? 'work' : request.untilDone === true ? 'session' : 'routine';
+  const env = { ...request.env, [RUN_KIND_ENV]: runKind, ...(offer ? integrationEnvironment(offer) : {}) };
+  return run({ ...request, extensions, env }, { ...options, turn });
 };
 
 // A durable hobkin's Pi process stays up after a turn that ended well, so the next turn of that conversation only prompts

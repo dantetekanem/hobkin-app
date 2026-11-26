@@ -9,6 +9,7 @@ import {
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import { readEvents, recordEvent } from '../src/cli/events.mjs';
+import { namingExtensions } from '../src/cli/harnesses.mjs';
 import { main } from '../src/cli/main.mjs';
 import outwardGuard, { outwardGuardExtension, RUN_KIND_ENV } from '../src/cli/outward-guard-extension.mjs';
 import { TRANSPORT_TYPES, transportEvent, transportId } from '../src/cli/telemetry/events.mjs';
@@ -284,4 +285,38 @@ test('a conversation kept outside a hobkin home records nothing, rather than gue
   outwardGuard(pi, { env: { HOBKIN_HOME: named } });
   await pi.call('mcp__gmail__gmail_send', send, join(elsewhere, 'somewhere', 'b.jsonl'));
   assert.equal(attempts(named).length, 1, 'a home the run names in HOBKIN_HOME is used');
+});
+
+test('every hobkin run with tools loads the guard once, is named its kind, and records into its own home', async t => {
+  const root = home(t);
+  const agentDir = join(root, 'agent');
+  mkdirSync(agentDir);
+  isolatePiHome(t, agentDir);
+  const started = [];
+  const run = namingExtensions(async job => { started.push(job); });
+  // Each keeps its conversation where its own code puts it: a durable hobkin in `hobkins/`, every other run in `jobs/`.
+  const base = { harness: 'pi', cwd: agentDir };
+  const inJobs = id => join(root, 'jobs', `${id}.jsonl`);
+
+  await run({ ...base, sessionFile: inJobs('routine') });
+  await run({ ...base, purpose: 'work-do', sessionFile: inJobs('work') });
+  await run({ ...base, purpose: 'durable', sessionFile: join(root, 'hobkins', 'durable.jsonl') });
+  await run({ ...base, untilDone: true, sessionFile: inJobs('session') });
+  await run({ ...base, purpose: 'reflection', sessionFile: inJobs('reflection') });
+
+  const [routine, work, durable, session, toolFree, ...rest] = started;
+  assert.deepEqual(rest, []);
+  assert.equal(toolFree.extensions, undefined, 'a run with no tools loads no extensions');
+  // The home its Pi may inherit in HOBKIN_HOME, such as the user's real one, never gets a run's attempts.
+  const inherited = home(t);
+  for (const [job, kind] of [[routine, 'routine'], [work, 'work'], [durable, 'durable'], [session, 'session']]) {
+    assert.equal(job.extensions.filter(path => path === outwardGuardExtension).length, 1, `a ${kind} run loads it once`);
+    assert.equal(job.env[RUN_KIND_ENV], kind, `a ${kind} run is named one`);
+    const pi = fakePi();
+    outwardGuard(pi, { env: { HOBKIN_HOME: inherited, ...job.env } });
+    await pi.call('mcp__gmail__gmail_send', send, job.sessionFile);
+    assert.equal(attempts(root).at(-1)?.run, kind, `a ${kind} run records into its own home`);
+  }
+  assert.equal(attempts(root).length, 4);
+  assert.deepEqual(attempts(inherited), []);
 });

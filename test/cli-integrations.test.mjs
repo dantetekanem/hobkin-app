@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BRIDGE } from '../src/cli/bridge.mjs';
 import { namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
+import { RUN_KIND_ENV } from '../src/cli/outward-guard-extension.mjs';
 import { INTEGRATIONS_ENV, createIntegrationExtension, integrationExtension, readOffer } from '../src/cli/integration-extension.mjs';
 import { integrationEnvironment, integrationOffer, MAIN_AGENT, serveIntegration } from '../src/cli/integrations.mjs';
 import { HobkinApplication } from '../src/cli/application.mjs';
@@ -144,7 +145,7 @@ test('a run or a durable hobkin offered tools loads the extension with its offer
   }
   for (const request of [plainRun, nothing]) {
     assert.equal(request.extensions.includes(integrationExtension), false);
-    assert.equal(Object.hasOwn(request, 'env'), false);
+    assert.deepEqual(request.env, { [RUN_KIND_ENV]: 'routine' });
   }
   assert.deepEqual(plainRun.extensions, nothing.extensions);
 });
