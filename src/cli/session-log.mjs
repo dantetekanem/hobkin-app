@@ -44,7 +44,8 @@ export function cutOffReport(said) {
 /**
  * What a session's end leaves: its failed run report or last reply when it wrote none, and its end in the session log. The run
  * posts its own notice and report, so the session log's would say it twice. A session whose brief named a task class counts in it:
- * clean once it completed, and an override when the user stopped it.
+ * clean once it completed, and an override when the user stopped it. One cut off when hobkin closed or restarted counts nothing,
+ * since the work was not judged.
  */
 export function endSessionJob(root, session, run) {
   const report = run?.result?.status === 'failed' ? runReport(run.result) : run?.result?.text;
@@ -52,8 +53,9 @@ export function endSessionJob(root, session, run) {
   const userStop = run?.userStop && run.status === 'interrupted'
     ? { runId: run.id, reason: run.userStop.reason } : undefined;
   recordSessionEnd({ ...session, userStop, outcome: run?.status });
+  const cutOff = run?.status === 'interrupted' && !userStop;
   const { taskClass } = readLog(root).find(({ name }) => name === session.name) ?? {};
-  if (taskClass) noteOutcome(root, taskClass, { clean: run?.status === 'completed' && !userStop, override: Boolean(userStop) });
+  if (taskClass && !cutOff) noteOutcome(root, taskClass, { clean: run?.status === 'completed' && !userStop, override: Boolean(userStop) });
   markPosted(root, [session]);
 }
 

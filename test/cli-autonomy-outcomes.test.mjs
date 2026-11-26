@@ -7,7 +7,7 @@ import { carryOutAnswer } from '../src/cli/answer.mjs';
 import { PROMOTION_STREAK, noteOutcome, readAutonomy } from '../src/cli/autonomy.mjs';
 import { initialize } from '../src/cli/config.mjs';
 import { markAlways, openDecisions } from '../src/cli/decisions.mjs';
-import { endSessionJob } from '../src/cli/session-log.mjs';
+import { cutOffReport, endSessionJob } from '../src/cli/session-log.mjs';
 import { startSession } from '../src/cli/session.mjs';
 import { readStandingRules } from '../src/cli/standing-rules.mjs';
 import { answerOffer, askAgent, declineItem, declineStopped, mergeItem, mergePullRequest } from '../src/cli/work/controls.mjs';
@@ -213,6 +213,19 @@ test('a session whose brief names its task class counts its end there: clean onc
   endSessionJob(root, failed, { id: 'run-3', status: 'failed', result: { status: 'failed', error: 'It broke.' } });
   row = readAutonomy(root)['code-fix:hobkin'];
   assert.deepEqual([row.runs, row.overrides], [3, 1], 'a failed run is no clean one, and no override either');
+});
+
+test('a session cut off when hobkin closed or restarted counts nothing, so its class keeps its streak', async t => {
+  const root = home(t);
+  const brief = 'Fix the flaky test.\n\nTask class: code-fix:hobkin\n';
+  const done = await startSession({ root, cwd: root, brief, approved: true, now: NOW });
+  endSessionJob(root, done, { id: 'run-1', status: 'completed', result: { text: 'Fixed it.' } });
+
+  const cutOff = await startSession({ root, cwd: root, brief, approved: true, now: NOW });
+  endSessionJob(root, cutOff, { id: 'run-2', status: 'interrupted', result: { text: cutOffReport('Halfway there.') } });
+
+  const row = readAutonomy(root)['code-fix:hobkin'];
+  assert.deepEqual([row.runs, row.cleanStreak, row.overrides], [1, 1, 0]);
 });
 
 test('a session whose brief names no task class counts nowhere, and one naming a class hobkin cannot read is refused', async t => {
