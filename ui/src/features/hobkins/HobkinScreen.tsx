@@ -110,7 +110,7 @@ export function HobkinScreen() {
     >
       {/* Where the chat's header was, the window is dragged by the top of the page. */}
       {split ? <div data-tauri-drag-region className="select-none-chrome absolute inset-x-0 top-0 z-10 h-12" /> : null}
-      {id ? <TurnStopAsk id={id} /> : agentId ? <StopAsk key={agentId} runId={agentId} /> : null}
+      {id ? <TurnStopAsk id={id} /> : agentId ? <StopAsk key={`stop:${agentId}`} runId={agentId} /> : null}
       <div className="relative min-h-0 flex-1">
         {/* Propagated, so a page leaving with its screen counts as gone. */}
         <AnimatePresence initial={false} propagate>
@@ -133,7 +133,7 @@ export function HobkinScreen() {
           onTakenBack={(noteIds) => notes.drop(id, noteIds)}
         />
       ) : agentId ? (
-        <RunTalk key={agentId} agentId={agentId} />
+        <RunTalk key={`talk:${agentId}`} agentId={agentId} />
       ) : null}
     </motion.div>
   )
