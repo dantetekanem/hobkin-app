@@ -66,7 +66,7 @@ import { LandOffers, lastOfferAt, offerDecisions, retireOffers } from './work/la
 import { fileFirstPair } from './work/pairs.mjs';
 import { stalled } from './checks.mjs';
 import { DISMISSALS_FILE } from './action-dismissal.mjs';
-import { fileDecision, findDecision, findOpenDecision, markShown, QUESTION_WAIT_MS } from './decisions.mjs';
+import { fileDecision, findDecision, findOpenDecision, markShown, QUESTION_WAIT_MS, tickDecisionDefaults } from './decisions.mjs';
 import { isPresent } from './pending.mjs';
 import { readActionDecisions, readPending, readWaiting } from './pending-read.mjs';
 import { arrivedCount, arrivedSince, asksForBrief, BRIEF_BAR, briefMaterial, briefNote, briefSince, offerLine, readBriefState, returnedSince, seenMoved, withoutBriefNote, writeBriefState } from './brief.mjs';
@@ -479,6 +479,8 @@ export class HobkinApplication {
           retireOffers(app.runtime.directory, app.now());
           retirePickUp(app.runtime.directory, app.now());
           app.tickInbox();
+          // A reversible card past its deadline takes its recommended choice, and its asker hears so (075 S8). It never throws.
+          await tickDecisionDefaults(app.runtime.directory, app.now());
           // Once an hour, with no model: a routine nobody reads, or that finds nothing new most times, gets one item in Action Items.
           tickRoutineCare(app.runtime.directory, { loaded: app.runner.loaded, attention: app.snapshot.reportAttention, now: app.now() });
           // The daily catch-up, a pile of unread reports, or an ask from `hobkin reports catch-up` (069-report-catch-up).

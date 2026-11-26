@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { HobkinApplication } from '../src/cli/application.mjs';
-import { fileDecision } from '../src/cli/decisions.mjs';
+import { fileDecision, openDecisions, runDecideCommand } from '../src/cli/decisions.mjs';
+import { Readable } from 'node:stream';
 import { readEvents } from '../src/cli/events.mjs';
 import { main } from '../src/cli/main.mjs';
 import { createDashboard } from '../src/cli/ui.mjs';
@@ -583,4 +584,25 @@ test('a return look that fails after it records a sighting does not record the s
   }
 
   assert.deepEqual(h.ofType('presence').map(({ kind, awayMs }) => [kind, awayMs]), [['first', undefined], ['returned', 3 * 60 * 60000]]);
+});
+
+test('the host tick takes the pick of a reversible card once its deadline passes, and records it as a default', async t => {
+  const h = fixture(t);
+  const filed = Date.parse('2026-01-05T09:00:00Z');
+  const deadline = '2026-01-05T17:00:00.000Z';
+  const card = { question: 'Merge the typo fix?', choices: [{ value: 'later', label: 'Not now' }, { value: 'merge', label: 'Merge it' }], recommended: 'merge', reversible: true, deadline };
+  const { id } = await runDecideCommand(h.root, ['routine', 'site'], Readable.from([JSON.stringify(card)]), filed);
+  const clock = { at: Date.parse(deadline) - 60000 };
+  const app = await h.openApp({ now: () => clock.at });
+  try {
+    await app.runner.tick();
+    assert.equal(openDecisions(h.root).length, 1, 'it waits until its deadline');
+    clock.at = Date.parse(deadline);
+    await app.runner.tick();
+  } finally {
+    await app.close();
+  }
+
+  assert.deepEqual(openDecisions(h.root), []);
+  assert.deepEqual(h.ofType('decision_defaulted').map(event => event.id), [id]);
 });
