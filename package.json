@@ -19,6 +19,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test \"shared/test/**/*.test.ts\" \"host/test/**/*.test.ts\" \"ui/test/**/*.test.ts\" \"integrations/*/test/**/*.test.ts\"",
+    "test:backup:stress": "node --test host/test/backup.stress.ts",
     "check:contrast": "node scripts/contrast.ts",
     "tauri": "tauri",
     "host": "node host/src/main.ts",
