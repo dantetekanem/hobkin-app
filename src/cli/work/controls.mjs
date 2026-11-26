@@ -769,19 +769,22 @@ async function treeLeftOn(root, slug, item, tips) {
 }
 
 /**
- * What deleting an item's own branch takes, read and never changed: the branch on this Mac and on origin, the hobkin tree that goes with it, and how
- * many commits are on it alone. It refuses, before anything goes, while the item runs, when the branch is not the item's own or another item still
- * works on it, and when the user's own folder, or any folder hobkin did not make, has it checked out. A tree goes only when nothing in it is uncommitted.
+ * What deleting an item's own branch takes, read and never changed: the branch on this Mac and on origin, the hobkin tree that goes with it, how
+ * many commits are on it alone, and `sharing`, the other unfinished items that work on it too and are dropped with it. It refuses, before anything
+ * goes, while the item or one of those runs, when the branch is not the item's own, and when the user's own folder, or any folder hobkin did not
+ * make, has it checked out. A tree goes only when nothing in it is uncommitted.
  */
 async function whatDeletingTakes(root, project, item) {
   const { slug } = project;
   const { title, branch } = item;
-  if (ownerView(root).running.some(run => run.slug === slug && run.item === item.id)) throw Error(`"${title}" is running, so its branch cannot be deleted now.`);
+  const runs = id => ownerView(root).running.some(run => run.slug === slug && run.item === id);
+  if (runs(item.id)) throw Error(`"${title}" is running, so its branch cannot be deleted now.`);
   if (!branch) throw Error(`"${title}" has no branch of its own, so there is nothing to delete.`);
   const repo = project.path ?? paths(root, slug).clone;
   if (!isOwnBranch(item, branch) || branch === await defaultBranch(repo)) throw Error(`${branch} is not the branch "${title}" made for itself, so it is not deleted.`);
-  const sharing = readItems(root, slug).find(other => other.id !== item.id && other.branch === branch && !overStates.includes(other.state));
-  if (sharing) throw Error(`"${sharing.title}" works on ${branch} too, so it is not deleted.`);
+  const sharing = readItems(root, slug).filter(other => other.id !== item.id && other.branch === branch && !overStates.includes(other.state));
+  const busy = sharing.find(other => runs(other.id));
+  if (busy) throw Error(`"${busy.title}" is running on ${branch}, so it is not deleted now.`);
 
   const here = await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`) || null;
   const pushed = await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`) || null;
@@ -801,8 +804,12 @@ async function whatDeletingTakes(root, project, item) {
   // Commits no other branch or tag on this Mac holds. A remote-tracking branch is left out: it can name a branch that origin no longer has.
   // Git says nothing when it cannot count them.
   const lost = await gitOrNothing(repo, 'rev-list', '--count', ...tips, '--not', `--exclude=${branch}`, '--branches', '--tags');
-  return { branch, here, remote: pushed ? { name: 'origin', url, sha: pushed } : null, worktree, ignored, lost: lost === '' ? null : Number(lost) };
+  const also = sharing.length ? { sharing: sharing.map(({ id, title: named }) => ({ id, title: named })) } : {};
+  return { branch, here, remote: pushed ? { name: 'origin', url, sha: pushed } : null, worktree, ignored, lost: lost === '' ? null : Number(lost), ...also };
 }
+
+/** The other items a deletion drops, by title: `"A"`, `"A" and "B"`. */
+const titlesOf = items => items.map(({ title }) => `"${title}"`).join(', ').replace(/, ([^,]*)$/, ' and $1');
 
 /**
  * Deletes an item's own branch, only ever on the user's word, after they were shown what it takes: `look` reads that and deletes nothing, and the
@@ -816,7 +823,9 @@ export async function deleteItemBranch(root, reference, id, { look = false, expe
   const plan = await whatDeletingTakes(root, project, item);
   const { branch, here, remote, worktree } = plan;
   const where = [here && 'on this Mac', remote && 'on origin'].filter(Boolean).join(' and ');
-  if (look) return reply(`It deletes ${branch} ${where}${worktree ? `, with its worktree${plan.ignored.length ? ' and the files git ignores in it' : ''}` : ''}.`, { plan });
+  const sharing = plan.sharing ?? [];
+  const alsoDrops = sharing.length ? ` It also drops ${titlesOf(sharing)}, which ${sharing.length === 1 ? 'works' : 'work'} on it too.` : '';
+  if (look) return reply(`It deletes ${branch} ${where}${worktree ? `, with its worktree${plan.ignored.length ? ' and the files git ignores in it' : ''}` : ''}.${alsoDrops}`, { plan });
   if (JSON.stringify(expect) !== JSON.stringify(plan)) throw Error(`What deleting ${branch} takes has changed since it was shown, so nothing was deleted.`);
 
   const repo = project.path ?? paths(root, project.slug).clone;
@@ -842,7 +851,10 @@ export async function deleteItemBranch(root, reference, id, { look = false, expe
       throw stopped(done.length ? 'it was not deleted on origin' : `origin would not delete ${branch}`, error);
     });
   }
-  return reply(`Deleted ${branch} ${where}${worktree ? ', and removed its worktree' : ''}.`, { deleted: plan });
+  // The items that worked on it have nothing left to work on: they leave the queue, as a drop does, and teach nothing.
+  for (const { id } of sharing) updateItem(root, project.slug, id, { state: 'dropped' });
+  const did = [`Deleted ${branch} ${where}`, ...(worktree ? ['removed its worktree'] : []), ...(sharing.length ? [`dropped ${titlesOf(sharing)}`] : [])];
+  return reply(`${did.length > 2 ? `${did.slice(0, -1).join(', ')}, and ${did.at(-1)}` : did.join(', and ')}.`, { deleted: plan });
 }
 
 /**

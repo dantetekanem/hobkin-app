@@ -74,6 +74,28 @@ test('deleting a finished item\'s branch shows first what it takes, and then tak
   assert.equal(git(h.checkout, 'worktree', 'list', '--porcelain').includes(tree), false, 'git keeps no entry for the tree');
 });
 
+test('an unfinished item on the same branch is named in the look, and is dropped with the branch once the user confirms', async t => {
+  const h = workspace(t);
+  const { item, branch, tree } = finished(h, { pushed: true });
+  await releaseTree(tree, { finished: true });
+  // What hobkin files to describe a finished branch works on that branch; one already merged there is over.
+  const helper = fileItem(h.root, 'api', { key: `ship:describe:${branch}`, kind: 'pr-fix', title: `Describe ${branch}`, brief }, NOW);
+  updateItem(h.root, 'api', helper.id, { branch, ships: item.id }, NOW);
+  const over = fileItem(h.root, 'api', { key: 'Old fix', kind: 'fix', title: 'Old fix', brief }, NOW);
+  updateItem(h.root, 'api', over.id, { state: 'merged', branch }, NOW);
+
+  const look = await deleteItemBranch(h.root, 'api', item.id, { look: true });
+  assert.deepEqual(look.plan.sharing, [{ id: helper.id, title: `Describe ${branch}` }]);
+  assert.equal(look.message, `It deletes ${branch} on this Mac and on origin, with its worktree. It also drops "Describe ${branch}", which works on it too.`);
+
+  declineItem(h.root, 'api', item.id, NOW);
+  const { message } = await deleteItemBranch(h.root, 'api', item.id, { expect: look.plan });
+  assert.equal(message, `Deleted ${branch} on this Mac and on origin, removed its worktree, and dropped "Describe ${branch}".`);
+  assert.equal(branches(h.checkout).includes(branch), false);
+  const states = Object.fromEntries(readItems(h.root, 'api').map(({ id, state }) => [id, state]));
+  assert.deepEqual([states[item.id], states[helper.id], states[over.id]], ['declined', 'dropped', 'merged']);
+});
+
 test('a branch only on this Mac, held by its tree, is deleted with that tree and nothing is pushed', async t => {
   const h = workspace(t, { origin: false });
   const { item, branch, tree } = finished(h);
@@ -138,9 +160,11 @@ test('it refuses, before anything is deleted, a running item, one with no branch
   updateItem(h.root, 'api', fix.id, { branch: 'main' }, NOW);
   await refused(fix.id, /^Error: main is not the branch "Fix its PR" made for itself, so it is not deleted\.$/);
 
-  // Its own branch, while a fix that is not finished works on it too.
+  // Its own branch, while a fix that works on it too is running.
   updateItem(h.root, 'api', fix.id, { state: 'open', branch: running.branch }, NOW);
-  await refused(running.item.id, new RegExp(`^Error: "Fix its PR" works on ${running.branch} too, so it is not deleted\\.$`));
+  writeOwnerView(h.root, { running: [{ id: 'work:api:do:2', slug: 'api', item: fix.id, lane: 'do', title: 'api: Fix its PR' }] });
+  await refused(running.item.id, new RegExp(`^Error: "Fix its PR" is running on ${running.branch}, so it is not deleted now\\.$`));
+  writeOwnerView(h.root, { running: [] });
   updateItem(h.root, 'api', fix.id, { state: 'dropped' }, NOW);
 
   // Checked out in the project's own folder: the user's checkout is never touched.
