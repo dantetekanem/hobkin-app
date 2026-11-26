@@ -8,6 +8,7 @@ import lockfile from 'proper-lockfile';
 import { MEMORY_REQUESTS, RUN_MARKER, answerMemoryRequest, runMemoryCommand } from '../src/cli/memory-command.mjs';
 import { memoryHandler } from '../src/cli/memory-tools.mjs';
 import { addMemory, readMemories } from '../src/cli/memories.mjs';
+import { readMemoryUse } from '../src/cli/memory-use.mjs';
 import { answerRequest, takeRequests, TURN_TOKEN } from '../src/cli/hobkin-tell.mjs';
 import { inboxToTell } from '../src/cli/inbox.mjs';
 
@@ -61,6 +62,16 @@ test('outside a durable turn, hobkin memory reads shared memories from the home 
   assert.match((await runMemoryCommand(root, ['search', 'lisbon', '--kind', 'user'], { env, now: NOW })).text, /lives-in-lisbon/);
   assert.match((await runMemoryCommand(root, ['list', 'user'], { env: { [RUN_MARKER]: 'Ship 412' }, now: NOW })).text, /lives-in-lisbon/);
   await assert.rejects(runMemoryCommand(root, ['get'], { env }), /^Error: Usage: hobkin memory/);
+});
+
+test('the whole list counts as a durable hobkin\'s use inside its turn and as a run\'s outside one', t => {
+  const root = home(t);
+  const hobkin = memoryHandler(root, { kind: 'hobkin', id: 'a1b2c3d4', title: 'Deploy watcher' }, { now: () => NOW });
+  answerMemoryRequest(root, hobkin, { action: 'list' }, { now: NOW, private: true });
+  answerMemoryRequest(root, memoryHandler(root, { kind: 'run', id: 'r1', title: 'Ship 412' }, { now: () => NOW }), { action: 'list' }, { now: NOW, private: false });
+  const uses = Object.fromEntries(readMemoryUse(root, { now: NOW }).map(use => [use.name, use.by]));
+  assert.deepEqual(uses['partner-name'], { hobkin: { recalls: 0, indexed: 1 } });
+  assert.deepEqual(uses['lives-in-lisbon'], { hobkin: { recalls: 0, indexed: 1 }, run: { recalls: 0, indexed: 1 } });
 });
 
 test('outside a durable turn, a save is refused and points at hobkin remember', async t => {

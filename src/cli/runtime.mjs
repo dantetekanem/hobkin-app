@@ -1225,7 +1225,8 @@ export class HobkinRuntime {
         signal.throwIfAborted();
         // Helpers follow the same directions main does, whole, so a rule far down the file still reaches them. They also
         // read the index of hobkin's shared memories, never a private one, and have no tool for more (057-shared-memory).
-        const memories = runIndex(this.directory);
+        // It is built for every turn, helpers or not, so it counts as no one's use.
+        const memories = runIndex(this.directory, undefined, { by: null });
         turn.owned = this.ownedLifecycle?.register({ id, allowHelpers: true, binding: {
           cwd: this.config.main.cwd, prompt: JSON.stringify({ task: text, directions: readDirections(this.directory), ...(memories ? { memories } : {}) }),
           model: `${session.model?.provider}/${session.model?.id}`, effort: session.thinkingLevel,

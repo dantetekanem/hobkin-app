@@ -266,7 +266,7 @@ export class Hobkins {
     let kept = this.memoryPrompts.get(record.id);
     if (!kept) {
       const recall = record.engine?.kind === 'claude' ? 'hobkin memory' : 'hobkin_recall';
-      kept = keptPrompt({ memories: () => memorySnapshot(this.root, { private: true, maxBytes: MAIN_INDEX_BYTES, recall }) });
+      kept = keptPrompt({ memories: () => memorySnapshot(this.root, { private: true, maxBytes: MAIN_INDEX_BYTES, recall, by: 'hobkin' }) });
       this.memoryPrompts.set(record.id, kept);
     }
     return kept;

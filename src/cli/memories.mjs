@@ -1019,9 +1019,10 @@ export function keepsMemories(root) {
 /**
  * The index an agent the user does not talk to reads: a routine, a Work run, a session run, a helper or a teams agent.
  * Never a private memory, within the smaller cap. `recall` names how it reads one whole, as `memoryIndex` takes it:
- * a run has it, and a helper or a teams agent, which has no tool for one, does not.
+ * a run has it, and a helper or a teams agent, which has no tool for one, does not. Each memory it lists counts as a
+ * use by `by`, as `memorySnapshot` takes it: a run's or a helper's unless said, and none for `null`.
  */
-export const runIndex = (root, recall) => memoryIndex(root, { private: false, maxBytes: RUN_INDEX_BYTES, recall: recall ? 'run' : undefined, by: recall ? 'run' : 'helper' });
+export const runIndex = (root, recall, { by = recall ? 'run' : 'helper' } = {}) => memoryIndex(root, { private: false, maxBytes: RUN_INDEX_BYTES, recall: recall ? 'run' : undefined, by });
 
 /**
  * The index (`memoryIndex`) and what it was built from, one entry a memory not past, `{ name, description, version }`,

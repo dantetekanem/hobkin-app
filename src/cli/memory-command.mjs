@@ -72,7 +72,7 @@ async function requestOf(args, input) {
  */
 export function answerMemoryRequest(root, handler, { action, params = {} } = {}, { now = Date.now(), private: includePrivate = true } = {}) {
   if (action === 'list' && !params.kind) {
-    const text = memoryIndex(root, { private: includePrivate, maxBytes: LIST_BYTES, now, recall: 'hobkin memory' });
+    const text = memoryIndex(root, { private: includePrivate, maxBytes: LIST_BYTES, now, recall: 'hobkin memory', by: includePrivate ? 'hobkin' : 'run' });
     return { text: text || 'hobkin remembers nothing yet.' };
   }
   if (action === 'list') return handler.recall({ kind: params.kind, limit: 20 });

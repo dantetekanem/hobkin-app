@@ -17,7 +17,9 @@ import { drawCanvas, readCanvases } from '../src/cli/canvas.mjs';
 import { readEvents } from '../src/cli/events.mjs';
 import { readReport, savedReportPath } from '../src/cli/reports.mjs';
 import { allCardActions } from '../src/cli/work/card-actions.mjs';
-import { durableDirections } from '../src/cli/hobkins.mjs';
+import { durableDirections, Hobkins } from '../src/cli/hobkins.mjs';
+import { addMemory } from '../src/cli/memories.mjs';
+import { readMemoryUse } from '../src/cli/memory-use.mjs';
 import { readDirections } from '../src/cli/directions.mjs';
 import { startSession } from '../src/cli/session.mjs';
 import { sessionsToTell } from '../src/cli/session-log.mjs';
@@ -212,6 +214,15 @@ test('a started hobkin runs its first turn and then waits', async t => {
   const long = await waitingNow(app, named.id);
   assert.deepEqual([long.title, long.last.said.length], ['Release notes', 600]);
   assert.deepEqual((await app.refresh()).hobkins.map(hobkin => hobkin.id), [named.id, id], 'newest first');
+});
+
+test('a hobkin\'s index of memories counts as that hobkin\'s use, never the main chat\'s', t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-durable-memories-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  addMemory(root, { name: 'partner-name', kind: 'user', description: 'Partner is called Ana', private: true }, { by: { kind: 'main' }, source: { kind: 'chat' } });
+  const index = new Hobkins({ root }).keptMemories({ id: 'a1b2c3d4', engine: { kind: 'tier', tier: 'mid' } }).memories();
+  assert.match(index, /partner-name/);
+  assert.deepEqual(readMemoryUse(root).map(({ name, by }) => [name, by]), [['partner-name', { hobkin: { recalls: 0, indexed: 1 } }]]);
 });
 
 test('a message to a waiting hobkin starts a turn on the same conversation, and one to a working hobkin steers it', async t => {
