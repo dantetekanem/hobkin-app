@@ -107,3 +107,16 @@ test('the user\'s own words ask for a kind of action; "continue", "yes" and what
   assert.equal(askCovers('unknown', 'send it'), false);
   assert.equal(askCovers('send', undefined), false);
 });
+
+test('a plain negation asks for nothing: don\'t, do not, never and not yet', () => {
+  for (const [kind, said] of [
+    ['send', 'don\'t send it'],
+    ['send', 'Don’t send it yet, I want to read it first.'],
+    ['send', 'Dont email them'],
+    ['send', 'Do not reply to the landlord.'],
+    ['post', 'Never post this in the team channel.'],
+    ['send', 'Send it, but not yet.'],
+    ['delete', 'not yet, delete them tomorrow'],
+  ]) assert.equal(askCovers(kind, said), false, said);
+  assert.equal(askCovers('send', 'Don\'t send it to Sam. Reply to the landlord instead.'), true, 'a negation covers only its own sentence');
+});

@@ -103,5 +103,13 @@ const ASKS = {
   post: /\b(?:post|publish|tweet|comment)\b/i,
 };
 
-/** Whether the user's own words in a message ask for this kind of action. "Continue" or "yes" alone asks for none. */
-export const askCovers = (kind, text) => Object.hasOwn(ASKS, kind) && typeof text === 'string' && ASKS[kind].test(text.replace(HOBKIN_BLOCK, ''));
+// A plain negation cancels every ask in its sentence: "don't send it", "do not reply", "never post this", "send it, but not yet".
+const NEGATION = /\b(?:don['’]?t|do not|never|not yet)\b/i;
+const SENTENCE_END = /[.!?;\n]+/;
+
+/**
+ * Whether the user's own words in a message ask for this kind of action: a sentence that names it and holds no plain negation. "Continue" or
+ * "yes" alone asks for none.
+ */
+export const askCovers = (kind, text) => Object.hasOwn(ASKS, kind) && typeof text === 'string'
+  && text.replace(HOBKIN_BLOCK, '').split(SENTENCE_END).some(sentence => ASKS[kind].test(sentence) && !NEGATION.test(sentence));
