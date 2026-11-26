@@ -9,9 +9,9 @@ import { askCovers, outwardKind, outwardVerdict } from './outward.mjs';
  * acts outward in the user's name (`outward.mjs`) is recorded as one `outward_attempt` with its kind, the verdict a guard
  * would give, and the kind of run. It never records the call's arguments, recipients or text. The home is the one that
  * keeps the run's conversation, or else the one the run names in `HOBKIN_HOME`. With neither it records nothing, so a Pi
- * outside hobkin, or a test, never writes into the user's real home. Nothing loads it
- * yet: it is meant for every run's Pi (`namingExtensions` in `harnesses.mjs`) and the main chat (`mainSdkResources` in
- * `pi-extensions.mjs`).
+ * outside hobkin, or a test, never writes into the user's real home. The main chat loads it (`mainSdkResources` in
+ * `pi-extensions.mjs`), and so does every run with tools that hobkin names extensions for, which is every run without a
+ * configured launcher (`namingExtensions` in `harnesses.mjs`).
  */
 export const outwardGuardExtension = fileURLToPath(import.meta.url);
 

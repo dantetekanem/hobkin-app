@@ -9,6 +9,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { syncBuiltinESMExports } from 'node:module';
 import { TLA_SKILL } from '../src/cli/skills-extension.mjs';
+import { outwardGuardExtension } from '../src/cli/outward-guard-extension.mjs';
 
 async function fixture(t) {
   // Refuse before importing/opening if an SDK boundary could fall back to the real loader.
@@ -62,7 +63,7 @@ test('empty inheritance isolates discovery but retains Hobkin prompts, hooks and
   const loader = h.loader();
   for (const flag of ['noExtensions', 'noSkills', 'noPromptTemplates', 'noContextFiles', 'noThemes']) assert.equal(loader[flag], true, flag);
   assert.deepEqual(loader.settingsManager.isolated, {});
-  assert.deepEqual(loader.additionalExtensionPaths, ['builtin:codemode', 'builtin:tool-search']);
+  assert.deepEqual(loader.additionalExtensionPaths, ['builtin:codemode', 'builtin:tool-search', outwardGuardExtension]);
   assert.deepEqual(loader.additionalSkillPaths, [TLA_SKILL], 'the skills hobkin ships still load');
   const shipped = { filePath: TLA_SKILL };
   assert.deepEqual(loader.skillsOverride({ skills: [shipped], diagnostics: [] }).skills, [shipped]);
@@ -94,7 +95,7 @@ test('trusted installed candidates bind only explicit local resources', async t 
   h.config.resourceSelection = { version: 1, purposes: { main: Object.fromEntries(kinds.map(kind => [kind, [`test.${kind}`]])) } };
   await h.open();
   const loader = h.loader();
-  assert.deepEqual(loader.additionalExtensionPaths, ['builtin:codemode', 'builtin:tool-search', join(h.root, 'extensions.md')]);
+  assert.deepEqual(loader.additionalExtensionPaths, ['builtin:codemode', 'builtin:tool-search', join(h.root, 'extensions.md'), outwardGuardExtension]);
   assert.deepEqual(loader.additionalSkillPaths, [TLA_SKILL, join(h.root, 'skills.md')]);
   assert.deepEqual(loader.additionalPromptTemplatePaths, [join(h.root, 'templates.md')]);
   assert.deepEqual(loader.agentsFilesOverride({ agentsFiles: [] }).agentsFiles, [{ path: join(h.root, 'instructions.md'), content: 'selected instructions' }]);

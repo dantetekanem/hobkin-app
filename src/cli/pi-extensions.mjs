@@ -20,6 +20,8 @@ export const LEFT_OUT_OF_THE_MAIN_CHAT = ['pi-cache-compact-preserved-messages',
 export const LEFT_OUT_WITH_MEMORIES = Object.freeze(['pi-memory']);
 
 const keptWithout = names => ({ enabled, path }) => enabled && !path.split(sep).some(part => names.includes(part));
+// The main chat's Pi records the outward calls its agent makes (`outward-guard-extension.mjs`, 075-chief-of-staff S17).
+const outwardGuardExtension = fileURLToPath(new URL('./outward-guard-extension.mjs', import.meta.url));
 
 /** What Pi would load in this folder, without the extensions Hobkin leaves out. Nothing is loaded or installed to find out. */
 export async function extensionPaths(cwd, { agentDir, builtIns = PI_BUILT_INS, leaveOut = [] } = {}) {
@@ -67,7 +69,7 @@ export function mainSdkResources(selection, candidates = []) {
     },
     loader: {
       noExtensions: true, noSkills: true, noPromptTemplates: true, noContextFiles: true, noThemes: true,
-      additionalExtensionPaths: [...builtinPaths, ...extensions],
+      additionalExtensionPaths: [...builtinPaths, ...extensions, outwardGuardExtension],
       additionalSkillPaths: loadedSkills, additionalPromptTemplatePaths: templates,
       agentsFilesOverride: () => ({ agentsFiles: instructions }),
       systemPrompt: '', systemPromptOverride: () => undefined,
