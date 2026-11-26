@@ -170,13 +170,21 @@ export function learnQuietHours(presenceEvents, { now, days = 14, timeZone = mac
     for (let time = start; time < end; time += HOUR_MS / 2) mark(time);
     mark(end > start ? end - 1 : start);
   });
-  const seen = daysOn.size;
-  if (seen < QUIET_DAYS) return { hours: [], enough: false, days: seen, reason: `Only ${seen} days of presence, so no hour is quiet yet.` };
-  const hours = hoursOn.flatMap((dates, hour) => (dates.size * 2 < seen ? [hour] : []));
-  if (hours.length > MOST_QUIET_HOURS) {
-    return { hours: [], enough: false, days: seen, reason: `${hours.length} quiet hours would cover most of the day, so no hour is quiet until the user's hours settle.` };
+  const dayCount = daysOn.size;
+  if (dayCount < QUIET_DAYS) {
+    return { hours: [], enough: false, days: dayCount, reason: `Only ${dayCount} days of presence, so no hour is quiet yet.` };
   }
-  return { hours, enough: true, days: seen, reason: `Learned from ${seen} days of presence.` };
+
+  const hours = hoursOn.flatMap((dates, hour) => (dates.size * 2 < dayCount ? [hour] : []));
+  if (hours.length > MOST_QUIET_HOURS) {
+    return {
+      hours: [],
+      enough: false,
+      days: dayCount,
+      reason: `${hours.length} quiet hours would cover most of the day, so no hour is quiet until the user's hours settle.`,
+    };
+  }
+  return { hours, enough: true, days: dayCount, reason: `Learned from ${dayCount} days of presence.` };
 }
 
 /**
@@ -229,7 +237,10 @@ export function itemLevel(item, { now, nextDigest } = {}) {
   return forToday ? 'P1' : 'P2';
 }
 
-/** What holds deliveries back at `now`: an event in the day file or quiet hours, and when that hold ends. Quiet hours never hold back a user who is on. */
+/**
+ * What holds deliveries back at `now`: an event in the day file or quiet hours, and when that hold ends. Quiet hours never hold back a user
+ * who is on.
+ */
 function holdAt(now, { day, quiet = [], present = false, timeZone }) {
   const event = day?.events?.find(({ start, end }) => Date.parse(start) <= now && now < Date.parse(end));
   const { hour, minute } = wallClock(now, timeZone);
@@ -277,7 +288,9 @@ export function deliveryFor(item, { now, level, moments = [], quiet = [], day, p
   }
   if (!present) return answer('now', 'P0 goes now, because the user is away and it interrupts nothing.');
   if (Number.isFinite(due) && due - now <= NEAR_MS) return answer('now', 'P0 cannot wait for a pause, because its deadline is minutes away.');
-  return now - instant(item.heldAt) >= PAUSE_MOST_WAIT_MS
+
+  const waitedLongEnough = now - instant(item.heldAt) >= PAUSE_MOST_WAIT_MS;
+  return waitedLongEnough
     ? answer('now', `P0 has waited ${PAUSE_MOST_WAIT_MS / MINUTE_MS} minutes for a pause, so it goes now.`)
     : answer('breakpoint', 'P0 goes at the next pause in the user\'s work.');
 }
@@ -287,14 +300,21 @@ export function deliveryFor(item, { now, level, moments = [], quiet = [], day, p
  * today, so it waits no longer than its day: past the day's last digest time, past the day itself, or, with none learned yet, four hours.
  */
 function waitedTooLong(held, { now, moments, timeZone }) {
-  const waited = ({ heldAt }) => now - instant(heldAt);
-  if (held.some(entry => waited(entry) >= MOST_WAIT_MS)) return 'Something has waited a day for a digest';
+  const waitedMs = ({ heldAt }) => now - instant(heldAt);
+  if (held.some(entry => waitedMs(entry) >= MOST_WAIT_MS)) return 'Something has waited a day for a digest';
+
   const forToday = held.filter(({ level }) => level === 'P1');
   if (!forToday.length) return null;
+
   const today = userDay(now, timeZone).date;
-  if (forToday.some(({ heldAt }) => userDay(instant(heldAt), timeZone).date < today)) return 'P1 from a day that is over is waiting';
-  if (moments.length) return digestLeftToday(moments, now, timeZone) ? null : 'No digest time is left today, and P1 is for today';
-  return forToday.some(entry => waited(entry) >= P1_MOST_WAIT_MS) ? 'P1 has waited four hours with no digest time learned' : null;
+  const fromADayThatIsOver = forToday.some(({ heldAt }) => userDay(instant(heldAt), timeZone).date < today);
+  if (fromADayThatIsOver) return 'P1 from a day that is over is waiting';
+
+  if (moments.length) {
+    return digestLeftToday(moments, now, timeZone) ? null : 'No digest time is left today, and P1 is for today';
+  }
+  const waitedForAReturn = forToday.some(entry => waitedMs(entry) >= P1_MOST_WAIT_MS);
+  return waitedForAReturn ? 'P1 has waited four hours with no digest time learned' : null;
 }
 
 // The first sighting of the day is a return, a new user's too, who has no time away yet.
@@ -307,11 +327,21 @@ const isReturn = returned => returned?.kind === 'first' || returned?.awayMs >= R
  * (`returned`, the presence facts of that sighting).
  */
 export function digestDue({
-  now, moments = [], lastDigest = -Infinity, present = false, atPause = present, held = [], returned = null, day, quiet = [], timeZone = machineZone(),
+  now,
+  moments = [],
+  lastDigest = -Infinity,
+  present = false,
+  atPause = present,
+  held = [],
+  returned = null,
+  day,
+  quiet = [],
+  timeZone = machineZone(),
 }) {
   if (!present) return { due: false, reason: 'The user is not on.' };
   const hold = holdAt(now, { day, quiet, present, timeZone });
   if (hold) return { due: false, reason: `No digest during ${hold.what}.` };
+
   const late = waitedTooLong(held, { now, moments, timeZone });
   if (late) {
     return atPause

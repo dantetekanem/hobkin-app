@@ -279,11 +279,9 @@ test('in quiet hours only a P0 reaches Chat while the user is away, and their re
 test('a light, irregular user still gets a digest: three scattered days make no quiet hours', async t => {
   const h = fixture(t);
   // On three days in two weeks, two hours at a time, at 07:00, 13:00 and 20:00.
-  const days = [[14, 7], [18, 13], [22, 20]];
-  days.forEach(([day, hour], index) => {
-    const previous = days[index - 1];
-    recordEvent(h.root, 'presence', { kind: 'first', ...(previous ? { awayMs: local(day, hour) - local(previous[0], previous[1] + 2) } : {}) }, local(day, hour));
-  });
+  recordEvent(h.root, 'presence', { kind: 'first' }, local(14, 7));
+  recordEvent(h.root, 'presence', { kind: 'first', awayMs: local(18, 13) - local(14, 9) }, local(18, 13));
+  recordEvent(h.root, 'presence', { kind: 'first', awayMs: local(22, 20) - local(18, 15) }, local(22, 20));
   h.clock.at = local(26, 15);
   writeBriefState(h.root, { lastSeenAt: iso(local(22, 22)) });
   h.seen();

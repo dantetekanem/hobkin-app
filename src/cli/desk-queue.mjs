@@ -36,7 +36,8 @@ const LEARN_EVERY_MS = HOUR_MS;
 const LEARN_DAYS = 14;
 const SEEN_MS = 14 * DAY_MS;
 const LONGEST_LINE = 300;
-// Lines that answer what the user just did, and the one that says once what usage upload sends. None of them is an incoming item.
+// Lines that answer what the user just did, and the one that says once what usage upload sends. None of them is an incoming item, and
+// neither is a line marked `asked`, such as a run the user started by hand.
 const REPLIES = new Set(['answer', 'brief', 'card', 'feedback', 'memory', 'telemetry-upload']);
 // A notice's tone is the triage the desk levels by. A quiet line is news that can wait, never nothing.
 const TRIAGE = { critical: 'critical', blocked: 'blocked', useful: 'useful', quiet: 'useful' };
@@ -60,7 +61,7 @@ const sourceOf = ({ id }) => String(id ?? '').split(':')[1] ?? '';
 // One line whatever was written, so nothing in it can pass for a line of its own.
 const flat = text => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, LONGEST_LINE);
 const withoutDeskFacts = ({ blocksWork, asked, ...notice }) => notice;
-const isItem = notice => ['notice', 'system'].includes(notice.role) && !REPLIES.has(sourceOf(notice));
+const isItem = notice => ['notice', 'system'].includes(notice.role) && !REPLIES.has(sourceOf(notice)) && !notice.asked;
 
 /** The item the desk levels: its source, its triage, and whether work is stopped until the user acts. */
 function itemOf(notice) {
@@ -88,7 +89,7 @@ const emptyQueue = () => ({ version: VERSION, held: [], posting: [], seen: {}, l
 const UNREADABLE = 'DESK_UNREADABLE';
 const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
-function parsed(text) {
+function jsonOrNull(text) {
   try {
     return JSON.parse(text);
   } catch {
@@ -108,7 +109,7 @@ function readQueue(root) {
     if (error.code === 'ENOENT') return emptyQueue();
     throw error;
   }
-  const saved = parsed(text);
+  const saved = jsonOrNull(text);
   if (!isRecord(saved)) throw Object.assign(Error('The desk file holds no queue.'), { code: UNREADABLE });
   return {
     version: VERSION,
@@ -119,6 +120,16 @@ function readQueue(root) {
     returned: saved.returned && typeof saved.returned === 'object' ? saved.returned : null,
   };
 }
+
+/** The one line in Chat that says the desk's file was kept aside, and as what. */
+const keptAsideLine = (name, now) => ({
+  id: `notice:desk:${name}`,
+  role: 'notice',
+  content: `The desk's file could not be read, so hobkin kept it as runtime/${name} and started the desk again. `
+    + 'Lines it held for the next digest may be in that file.',
+  tone: 'critical',
+  at: iso(now),
+});
 
 /**
  * The queue for the desk to work on. A file that holds no queue is kept aside as `runtime/desk.unreadable-<when>.json`, so what it held is
@@ -132,14 +143,9 @@ function openQueue(root, now) {
   }
   const name = `desk.unreadable-${iso(now).replace(/[:.]/g, '-')}.json`;
   renameSync(deskPath(root), join(root, 'runtime', name));
+
   const queue = emptyQueue();
-  queue.posting.push({
-    id: `notice:desk:${name}`,
-    role: 'notice',
-    content: `The desk's file could not be read, so hobkin kept it as runtime/${name} and started the desk again. Lines it held for the next digest may be in that file.`,
-    tone: 'critical',
-    at: iso(now),
-  });
+  queue.posting.push(keptAsideLine(name, now));
   writeQueue(root, queue, now);
   return queue;
 }
@@ -160,6 +166,12 @@ export function readHeld(root) {
 }
 
 const byLevelThenAge = (left, right) => RANK[left.level] - RANK[right.level] || Date.parse(left.heldAt) - Date.parse(right.heldAt);
+
+/** The return that waits with what is held: this look's, or the one saved before it. With nothing held there is none. */
+function pendingReturn(queue, returned, now) {
+  if (!queue.held.length) return null;
+  return returned ? { ...returned, at: iso(now) } : queue.returned;
+}
 
 /**
  * One Chat message for what the desk held: the point first, then one line per item, those for today before those that can wait, oldest
@@ -306,7 +318,7 @@ export class Desk {
         const taken = new Set([...Object.keys(queue.seen), ...queue.held.map(({ id }) => id)]);
         fresh.forEach((notice, index) => {
           const line = plain[index];
-          if (!isItem(line) || notice.asked) {
+          if (!isItem(notice)) {
             post.push(line);
             return;
           }
@@ -362,25 +374,25 @@ export class Desk {
       const context = this.context(now, presence, busy);
       const events = [];
       let changed = this.release(queue, context, events);
-      // A return waits with what is held until a digest takes it, so a look that cannot post one yet does not lose it. With nothing held
-      // there is nothing for it to bring, and what comes in after it waits for the next return.
-      const pending = queue.held.length ? (returned ? { ...returned, at: iso(now) } : queue.returned) : null;
+
+      // A return waits with what is held until a digest takes it, so a look that cannot post one yet does not lose it. What comes in
+      // after a return that found nothing held waits for the next one.
+      const pending = pendingReturn(queue, returned, now);
       if (pending !== queue.returned) {
         queue.returned = pending;
         changed = true;
       }
+
       if (queue.held.length) {
         const lastDigest = Date.parse(queue.lastDigestAt ?? '');
-        const due = digestDue({ ...context, lastDigest: Number.isFinite(lastDigest) ? lastDigest : -Infinity, returned: queue.returned, held: queue.held });
+        const due = digestDue({
+          ...context,
+          lastDigest: Number.isFinite(lastDigest) ? lastDigest : -Infinity,
+          returned: queue.returned,
+          held: queue.held,
+        });
         if (due.due) {
-          const held = queue.held;
-          const landed = held.filter(({ level }) => RANK[level] <= RANK.P1).length;
-          const digest = digestMessage(held, { now, room: landed ? this.room(context, landed) : null });
-          queue.posting.push(digest);
-          queue.held = [];
-          queue.lastDigestAt = iso(now);
-          queue.returned = null;
-          events.push(['digest_posted', { items: held.length, ...digest.digest.levels, why: due.why }]);
+          this.postDigest(queue, context, due.why, events);
           changed = true;
         }
       }
@@ -389,6 +401,19 @@ export class Desk {
     } catch {
       return false;
     }
+  }
+
+  /** Everything held goes out as one digest, and the return it answers goes with it. */
+  postDigest(queue, context, why, events) {
+    const { held } = queue;
+    const landed = held.filter(({ level }) => RANK[level] <= RANK.P1).length;
+    const digest = digestMessage(held, { now: context.now, room: landed ? this.room(context, landed) : null });
+
+    queue.posting.push(digest);
+    queue.held = [];
+    queue.lastDigestAt = iso(context.now);
+    queue.returned = null;
+    events.push(['digest_posted', { items: held.length, ...digest.digest.levels, why }]);
   }
 
   /** The room line for this digest. Trouble reading what waits costs the digest that line and nothing else. */

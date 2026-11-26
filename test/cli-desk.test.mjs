@@ -260,11 +260,11 @@ test('quiet hours never hold back a user who is on', () => {
 
 // A light, irregular user: on three days in two weeks, two hours at a time, at 07:00, 13:00 and 20:00.
 const lightNow = at('2026-11-26', '15:00');
-const lightDays = [['2026-11-14', '07:00'], ['2026-11-18', '13:00'], ['2026-11-22', '20:00'], ['2026-11-26', '15:00']];
-const lightEvents = lightDays.map(([date, time], index) => {
-  const previous = lightDays[index - 1];
-  return presence(at(date, time), 'first', previous ? at(date, time) - (at(...previous) + 2 * HOUR) : undefined);
-});
+const lightEvents = workdays([
+  { date: '2026-11-14', first: '07:00', stop: '09:00' },
+  { date: '2026-11-18', first: '13:00', stop: '15:00' },
+  { date: '2026-11-22', first: '20:00', stop: '22:00' },
+], { date: '2026-11-26', first: '15:00' });
 
 test('quiet hours need five days on, so three scattered days make none', () => {
   const learned = learnQuietHours(lightEvents, { now: lightNow, days: 14, timeZone });
@@ -274,8 +274,18 @@ test('quiet hours need five days on, so three scattered days make none', () => {
 });
 
 test('quiet hours never cover most of the day: a user on at no regular hour has none', () => {
-  const scattered = ['02:00', '07:00', '11:00', '15:00', '19:00', '23:00'].map((first, index) => ({ date: `2026-11-${13 + index}`, first, stop: first.replace(/^\d\d/, hour => String((Number(hour) + 2) % 24).padStart(2, '0')) }));
-  const learned = learnQuietHours(workdays(scattered.map(day => ({ ...day, stopOn: day.first === '23:00' ? dayAfter(day.date) : day.date }))), { now: lightNow, days: 14, timeZone });
+  // Six days on, two hours each, starting at a different hour every day.
+  const scattered = [
+    { date: '2026-11-13', first: '02:00', stop: '04:00' },
+    { date: '2026-11-14', first: '07:00', stop: '09:00' },
+    { date: '2026-11-15', first: '11:00', stop: '13:00' },
+    { date: '2026-11-16', first: '15:00', stop: '17:00' },
+    { date: '2026-11-17', first: '19:00', stop: '21:00' },
+    { date: '2026-11-18', first: '23:00', stop: '01:00', stopOn: '2026-11-19' },
+  ];
+
+  const learned = learnQuietHours(workdays(scattered), { now: lightNow, days: 14, timeZone });
+
   assert.deepEqual(learned.hours, []);
   assert.match(learned.reason, /most of the day/);
 });
@@ -284,32 +294,49 @@ test('a light, irregular user still gets a digest the day something waits', () =
   const learnedMoments = learnMoments(lightEvents, { now: lightNow, days: 14, timeZone }).moments;
   const learnedQuiet = learnQuietHours(lightEvents, { now: lightNow, days: 14, timeZone }).hours;
   const held = [{ level: 'P1', heldAt: iso('2026-11-26', '14:50') }];
+
   const due = digestDue({ now: lightNow, moments: learnedMoments, quiet: learnedQuiet, present: true, held, timeZone });
+
   assert.equal(due.due, true, due.reason);
 });
 
 test('anything held a day posts at the user\'s next pause, whatever else holds digests back', () => {
   const given = { moments, quiet, timeZone, present: true, now: on('15:00'), lastDigest: on('14:00') };
   const held = [{ level: 'P2', heldAt: at('2026-11-22', '14:59') }, { level: 'P2', heldAt: on('14:30') }];
+
   const late = digestDue({ ...given, held });
+
   assert.equal(late.due, true);
   assert.equal(late.why, 'late');
   assert.equal(digestDue({ ...given, held, atPause: false }).due, false, 'it waits for a pause');
   assert.equal(digestDue({ ...given, held: held.slice(1) }).due, false, 'what waited less waits for the next digest');
 });
 
-test('P1 waits no longer than its day: past the day\'s last digest time, past the day itself, or four hours with none learned', () => {
-  const given = { quiet, timeZone, present: true };
-  // The last digest came late, at 15:30, so the 17:00 one would wait for 17:30. P1 does not.
-  const p1 = [{ level: 'P1', heldAt: on('16:00') }];
-  assert.equal(digestDue({ ...given, moments, now: on('16:30'), lastDigest: on('15:30'), held: p1 }).due, false);
-  assert.equal(digestDue({ ...given, moments, now: on('17:00'), lastDigest: on('15:30'), held: p1 }).why, 'late');
-  assert.equal(digestDue({ ...given, moments, now: on('17:00'), lastDigest: on('15:30'), held: [{ level: 'P2', heldAt: on('16:00') }] }).due, false, 'only P1 is for today');
-  // With no digest time learned, P1 waits four hours for a return at most.
-  assert.equal(digestDue({ ...given, moments: [], now: on('13:00'), lastDigest: on('09:00'), held: [{ level: 'P1', heldAt: on('09:30') }] }).due, false);
-  assert.equal(digestDue({ ...given, moments: [], now: on('13:30'), lastDigest: on('09:00'), held: [{ level: 'P1', heldAt: on('09:30') }] }).why, 'late');
-  // P1 from yesterday is late, whatever is learned.
-  assert.equal(digestDue({ ...given, moments: [], now: at('2026-11-24', '08:00'), lastDigest: on('21:30'), held: [{ level: 'P1', heldAt: on('22:00') }] }).why, 'late');
+test('P1 still held when the day\'s last digest time comes brings the digest, whatever the two-hour gap says', () => {
+  // The last digest came late, at 15:30, so the 17:00 one would wait for 17:30.
+  const given = { moments, quiet, timeZone, present: true, lastDigest: on('15:30') };
+  const forToday = [{ level: 'P1', heldAt: on('16:00') }];
+  const canWait = [{ level: 'P2', heldAt: on('16:00') }];
+
+  assert.equal(digestDue({ ...given, now: on('16:30'), held: forToday }).due, false);
+  assert.equal(digestDue({ ...given, now: on('17:00'), held: forToday }).why, 'late');
+  assert.equal(digestDue({ ...given, now: on('17:00'), held: canWait }).due, false, 'only P1 is for today');
+});
+
+test('with no digest time learned, P1 waits four hours for a return at most', () => {
+  const given = { moments: [], quiet, timeZone, present: true, lastDigest: on('09:00') };
+  const forToday = [{ level: 'P1', heldAt: on('09:30') }];
+
+  assert.equal(digestDue({ ...given, now: on('13:00'), held: forToday }).due, false);
+  assert.equal(digestDue({ ...given, now: on('13:30'), held: forToday }).why, 'late');
+});
+
+test('P1 from a day that is over brings the digest before the new day\'s first digest time', () => {
+  const lastNight = [{ level: 'P1', heldAt: on('22:00') }];
+
+  const due = digestDue({ moments, quiet, timeZone, present: true, now: at('2026-11-24', '08:00'), lastDigest: on('21:30'), held: lastNight });
+
+  assert.equal(due.why, 'late');
 });
 
 test('before any moment is learned, a digest comes when the user returns after a gap', () => {

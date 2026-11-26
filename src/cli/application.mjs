@@ -734,7 +734,8 @@ export class HobkinApplication {
       notices.push({ id: toldId, role: 'notice', content: told.line, tone: told.tone, at: told.at });
       noticeIds.add(toldId);
     }
-    // These read as Hobkin speaking, because the user is meant to answer them. One that says what the user's yes did is `asked`, so the desk posts it at once.
+    // These read as Hobkin speaking, because the user is meant to answer them. One that says what the user's yes did is `asked`, so the
+    // desk posts it at once.
     const shipping = work.shipNotice;
     const shippingId = shipping && `notice:work-ship:${shipping.at}`;
     if (shipping && !noticeIds.has(shippingId)) {
@@ -819,10 +820,10 @@ export class HobkinApplication {
       const triage = reportTriage(run);
       if (triage?.level === 'nothing') continue;
       // A run the user started by hand answers them, so the desk posts its line at once.
-      const asked = run.trigger === 'manual' ? { asked: true } : {};
+      const byHand = run.trigger === 'manual' ? { asked: true } : {};
       // A busy project would push the conversation out of Chat, so what needs no answer takes a quiet line that folds into the next.
       if (run.work?.slug && !['critical', 'blocked'].includes(triage?.level)) {
-        if (triage?.level === 'useful') notices.push({ ...finishedLine(id, scheduleName, triage.message, run.finishedAt), ...asked });
+        if (triage?.level === 'useful') notices.push({ ...finishedLine(id, scheduleName, triage.message, run.finishedAt), ...byHand });
         continue;
       }
       // A look speaks for itself above, with every proposal in it.
@@ -842,7 +843,7 @@ export class HobkinApplication {
         at: run.finishedAt,
         // Work stops on a work run's item until the user acts. The desk weighs it and takes it off the line.
         ...(run.work?.slug ? { blocksWork: true } : {}),
-        ...asked,
+        ...byHand,
       });
       noticeIds.add(id);
     }
