@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="-28 -28 256 256" role="img" aria-label="Hobkin — Listening">
+<title>Hobkin — Listening</title>
+<style>.body,.look,.blink,.dot,.z,.hand,.key,.pulse,.twinkle,.spin,.narrow,.wavehand,.qfloat,.puff{transform-box:fill-box}
+.body{transform-origin:50% 100%}
+.look,.blink,.pulse,.twinkle,.spin,.narrow{transform-origin:50% 50%}
+.wavehand{transform-origin:20% 100%}
+.confetti{transform-box:view-box;transform-origin:100px 46px}
+.m-idle{animation:hb-breathe 3.2s ease-in-out infinite}
+.m-hello{animation:hb-hello 1s ease-in-out infinite}
+.m-listening{animation:hb-lean 3s ease-in-out infinite}
+.m-thinking{animation:hb-sway 3s ease-in-out infinite}
+.m-searching{animation:hb-slide 1.6s ease-in-out infinite}
+.m-working{animation:hb-bob .35s ease-in-out infinite}
+.m-focused{animation:hb-breathe 5s ease-in-out infinite}
+.m-happy{animation:hb-hop .9s cubic-bezier(.3,.7,.4,1) infinite}
+.m-celebrating{animation:hb-hop .8s cubic-bezier(.3,.7,.4,1) infinite}
+.m-love{animation:hb-sway 2.4s ease-in-out infinite}
+.m-wink{animation:hb-tilt 2s ease-in-out infinite}
+.m-surprised{animation:hb-pop 2.4s ease-out infinite}
+.m-confused{animation:hb-puzzle 2.4s ease-in-out infinite}
+.m-sad{animation:hb-sad 4s ease-in-out infinite}
+.m-grumpy{animation:hb-tremble .18s linear infinite}
+.m-error{animation:hb-shake 1.6s ease-in-out infinite}
+.m-dizzy{animation:hb-wobble 1.2s ease-in-out infinite}
+.m-sleepy{animation:hb-sleep 4.5s ease-in-out infinite}
+.l-up{animation:hb-lookup 3s ease-in-out infinite}
+.l-left{animation:hb-listen 2s ease-in-out infinite}
+.l-search{animation:hb-search 1.6s ease-in-out infinite}
+.l-type{animation:hb-typelook 1s ease-in-out infinite}
+.l-focus{transform:translate(0,2px)}
+.l-down{transform:translate(0,6px)}
+.l-big{animation:hb-big 2.4s ease-out infinite}
+.b-on{animation:hb-blink 4s infinite}
+.b-slow{animation:hb-blink 6s infinite}
+.pulse{animation:hb-beat 1s ease-in-out infinite}
+.twinkle{animation:hb-twinkle 1.2s ease-in-out infinite}
+.spin{animation:hb-spin 1.2s linear infinite}
+.narrow{animation:hb-narrow 3s ease-in-out infinite}
+.dot{animation:hb-pulse 1.2s ease-in-out infinite}
+.d2{animation-delay:.2s}
+.d3{animation-delay:.4s}
+.z{opacity:0;animation:hb-z 3s ease-out infinite}
+.z2{animation-delay:1s}
+.z3{animation-delay:2s}
+.hand{animation:hb-tap .5s ease-in-out infinite}
+.h2{animation-delay:-.25s}
+.key{opacity:0;animation:hb-key 1s steps(1) infinite}
+.k2{animation-delay:.25s}
+.k3{animation-delay:.5s}
+.k4{animation-delay:.75s}
+.wavehand{animation:hb-wave .6s ease-in-out infinite}
+.wl{animation:hb-pulse .6s ease-in-out infinite}
+.snd{animation:hb-snd 1.5s ease-in-out infinite}
+.s2{animation-delay:.2s}
+.s1{animation-delay:.4s}
+.qfloat{animation:hb-qfloat 2.4s ease-in-out infinite}
+.confetti{animation:hb-burst 1.2s ease-out infinite}
+.puff{opacity:0;animation:hb-puff 1.4s ease-out infinite}
+.p2{animation-delay:.7s}
+@keyframes hb-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.02,1.04)}}
+@keyframes hb-hello{0%,100%{transform:rotate(3deg)}50%{transform:rotate(5deg) translateY(-3px)}}
+@keyframes hb-lean{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(-5deg) scale(1.01,1.03)}}
+@keyframes hb-sway{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
+@keyframes hb-slide{0%,100%{transform:translateX(-4px)}50%{transform:translateX(4px)}}
+@keyframes hb-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@keyframes hb-hop{0%{transform:translateY(0) scale(1.06,.94)}30%{transform:translateY(-18px) scale(.96,1.05)}55%{transform:translateY(0) scale(1.08,.92)}75%,100%{transform:translateY(0) scale(1,1)}}
+@keyframes hb-tilt{0%,100%{transform:rotate(0)}30%,70%{transform:rotate(6deg)}}
+@keyframes hb-pop{0%{transform:scale(1,1)}8%{transform:translateY(-14px) scale(.94,1.12)}16%{transform:translateY(0) scale(1.05,.96)}24%,85%{transform:translateY(0) scale(1,1.04)}100%{transform:scale(1,1)}}
+@keyframes hb-puzzle{0%,100%{transform:rotate(6deg)}50%{transform:rotate(9deg)}}
+@keyframes hb-sad{0%,100%{transform:scale(1.04,.92)}50%{transform:scale(1.05,.9)}}
+@keyframes hb-tremble{0%,100%{transform:translateX(-1.5px)}50%{transform:translateX(1.5px)}}
+@keyframes hb-shake{0%,60%,100%{transform:translateX(0)}10%,30%,50%{transform:translateX(-6px)}20%,40%{transform:translateX(6px)}}
+@keyframes hb-wobble{0%,100%{transform:rotate(-7deg)}50%{transform:rotate(7deg)}}
+@keyframes hb-sleep{0%,100%{transform:scale(1,1)}50%{transform:scale(1.04,1.06)}}
+@keyframes hb-lookup{0%,100%{transform:translate(5px,-6px)}50%{transform:translate(8px,-8px)}}
+@keyframes hb-listen{0%,100%{transform:translate(-6px,-2px)}50%{transform:translate(-8px,-4px)}}
+@keyframes hb-search{0%,100%{transform:translate(-12px,0)}50%{transform:translate(10px,2px)}}
+@keyframes hb-typelook{0%,100%{transform:translate(-3px,6px)}50%{transform:translate(3px,6px)}}
+@keyframes hb-big{0%{transform:scale(1)}10%,85%{transform:scale(1.35)}100%{transform:scale(1)}}
+@keyframes hb-blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.1)}}
+@keyframes hb-beat{0%,100%{transform:scale(1)}15%{transform:scale(1.25)}30%{transform:scale(1)}45%{transform:scale(1.15)}}
+@keyframes hb-twinkle{0%,100%{transform:scale(1) rotate(0)}50%{transform:scale(1.25) rotate(45deg)}}
+@keyframes hb-spin{to{transform:rotate(360deg)}}
+@keyframes hb-narrow{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.55)}}
+@keyframes hb-pulse{0%,100%{opacity:.25}50%{opacity:1}}
+@keyframes hb-z{0%{opacity:0;transform:translate(0,0)}20%{opacity:1}100%{opacity:0;transform:translate(16px,-28px)}}
+@keyframes hb-tap{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes hb-key{0%{opacity:1}20%{opacity:0}}
+@keyframes hb-wave{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(24deg)}}
+@keyframes hb-snd{0%,100%{opacity:.15}30%{opacity:1}}
+@keyframes hb-qfloat{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-6px) rotate(6deg)}}
+@keyframes hb-burst{0%{transform:scale(.2);opacity:0}15%{opacity:1}70%{transform:scale(1.05);opacity:1}100%{transform:scale(1.2);opacity:0}}
+@keyframes hb-puff{0%{opacity:0;transform:translate(0,0) scale(.6)}25%{opacity:1}100%{opacity:0;transform:translate(0,-16px) scale(1.3)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}.z,.puff{opacity:1}}</style>
+<rect x="-28" y="-28" width="256" height="256" fill="#0E0F13"></rect>
+<g class="body m-listening"><path d="M40 180 Q40 100 100 22 Q160 100 160 180 Q160 188 152 188 L48 188 Q40 188 40 180 Z" fill="#F0EAD6"></path>
+<g class="look l-left"><g class="blink b-on" opacity="1"><circle cx="84" cy="138" r="8" fill="#E8A317"></circle><circle cx="116" cy="138" r="8" fill="#E8A317"></circle></g></g></g>
+<g fill="none" stroke="#F0EAD6" stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5"><path class="snd s1" d="M30 108 Q24 118 30 128"></path><path class="snd s2" d="M20 100 Q10 118 20 136"></path><path class="snd" d="M10 92 Q-4 118 10 144"></path></g>
+</svg>

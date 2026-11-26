@@ -1,0 +1,1 @@
+The schedules you made with `hobkin_schedule`. `action` `list` shows yours, the live ones and those that ended in the last hour, each with its `id`, when it fires next (`nextAt`), its runs and wakes, its last run and why it ended. `cancel`, `pause`, `resume` and `run` (once, now) take its `id`. Cancel one as soon as you have what you waited for. You reach only your own schedules.

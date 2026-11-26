@@ -1,0 +1,35 @@
+{
+  "name": "hobkin",
+  "version": "0.1.7",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "pnpm@11.12.0",
+  "type": "module",
+  "description": "A chat-first CLI agent with recurring Pi checks, work mode and a persistent Pi conversation.",
+  "bin": { "hobkin": "./src/cli/main.mjs" },
+  "keywords": ["pi-package"],
+  "repository": "https://github.com/dantetekanem/hobkin",
+  "files": ["src", "assets", "README.md", "docs/guide.md", "docs/upgrade.md", "docs/legacy.md"],
+  "pi": { "extensions": ["./src/index.ts"] },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "^1.5.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
+    "@earendil-works/pi-tui": "1.5.0",
+    "typebox": "*"
+  },
+  "scripts": {
+    "hobkin": "node src/cli/main.mjs",
+    "test": "node --test test/hobkin.test.mjs test/durable.test.mjs test/experience.test.mjs test/reinforcement.test.mjs",
+    "test:cli": "node --test --test-concurrency=${HOBKIN_TEST_CONCURRENCY:-4} test/cli-*.test.mjs",
+    "test:migration": "node --test --test-concurrency=${HOBKIN_TEST_CONCURRENCY:-4} test/migration.test.mjs test/migration-*.test.mjs"
+  },
+  "engines": { "node": ">=22.19.0" },
+  "devEngines": {
+    "runtime": { "name": "node", "version": "26.3.1", "onFail": "download" }
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.5.0",
+    "@earendil-works/pi-durable": "1.5.0",
+    "proper-lockfile": "4.1.2"
+  }
+}

@@ -1,0 +1,523 @@
+import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { BRIDGE, serveBridge } from './bridge.mjs';
+import { readPersona } from './config.mjs';
+import { readDecided } from './decided.mjs';
+import { readDirections } from './directions.mjs';
+import { createCheckMessageTool, createScheduleTool, createSettingsTool, createStopWorkloadTool } from './hobkin-tools.mjs';
+import { piCommand, piEnvironment } from './launcher.mjs';
+import { keptPrompt } from './prompt-parts.mjs';
+import { createMemoryTool, readMemory } from './memory.mjs';
+import { keptEffort, runModelSettings } from './model-settings.mjs';
+import { MAX_SESSION_BYTES, readSessionHeader } from './migration/ownership.mjs';
+import { createActionItemTool } from './action-item-tool.mjs';
+import { createQuestionTool } from './questions.mjs';
+import { startRpcProcess } from './rpc-process.mjs';
+import { startMainSessionChild } from './main-session-child.mjs';
+import { SHIPPED_SKILLS } from './skills-extension.mjs';
+import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
+import { agentScheduleTools } from './schedule-tools.mjs';
+import { MAIN_INDEX_BYTES, memorySnapshot } from './memories.mjs';
+import { mainMemoryTools, memoryHandler } from './memory-tools.mjs';
+import { INTEGRATIONS_ENV, integrationExtension } from './integration-extension.mjs';
+import { integrationEnvironment, integrationOffer, isIntegrationCall, MAIN_AGENT, serveIntegration } from './integrations.mjs';
+
+export const extensionPath = fileURLToPath(new URL('./hobkin-extension.mjs', import.meta.url));
+const dialogMethods = new Set(['select', 'confirm', 'input', 'editor']);
+// An approval must show everything it approves, so text that would be cut declines the dialog instead.
+const fullLine = (value, limit) => {
+  const line = String(value ?? '').replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ').trim();
+  return line.length <= limit ? line : null;
+};
+const unavailable = error => {
+  if (!error.commandRejected) throw error;
+  return null;
+};
+const realOrSame = path => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+};
+// Pi runs a saved conversation in the directory its header records, so a changed cwd must not pass silently.
+const sameDirectory = (left, right) => realOrSame(left) === realOrSame(right);
+
+const isMessage = value => Boolean(value) && typeof value === 'object';
+// How long a quit waits for Pi to answer its stop before it ends the process.
+const QUIT_AFTER_MS = 2000;
+
+/**
+ * The same readers, each leaving a short hash of what it last read. The main agent's system prompt is built from these
+ * parts, and one that changes sends the whole conversation uncached, so a turn's event can say which part changed since
+ * the turn before, and never what any part says.
+ */
+export function fingerprinted(readers) {
+  const parts = {};
+  const reading = ([part, read]) => [part, () => {
+    const value = read();
+    parts[part] = createHash('sha256').update(JSON.stringify(value) ?? '').digest('hex').slice(0, 12);
+    return value;
+  }];
+  return { readers: Object.fromEntries(Object.entries(readers).map(reading)), parts };
+}
+
+// Assistant text only; thinking and tool-call blocks never reach the transcript view.
+function applyUpdate(message, update) {
+  if (!message || !update) return;
+  message.content ??= [];
+  const block = message.content[update.contentIndex];
+  if (update.type === 'text_start') message.content[update.contentIndex] = { type: 'text', text: '' };
+  else if (update.type === 'text_delta' && block?.type === 'text') block.text += update.delta;
+  else if (update.type === 'text_end' && block?.type === 'text') block.text = update.content;
+}
+
+/**
+ * The main conversation as a Pi RPC child behind the configured launcher. It offers the surface of the
+ * SDK session that the runtime uses, from a cache that events keep live and get_messages settles.
+ */
+export class PiRpcSession {
+  messages = [];
+  model = null;
+  thinkingLevel = null;
+  isStreaming = false;
+  isCompacting = false;
+  autoCompactionEnabled = true;
+  hello = null;
+  clientHello = null;
+  bashIds = new Map();
+
+  constructor({ askQuestion, tools, memory, memories, directions, decided, persona, graceMs }) {
+    Object.assign(this, { askQuestion, tools, memory, memories, directions, decided, persona, graceMs });
+    this.listeners = new Set();
+    this.calls = new Set();
+    this.waiters = new Set();
+    this.idle = new Set();
+    this.stats = null;
+    this.open = null;
+    this.syncing = null;
+    this.disposed = false;
+    this.exit = Promise.withResolvers();
+    this.exited = this.exit.promise;
+  }
+
+  attach(child) {
+    this.child = child;
+    child.closed.then(({ error }) => {
+      for (const controller of this.calls) controller.abort();
+      for (const waiter of this.waiters) waiter.reject(error);
+      this.waiters.clear();
+      for (const resolve of this.idle) resolve();
+      this.idle.clear();
+      this.bashIds.clear();
+      this.isStreaming = false;
+      this.open = null;
+      // An exit hobkin asked for, by closing or quitting, does not stop the chat.
+      this.exit.resolve(this.disposed || this.ending ? null : error);
+    });
+  }
+
+  absorb(state) {
+    if (this.sessionId !== undefined && (state.sessionId !== this.sessionId || state.sessionFile !== this.sessionFile)) {
+      throw Error('Main Pi conversation identity changed.');
+    }
+    this.sessionId = state.sessionId;
+    this.sessionFile = state.sessionFile;
+    this.model = state.model ?? null;
+    this.thinkingLevel = state.thinkingLevel;
+    this.isStreaming = Boolean(state.isStreaming);
+    this.isCompacting = Boolean(state.isCompacting);
+    this.autoCompactionEnabled = state.autoCompactionEnabled ?? true;
+  }
+
+  /** One serialized pass so a slow reply can never overwrite a newer one. */
+  pull() {
+    const run = (this.syncing ?? Promise.resolve()).then(async () => {
+      const state = await this.child.request('get_state');
+      this.absorb(state);
+      if (!state.isStreaming) this.messages = (await this.child.request('get_messages')).messages;
+      this.stats = await this.child.request('get_session_stats').catch(unavailable);
+      if (this.child.metadata) this.compaction = await this.child.metadata(false);
+    });
+    this.syncing = run.catch(() => {});
+    return run;
+  }
+
+  subscribe(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  getSessionStats() { return this.stats ?? { sessionId: this.sessionId }; }
+  /** What the user decided and how memory changed since the system prompt was written, as a note for the next message, or null. */
+  promptNews() { return this.keptPrompt?.news() ?? null; }
+  getContextUsage() { return this.stats?.contextUsage; }
+
+  accept(record) {
+    if (record.type === 'extension_ui_request') {
+      void this.dialog(record);
+      return;
+    }
+    if (record.type === 'response') {
+      this.bashIds.delete(record.id);
+      return;
+    }
+    if (record.type === 'bash_execution_update' && this.bashIds.has(record.id)) record = { ...record, id: this.bashIds.get(record.id) };
+    if (record.type === 'agent_start') this.isStreaming = true;
+    else if (record.type === 'agent_settled') void this.settle();
+    else if (record.type === 'compaction_start') this.isCompacting = true;
+    else if (record.type === 'thinking_level_changed') this.thinkingLevel = record.level;
+    else if (record.type === 'message_start' && isMessage(record.message)) {
+      this.open = record.message;
+      this.messages.push(record.message);
+    } else if (record.type === 'message_update') applyUpdate(this.open, record.assistantMessageEvent);
+    else if (record.type === 'message_end' && isMessage(record.message)) {
+      const index = this.messages.lastIndexOf(this.open);
+      if (index === -1) this.messages.push(record.message);
+      else this.messages[index] = record.message;
+      this.open = null;
+    } else if (record.type === 'compaction_end') {
+      this.isCompacting = false;
+      // The conversation was rewritten, so its cached start is gone: the prompt is written again, with what is new in it.
+      this.keptPrompt?.renew();
+      this.pull().catch(() => {});
+    }
+    for (const listener of this.listeners) {
+      try {
+        // Keep the public wire event unchanged; metrics can pair deltas with this stream's open message.
+        listener(record, record.type === 'message_update' ? this.open : undefined);
+      } catch {
+        // An observer cannot change what the child did.
+      }
+    }
+  }
+
+  async settle() {
+    this.isStreaming = false;
+    this.open = null;
+    const waiting = [...this.waiters];
+    this.waiters.clear();
+    let failure;
+    try {
+      await this.pull();
+    } catch (error) {
+      if (!error.commandRejected) failure = error;
+    }
+    for (const resolve of this.idle) resolve();
+    this.idle.clear();
+    for (const waiter of waiting) {
+      if (failure) waiter.reject(failure);
+      else waiter.resolve();
+    }
+  }
+
+  async prompt(text, { images, preflightResult } = {}) {
+    const run = Promise.withResolvers();
+    run.promise.catch(() => {});
+    let disposition, preflightPublished = false;
+    const publishPreflight = result => {
+      if (preflightPublished) return;
+      preflightPublished = true;
+      preflightResult?.(result);
+    };
+    try {
+      await this.child.request('prompt', { message: text, images }, data => {
+        disposition = data?.disposition ?? 'started';
+        // Records after this response belong to the run, so the wait is armed as the response is read.
+        if (disposition !== 'handled') {
+          this.waiters.add(run);
+          this.isStreaming = true;
+        }
+        publishPreflight(disposition);
+      });
+    } catch (error) {
+      if (error.commandRejected) publishPreflight(false);
+      throw error;
+    }
+    publishPreflight(disposition);
+    if (disposition !== 'handled') await run.promise;
+  }
+
+  async steer(text, images) {
+    return (await this.child.request('steer', { message: text, images }))?.disposition;
+  }
+
+  async followUp(text, images) {
+    return (await this.child.request('follow_up', { message: text, images }))?.disposition;
+  }
+
+  async executeUserBash(command, { id } = {}) {
+    let wire;
+    const result = await this.child.request('bash', { command }, undefined, generated => {
+      wire = generated;
+      if (id !== undefined) this.bashIds.set(wire, id);
+    }).finally(() => this.bashIds.delete(wire));
+    await this.pull();
+    return result;
+  }
+
+  abortBash() {
+    return this.child.request('abort_bash');
+  }
+
+  clearQueue() {
+    return this.child.request('clear_queue');
+  }
+
+  compact(customInstructions) {
+    return this.child.request('compact', customInstructions ? { customInstructions } : undefined);
+  }
+
+  /**
+   * Pi's own stop, waited for as long as its run takes to end: a tool that does not listen for a stop holds Pi's answer until it returns.
+   * It never ends the process. A Pi that exited counts as stopped once its output has closed. A refusal from a Pi that still runs is thrown,
+   * so the stop stays unconfirmed and the next one asks again.
+   */
+  abort() {
+    for (const controller of this.calls) controller.abort();
+    this.aborting ??= this.child.request('abort').then(() => {}, async error => {
+      if (error.commandRejected && !this.child.exited) throw error;
+      await this.child.closed;
+    }).finally(() => { this.aborting = null; });
+    return this.aborting;
+  }
+
+  /** Closing asks the same way, and ends the process when Pi has not answered within two seconds, so quitting stays quick. */
+  quit() {
+    this.quitting ??= within(this.abort(), QUIT_AFTER_MS, 'Main Pi did not acknowledge Stop.').catch(async error => {
+      this.ending = true;
+      this.child.fail(error);
+      // A signal is only a request. The captured transport must actually close before this resolves.
+      await within(this.child.closed, 2000, 'Main Pi exit is unconfirmed after Stop.');
+    }).finally(() => { this.quitting = null; });
+    return this.quitting;
+  }
+
+  force() {
+    for (const controller of this.calls) controller.abort();
+    this.child.force();
+    return within(this.child.closed, 2000, 'Main Pi closure is unconfirmed.').then(() => true, () => false);
+  }
+
+  waitForIdle() {
+    return this.isStreaming ? new Promise(resolve => this.idle.add(resolve)) : Promise.resolve();
+  }
+
+  dispose() {
+    if (!this.disposing) {
+      this.disposed = true;
+      for (const controller of this.calls) controller.abort();
+      this.disposing = this.child.shutdown(this.graceMs).then(() => {});
+    }
+    return this.disposing;
+  }
+
+  async binding() {
+    this.absorb(await this.child.request('get_state'));
+    return { model: this.model && `${this.model.provider}/${this.model.id}`, effort: this.thinkingLevel };
+  }
+
+  async modelCatalog() {
+    if (this.child.metadata) await this.child.metadata(true);
+    const { models } = await this.child.request('get_available_models');
+    return {
+      getModel: (provider, id) => models.find(model => model.provider === provider && model.id === id),
+      getAvailable: () => models,
+    };
+  }
+
+  /** Pi's RPC setters change this session only; they do not save Pi defaults. */
+  async apply({ model, effort }) {
+    try {
+      if (model) await this.child.request('set_model', { provider: model.provider, modelId: model.id });
+      // Another model has no cache of this conversation, so its prompt is written fresh.
+      if (model) this.keptPrompt?.renew();
+      if (effort !== undefined) await this.child.request('set_thinking_level', { level: effort });
+    } catch (error) {
+      throw Object.assign(Error(error.message), { effective: await this.binding().catch(() => undefined) });
+    }
+    return this.binding();
+  }
+
+  async dialog({ id, method, title, placeholder, statusKey, statusText, ...request }) {
+    if (method === 'setStatus' && [BRIDGE, `${BRIDGE}/client`].includes(statusKey)) {
+      const slot = statusKey === BRIDGE ? 'hello' : 'clientHello';
+      try {
+        this[slot] = JSON.parse(statusText);
+      } catch {
+        this[slot] = null;
+      }
+    }
+    if (!dialogMethods.has(method)) return;
+    const controller = new AbortController();
+    this.calls.add(controller);
+    let reply = { cancelled: true };
+    try {
+      if (method === 'input' && title === BRIDGE) {
+        // A tool an integration offered the main conversation runs in the host as `#main` (065-integration-drops).
+        const answer = this.integrations && isIntegrationCall(placeholder) ? serveIntegration(placeholder, this.integrations, controller.signal)
+          : serveBridge(placeholder, this, controller.signal);
+        reply = { value: JSON.stringify(await answer) };
+      } else {
+        reply = await this.route({ method, title, ...request }, controller.signal) ?? reply;
+      }
+    } catch {
+      reply = { cancelled: true };
+    } finally {
+      this.calls.delete(controller);
+    }
+    this.child.send({ type: 'extension_ui_response', id, ...reply });
+  }
+
+  /** Another extension's dialog reaches the user only as a bounded choice; anything else is declined. */
+  async route({ method, title, message, options, timeout }, signal) {
+    if (!this.askQuestion || !['select', 'confirm'].includes(method)) return null;
+    const choices = method === 'confirm'
+      ? [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]
+      : Array.isArray(options) ? options.map((option, index) => ({ value: String(index), label: fullLine(option, 80) })) : [];
+    const question = fullLine([title, message].filter(Boolean).join(' — '), 240);
+    if (!question || choices.length < 2 || choices.length > 6 || choices.some(choice => !choice.label)) return null;
+    const limit = timeout > 0 ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : signal;
+    const selected = await this.askQuestion({ question, choices }, limit);
+    if (selected === undefined || selected === null || limit.aborted) return null;
+    if (method === 'confirm') return { confirmed: selected === 'yes' };
+    const option = options[Number(selected)];
+    return option === undefined ? null : { value: option };
+  }
+}
+
+function within(promise, ms, message) {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Error(message)), ms);
+    timer.unref();
+  })]).finally(() => clearTimeout(timer));
+}
+
+/** Starts the main chat as `<launcher> --mode rpc`; nothing is submitted, and a binding that differs is disposed. */
+export async function openRpcSession(
+  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, agentSchedules, memoryKeeper, integrations, prompts, startup },
+  { spawnProcess, signalProcess, startupTimeoutMs = 180000, graceMs, clientBridge, bootstrap, scriptedMain = false } = {},
+) {
+  scriptedMain = scriptedMain === true;
+  if (scriptedMain && (!bootstrap || config.launcher || !clientBridge)) throw Error('Scripted main requires its owned bootstrap and client bridge.');
+  if (clientBridge !== undefined && (typeof clientBridge?.extensionPath !== 'string'
+    || !isAbsolute(clientBridge.extensionPath) || clientBridge.tool?.name !== 'client'
+    || typeof clientBridge.tool.execute !== 'function')) {
+    throw Error('Invalid configured client bridge.');
+  }
+  if (bootstrap && (config.launcher || bootstrap.root !== root || bootstrap.file !== file || bootstrap.expected?.sessionId !== expected?.sessionId
+    || bootstrap.config?.main?.cwd !== config.main.cwd || bootstrap.config.main.model !== config.main.model
+    || bootstrap.config.main.effort !== config.main.effort || bootstrap.clientExtensionPath !== clientBridge?.extensionPath)) {
+    throw Error('Main child bootstrap differs from its parent binding.');
+  }
+  if (expected && !sameDirectory(readSessionHeader(file).cwd, config.main.cwd)) {
+    throw Error('Main Pi conversation was recorded in a different directory than the configured cwd.');
+  }
+  // Memory and decisions stay in the prompt as last written (`prompt-parts.mjs`), so a change in them does not send the
+  // whole conversation uncached. Directions and persona are read each turn: the user changes those on purpose, and rarely.
+  // hobkin's memories go the same way: an index as first written, and what changed as a note (057-shared-memory).
+  const kept = keptPrompt({
+    memory: () => readMemory(root),
+    decided: () => readDecided(root),
+    memories: () => memorySnapshot(root, { private: true, maxBytes: MAIN_INDEX_BYTES, recall: 'hobkin_recall' }),
+  });
+  const prompt = fingerprinted({
+    memory: kept.memory,
+    memories: kept.memories,
+    directions: () => readDirections(root),
+    decided: kept.decided,
+    persona: () => readPersona(root),
+  });
+  const session = new PiRpcSession({ askQuestion, graceMs, tools: {}, ...prompt.readers });
+  session.promptParts = prompt.parts;
+  session.keptPrompt = kept;
+  session.tools = scriptedMain ? {} : {
+    ask_question: createQuestionTool(askQuestion, root),
+    run_routine: createScheduleTool(triggerSchedule),
+    message_check: createCheckMessageTool(messageCheck),
+    stop_workload: createStopWorkloadTool(stopWorkload),
+    owned_agent: createOwnedAgentSessionTool(ownedAgent),
+    hobkin_memory: createMemoryTool(root),
+    hobkin_action_items: createActionItemTool(root),
+    model_settings: createSettingsTool(request => runModelSettings({
+      root,
+      config,
+      request,
+      binding: () => session.binding(),
+      modelRuntime: () => session.modelCatalog(),
+      apply: change => session.apply(change),
+    })),
+    // The schedules the main agent keeps for itself, which hobkin runs and wakes it for (056-agent-schedules).
+    ...agentScheduleTools(agentSchedules),
+    // The memories it reads and saves, as the main chat (057-shared-memory).
+    ...mainMemoryTools(memoryKeeper ?? memoryHandler(root, { kind: 'main' })),
+  };
+  if (clientBridge) session.tools.client = clientBridge.tool;
+  // The tools integrations offer the main conversation (065-integration-drops): its Pi reads them from its environment,
+  // through the extension a launcher's Pi is named or the one the session child loads itself. A scripted main is offered none.
+  const offer = scriptedMain ? null : integrationOffer(integrations, 'main');
+  session.integrations = offer ? { host: integrations, offer, agent: MAIN_AGENT } : null;
+  const env = piEnvironment(config.launcher);
+  delete env[INTEGRATIONS_ENV];
+  if (offer) Object.assign(env, integrationEnvironment(offer));
+  const { command, args } = piCommand(config.launcher, [
+    '--mode', 'rpc',
+    '--session', file,
+    ...(config.main.model ? ['--model', config.main.model] : []),
+    '--thinking', config.main.effort,
+    '--extension', extensionPath,
+    ...(clientBridge ? ['--extension', clientBridge.extensionPath] : []),
+    ...(offer ? ['--extension', integrationExtension] : []),
+    ...SHIPPED_SKILLS.flatMap(path => ['--skill', path]),
+    ...prompts.flatMap(text => ['--append-system-prompt', text]),
+  ]);
+  const startProcess = bootstrap ? options => startMainSessionChild(bootstrap, { ...options, startupTimeoutMs }) : startRpcProcess;
+  startup?.signal.throwIfAborted();
+  session.attach(startProcess({
+    command,
+    args,
+    cwd: config.main.cwd,
+    env,
+    spawnProcess,
+    signalProcess,
+    // A reply never exceeds the transcript it describes.
+    maxRecordBytes: MAX_SESSION_BYTES,
+    name: 'Main Pi',
+    // The user waits on the main chat's first word, so it keeps normal priority, and its session child passes this on.
+    utility: false,
+    onRecord: record => session.accept(record),
+  }));
+  const wait = promise => startup ? startup.wait(promise) : promise;
+  try {
+    startup?.capture(session.child);
+    const bootstrapped = bootstrap ? await wait(session.child.ready) : null;
+    startup?.signal.throwIfAborted();
+    const state = await wait(within(session.child.request('get_state'), startupTimeoutMs, `Main Pi did not become ready within ${startupTimeoutMs / 1000} seconds.`));
+    startup?.signal.throwIfAborted();
+    const model = state.model && `${state.model.provider}/${state.model.id}`;
+    if (!state.sessionId || state.sessionFile !== resolve(file) || (expected && state.sessionId !== expected.sessionId)
+      || (bootstrapped && state.sessionId !== bootstrapped.sessionId)) {
+      throw Error('Main Pi conversation identity changed.');
+    }
+    if (!keptEffort(state.model, config.main.effort, state.thinkingLevel) || !model || (config.main.model && model !== config.main.model)
+      || (scriptedMain && model !== 'hobkin-client/scripted')) {
+      throw Error('Pi model or thinking binding changed.');
+    }
+    const missing = Object.keys(session.tools).filter(name => name !== 'client' && !session.hello?.tools?.includes(name));
+    if (missing.length) throw Error(`The Hobkin extension did not activate its tools: ${missing.join(', ')}.`);
+    if (clientBridge && (session.clientHello?.version !== 1 || !Array.isArray(session.clientHello.tools)
+      || session.clientHello.tools.length !== 1 || session.clientHello.tools[0] !== 'client')) {
+      throw Error('The Hobkin client extension did not activate.');
+    }
+    session.absorb(state);
+    await wait(session.pull());
+    startup?.signal.throwIfAborted();
+    return session;
+  } catch (error) {
+    if (!startup) await session.dispose();
+    throw error;
+  }
+}

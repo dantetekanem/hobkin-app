@@ -1,0 +1,90 @@
+# Built from the toolbox messages in tlapm 1.6.0-pre (src/toolbox_msg.ml, src/backend/toolbox.ml, src/tlapm_lib.ml), not recorded from a real run.
+\* TLAPM version 1.6.0-pre
+\* launched at 2026-11-20 10:31:00 with command line:
+\* tlapm --toolbox 0 0 --strict Proved.tla
+
+@!!BEGIN
+@!!type:obligation
+@!!id:1
+@!!loc:16:1:17:22
+@!!status:to be proved
+@!!END
+
+@!!BEGIN
+@!!type:obligation
+@!!id:2
+@!!loc:18:1:19:22
+@!!status:to be proved
+@!!END
+
+@!!BEGIN
+@!!type:obligation
+@!!id:3
+@!!loc:20:1:21:21
+@!!status:to be proved
+@!!END
+
+@!!BEGIN
+@!!type:obligationsnumber
+@!!count:3
+@!!END
+
+@!!BEGIN
+@!!type:obligation
+@!!id:1
+@!!loc:16:1:17:22
+@!!status:being proved
+@!!prover:zenon
+@!!meth:time-limit: 10
+@!!END
+
+@!!BEGIN
+@!!type:obligation
+@!!id:1
+@!!loc:16:1:17:22
+@!!status:proved
+@!!prover:zenon
+@!!meth:time-limit: 10; time-used: 0.1 (1%)
+@!!already:false
+@!!END
+
+@!!BEGIN
+@!!type:obligation
+@!!id:2
+@!!loc:18:1:19:22
+@!!status:being proved
+@!!prover:smt
+@!!meth:time-limit: 5
+@!!END
+
+@!!BEGIN
+@!!type:obligation
+@!!id:2
+@!!loc:18:1:19:22
+@!!status:proved
+@!!prover:smt
+@!!meth:time-limit: 5; time-used: 0.4 (8%)
+@!!already:false
+@!!END
+
+@!!BEGIN
+@!!type:obligation
+@!!id:3
+@!!loc:20:1:21:21
+@!!status:being proved
+@!!prover:ls4
+@!!meth:time-limit: 5
+@!!END
+
+@!!BEGIN
+@!!type:obligation
+@!!id:3
+@!!loc:20:1:21:21
+@!!status:proved
+@!!prover:ls4
+@!!meth:time-limit: 5; time-used: 0.2 (4%)
+@!!already:false
+@!!END
+
+File "./Proved.tla", line 1, character 1 to line 22, character 77:
+[INFO]: All 3 obligations proved.

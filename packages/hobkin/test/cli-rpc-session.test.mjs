@@ -1,0 +1,867 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { atomicJson, initialize } from '../src/cli/config.mjs';
+import { fileDecision, openDecisions } from '../src/cli/decisions.mjs';
+import { closePiSession, openImportedPiSession, openPiSession } from '../src/cli/pi-session.mjs';
+import { readAnswers } from '../src/cli/questions.mjs';
+import { extensionPath } from '../src/cli/rpc-session.mjs';
+import { TLA_SKILL } from '../src/cli/skills-extension.mjs';
+import { HobkinRuntime } from '../src/cli/runtime.mjs';
+import { dialog, fakePiRpc } from './helpers/fake-rpc-pi.mjs';
+
+const launcher = { command: ['my-pi-launcher', 'pi'], env: { EXAMPLE_MODE: '1' }, managedExtensions: true };
+
+async function until(condition, message = 'condition') {
+  const deadline = Date.now() + 3000;
+  while (!condition()) {
+    if (Date.now() > deadline) throw Error(`Timed out waiting for ${message}`);
+    await new Promise(resolve => setImmediate(resolve));
+  }
+}
+
+function fixture(t, pi = {}, options = {}) {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-rpc-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const config = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
+  config.main = { cwd: root, model: 'fixture/local', effort: 'medium' };
+  config.launcher = launcher;
+  atomicJson(join(root, 'config.json'), config);
+  const fake = fakePiRpc(pi);
+  const dependencies = {
+    spawnProcess: fake.spawnProcess,
+    graceMs: 50,
+    // Under a launcher the SDK must never open a session in this process.
+    createSession: () => { throw Error('Pi started in this process.'); },
+    ...options.dependencies,
+  };
+  const open = (runtimeOptions = {}) => HobkinRuntime.open(root, config, {
+    createMain: openOptions => openPiSession(openOptions, dependencies),
+    ...runtimeOptions,
+  });
+  const connected = async runtimeOptions => {
+    const runtime = await open(runtimeOptions);
+    // A regression that leaves a prompt waiting must fail its own test, not hang the run.
+    t.after(() => Promise.race([runtime.close(), new Promise(resolve => setTimeout(resolve, 2000).unref())]));
+    await runtime.connect();
+    return runtime;
+  };
+  return { root, config, fake, dependencies, open, connected };
+}
+
+const responses = (fake, id) => fake.received.filter(record => record.type === 'extension_ui_response' && record.id === id);
+const answerOf = async (fake, id) => {
+  await until(() => responses(fake, id).length, `the reply to ${id}`);
+  return responses(fake, id)[0];
+};
+const bridge = (fake, request) => {
+  const id = dialog(fake.children.at(-1), { method: 'input', title: 'hobkin/bridge', placeholder: JSON.stringify(request) });
+  return answerOf(fake, id).then(reply => ({ reply, answer: reply.value === undefined ? undefined : JSON.parse(reply.value) }));
+};
+const question = { question: 'Which?', choices: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] };
+
+function clientFixture(t, { hello = { version: 1, tools: ['client'] }, base, execute } = {}) {
+  const h = fixture(t, base === undefined ? {} : { hello: base });
+  h.dependencies.clientBridge = { tool: { name: 'client', execute }, extensionPath: '/fixture/client-bridge-extension.ts' };
+  h.dependencies.loadSdk = () => { throw Error('SDK loading is forbidden.'); };
+  h.dependencies.spawnProcess = (...args) => {
+    const child = h.fake.spawnProcess(...args);
+    if (hello !== null) child.emit_({ type: 'extension_ui_request', id: 'client-hello', method: 'setStatus',
+      statusKey: 'hobkin/bridge/client', statusText: JSON.stringify(hello) });
+    return child;
+  };
+  return h;
+}
+
+test('configured main client forwards list, describe and run with Pi call IDs to its captured host', { timeout: 10000 }, async t => {
+  const calls = [];
+  const h = clientFixture(t, { execute: async (id, params, signal) => {
+    calls.push({ id, params });
+    assert.equal(signal.aborted, false);
+    if (params.action === 'run' && params.args?.role) throw Error('Invalid client arguments.');
+    return { content: [{ type: 'text', text: params.action }], details: { action: params.action } };
+  } });
+  const runtime = await h.connected();
+  const args = h.fake.spawned[0].args;
+  assert.ok(args.includes('/fixture/client-bridge-extension.ts'));
+  assert.equal(args.filter(value => value === '--extension').length, 2);
+  for (const params of [{ action: 'list' }, { action: 'describe', name: 'app.state' }, { action: 'run', name: 'app.refresh', args: {} }]) {
+    const id = `pi-client-${params.action}`;
+    const { answer } = await bridge(h.fake, { op: 'tool', name: 'client', id, params });
+    assert.deepEqual(answer, { ok: true, result: { content: [{ type: 'text', text: params.action }], details: { action: params.action } } });
+    assert.deepEqual(calls.at(-1), { id, params });
+  }
+  const failed = await bridge(h.fake, { op: 'tool', name: 'client', id: 'bad', params: { action: 'run', args: { role: 'main' } } });
+  assert.deepEqual(failed.answer, { ok: false, error: 'Invalid client arguments.' });
+  assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
+  assert.ok(runtime.main.hello.tools.includes('owned_agent'), 'client status cannot overwrite base attestation');
+});
+
+test('configured client activation is required separately from all native tools before any prompt', { timeout: 10000 }, async t => {
+  for (const hello of [null, { version: 2, tools: ['client'] }, { version: 1, tools: ['other'] }]) {
+    const h = clientFixture(t, { hello, execute() {} });
+    const runtime = await h.open();
+    t.after(() => runtime.close());
+    await assert.rejects(runtime.connect(), /client extension did not activate/);
+    assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
+    assert.equal(h.fake.children[0].stdin.writableEnded, true);
+  }
+  const h = clientFixture(t, { base: ['client'], execute() {} });
+  const runtime = await h.open();
+  t.after(() => runtime.close());
+  await assert.rejects(runtime.connect(), /did not activate its tools: ask_question/);
+});
+
+test('configured main client abort reaches its captured host operation', { timeout: 10000 }, async t => {
+  const started = Promise.withResolvers();
+  const h = clientFixture(t, { execute: async (_id, _params, signal) => {
+    started.resolve(signal);
+    await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+    signal.throwIfAborted();
+  } });
+  const runtime = await h.connected();
+  const pending = bridge(h.fake, { op: 'tool', name: 'client', id: 'cancel-me', params: { action: 'run' } });
+  const signal = await started.promise;
+  await runtime.main.abort();
+  assert.equal(signal.aborted, true);
+  assert.equal((await pending).answer.ok, false);
+});
+
+test('a main without the optional capability refuses client calls and does not load its extension', { timeout: 10000 }, async t => {
+  const h = fixture(t);
+  await h.connected();
+  const { answer } = await bridge(h.fake, { op: 'tool', name: 'client', id: 'unowned', params: { action: 'list' } });
+  assert.deepEqual(answer, { ok: false, error: 'Invalid bridge request.' });
+  assert.equal(h.fake.spawned[0].args.filter(value => value === '--extension').length, 1);
+});
+
+test('configured client capability rejects a model-selected path or tool name before spawning', { timeout: 10000 }, async t => {
+  for (const capability of [
+    { tool: { name: 'client', execute() {} }, extensionPath: 'relative.ts' },
+    { tool: { name: 'owned_agent', execute() {} }, extensionPath: '/fixture/client.ts' },
+    { tool: { name: 'client' }, extensionPath: '/fixture/client.ts' },
+  ]) {
+    const h = fixture(t, {}, { dependencies: { clientBridge: capability } });
+    const runtime = await h.open();
+    t.after(() => runtime.close());
+    await assert.rejects(runtime.connect(), /Invalid configured client bridge/);
+    assert.equal(h.fake.spawned.length, 0);
+  }
+});
+
+test('main workload Stop uses the registered RPC bridge and refuses startup without that tool', async t => {
+  const h = fixture(t);
+  const calls = [];
+  await h.connected({ stopWorkload: async request => { calls.push(request); return { running: [] }; } });
+  const { answer } = await bridge(h.fake, { op: 'tool', name: 'stop_workload', id: 'list', params: { action: 'list' } });
+  assert.deepEqual(answer.result.details, { running: [] });
+  assert.deepEqual(calls, [{ action: 'list' }]);
+  const stopped = await bridge(h.fake, { op: 'tool', name: 'stop_workload', id: 'stop', params: { action: 'stop', id: 'work:parent', reason: ' Safety. ' } });
+  assert.equal(stopped.answer.ok, true);
+  assert.deepEqual(calls[1], { action: 'stop', id: 'work:parent', reason: 'Safety.' });
+  const missing = fixture(t, { hello: ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings'] });
+  const runtime = await missing.open();
+  t.after(() => runtime.close());
+  await assert.rejects(runtime.connect(), /did not activate its tools: stop_workload/);
+});
+
+test('the main RPC host exposes Action Item dismissal without recording an answer', async t => {
+  const h = fixture(t);
+  const { id } = fileDecision(h.root, {
+    from: 'Fixture', question: 'Ship the change?',
+    choices: [{ value: 'wait', label: 'Wait' }, { value: 'ship', label: 'Ship' }],
+  });
+  await h.connected();
+
+  const { answer } = await bridge(h.fake, { op: 'tool', name: 'hobkin_action_items', id: 'dismiss', params: { action: 'dismiss', id } });
+  assert.deepEqual(answer.result.details, { dismissed: 1, remaining: 0 });
+  assert.deepEqual(openDecisions(h.root).map(decision => decision.id), [id]);
+});
+
+test('the main chat starts as `<launcher> --mode rpc` with its session, binding, extension and prompts', async t => {
+  const h = fixture(t);
+  const runtime = await h.connected();
+  const [{ command, args, options }] = h.fake.spawned;
+  assert.equal(command, 'my-pi-launcher');
+  assert.deepEqual(args.slice(0, 11), [
+    'pi', '--mode', 'rpc', '--session', join(h.root, 'sessions', 'main.jsonl'),
+    '--model', 'fixture/local', '--thinking', 'medium', '--extension', extensionPath,
+  ]);
+  assert.equal(args[args.indexOf('--skill') + 1], TLA_SKILL, 'the skills hobkin ships load in the main chat');
+  assert.equal(args.filter(value => value === '--append-system-prompt').length, 5);
+  assert.ok(args.some(value => value.includes('"background"')), 'the runtime prompt carries the bindings');
+  assert.ok(!args.includes('--no-extensions'));
+  assert.equal(options.cwd, h.root);
+  assert.equal(options.shell, false);
+  assert.equal(options.env.EXAMPLE_MODE, '1');
+  assert.equal(options.env.PI_OFFLINE, process.env.PI_OFFLINE, 'the launcher keeps its own network default');
+  assert.equal(options.env.PI_TELEMETRY, process.env.PI_TELEMETRY);
+  const main = (await runtime.state()).main;
+  assert.equal(main.sessionFile, join(h.root, 'sessions', 'main.jsonl'));
+  assert.equal(runtime.main.sessionId, main.sessionId);
+  assert.equal(runtime.main.model.id, 'local');
+  assert.deepEqual(h.fake.received.map(record => record.type), ['get_state', 'get_state', 'get_messages', 'get_session_stats']);
+  assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
+});
+
+test('a conversation is answered from a live cache that settles to Pi’s own messages and cost', async t => {
+  const h = fixture(t);
+  const runtime = await h.connected();
+  h.fake.gate = Promise.withResolvers();
+  await runtime.send('hello', 'message:1');
+  await until(() => runtime.messages().at(-1)?.content?.[0]?.text === 'Re', 'streamed text');
+  assert.equal(runtime.main.isStreaming, true);
+  assert.equal(runtime.mainBusy, true);
+  assert.deepEqual(runtime.messages().map(message => message.role), ['user', 'assistant']);
+  h.fake.gate.resolve();
+  await runtime.idle();
+  const run = (await runtime.state()).runs['message:1'];
+  assert.equal(run.status, 'completed');
+  assert.equal(run.result.text, 'Reply: hello');
+  assert.equal(run.cost.usd, 0.5);
+  assert.equal(run.cost.sessionId, runtime.main.sessionId);
+  assert.equal(runtime.main.isStreaming, false);
+  assert.equal(runtime.messages().at(-1).content[0].text, 'Reply: hello');
+  assert.equal(runtime.contextInfo().tokens, 10);
+  assert.equal(runtime.contextInfo().compacting, false);
+});
+
+test('prompt dispositions: handled never waits, queued waits for the run, a rejection is a failed receipt', async t => {
+  const h = fixture(t, {
+    script: {
+      prompt: (reply, reject, command, { run }) => {
+        if (command.message === '/command') reply({ disposition: 'handled' });
+        else if (command.message === 'refused') reject('Agent is already processing a prompt.');
+        else {
+          reply({ disposition: command.message === 'later' ? 'queued' : 'started' });
+          void run(command.message);
+        }
+      },
+    },
+  });
+  const runtime = await h.connected();
+  await runtime.send('/command', 'message:handled');
+  await runtime.idle();
+  const handled = (await runtime.state()).runs['message:handled'];
+  assert.equal(handled.status, 'completed');
+  assert.equal(handled.result.text, '');
+  assert.equal(runtime.mainBusy, false);
+  assert.equal(runtime.main.isStreaming, false);
+
+  await assert.rejects(runtime.send('refused', 'message:refused'), /rejected before submission/i);
+  await runtime.idle();
+  const refused = (await runtime.state()).runs['message:refused'];
+  assert.equal(refused.status, 'failed');
+  assert.equal(refused.result.noModel, true);
+  assert.match(refused.result.error, /already processing/);
+
+  await runtime.send('later', 'message:queued');
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['message:queued'].result.text, 'Reply: later');
+});
+
+test('main telemetry correlates delta-only RPC output and durable response facts across reconnect', { timeout: 5000 }, async t => {
+  const h = fixture(t, { script: { prompt: (reply, _reject, command, { emit, pi }) => {
+    reply({ disposition: 'started' });
+    const message = { role: 'assistant', provider: 'fixture', model: 'local', timestamp: pi.messages.length + 1,
+      content: [{ type: 'text', text: 'Reply' }], stopReason: 'stop', durationMs: 9,
+      usage: { input: 10, output: 4, cacheRead: 2, cacheWrite: 0, cost: { total: 0.5 } } };
+    if (command.message !== 'orphan') emit({ type: 'message_start', message: { ...message, content: [] } });
+    if (command.message !== 'unfinished') {
+      emit({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', contentIndex: 0, delta: '{}' } });
+      emit({ type: 'message_end', message });
+      emit({ type: 'message_end', message });
+      pi.messages.push(message);
+    }
+    emit({ type: 'agent_settled' });
+  } } });
+  const runtime = await h.connected();
+  let clock = 10;
+  runtime.metricsNow = () => clock++;
+  const updates = [];
+  runtime.main.subscribe(event => { if (event.type === 'message_update') updates.push(event); });
+  await runtime.send('private words', 'metrics:rpc');
+  await runtime.idle();
+  const run = (await runtime.state()).runs['metrics:rpc'];
+  assert.equal(run.performance.responses, 1);
+  assert.equal(Object.hasOwn(updates[0], 'message'), false, 'ordinary observers still receive the original wire shape');
+  assert.equal(run.performance.firstObservedOutputMs, 1);
+  assert.equal(run.performance.dispatchElapsedMs, 2);
+  assert.deepEqual(run.performance.output, { value: 4, state: 'complete' });
+  assert.deepEqual(run.performance.responseDurationMs, { value: 9, state: 'complete' });
+  await runtime.send('unfinished', 'metrics:unfinished');
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['metrics:unfinished'].performance.incomplete, true);
+  await runtime.send('orphan', 'metrics:orphan');
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['metrics:orphan'].performance.firstObservedOutputMs, null,
+    'a new prompt cannot borrow the prior unfinished assistant identity');
+  await runtime.close();
+  const reopened = await h.open();
+  try {
+    await reopened.connect();
+    assert.deepEqual((await reopened.state()).runs['metrics:rpc'].performance, run.performance);
+  } finally { await reopened.close(); }
+});
+
+test('no conversation opens in this process while a launcher is configured', async t => {
+  const h = fixture(t);
+  await assert.rejects(openImportedPiSession({ root: h.root, config: h.config, sessionId: 'any' }, h.dependencies), /none may run in this process/);
+  assert.equal(h.fake.spawned.length, 0);
+});
+
+test('a run that is accepted and settled in one read still completes its prompt', { timeout: 3000 }, async t => {
+  const h = fixture(t, {
+    script: {
+      prompt: (_reply, _reject, command, { child, pi }) => {
+        const user = { role: 'user', content: command.message, timestamp: Date.now() };
+        const assistant = { role: 'assistant', content: [{ type: 'text', text: 'Instant' }], stopReason: 'stop', timestamp: Date.now() };
+        pi.messages.push(user, assistant);
+        child.stdout.write([
+          { type: 'response', id: command.id, command: 'prompt', success: true, data: { disposition: 'started' } },
+          { type: 'agent_start' },
+          { type: 'message_end', message: assistant },
+          { type: 'agent_settled' },
+        ].map(record => `${JSON.stringify(record)}\n`).join(''));
+      },
+    },
+  });
+  const runtime = await h.connected();
+  await runtime.send('quick', 'message:quick');
+  await runtime.idle();
+  const run = (await runtime.state()).runs['message:quick'];
+  assert.equal(run.status, 'completed');
+  assert.equal(run.result.text, 'Instant');
+  assert.equal(runtime.main.isStreaming, false);
+});
+
+test('a child that exits before accepting a prompt rejects it and stops the chat', async t => {
+  const h = fixture(t, { script: { prompt: (_reply, _reject, _command, { child }) => child.exit(1, 'launcher: login required') } });
+  const runtime = await h.connected();
+  await assert.rejects(runtime.send('hello', 'message:dead'), /login required|did not pass Pi preflight/);
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['message:dead'].status, 'failed');
+  await until(() => runtime.mainFault, 'the chat fault');
+  assert.match(runtime.mainFault.message, /exited before completion \(1\).*login required/);
+  assert.equal(runtime.fault, null);
+});
+
+test('a second message steers the running turn; clearing and aborting reach Pi', async t => {
+  const h = fixture(t);
+  const runtime = await h.connected();
+  h.fake.gate = Promise.withResolvers();
+  await runtime.send('first', 'message:first');
+  await until(() => runtime.main.isStreaming, 'the run to start');
+  assert.deepEqual(await runtime.send('and this', 'message:second'), { id: 'message:second', queued: true });
+  assert.deepEqual(h.fake.received.filter(record => record.type === 'steer').map(record => record.message), ['and this']);
+  await runtime.cancel('message:first');
+  assert.ok(h.fake.received.some(record => record.type === 'abort'));
+  assert.equal((await runtime.state()).runs['message:first'].status, 'interrupted');
+  assert.equal(runtime.main.isStreaming, false);
+  await runtime.reset();
+  assert.equal(h.fake.spawned.length, 2, 'a fresh conversation is a second child');
+  assert.notEqual((await runtime.state()).main.sessionFile, join(h.root, 'sessions', 'main.jsonl'));
+  assert.ok(h.fake.children[0].stdin.writableEnded, 'the old child was asked to exit');
+});
+
+test('a follow-up for the running turn reaches Pi as its follow-up, and taking the queue back clears it', async t => {
+  const h = fixture(t, { script: { clear_queue: reply => reply({ steering: [], followUp: ['after that'] }) } });
+  const runtime = await h.connected();
+  h.fake.gate = Promise.withResolvers();
+  await runtime.send('first', 'message:first');
+  await until(() => runtime.main.isStreaming, 'the run to start');
+  assert.deepEqual(await runtime.send('after that', 'message:later', undefined, undefined, undefined, 'follow-up'), { id: 'message:later', queued: true });
+  assert.deepEqual(h.fake.received.filter(record => record.type === 'follow_up').map(record => record.message), ['after that']);
+  assert.equal(h.fake.received.filter(record => record.type === 'steer').length, 0);
+
+  assert.deepEqual(await runtime.dequeue(), ['after that']);
+  assert.equal((await runtime.state()).runs['message:later'].status, 'interrupted');
+  assert.ok(runtime.main.isStreaming, 'the turn goes on');
+  h.fake.gate.resolve();
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['message:first'].status, 'completed');
+});
+
+test('a chat behind a launcher compacts through its Pi child', async t => {
+  const h = fixture(t, { script: { compact: reply => reply({ summary: 'short' }) } });
+  const runtime = await h.connected();
+
+  assert.equal(await runtime.compactMain(), true);
+
+  const compact = h.fake.received.find(record => record.type === 'compact');
+  assert.match(compact?.customInstructions ?? '', /explicit ask the user made/, 'the child is told to keep the user\'s asks');
+});
+
+test('Pi-side compaction refreshes the transcript and is reported to observers', async t => {
+  const h = fixture(t);
+  const runtime = await h.connected();
+  await runtime.send('hello', 'message:1');
+  await runtime.idle();
+  h.fake.messages = [{ role: 'compactionSummary', summary: 'short', timestamp: 1 }];
+  const child = h.fake.children[0];
+  child.emit_({ type: 'compaction_start', reason: 'threshold' });
+  await until(() => runtime.main.isCompacting, 'compaction to start');
+  assert.equal(runtime.contextInfo().compacting, true);
+  child.emit_({ type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: false });
+  await until(() => runtime.messages().length === 1, 'the compacted transcript');
+  assert.equal(runtime.main.isCompacting, false);
+  assert.equal(runtime.contextInfo().last.status, 'completed');
+});
+
+test('a binding, identity or missing tool that differs is disposed before any prompt', async t => {
+  for (const [pi, expected] of [
+    [{ thinking: 'low' }, /binding/],
+    [{ model: { provider: 'fixture', id: 'other' } }, /binding/],
+    [{ hello: false }, /did not activate/],
+    [{ hello: ['ask_question'] }, /run_routine, message_check, stop_workload, owned_agent, hobkin_memory, hobkin_action_items, model_settings/],
+  ]) {
+    const h = fixture(t, pi);
+    await assert.rejects(openPiSession({ root: h.root, config: h.config }, h.dependencies), expected);
+    const [child] = h.fake.children;
+    assert.ok(child.stdin.writableEnded, 'the rejected child was asked to exit');
+    assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
+    assert.equal(existsSync(join(h.root, 'runtime', 'hobkin.sqlite')), false);
+  }
+
+  const h = fixture(t);
+  const session = await openPiSession({ root: h.root, config: h.config }, h.dependencies);
+  const header = JSON.parse(readFileSync(session.sessionFile, 'utf8').split('\n')[0]);
+  await closePiSession(session);
+  const saved = { sessionId: header.id, sessionFile: session.sessionFile };
+  await closePiSession(await openPiSession({ root: h.root, config: h.config, saved }, h.dependencies));
+  await assert.rejects(openPiSession({ root: h.root, config: h.config, saved: { ...saved, sessionId: 'other' } }, h.dependencies), /identity/);
+  assert.equal(h.fake.spawned.length, 2, 'the identity check runs before a child starts');
+  writeFileSync(session.sessionFile, `${JSON.stringify({ ...header, cwd: tmpdir() })}\n`);
+  await assert.rejects(openPiSession({ root: h.root, config: h.config, saved }, h.dependencies), /different directory/);
+  assert.equal(h.fake.spawned.length, 2);
+});
+
+test('a child that never answers, cannot start or exits is a clear failure that leaves nothing running', { timeout: 5000 }, async t => {
+  // The fake child has no process handle to keep startup and shutdown timers alive.
+  const keepAlive = setTimeout(() => {}, 5000);
+  t.after(() => clearTimeout(keepAlive));
+  const silent = fixture(t, { script: { get_state: () => {} }, ignoreStdinEnd: true }, { dependencies: { startupTimeoutMs: 30 } });
+  await assert.rejects(openPiSession({ root: silent.root, config: silent.config }, silent.dependencies), /did not become ready/);
+  assert.ok(silent.fake.children[0].stdin.writableEnded);
+  await until(() => silent.fake.children[0].signals.includes('SIGTERM'), 'the stuck child to be signalled');
+
+  const missing = fixture(t, { script: { get_state: () => {} } });
+  const spawnProcess = (...args) => {
+    const child = missing.fake.spawnProcess(...args);
+    setImmediate(() => {
+      child.emit('error', Object.assign(Error('spawn my-pi-launcher ENOENT'), { code: 'ENOENT' }));
+      child.exit(-2);
+    });
+    return child;
+  };
+  await assert.rejects(openPiSession({ root: missing.root, config: missing.config }, { ...missing.dependencies, spawnProcess }), /ENOENT/);
+
+  const refused = fixture(t, { script: { get_state: () => {} } });
+  const refusing = (...args) => {
+    const child = refused.fake.spawnProcess(...args);
+    setImmediate(() => child.exit(1, 'This installation requires its extensions and rejects the given flags.'));
+    return child;
+  };
+  await assert.rejects(openPiSession({ root: refused.root, config: refused.config }, { ...refused.dependencies, spawnProcess: refusing }), /exited before completion \(1\).*rejects the given flags/);
+});
+
+test('a child that exits unasked stops the chat but not scheduled work; a requested exit does not', async t => {
+  const h = fixture(t);
+  const runtime = await h.open();
+  await runtime.connect();
+  h.fake.gate = Promise.withResolvers();
+  await runtime.send('hello', 'message:1');
+  await until(() => runtime.main.isStreaming, 'the run to start');
+  h.fake.children[0].exit(3, 'my-pi-launcher: credentials expired');
+  await runtime.idle();
+  const run = (await runtime.state()).runs['message:1'];
+  assert.equal(run.status, 'interrupted');
+  assert.match(run.result.error, /exited before completion \(3\).*credentials expired/);
+  await until(() => runtime.mainFault, 'the chat fault');
+  assert.equal(runtime.fault, null);
+  await assert.rejects(runtime.send('again'), /Main chat stopped: .*exited before completion \(3\).*next message opens it again/);
+  const check = await runtime.dispatch({ id: 'check-after-exit', kind: 'background', title: 'Check' },
+    async () => ({ status: 'completed', text: 'Nothing new.', cost: null }));
+  assert.equal(check.status, 'completed');
+  await runtime.close();
+
+  const calm = fixture(t);
+  const second = await calm.open();
+  await second.connect();
+  await second.close();
+  assert.equal(second.fault, null);
+  assert.deepEqual(calm.fake.children[0].signals, []);
+});
+
+test('a stop keeps the same Pi process for the next message', async t => {
+  const h = fixture(t);
+  const runtime = await h.connected();
+  h.fake.gate = Promise.withResolvers();
+  await runtime.send('first', 'message:first');
+  await until(() => runtime.main.isStreaming, 'the run to start');
+  assert.deepEqual(await runtime.interrupt(), []);
+  await runtime.send('second', 'message:second');
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['message:second'].result.text, 'Reply: second');
+  assert.equal(h.fake.spawned.length, 1);
+  assert.deepEqual(h.fake.children[0].signals, []);
+  assert.equal(runtime.mainFault, null);
+});
+
+test('a reset ends an old Pi held by a tool that ignores the stop, and opens a fresh conversation', { timeout: 10000 }, async t => {
+  let ignoring = true;
+  const h = fixture(t, { script: { abort: reply => { if (!ignoring) reply(); } } });
+  const runtime = await h.connected({ stopWaitMs: 50 });
+  h.fake.gate = Promise.withResolvers();
+  await runtime.send('review this pull request', 'message:held');
+  await until(() => runtime.main.isStreaming, 'the run to start');
+  const before = (await runtime.state()).main;
+  // The fresh Pi shares the stand-in's state, and its tool is not held.
+  h.fake.gate = null;
+  h.fake.streaming = false;
+
+  const reset = await runtime.reset();
+  ignoring = false;
+  assert.notEqual(reset.sessionFile, before.sessionFile);
+  assert.equal(h.fake.spawned.length, 2);
+  assert.ok(h.fake.children[0].signals.includes('SIGTERM'), 'the old Pi was ended');
+  assert.equal(runtime.mainFault, null);
+  assert.equal((await runtime.state()).runs['message:held'].status, 'interrupted');
+  await runtime.send('fresh', 'message:fresh');
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['message:fresh'].result.text, 'Reply: fresh');
+});
+
+test('a main Pi that exited opens again on the same conversation, and the window hears its new process', async t => {
+  const h = fixture(t);
+  const startups = [];
+  const runtime = await h.connected({ onMainStartup: startup => { if (!startups.includes(startup)) startups.push(startup); } });
+  await runtime.send('hello', 'message:1');
+  await runtime.idle();
+  const { main } = await runtime.state();
+  h.fake.children[0].exit(3, 'my-pi-launcher: session ended');
+  await until(() => runtime.mainFault, 'the chat fault');
+
+  const [first, second] = await Promise.all([runtime.reopenMain(), runtime.reopenMain()]);
+  assert.equal(first, second, 'a second message joins the reopening');
+  assert.equal(h.fake.spawned.length, 2);
+  const args = h.fake.spawned[1].args;
+  assert.equal(args[args.indexOf('--session') + 1], main.sessionFile);
+  assert.equal(runtime.main.sessionId, main.sessionId);
+  assert.deepEqual((await runtime.state()).main, main);
+  assert.equal(runtime.mainFault, null);
+  assert.equal(startups.length, 2);
+  assert.equal(startups[1].installed, true);
+  assert.equal(await runtime.reopenMain(), runtime.main, 'an open chat is not opened again');
+  await runtime.send('again', 'message:2');
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['message:2'].result.text, 'Reply: again');
+});
+
+test('a close waits for a reopening under way', async t => {
+  const h = fixture(t);
+  const runtime = await h.connected();
+  h.fake.children[0].exit(3, 'my-pi-launcher: session ended');
+  await until(() => runtime.mainFault, 'the chat fault');
+  const order = [];
+  const reopening = assert.rejects(runtime.reopenMain(), /closing/).then(() => order.push('reopening settled'));
+  await runtime.close();
+  order.push('closed');
+  await reopening;
+  assert.deepEqual(order, ['reopening settled', 'closed']);
+  assert.ok(h.fake.children.slice(1).every(child => child.stdin.writableEnded), 'no reopened Pi is left running');
+});
+
+test('closing asks Pi to exit by closing stdin and signals only a child that ignores it', { timeout: 5000 }, async t => {
+  // The fake child has no process handle to keep its unref'ed shutdown timer alive.
+  const keepAlive = setTimeout(() => {}, 5000);
+  t.after(() => clearTimeout(keepAlive));
+  const h = fixture(t, { ignoreStdinEnd: true });
+  const session = await openPiSession({ root: h.root, config: h.config }, h.dependencies);
+  const closing = closePiSession(session);
+  await closing;
+  assert.ok(h.fake.children[0].stdin.writableEnded);
+  assert.deepEqual(h.fake.children[0].signals, ['SIGTERM']);
+  assert.equal(await session.exited, null);
+  await closePiSession(session);
+});
+
+test('extension dialogs from other extensions reach the user as bounded choices or are declined', async t => {
+  const asked = [];
+  const h = fixture(t);
+  const runtime = await h.connected({
+    askQuestion: async (request, signal) => {
+      asked.push({ request, aborted: signal.aborted });
+      return request.question.startsWith('Allow') ? 'yes' : request.choices.at(-1).value;
+    },
+  });
+  const child = h.fake.children[0];
+  const ask = record => answerOf(h.fake, dialog(child, record));
+
+  assert.equal((await ask({ method: 'select', title: 'Pick one', options: ['red', 'green', 'blue'] })).value, 'blue');
+  assert.deepEqual(asked[0].request.choices.map(choice => choice.label), ['red', 'green', 'blue']);
+  assert.equal((await ask({ method: 'confirm', title: 'Allow command?', message: 'rm -r build' })).confirmed, true);
+  assert.equal(asked[1].request.question, 'Allow command? — rm -r build');
+  assert.equal((await ask({ method: 'confirm', title: 'Proceed?' })).confirmed, false);
+
+  const before = asked.length;
+  for (const record of [
+    { method: 'input', title: 'Name', placeholder: 'x' },
+    { method: 'editor', title: 'Edit', prefill: 'x' },
+    { method: 'select', title: 'Too few', options: ['only'] },
+    { method: 'select', title: 'Too many', options: ['1', '2', '3', '4', '5', '6', '7'] },
+    { method: 'select', title: '', options: ['a', 'b'] },
+    { method: 'select', title: 'No options' },
+    { method: 'confirm', title: 'Allow command?', message: `rm -r build ${'x'.repeat(240)}` },
+    { method: 'select', title: `Run ${'y'.repeat(240)}?`, options: ['yes', 'no'] },
+    { method: 'select', title: 'Pick one', options: ['short', 'z'.repeat(81)] },
+  ]) {
+    assert.equal((await ask(record)).cancelled, true, JSON.stringify(record).slice(0, 80));
+  }
+  assert.equal(asked.length, before, 'declined dialogs, including text that would be cut, never reached the user');
+  assert.equal((await ask({ method: 'confirm', title: 'Allow command?', message: 'line one\nline two' })).confirmed, true);
+  assert.equal(asked.at(-1).request.question, 'Allow command? \u2014 line one line two');
+
+  const before2 = h.fake.received.length;
+  for (const method of ['notify', 'setTitle', 'setWidget', 'set_editor_text']) {
+    dialog(child, { method, message: 'x', title: 'x', widgetKey: 'k', text: 'x' });
+  }
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.fake.received.length, before2, 'fire-and-forget updates need no reply');
+  assert.equal(runtime.fault, null);
+});
+
+test('without an interface a dialog is declined, and a timeout or abort ends a waiting question', async t => {
+  const headless = fixture(t);
+  await headless.connected();
+  const id = dialog(headless.fake.children[0], { method: 'select', title: 'Pick', options: ['a', 'b'] });
+  assert.equal((await answerOf(headless.fake, id)).cancelled, true);
+
+  const h = fixture(t);
+  const pending = [];
+  const runtime = await h.connected({
+    askQuestion: (request, signal) => new Promise(resolve => {
+      pending.push(signal);
+      signal.addEventListener('abort', () => resolve(null), { once: true });
+    }),
+  });
+  const timed = dialog(h.fake.children[0], { method: 'select', title: 'Quick', options: ['a', 'b'], timeout: 20 });
+  assert.equal((await answerOf(h.fake, timed)).cancelled, true);
+  assert.equal(pending[0].aborted, true);
+
+  const open = dialog(h.fake.children[0], { method: 'select', title: 'Waiting', options: ['a', 'b'] });
+  await until(() => pending.length === 2, 'the question');
+  assert.equal(pending[1].aborted, false);
+  await runtime.main.abort();
+  assert.equal((await answerOf(h.fake, open)).cancelled, true);
+  assert.equal(pending[1].aborted, true);
+});
+
+test('bridge requests run the real Hobkin tools in Hobkin with the child’s own call identity', async t => {
+  const asked = [];
+  const triggered = [];
+  const h = fixture(t);
+  const runtime = await h.connected({
+    askQuestion: async (request, signal) => {
+      asked.push({ request, signal });
+      return 'b';
+    },
+    triggerSchedule: async (scheduleId, callId, signal) => {
+      triggered.push({ scheduleId, callId, signal });
+      return { status: 'admitted', scheduleId };
+    },
+    messageCheck: async ({ scheduleId }) => ({ scheduleId, status: 'delivered' }),
+  });
+  const sessionId = runtime.main.sessionId;
+
+  const answered = await bridge(h.fake, { op: 'tool', name: 'ask_question', id: 'call-1', params: question });
+  assert.equal(answered.answer.ok, true);
+  assert.deepEqual(answered.answer.result.details, { status: 'answered', answer: { value: 'b', label: 'B' } });
+  assert.deepEqual(asked[0].request, { ...question, other: true, inChat: true });
+  assert.deepEqual(readAnswers(h.root).map(({ question: which, chose }) => [which, chose]), [['Which?', 'B']]);
+  const decided = (await bridge(h.fake, { op: 'decided' })).answer;
+  assert.equal(decided.ok, true);
+  assert.equal(decided.result.length, 1);
+  assert.match(decided.result[0], /"Which\?".*"B"/);
+
+  const scheduled = await bridge(h.fake, { op: 'tool', name: 'run_routine', id: 'call-2', params: { routineId: 'daily-check' } });
+  assert.deepEqual(scheduled.answer.result.details, { status: 'admitted', routineId: 'daily-check' });
+  assert.deepEqual(triggered.map(({ scheduleId, callId }) => ({ scheduleId, callId })), [{ scheduleId: 'daily-check', callId: `${sessionId}:call-2` }]);
+
+  const messaged = await bridge(h.fake, { op: 'tool', name: 'message_check', id: 'call-4', params: { routineId: 'daily-check', message: 'Hurry.' } });
+  assert.deepEqual(messaged.answer.result.details, { routineId: 'daily-check', status: 'delivered' });
+
+  const remembered = await bridge(h.fake, { op: 'tool', name: 'hobkin_memory', id: 'call-3', params: { action: 'add', text: 'Rent is due November 1' } });
+  assert.equal(remembered.answer.ok, true);
+  assert.equal(readFileSync(join(h.root, 'memory.md'), 'utf8'), '- Rent is due November 1\n');
+  // The prompt was written when its decisions were read above, so it keeps the memory it had then, and the new item
+  // goes to the agent as a note with the next message.
+  assert.deepEqual((await bridge(h.fake, { op: 'memory' })).answer, { ok: true, result: [] });
+  assert.match(runtime.main.promptNews().text, /Memory now also holds:\n- Rent is due November 1\n/);
+
+  const invalid = await bridge(h.fake, { op: 'tool', name: 'ask_question', id: 'call-4', params: { question: 'Only one', choices: [question.choices[0]] } });
+  assert.equal(invalid.answer.ok, false);
+  assert.match(invalid.answer.error, /Invalid question/);
+});
+
+test('a bridge request cannot reach anything but the registered tools', async t => {
+  const h = fixture(t);
+  await h.connected();
+  for (const request of [
+    { op: 'tool', name: 'bash', id: 'x', params: {} },
+    { op: 'tool', name: '__proto__', id: 'x', params: {} },
+    { op: 'tool', name: 'constructor', id: 'x', params: {} },
+    { op: 'tool', name: 'ask_question', params: question },
+    { op: 'tool', name: 'ask_question', id: '', params: question },
+    { op: 'tool', name: 'ask_question', id: 'x'.repeat(201), params: question },
+    { op: 'tool', name: 'ask_question', id: 'x' },
+    { op: 'tool', name: 'ask_question', id: 'x', params: 'text' },
+    { op: 'settings' },
+    [],
+    null,
+    'text',
+  ]) {
+    const { answer } = await bridge(h.fake, request);
+    assert.equal(answer.ok, false, JSON.stringify(request));
+    assert.match(answer.error, /Invalid bridge request/);
+  }
+  for (const placeholder of ['{not json', undefined, 'x'.repeat(1048577)]) {
+    const id = dialog(h.fake.children[0], { method: 'input', title: 'hobkin/bridge', placeholder });
+    const reply = await answerOf(h.fake, id);
+    assert.equal(JSON.parse(reply.value).ok, false);
+  }
+  const other = dialog(h.fake.children[0], { method: 'select', title: 'hobkin/bridge', options: ['a', 'b'] });
+  assert.equal((await answerOf(h.fake, other)).cancelled, true);
+  assert.equal(existsSync(join(h.root, 'memory.md')), false);
+});
+
+test('model_settings through the bridge persists, changes the live child, and reports what Pi observed', async t => {
+  const h = fixture(t, {
+    // Pi clamps an effort the model lacks.
+    script: { set_thinking_level: (reply, _reject, command, { pi }) => { pi.thinking = command.level === 'xhigh' ? 'high' : command.level; reply(); } },
+  });
+  const runtime = await h.connected();
+  const inspect = await bridge(h.fake, { op: 'tool', name: 'model_settings', id: 'call-1', params: { action: 'inspect', scope: 'main' } });
+  assert.deepEqual(inspect.answer.result.details.activeMainBinding, { model: 'fixture/local', effort: 'medium' });
+  assert.equal(inspect.answer.result.details.settings.main.model, 'fixture/local');
+  assert.deepEqual(inspect.answer.result.details.availableModels, ['fixture/local', 'fixture/next']);
+
+  const update = await bridge(h.fake, { op: 'tool', name: 'model_settings', id: 'call-2', params: { action: 'update', scope: 'all', model: 'fixture/next', effort: 'high' } });
+  const details = update.answer.result.details;
+  assert.equal(details.persisted.status, 'complete');
+  assert.deepEqual(details.activeRuntime, { status: 'verified', effective: { model: 'fixture/next', effort: 'high' } });
+  assert.deepEqual(JSON.parse(readFileSync(join(h.root, 'config.json'), 'utf8')).main, { cwd: h.root, model: 'fixture/next', effort: 'high' });
+  assert.equal(h.config.background.model, 'fixture/next');
+  assert.equal(JSON.parse(readFileSync(join(h.root, 'config.json'), 'utf8')).launcher.command[0], 'my-pi-launcher');
+  assert.deepEqual(h.fake.received.filter(record => ['set_model', 'set_thinking_level'].includes(record.type)).map(record => record.type), ['set_model', 'set_thinking_level']);
+  assert.equal(runtime.main.model.id, 'next');
+  assert.equal(runtime.main.thinkingLevel, 'high');
+
+  const missing = await bridge(h.fake, { op: 'tool', name: 'model_settings', id: 'call-3', params: { action: 'update', scope: 'main', model: 'fixture/absent' } });
+  assert.equal(missing.answer.result.details.persisted.status, 'failed');
+  assert.match(missing.answer.result.details.persisted.failed.error, /not installed/);
+  assert.equal(runtime.main.model.id, 'next');
+
+  const rejected = await bridge(h.fake, { op: 'tool', name: 'model_settings', id: 'call-4', params: { action: 'update', scope: 'main', effort: 'xhigh' } });
+  assert.equal(rejected.answer.result.details.activeRuntime.status, 'unverified');
+});
+
+test('model_settings through the bridge can target one schedule', async t => {
+  const h = fixture(t, { model: { provider: 'fixture', id: 'local', reasoning: true } });
+  const file = join(h.root, 'routines/daily/check.md');
+  const metadata = {
+    id: 'check', title: 'Check', at: '09:00', timezone: 'UTC', enabled: false,
+    harness: 'pi', model: 'fixture/local', effort: 'low', cwd: h.root, context: [],
+  };
+  writeFileSync(file, `---\n${JSON.stringify(metadata)}\n---\nCheck it.\n`);
+  await h.connected();
+
+  const params = { action: 'update', scope: 'routines', routineId: 'check', effort: 'high' };
+  const { answer } = await bridge(h.fake, { op: 'tool', name: 'model_settings', id: 'call-1', params });
+
+  assert.deepEqual(answer.result.details.persisted.completed, ['routines:check']);
+  assert.match(readFileSync(file, 'utf8'), /"effort": "high"/);
+  assert.equal(h.fake.received.some(record => record.type === 'set_thinking_level'), false);
+});
+
+test('the launcher chat never requests a Chrome grant at startup', async t => {
+  const h = fixture(t, { script: { get_commands: reply => reply({ commands: [{ name: 'chrome' }] }) } });
+
+  await closePiSession(await openPiSession({ root: h.root, config: h.config }, h.dependencies));
+
+  const prompts = h.fake.received.filter(record => record.type === 'prompt').map(record => record.message);
+  assert.deepEqual(prompts, []);
+});
+
+for (const selected of ['yes', 'no', undefined]) {
+  test(`an explicit Chrome command uses the user's consent answer: ${selected}`, async t => {
+    const h = fixture(t, { script: { prompt: (reply, _reject, _command, { emit }) => {
+      emit({ type: 'extension_ui_request', id: 'consent', method: 'confirm', title: 'Authorize pi-chrome control?' });
+      reply({ disposition: 'handled' });
+    } } });
+    const questions = [];
+    const session = await openPiSession({ root: h.root, config: h.config, askQuestion: async question => {
+      questions.push(question);
+      return selected;
+    } }, h.dependencies);
+    t.after(() => closePiSession(session));
+    assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
+    await session.prompt('/chrome authorize 5m');
+    const answer = await answerOf(h.fake, 'consent');
+    assert.deepEqual(questions, [{ question: 'Authorize pi-chrome control?', choices: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] }]);
+    assert.deepEqual(answer, { type: 'extension_ui_response', id: 'consent', ...(selected === undefined ? { cancelled: true } : { confirmed: selected === 'yes' }) });
+  });
+}
+
+test('the launcher chat sends nothing for Chrome when Pi does not offer it', async t => {
+  const h = fixture(t);
+
+  await closePiSession(await openPiSession({ root: h.root, config: h.config }, h.dependencies));
+
+  assert.equal(h.fake.received.some(record => record.type === 'prompt'), false);
+});
+
+test('a saved level the model lacks still opens the launcher chat at the level Pi chose', async t => {
+  const h = fixture(t, { thinking: 'high', model: { provider: 'fixture', id: 'local', reasoning: true } });
+  h.config.main.effort = 'xhigh';
+
+  const session = await openPiSession({ root: h.root, config: h.config }, h.dependencies);
+
+  assert.equal(session.thinkingLevel, 'high');
+  await closePiSession(session);
+});
+
+test('a bridge answer is not delivered after the child that asked has gone', async t => {
+  const h = fixture(t);
+  const released = Promise.withResolvers();
+  const signals = [];
+  await h.connected({ askQuestion: (_request, signal) => { signals.push(signal); return released.promise; } });
+  const child = h.fake.children[0];
+  const id = dialog(child, { method: 'input', title: 'hobkin/bridge', placeholder: JSON.stringify({ op: 'tool', name: 'ask_question', id: 'late', params: question }) });
+  await until(() => signals.length === 1, 'the question to wait');
+  child.exit(0);
+  await until(() => signals[0].aborted, 'the question to be cancelled');
+  released.resolve('a');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(responses(h.fake, id).length, 0);
+});
+
+test('images go to Pi beside the words, on a prompt and on steering, and stay out of the durable record', async t => {
+  const h = fixture(t);
+  const runtime = await h.connected();
+  const images = [{ type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' }];
+  h.fake.gate = Promise.withResolvers();
+
+  await runtime.send('look', 'message:first', images);
+  await until(() => runtime.main.isStreaming, 'the run to start');
+  await runtime.send('and this', 'message:second', images);
+
+  const sent = type => h.fake.received.find(record => record.type === type);
+  assert.deepEqual(sent('prompt').images, images);
+  assert.deepEqual(sent('steer').images, images);
+  assert.equal(JSON.stringify(await runtime.state()).includes('aGVsbG8='), false);
+  h.fake.gate.resolve();
+  await runtime.idle();
+});

@@ -1,0 +1,35 @@
+strict digraph DiskGraph {
+edge [colorscheme="paired12"]
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-6340282962451786520 [label="/\\ state = \"queued\"\n/\\ head = 0\n/\\ reviewed = 0",style = filled]
+-6340282962451786520 -> 4223871211837003112 [label="Finish",color="2",fontcolor="2"];
+4223871211837003112 [label="/\\ state = \"branch\"\n/\\ head = 1\n/\\ reviewed = 0"];
+4223871211837003112 -> 8113870098231409371 [label="Review",color="3",fontcolor="3"];
+8113870098231409371 [label="/\\ state = \"branch\"\n/\\ head = 1\n/\\ reviewed = 1"];
+4223871211837003112 -> -914212455100293887 [label="Fix",color="4",fontcolor="4"];
+-914212455100293887 [label="/\\ state = \"branch\"\n/\\ head = 2\n/\\ reviewed = 0"];
+8113870098231409371 -> 8113870098231409371 [label="Review",color="3",fontcolor="3"];
+8113870098231409371 -> 2875310117012340551 [label="Fix",color="4",fontcolor="4"];
+2875310117012340551 [label="/\\ state = \"branch\"\n/\\ head = 2\n/\\ reviewed = 1"];
+8113870098231409371 -> 1543312018880112009 [label="YoloMerge",color="5",fontcolor="5"];
+1543312018880112009 [label="/\\ state = \"merged\"\n/\\ head = 1\n/\\ reviewed = 1"];
+-914212455100293887 -> 7700120031188842113 [label="Review",color="3",fontcolor="3"];
+7700120031188842113 [label="/\\ state = \"branch\"\n/\\ head = 2\n/\\ reviewed = 2"];
+2875310117012340551 -> 7700120031188842113 [label="Review",color="3",fontcolor="3"];
+2875310117012340551 -> 3391029384756102938 [label="YoloMerge",color="5",fontcolor="5"];
+3391029384756102938 [label="/\\ state = \"merged\"\n/\\ head = 2\n/\\ reviewed = 1"];
+{rank = same; -6340282962451786520;}
+{rank = same; 4223871211837003112;}
+{rank = same; 8113870098231409371;-914212455100293887;}
+{rank = same; 2875310117012340551;1543312018880112009;7700120031188842113;}
+{rank = same; 3391029384756102938;}
+}
+subgraph cluster_legend {graph[style=bold];label = "Next State Actions" style="solid"
+node [ labeljust="l",colorscheme="paired12",style=filled,shape=record ]
+Finish [label="Finish",fillcolor=2]
+Review [label="Review",fillcolor=3]
+Fix [label="Fix",fillcolor=4]
+YoloMerge [label="YoloMerge",fillcolor=5]
+}}

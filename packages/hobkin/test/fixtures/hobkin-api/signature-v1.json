@@ -1,0 +1,13 @@
+{
+  "description": "Public test vector. This is not a live credential. Decode secret as hexadecimal bytes before HMAC.",
+  "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "installation_id": "11111111-1111-4111-8111-111111111111",
+  "key_id": "22222222-2222-4222-8222-222222222222",
+  "method": "POST",
+  "target": "/api/v1/feedback",
+  "timestamp": "1793750000",
+  "nonce": "00000000000000000000000000000001",
+  "idempotency_key": "33333333-3333-4333-8333-333333333333",
+  "body": "{\"schema_version\":1}",
+  "signature": "753b03de683b331e15273358ac8c4c51348013bc2f34b47ab662626330ff7e22"
+}

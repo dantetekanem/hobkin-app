@@ -1,0 +1,144 @@
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { atomicJson } from '../config.mjs';
+import { eventsFolder, readEvents, recordEvent } from '../events.mjs';
+import { hobkinCommand } from './chat.mjs';
+import { chosenProjects, fileItem, readItems, readKeptJson, readMode, realFolder, slugOf, writeMode } from './store.mjs';
+
+const DAY_MS = 86400000;
+// Once can be bad luck, and the same failure a third time in a day is hobkin's to fix.
+const REPEATS_AT = 3;
+const MOST_EVENTS_NAMED = 8;
+const OWN_CHECKOUT = fileURLToPath(new URL('../../../', import.meta.url));
+
+const times = count => `${count} ${count === 1 ? 'time' : 'times'}`;
+const iso = time => new Date(time).toISOString();
+
+const runClass = ({ lane, routine, kind }) => {
+  if (lane) return { name: `run:${lane}`, what: `failed ${lane} runs` };
+  return { name: `run:${routine ?? kind}`, what: routine ? `failed runs of the ${routine} routine` : `failed ${kind} runs` };
+};
+
+const failedClasses = {
+  run_finished: runClass,
+  turn_finished: () => ({ name: 'run:main', what: 'failed main turns' }),
+  compaction_finished: () => ({ name: 'compaction', what: 'failed compactions' }),
+};
+
+/** A status of `failed` is the harness giving up. A run that found a problem in its project completes, and a limit is the provider's word, not a fault here. */
+function classOf(event) {
+  const { type, from, status, limited } = event;
+  if (type === 'error_shown') return { name: `error:${slugOf(from)}`, what: `errors on screen from ${from}` };
+  return status === 'failed' && !limited ? failedClasses[type]?.(event) : undefined;
+}
+
+function failureFrom(sightings) {
+  const [{ name, what }] = sightings;
+  return {
+    name,
+    what,
+    key: `harness:${name}`,
+    count: sightings.length,
+    events: sightings.map(({ event }) => event),
+  };
+}
+
+/** Each class seen often enough in these events, with the events that make it one. */
+export function repeatedFailures(events) {
+  const sightings = events.flatMap(event => {
+    const failure = classOf(event);
+    return failure ? [{ ...failure, event }] : [];
+  });
+  return [...Map.groupBy(sightings, ({ name }) => name).values()]
+    .filter(own => own.length >= REPEATS_AT)
+    .map(failureFrom);
+}
+
+const eventLine = ({ type, id, at, project, item }) => [type, id, `at ${at}`, project && `on ${project}`, item && `item ${item}`].filter(Boolean).join(' ');
+
+function eventsToLook(events) {
+  const named = events.toSorted((left, right) => right.at.localeCompare(left.at)).slice(0, MOST_EVENTS_NAMED);
+  const rest = events.length - named.length;
+  return `${named.map(eventLine).join('; ')}${rest ? `; and ${rest} more` : ''}`;
+}
+
+const briefFor = (root, { key, what, count, events }) => [
+  `hobkin's own harness did this ${times(count)} in a day: ${what}. The class is ${key}.`,
+  `Events hold facts and no words, so start from these in ${eventsFolder(root)}: ${eventsToLook(events)}.`,
+  `Read what happened around each one, and for a run read its report with \`${hobkinCommand(root, 'reports')}\`, then find the cause in the code that reported it.`,
+  'Prove the fix with a test that fails now on this failure and passes after it.',
+].join(' ');
+
+const AGAIN = ':again-';
+// A fix that landed may not have worked, so the failure can come back. One turned down stays turned down.
+const FIXED_STATES = ['merged', 'done'];
+
+/** The key to file this failure under, or nothing while a fix stands. It comes back only on what happened after its last fix ended. */
+function keyToFile(items, { key, events }) {
+  const fixes = items.filter(item => item.key === key || item.key.startsWith(`${key}${AGAIN}`));
+  if (!fixes.length) return key;
+  if (!fixes.every(({ state }) => FIXED_STATES.includes(state))) return null;
+
+  const fixedAt = Math.max(...fixes.map(({ updatedAt, at }) => Date.parse(updatedAt ?? at)));
+  const since = events.filter(({ at }) => Date.parse(at) > fixedAt);
+  return since.length >= REPEATS_AT ? `${key}${AGAIN}${fixes.length}` : null;
+}
+
+function fileFailure(root, slug, failure, now) {
+  const { name, what, count } = failure;
+  const key = keyToFile(readItems(root, slug), failure);
+  if (!key) return [];
+
+  const { id } = fileItem(root, slug, {
+    key,
+    kind: 'fix',
+    title: `Stop the ${what}`,
+    brief: briefFor(root, failure),
+    impact: 'high',
+  }, now);
+  recordEvent(root, 'harness_filed', { name, count, project: slug, item: id }, now);
+  return [{ key, id }];
+}
+
+const chatLine = ({ what, count }) => `hobkin's own harness: ${what}, ${times(count)} in a day. Nothing was filed, because hobkin is not a chosen project.`;
+
+/** A class is told once for good. Only the newest lines stay in the mode, so one that has scrolled out of Chat cannot come back. */
+function tellChat(root, failures, now) {
+  const { harnessTold = [], harnessLines = [] } = readMode(root);
+  const untold = failures.filter(({ key }) => !harnessTold.includes(key));
+  const lines = untold.map(failure => ({ key: failure.key, line: chatLine(failure), at: iso(now) }));
+  // With nothing to say or clear this stays silent, because a first start must leave `work/` empty for import.
+  if (lines.length || harnessLines.length) writeMode(root, { harnessLines: lines, harnessTold: [...harnessTold, ...lines.map(({ key }) => key)] });
+  return lines;
+}
+
+const folderOf = path => {
+  try {
+    return realFolder(path);
+  } catch {
+    return path;
+  }
+};
+
+const hobkinProject = (root, checkout) => chosenProjects(root).find(({ path }) => path && folderOf(path) === folderOf(checkout));
+
+// This stays out of `work/`, because import reads anything there as a folder someone has used, and a first start must not look like that.
+const clockPath = root => join(root, 'runtime', 'upkeep.json');
+export const lastUpkeep = root => readKeptJson(clockPath(root), {}).at ?? null;
+export const stampUpkeep = (root, now) => atomicJson(clockPath(root), { at: iso(now) });
+
+export const upkeepDue = (root, now) => {
+  const at = lastUpkeep(root);
+  return !at || now - Date.parse(at) >= DAY_MS;
+};
+
+/**
+ * hobkin looks after itself: a failure in its own harness is never a call, so what repeats goes on its own list. Code only, and it starts nothing.
+ * A fix waits its turn like any other item and is not urgent, so shipping first holds it too. Each key is filed once and told once.
+ */
+export function lookAfterHarness(root, { now = Date.now(), events = readEvents(root, { since: now - DAY_MS }), checkout = OWN_CHECKOUT } = {}) {
+  const failures = repeatedFailures(events);
+  const project = hobkinProject(root, checkout);
+  const filed = project ? failures.flatMap(failure => fileFailure(root, project.slug, failure, now)) : [];
+  return { filed, told: tellChat(root, project ? [] : failures, now) };
+}

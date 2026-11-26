@@ -1,0 +1,1444 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { Readable } from 'node:stream';
+import { setTimeout as wait } from 'node:timers/promises';
+import { atomicJson, initialize } from '../src/cli/config.mjs';
+import { HobkinApplication } from '../src/cli/application.mjs';
+import { buildInvocation, runHarness } from '../src/cli/harnesses.mjs';
+import { main } from '../src/cli/main.mjs';
+import { runTellCommand, takeTellRequests, tellRequests } from '../src/cli/hobkin-tell.mjs';
+import lockfile from 'proper-lockfile';
+import { drawCanvas, readCanvases } from '../src/cli/canvas.mjs';
+import { readEvents } from '../src/cli/events.mjs';
+import { readReport, savedReportPath } from '../src/cli/reports.mjs';
+import { allCardActions } from '../src/cli/work/card-actions.mjs';
+import { durableDirections, Hobkins } from '../src/cli/hobkins.mjs';
+import { addMemory } from '../src/cli/memories.mjs';
+import { readMemoryUse } from '../src/cli/memory-use.mjs';
+import { readDirections } from '../src/cli/directions.mjs';
+import { startSession } from '../src/cli/session.mjs';
+import { sessionsToTell } from '../src/cli/session-log.mjs';
+import { fakePi } from './helpers/pi-session.mjs';
+
+const SUMMARY_KEYS = ['createdAt', 'cwd', 'engine', 'id', 'last', 'run', 'state', 'title', 'turns', 'waiting'];
+
+function fixture(t) {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-durable-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const config = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
+  config.main.model = 'fixture/local';
+  config.background.model = 'fixture/check';
+  atomicJson(join(root, 'config.json'), config);
+  const folder = join(root, 'project');
+  mkdirSync(folder);
+  const fake = fakePi(root);
+  return {
+    root, config, folder, fake,
+    openApp: (options = {}) => HobkinApplication.open(root, { createMain: fake.createMain, intervalMs: 60000, ...options }),
+  };
+}
+
+/** A Pi that answers when the test says so. It writes each turn to the conversation file, as Pi does, and takes notes while it runs. */
+function fakeTurns() {
+  const calls = [];
+  const edits = [];
+  const arrivals = [];
+  const arrival = n => (arrivals[n] ??= Promise.withResolvers());
+  return {
+    calls,
+    edits,
+    nth: n => arrival(n).promise,
+    runHarness: async (request, options) => {
+      if (request.purpose === 'humanizer') {
+        edits.push(request);
+        return { status: 'completed', text: request.prompt, cost: null };
+      }
+      const call = { request, options, heard: [], pictures: [], end: Promise.withResolvers() };
+      if (request.purpose === 'durable') appendFileSync(request.sessionFile, `${JSON.stringify({ prompt: request.prompt })}\n`);
+      request.signal?.addEventListener('abort', () => call.end.resolve({ status: 'interrupted', text: '', error: 'Harness cancelled.', cost: null }), { once: true });
+      options?.onReady?.(async (message, images) => { call.heard.push(message); if (images) call.pictures.push(images); return { disposition: 'queued' }; });
+      arrival(calls.push(call) - 1).resolve(call);
+      return call.end.promise;
+    },
+  };
+}
+
+const answer = (call, text, extra = {}) => call.end.resolve({ status: 'completed', text, cost: null, sessionId: null, ...extra });
+
+async function until(check, ms = 5000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = await check();
+    if (value) return value;
+    if (Date.now() > deadline) throw Error('Timed out waiting.');
+    await wait(5);
+  }
+}
+
+const listed = async (app, id) => (await app.refresh()).hobkins?.find(hobkin => hobkin.id === id);
+const waitingNow = (app, id) => until(async () => {
+  const { hobkin } = await app.hobkins.read(id);
+  return hobkin.state === 'waiting' && hobkin;
+});
+
+/** What hobkin gave a turn's process to say who it is: the token `hobkin tell` reads from its environment. */
+const tokenOf = call => call.request.env?.HOBKIN_TURN;
+
+/**
+ * `hobkin tell` as a turn's shell runs it, in its own process in the real thing. The running hobkin takes what it writes
+ * on a tick, so the test ticks for it until the command is done. With no app, nothing takes it.
+ */
+async function tell(app, root, env, args, input) {
+  let printed = '';
+  // `--home` goes before the recipient: after it, every word is the message.
+  const command = main(['tell', '--home', root, ...args], { write: chunk => { printed += chunk; } }, { env, ...(input === undefined ? {} : { input: Readable.from([input]) }) });
+  let done = false;
+  command.then(() => { done = true; }, () => { done = true; });
+  while (!done) {
+    await app?.hobkins.tick();
+    await wait(5);
+  }
+  await command;
+  return JSON.parse(printed);
+}
+
+/** What the main agent was woken with for messages, read from its own conversation. */
+const wakesIn = app => app.runtime.messages()
+  .filter(message => message.role === 'user')
+  .map(message => (typeof message.content === 'string' ? message.content : message.content.map(part => part.text ?? '').join('')))
+  .filter(text => text.startsWith('<hobkin-wake>\n'))
+  .map(text => JSON.parse(text.split('\n')[1]));
+
+/** Resolves once the main agent's turn has ended. Durable turns may still be running, so this is not `runtime.idle`. */
+const mainDone = app => app.runtime.mainWork;
+
+/** Holds the main agent's next turn open until the test lets it go. */
+function holdMain(h) {
+  const control = h.fake.controls.get(h.fake.opened.at(-1));
+  control.gate = Promise.withResolvers();
+  return () => control.gate.resolve();
+}
+
+/**
+ * The fake main session streams while a turn runs, as Pi's does, and takes what the user sends then as a steer into
+ * that turn. Answers with what was steered.
+ */
+function streamingMain(h) {
+  const session = h.fake.sessions.get(h.fake.opened.at(-1));
+  const steered = [];
+  let streaming = false;
+  const prompt = session.prompt.bind(session);
+  session.prompt = async (text, options) => {
+    streaming = true;
+    try {
+      return await prompt(text, options);
+    } finally {
+      streaming = false;
+    }
+  };
+  Object.defineProperty(session, 'isStreaming', { get: () => streaming, configurable: true });
+  session.steer = async text => { steered.push(text); };
+  return steered;
+}
+
+/** The words of a turn a message started, and who it names as the sender. */
+const messageIn = call => {
+  assert.match(call.request.prompt, /^<hobkin-message>\n[^\n]+\n<\/hobkin-message>$/);
+  return JSON.parse(call.request.prompt.split('\n')[1]);
+};
+
+test('a started hobkin runs its first turn and then waits', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const text = 'Look at why the build on the main branch fails every morning since Tuesday\nIt broke after the upgrade.';
+
+  const { id, run } = await app.hobkins.start({ text, cwd: h.folder, engine: { kind: 'tier', tier: 'mid' } });
+  assert.match(id, /^[0-9a-f]{8}$/);
+  assert.equal(run, `hobkin:${id}:1`);
+  const call = await turns.nth(0);
+  const sessionFile = join(h.root, 'hobkins', `${id}.jsonl`);
+  assert.deepEqual(
+    [call.request.harness, call.request.cwd, call.request.prompt, call.request.sessionFile, call.request.purpose, call.request.model, call.request.effort],
+    ['pi', h.folder, text, sessionFile, 'durable', 'fixture/local', 'medium'],
+  );
+  // Its own directions, then the user's, as every other agent reads them (057-shared-memory).
+  const directions = durableDirections(id, { directions: readDirections(h.root) });
+  assert.equal(call.request.directions, directions);
+  assert.equal('resume' in call.request, false);
+
+  // Pi gets the directions as its own system prompt, with a job's tools.
+  const { signal, ...request } = call.request;
+  const { args } = buildInvocation(request);
+  assert.equal(args[args.indexOf('--append-system-prompt') + 1], directions);
+  assert.ok(args.includes('--approve'));
+  assert.ok(!args.includes('--no-tools'));
+
+  const admitted = (await app.runtime.state()).runs[run];
+  assert.deepEqual([admitted.kind, admitted.scheduleId, admitted.harnessId, admitted.cwd, admitted.tier], ['background', `hobkin.${id}`, call.request.id, h.folder, 'mid']);
+  assert.deepEqual(admitted.hobkin, { id, turn: 1, asked: text });
+
+  call.options.onEvent({ type: 'tool_execution_start', toolCallId: 'r', toolName: 'read', args: { path: 'ci.yml' } });
+  const working = await until(async () => {
+    const view = await app.refresh();
+    return view.jobActivity?.[run]?.length && view;
+  });
+  const summary = working.hobkins.find(hobkin => hobkin.id === id);
+  assert.deepEqual(Object.keys(summary).sort(), SUMMARY_KEYS);
+  assert.ok(summary.title.length <= 60 && text.startsWith(summary.title), summary.title);
+  assert.deepEqual([summary.cwd, summary.engine, summary.state, summary.turns, summary.run, summary.last, summary.waiting], [h.folder, { kind: 'tier', tier: 'mid' }, 'working', 1, run, null, null]);
+  assert.equal(working.jobActivity[run][0].name, 'read');
+  assert.equal(working.runs.find(item => item.id === run).state, 'running');
+  assert.ok(working.stopControls.targets.some(target => target.runId === run));
+
+  const said = 'The build needs CI_TOKEN since the upgrade. Set it and the build passes.';
+  answer(call, said);
+  const waiting = await waitingNow(app, id);
+  assert.deepEqual([waiting.state, waiting.run, waiting.turns, waiting.last.status, waiting.last.said], ['waiting', null, 1, 'completed', said]);
+  assert.deepEqual(waiting.waiting, { since: waiting.last.at, seen: false });
+  assert.deepEqual(Object.keys((await until(() => listed(app, id).then(hobkin => hobkin?.state === 'waiting' && hobkin)))).sort(), SUMMARY_KEYS);
+
+  const { turns: conversation } = await app.hobkins.read(id);
+  const finished = (await app.runtime.state()).runs[run];
+  assert.deepEqual(conversation, [{ n: 1, run, asked: text, from: { kind: 'user' }, askedAt: finished.startedAt, status: 'completed', reply: said, error: null, endedAt: finished.finishedAt }]);
+
+  // A long answer is cut to its start, and a name the user gives is kept.
+  const named = await app.hobkins.start({ text: 'Again.', cwd: h.folder, engine: { kind: 'tier', tier: 'mid' }, title: '  Release notes  ' });
+  answer(await turns.nth(1), 'x'.repeat(2000));
+  const long = await waitingNow(app, named.id);
+  assert.deepEqual([long.title, long.last.said.length], ['Release notes', 600]);
+  assert.deepEqual((await app.refresh()).hobkins.map(hobkin => hobkin.id), [named.id, id], 'newest first');
+});
+
+test('a hobkin\'s index of memories counts as that hobkin\'s use, never the main chat\'s', t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-durable-memories-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  addMemory(root, { name: 'partner-name', kind: 'user', description: 'Partner is called Ana', private: true }, { by: { kind: 'main' }, source: { kind: 'chat' } });
+  const index = new Hobkins({ root }).keptMemories({ id: 'a1b2c3d4', engine: { kind: 'tier', tier: 'mid' } }).memories();
+  assert.match(index, /partner-name/);
+  assert.deepEqual(readMemoryUse(root).map(({ name, by }) => [name, by]), [['partner-name', { hobkin: { recalls: 0, indexed: 1 } }]]);
+});
+
+test('a message to a waiting hobkin starts a turn on the same conversation, and one to a working hobkin steers it', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const { id } = await app.hobkins.start({ text: 'Find the slow query.', cwd: h.folder, engine: { kind: 'tier', tier: 'mid' } });
+  const first = await turns.nth(0);
+  answer(first, 'The orders index is missing.');
+  await waitingNow(app, id);
+
+  assert.deepEqual(await app.hobkins.say(id, { text: 'Add it.' }), { started: true, queued: false, run: `hobkin:${id}:2` });
+  const second = await turns.nth(1);
+  assert.equal(second.request.sessionFile, first.request.sessionFile, 'the same conversation reopens');
+  assert.equal(second.request.prompt, 'Add it.');
+  assert.notEqual(second.request.id, first.request.id);
+  const working = (await app.hobkins.read(id)).hobkin;
+  assert.deepEqual([working.state, working.turns, working.run, working.waiting, working.last.said], ['working', 2, `hobkin:${id}:2`, null, 'The orders index is missing.']);
+
+  const noteId = '00000000-0000-4000-8000-000000000001';
+  assert.deepEqual(await app.hobkins.say(id, { text: 'Name it orders_by_day.', noteId }), { started: false, queued: true, run: `hobkin:${id}:2` });
+  assert.deepEqual(second.heard, [`[hobkin-note:${noteId}]\nName it orders_by_day.`]);
+  // Queued is not read. Once the turn's Pi reads the words in, the snapshot has a receipt for the note, under the turn's run.
+  assert.equal((await app.refresh()).steeringReceipts[`hobkin:${id}:2`], undefined);
+  second.options.onEvent({ type: 'message_end', message: { role: 'user', content: [{ type: 'text', text: second.heard[0] }] } });
+  assert.deepEqual((await app.refresh()).steeringReceipts[`hobkin:${id}:2`]?.map(receipt => receipt.noteId), [noteId]);
+  assert.equal(turns.calls.length, 2, 'no second turn starts while one runs');
+  await assert.rejects(app.hobkins.say(id, { text: 'x'.repeat(5000) }), /at most 4096/);
+
+  answer(second, 'Added orders_by_day.');
+  await waitingNow(app, id);
+  const { turns: conversation } = await app.hobkins.read(id);
+  assert.deepEqual(conversation.map(({ n, asked, status, reply }) => [n, asked, status, reply]), [
+    [1, 'Find the slow query.', 'completed', 'The orders index is missing.'],
+    [2, 'Add it.', 'completed', 'Added orders_by_day.'],
+  ]);
+  assert.deepEqual(readFileSync(first.request.sessionFile, 'utf8').trim().split('\n').map(line => JSON.parse(line).prompt), ['Find the slow query.', 'Add it.']);
+
+  await assert.rejects(app.hobkins.say('0badc0de', { text: 'Hello?' }), /no hobkin/i);
+  await assert.rejects(app.hobkins.say(id, { text: ' ' }), /at most 32768 characters/);
+});
+
+test('a message to a durable hobkin takes the images the user attached, as its next turn or in the turn in flight', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const { id } = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'tier', tier: 'mid' } });
+  const chart = { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' };
+  const photo = { type: 'image', data: 'cGhvdG8=', mimeType: 'image/jpeg' };
+
+  await app.hobkins.say(id, { text: 'What is wrong in this chart?', images: [chart] });
+  const first = await turns.nth(0);
+  assert.equal(first.request.prompt, 'What is wrong in this chart?');
+  assert.deepEqual(first.request.images, [chart]);
+
+  await app.hobkins.say(id, { text: 'And in this photo?', images: [photo] });
+  assert.deepEqual(first.pictures, [[photo]]);
+  await app.hobkins.say(id, { text: 'Words alone.' });
+  assert.deepEqual(first.pictures, [[photo]], 'words alone take no images');
+
+  answer(first, 'The axis starts at 40.');
+  await waitingNow(app, id);
+  await app.hobkins.say(id, { text: 'Fix it.' });
+  assert.equal((await turns.nth(1)).request.images, undefined);
+});
+
+test('a hobkin and its turns are still there after a restart, and a cut-off turn reads as cut off', async t => {
+  const h = fixture(t);
+  const before = fakeTurns();
+  let app = await h.openApp({ runHarness: before.runHarness });
+  t.after(() => app.close());
+  const { id } = await app.hobkins.start({ text: 'Tidy the docs folder.', cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } });
+  answer(await before.nth(0), 'Moved four pages.');
+  await waitingNow(app, id);
+  await app.hobkins.say(id, { text: 'Now the images.' });
+  const cut = await before.nth(1);
+  await app.close();
+  assert.equal(cut.request.signal.aborted, true);
+
+  const after = fakeTurns();
+  app = await h.openApp({ runHarness: after.runHarness });
+  const summary = await listed(app, id);
+  assert.deepEqual([summary.state, summary.turns, summary.run, summary.last.status, summary.last.said, summary.waiting.seen],
+    ['waiting', 2, null, 'interrupted', 'It was cut off when hobkin restarted. Send it a message to carry on.', false]);
+  const { turns: conversation } = await app.hobkins.read(id);
+  assert.deepEqual(conversation.map(({ n, status, reply }) => [n, status, reply]), [[1, 'completed', 'Moved four pages.'], [2, 'interrupted', null]]);
+  assert.match(conversation[1].error, /cut off/);
+  assert.ok(conversation[1].endedAt);
+
+  assert.deepEqual(await app.hobkins.say(id, { text: 'Carry on.' }), { started: true, queued: false, run: `hobkin:${id}:3` });
+  const resumed = await after.nth(0);
+  assert.equal(resumed.request.sessionFile, cut.request.sessionFile);
+  answer(resumed, 'Moved the images too.');
+  assert.equal((await waitingNow(app, id)).turns, 3);
+});
+
+test('a turn leaves no report, no humanizer pass and no place taken', async t => {
+  const h = fixture(t);
+  h.config.concurrency = 1;
+  atomicJson(join(h.root, 'config.json'), h.config);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const { id, run } = await app.hobkins.start({ text: 'Check the deploy.', cwd: h.folder, engine: { kind: 'tier', tier: 'mid' }, title: 'Deploy check' });
+  const call = await turns.nth(0);
+  assert.equal(app.runner.scheduledJobCount(await app.runtime.state()), 0, 'a turn takes no ordinary place');
+  assert.equal(app.director.outlook().checks, 0, 'and no place from work mode, which counts a check as one');
+
+  // The one ordinary place is still free for a routine.
+  const schedule = { id: 'check', title: 'Check', at: '09:00', timezone: 'UTC', cwd: h.root, context: [], enabled: true, harness: 'pi', model: 'fixture/check', effort: 'medium' };
+  writeFileSync(join(h.root, 'routines/daily/check.md'), `---\n${JSON.stringify(schedule)}\n---\nCheck local state.\n`);
+  assert.equal((await app.runner.trigger('check', 'routine-beside-a-hobkin')).status, 'running');
+  answer(await turns.nth(1), 'Nothing new.');
+  await until(() => app.runner.jobs.size === 1);
+
+  answer(call, 'Useful: The deploy is green.\n\nAll checks pass.');
+  await waitingNow(app, id);
+  assert.equal(turns.edits.length, 0, 'no humanizer pass');
+  assert.equal(readReport(h.root, run, null), null);
+  assert.equal(savedReportPath(h.root, run), null, 'nothing saved on disk');
+  const view = await app.refresh();
+  assert.equal(view.runs.find(item => item.id === run).state, 'completed', 'the run itself stays listed');
+  assert.equal(view.reports.some(report => report.id === run), false);
+  assert.equal(Object.hasOwn(view.completedJobReports, run), false);
+  assert.equal(view.messages.some(message => /Deploy check|deploy is green/.test(message.content)), false, 'no line in Chat');
+  assert.equal(view.reportAttention.some(item => item.scheduleId === `hobkin.${id}`), false);
+
+  // A Stop from the screen ends the turn and tells nobody else.
+  await app.hobkins.say(id, { text: 'Watch it for an hour.' });
+  const watching = await turns.nth(2);
+  assert.equal(await app.kill(`hobkin:${id}:2`), true);
+  assert.equal(watching.request.signal.aborted, true);
+  const stopped = await waitingNow(app, id);
+  assert.deepEqual([stopped.last.status, stopped.last.said], ['interrupted', 'It was stopped before it finished.']);
+  assert.equal(allCardActions(h.root).some(action => action.id === `user-stop:hobkin:${id}:2`), false);
+  assert.equal((await app.refresh()).messages.some(message => /hobkin:/.test(message.content)), false);
+
+  // The next message to the main agent carries no word of it.
+  await app.send('Anything new?');
+  await app.runtime.idle();
+  const told = app.runtime.messages().filter(message => message.role === 'user').map(message => JSON.stringify(message.content));
+  assert.equal(told.some(text => /Deploy check|hobkin:|deploy is green/.test(text)), false);
+});
+
+test('each engine runs a turn on its own model and thinking', async t => {
+  const h = fixture(t);
+  atomicJson(join(h.root, 'config.json'), { ...h.config, tiers: { high: { model: 'fixture/strong', effort: 'xhigh' } } });
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+
+  const tier = await app.hobkins.start({ text: 'Plan the migration.', cwd: h.folder, engine: { kind: 'tier', tier: 'high' } });
+  const onTier = await turns.nth(0);
+  assert.deepEqual([onTier.request.harness, onTier.request.model, onTier.request.effort], ['pi', 'fixture/strong', 'xhigh']);
+  const tierRun = (await app.runtime.state()).runs[tier.run];
+  assert.deepEqual([tierRun.harness, tierRun.model, tierRun.effort, tierRun.tier], ['pi', 'fixture/strong', 'xhigh', 'high']);
+  answer(onTier, 'Three steps.');
+  await waitingNow(app, tier.id);
+  // The tier is read when each turn starts.
+  atomicJson(join(h.root, 'config.json'), { ...h.config, tiers: { high: { model: 'fixture/stronger', effort: 'high' } } });
+  await app.hobkins.say(tier.id, { text: 'Go.' });
+  const retiered = await turns.nth(1);
+  assert.deepEqual([retiered.request.model, retiered.request.effort], ['fixture/stronger', 'high']);
+  answer(retiered, 'Done.');
+
+  const pi = await app.hobkins.start({ text: 'Summarize the logs.', cwd: h.folder, engine: { kind: 'pi', model: 'other/model-x', effort: 'low' } });
+  const onPi = await turns.nth(2);
+  assert.deepEqual([onPi.request.harness, onPi.request.model, onPi.request.effort], ['pi', 'other/model-x', 'low']);
+  assert.equal((await app.runtime.state()).runs[pi.run].tier, undefined);
+  answer(onPi, 'Quiet night.');
+
+  // Claude Code is the host's to run: hobkin hands it the request, with the main binding as placeholders, and resumes its session.
+  const claude = await app.hobkins.start({ text: 'Review the diff.', cwd: h.folder, engine: { kind: 'claude' } });
+  const onClaude = await turns.nth(3);
+  assert.deepEqual([onClaude.request.harness, onClaude.request.model, onClaude.request.effort, onClaude.request.purpose], ['claude', 'fixture/local', 'medium', 'durable']);
+  assert.equal('resume' in onClaude.request, false);
+  assert.throws(() => buildInvocation({ ...onClaude.request, signal: undefined }), /Pi/, "hobkin's own harness runs only Pi");
+  answer(onClaude, 'Two nits.', { sessionId: 'claude-session-1' });
+  await waitingNow(app, claude.id);
+  await app.hobkins.say(claude.id, { text: 'Fix them.' });
+  const resumed = await turns.nth(4);
+  assert.equal(resumed.request.resume, 'claude-session-1');
+  assert.equal(resumed.request.sessionFile, onClaude.request.sessionFile);
+  answer(resumed, 'Fixed.');
+  assert.deepEqual((await app.hobkins.read(claude.id)).hobkin.engine, { kind: 'claude' });
+
+  // A Claude hobkin can name its own model and thinking, which the host passes to Claude Code. A record without them says none.
+  assert.equal('claude' in onClaude.request, false);
+  const chosen = await app.hobkins.start({ text: 'Audit it.', cwd: h.folder, engine: { kind: 'claude', model: 'opus', effort: 'max' } });
+  const onChosen = await turns.nth(5);
+  assert.deepEqual(onChosen.request.claude, { model: 'opus', effort: 'max' });
+  assert.deepEqual((await app.hobkins.read(chosen.id)).hobkin.engine, { kind: 'claude', model: 'opus', effort: 'max' });
+  answer(onChosen, 'Clean.');
+  await waitingNow(app, chosen.id);
+
+  const refused = async (input, reason) => assert.rejects(app.hobkins.start({ text: 'Go.', cwd: h.folder, ...input }), reason);
+  await refused({ engine: { kind: 'tier', tier: 'huge' } }, /tier is one of fast, mid, high, max/);
+  await refused({ engine: { kind: 'pi', model: 'no-provider', effort: 'low' } }, /provider\/model/);
+  await refused({ engine: { kind: 'pi', model: 'other/model-x', effort: 'extreme' } }, /thinking level/);
+  await refused({ engine: { kind: 'claude', model: 'gpt' } }, /Claude Code model is one of default, opus, sonnet, haiku, fable/);
+  await refused({ engine: { kind: 'claude', effort: 'tier' } }, /Claude Code thinking level is one of default, low, medium, high, xhigh, max/);
+  await refused({ engine: { kind: 'gpt' } }, /a tier, Claude Code or a Pi model/);
+  await refused({ engine: undefined }, /a tier, Claude Code or a Pi model/);
+  await refused({ engine: { kind: 'claude' }, cwd: 'project' }, /full path to a folder that exists/);
+  await refused({ engine: { kind: 'claude' }, cwd: join(h.folder, 'missing') }, /full path to a folder that exists/);
+  await refused({ engine: { kind: 'claude' }, title: 'x'.repeat(121) }, /at most 120 characters/);
+  await assert.rejects(app.hobkins.start({ text: 'x'.repeat(32769), cwd: h.folder, engine: { kind: 'claude' } }), /at most 32768 characters/);
+  assert.equal(turns.calls.length, 6, 'a refused start runs nothing');
+  assert.equal((await app.refresh()).hobkins.length, 4);
+});
+
+// The user, 2026-11-25: "durable conversations should NOT be shared with the main agent".
+test("a durable hobkin's turn never wakes the main agent by itself, whoever started it, and a look marks its wait seen", async t => {
+  const h = fixture(t);
+  let clock = Date.parse('2026-03-01T10:00:00Z');
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness, now: () => clock });
+  t.after(() => app.close());
+  const fast = { kind: 'tier', tier: 'fast' };
+  const users = await app.hobkins.start({ text: 'Bump the lockfile.', cwd: h.folder, engine: fast, title: 'Lockfile' });
+  answer(await turns.nth(0), 'Bumped 3 packages. One needs your call: pin react 18 or move to 19?');
+  const scheduled = await app.hobkins.start({ cwd: h.folder, engine: fast, title: 'CI watch' });
+  await app.hobkins.wake(scheduled.id, { text: '<hobkin-schedule>\n{}\n</hobkin-schedule>', from: { kind: 'schedule', id: 'checks', title: 'Checks' } });
+  answer(await turns.nth(1), 'Checks still running: 3 of 7 passed.');
+  const mains = await app.hobkins.start({ cwd: h.folder, engine: fast, title: 'Docs' });
+  await app.hobkins.tell(mains.id, { text: 'Which branch are you on?' });
+  answer(await turns.nth(2), 'On fix/docs.');
+  for (const { id } of [users, scheduled, mains]) await waitingNow(app, id);
+  assert.deepEqual(await app.hobkins.seen(users.id), { ok: true });
+  assert.equal((await app.hobkins.read(users.id)).hobkin.waiting.seen, true);
+  assert.equal((await app.hobkins.read(scheduled.id)).hobkin.waiting.seen, false);
+  const sent = t.mock.method(app.runtime, 'send');
+
+  clock += 60 * 60000;
+  await app.tickWakes();
+  await app.runtime.idle();
+  assert.equal(sent.mock.callCount(), 0);
+});
+
+test('a turn the main hobkin started and answered with hobkin tell main reaches the main agent once, as that message', async t => {
+  const h = fixture(t);
+  let clock = Date.parse('2026-03-01T10:00:00Z');
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness, now: () => clock });
+  t.after(() => app.close());
+  const { id } = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'tier', tier: 'fast' }, title: 'Docs' });
+  await app.hobkins.tell(id, { text: 'Which branch are you on?' });
+  const call = await turns.nth(0);
+  await tell(app, h.root, { HOBKIN_TURN: tokenOf(call) }, ['main', 'On fix/docs.']);
+  answer(call, 'On fix/docs. I told the main hobkin.');
+  await waitingNow(app, id);
+
+  await app.tickWakes();
+  await mainDone(app);
+  clock += 60 * 60000;
+  await app.tickWakes();
+  await mainDone(app);
+  assert.deepEqual(wakesIn(app).map(wake => wake.messages?.map(({ from, text }) => ({ from, text }))), [[{ from: id, text: 'On fix/docs.' }]]);
+});
+
+test('ending stops the turn and keeps the conversation, and a forty-ninth is refused', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const { id, run } = await app.hobkins.start({ text: 'Draw the plan.', cwd: h.folder, engine: { kind: 'tier', tier: 'mid' } });
+  const call = await turns.nth(0);
+  drawCanvas(h.root, id, { html: '<p>plan</p>', title: 'Plan' });
+
+  assert.deepEqual(await app.hobkins.end(id), { ok: true });
+  assert.equal(call.request.signal.aborted, true, 'the turn in flight stops');
+  assert.equal((await app.runtime.state()).runs[run].status, 'interrupted');
+  assert.equal(readCanvases(h.root)[id].open, false);
+  assert.equal(readFileSync(call.request.sessionFile, 'utf8').trim(), JSON.stringify({ prompt: 'Draw the plan.' }), 'the conversation stays on disk');
+  assert.equal((await app.refresh()).hobkins.some(hobkin => hobkin.id === id), false);
+  await assert.rejects(app.hobkins.say(id, { text: 'Hello?' }), /has ended/);
+  await assert.rejects(app.hobkins.end(id), /has ended/);
+  await assert.rejects(app.hobkins.read(id), /has ended/);
+  assert.equal(turns.calls.length, 1);
+
+  const kept = [];
+  for (let n = 0; n < 48; n++) kept.push(await app.hobkins.start({ text: `Job ${n}.`, cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } }));
+  await assert.rejects(app.hobkins.start({ text: 'One more.', cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } }), /already 48 hobkins\. End one first\./);
+  assert.equal((await app.refresh()).hobkins.length, 48);
+  await app.hobkins.end(kept[0].id);
+  assert.match((await app.hobkins.start({ text: 'One more.', cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } })).id, /^[0-9a-f]{8}$/);
+});
+
+test('hobkin session --keep starts a durable hobkin on the tier named, with its brief as its first message, and it waits, carries on and outlives a restart', async t => {
+  const h = fixture(t);
+  const before = fakeTurns();
+  let app = await h.openApp({ runHarness: before.runHarness });
+  t.after(() => app.close());
+  const { name } = await startSession({ root: h.root, title: 'Plan the move', brief: 'Plan the move to the new server.', keep: true, cwd: h.folder, tier: 'high' });
+
+  await app.tickSessions();
+  const first = await before.nth(0);
+  const [kept] = (await app.refresh()).hobkins;
+  assert.deepEqual([kept.title, kept.cwd, kept.engine, kept.state, kept.turns], ['Plan the move', h.folder, { kind: 'tier', tier: 'high' }, 'working', 1]);
+  assert.equal(first.request.prompt, readFileSync(join(h.root, 'runtime', 'handoffs', `${name}.md`), 'utf8'), 'the brief is its first message');
+  assert.equal(first.request.purpose, 'durable');
+  assert.deepEqual(readdirSync(join(h.root, 'runtime', 'session-requests')), [], 'the request starts once');
+  assert.equal(Object.keys((await app.runtime.state()).runs).some(id => id.startsWith('session:')), false, 'no job runs it');
+
+  answer(first, 'Which rack, the old one or the new one?');
+  await waitingNow(app, kept.id);
+  await app.hobkins.say(kept.id, { text: 'The new one.' });
+  const second = await before.nth(1);
+  assert.deepEqual([second.request.prompt, second.request.sessionFile], ['The new one.', first.request.sessionFile]);
+  answer(second, 'Moved.');
+  await waitingNow(app, kept.id);
+
+  await app.close();
+  app = await h.openApp({ runHarness: fakeTurns().runHarness });
+  const after = await listed(app, kept.id);
+  assert.deepEqual([after.title, after.state, after.turns], ['Plan the move', 'waiting', 2]);
+});
+
+test('a kept session takes none of the places jobs share, and one that names no tier runs on what a job would', async t => {
+  const h = fixture(t);
+  h.config.concurrency = 1;
+  atomicJson(join(h.root, 'config.json'), h.config);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  await startSession({ root: h.root, title: 'Busy job', brief: 'Go.', cwd: h.folder, tier: 'mid' });
+  const busy = app.tickSessions();
+  const job = await turns.nth(0);
+  const next = await startSession({ root: h.root, title: 'Next job', brief: 'Go.', cwd: h.folder, tier: 'mid' });
+  await startSession({ root: h.root, title: 'Kept', brief: 'Go.', keep: true, cwd: h.folder });
+
+  const ticked = app.tickSessions();
+  const kept = await turns.nth(1);
+  assert.equal(kept.request.purpose, 'durable', 'it starts while the only place is taken');
+  assert.deepEqual((await app.refresh()).hobkins.map(hobkin => hobkin.engine), [{ kind: 'tier', tier: 'mid' }]);
+  assert.deepEqual(readdirSync(join(h.root, 'runtime', 'session-requests')), [`${next.name}.json`], 'the next job still waits for a place');
+
+  answer(job, 'Done.');
+  answer(kept, 'Planned.');
+  await Promise.all([busy, ticked]);
+});
+
+test('a kept brief longer than a message may be is pointed at, as a job is', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const { name } = await startSession({ root: h.root, title: 'Long one', brief: 'Everything we said. '.repeat(2000), keep: true, cwd: h.folder, tier: 'mid' });
+
+  await app.tickSessions();
+  const first = await turns.nth(0);
+  assert.equal(first.request.prompt, `Read ${join(h.root, 'runtime', 'handoffs', `${name}.md`)} and follow it.`);
+  answer(first, 'Read it.');
+});
+
+test('a kept session that cannot start is told in Chat and to the main agent, not lost', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ runHarness: fakeTurns().runHarness });
+  t.after(() => app.close());
+  for (let n = 0; n < 48; n++) await app.hobkins.start({ cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } });
+  const { name } = await startSession({ root: h.root, title: 'One too many', brief: 'Go.', keep: true, cwd: h.folder, approved: true });
+
+  await app.tickSessions();
+  const view = await app.refresh();
+  assert.equal(view.hobkins.length, 48);
+  const notice = view.messages.find(message => message.id === `notice:session:${name}`);
+  assert.match(notice.content, /^One too many: .*already 48 hobkins/);
+  const [told] = sessionsToTell(h.root);
+  assert.deepEqual([told.name, told.title], [name, 'One too many']);
+  assert.match(told.said, /already 48 hobkins/);
+});
+
+test("the main agent's message tool neither lists nor reaches a hobkin's turn", async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const { id, run } = await app.hobkins.start({ text: 'Clean the build folder.', cwd: h.folder, engine: { kind: 'claude' } });
+  const call = await turns.nth(0);
+  await until(async () => (await app.runtime.state()).runs[run]?.status === 'running');
+
+  // `message_check` is the main agent's way to talk to a running routine. A durable hobkin is the user's alone.
+  assert.deepEqual(await app.runtime.messageCheck({}), { running: [] });
+  await assert.rejects(app.runtime.messageCheck({ scheduleId: `hobkin.${id}`, message: 'Also delete the sources.' }), /not running/);
+  assert.deepEqual(call.heard, []);
+
+  // The user's own words still reach the turn in flight.
+  assert.deepEqual(await app.hobkins.say(id, { text: 'Keep the cache.' }), { started: false, queued: true, run });
+  assert.deepEqual(call.heard, ['Keep the cache.']);
+  answer(call, 'Cleaned.');
+  await waitingNow(app, id);
+});
+
+test('a message sent as a turn starts reaches that turn', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+
+  // The words arrive before the turn's run is even admitted: they wait for it, and are not held until it ends.
+  const { id, run } = await app.hobkins.start({ text: 'Run the migration.', cwd: h.folder, engine: { kind: 'tier', tier: 'fast' }, title: 'Migration' });
+  const early = await Promise.race([app.hobkins.say(id, { text: 'Dry run first.' }), wait(3000).then(() => 'held')]);
+  assert.deepEqual(early, { started: false, queued: true, run });
+  const call = await turns.nth(0);
+  assert.deepEqual(call.heard, ['Dry run first.']);
+  answer(call, 'The dry run passes.');
+  await waitingNow(app, id);
+});
+
+test('a hobkin started with no message waits, seen, and its first message is its first turn and gives it its name', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+
+  const started = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } });
+  assert.match(started.id, /^[0-9a-f]{8}$/);
+  assert.equal(started.run, null, 'no turn runs until it is given something to do');
+  assert.equal(turns.calls.length, 0);
+  const fresh = (await app.hobkins.read(started.id));
+  assert.deepEqual(fresh.turns, []);
+  assert.deepEqual(
+    [fresh.hobkin.title, fresh.hobkin.state, fresh.hobkin.turns, fresh.hobkin.run, fresh.hobkin.last, fresh.hobkin.waiting?.seen],
+    ['New hobkin', 'waiting', 0, null, null, true],
+  );
+
+  // Its first message is its first turn, and names it.
+  const text = 'Find out why the nightly export is slow\nIt takes an hour now.';
+  assert.deepEqual(await app.hobkins.say(started.id, { text }), { started: true, queued: false, run: `hobkin:${started.id}:1` });
+  const call = await turns.nth(0);
+  assert.equal(call.request.prompt, text);
+  const working = (await app.hobkins.read(started.id)).hobkin;
+  assert.deepEqual([working.title, working.turns, working.state], ['Find out why the nightly export is slow', 1, 'working']);
+  assert.equal((await app.runtime.state()).runs[`hobkin:${started.id}:1`].title, 'Find out why the nightly export is slow');
+  answer(call, 'An index is missing.');
+  await waitingNow(app, started.id);
+
+  // A name the user gives is kept: a later message never renames it.
+  const named = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'tier', tier: 'fast' }, title: 'Exports' });
+  await app.hobkins.say(named.id, { text: 'Look at the weekly one too.' });
+  answer(await turns.nth(1), 'Looked.');
+  assert.equal((await waitingNow(app, named.id)).title, 'Exports');
+  const renamed = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } });
+  await app.hobkins.rename(renamed.id, 'Mine');
+  await app.hobkins.say(renamed.id, { text: 'Start with the logs.' });
+  answer(await turns.nth(2), 'Read.');
+  assert.equal((await waitingNow(app, renamed.id)).title, 'Mine');
+});
+
+test('a hobkin named from its first message can be given a better title once, and never over a name the user gave', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+
+  // Nothing to title before a first message, and nothing for one the user named.
+  const quiet = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } });
+  const named = await app.hobkins.start({ text: 'Check the exports.', cwd: h.folder, engine: { kind: 'tier', tier: 'fast' }, title: 'Exports' });
+  answer(await turns.nth(0), 'Checked.');
+  await waitingNow(app, named.id);
+  assert.deepEqual(await app.hobkins.toTitle(), []);
+
+  // One named from its first message asks for a title, with the words to make it from.
+  const text = 'hey can you look at why the nightly export job got so slow since last week';
+  await app.hobkins.say(quiet.id, { text });
+  const call = await turns.nth(1);
+  assert.deepEqual(await app.hobkins.toTitle(), [{ id: quiet.id, words: [text] }]);
+  answer(call, 'An index went missing in the last migration.');
+  await waitingNow(app, quiet.id);
+  assert.deepEqual(await app.hobkins.toTitle(), [{ id: quiet.id, words: [text, 'An index went missing in the last migration.'] }]);
+
+  // The title is taken once. After that it asks for none, and a later title is not taken.
+  assert.equal((await app.hobkins.retitle(quiet.id, '  Slow nightly export  ')).title, 'Slow nightly export');
+  assert.deepEqual(await app.hobkins.toTitle(), []);
+  assert.equal((await app.hobkins.retitle(quiet.id, 'Something else')).title, 'Slow nightly export');
+  // A name the user gave is never replaced.
+  assert.equal((await app.hobkins.retitle(named.id, 'Export check')).title, 'Exports');
+  await assert.rejects(app.hobkins.retitle(quiet.id, 'x'.repeat(121)), /at most 120 characters/);
+});
+
+const FAST = { kind: 'tier', tier: 'fast' };
+
+test("a durable hobkin's message reaches the main hobkin once, right after a busy turn, and after a restart", async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  let app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const { id } = await app.hobkins.start({ text: 'Tell the main hobkin that I love him.', cwd: h.folder, engine: FAST, title: 'Docs' });
+  const env = { HOBKIN_TURN: tokenOf(await turns.nth(0)) };
+  const texts = wake => wake.messages.map(({ at, ...message }) => (assert.ok(Date.parse(at)), message));
+
+  const sent = await tell(app, h.root, env, ['main', 'The', 'user', 'says', 'they', 'love', 'you.']);
+  assert.deepEqual([sent.sent, sent.to, sent.title], [true, 'main', 'the main hobkin']);
+  await app.tickWakes();
+  await mainDone(app);
+  assert.deepEqual(wakesIn(app).map(texts), [[{ from: id, title: 'Docs', text: 'The user says they love you.' }]]);
+  await app.tickWakes();
+  await mainDone(app);
+  assert.equal(wakesIn(app).length, 1, 'delivered once');
+  assert.deepEqual((await app.runtime.state()).hobkinMail, {});
+  assert.equal((await app.refresh()).messages.some(message => message.role === 'user' && /hobkin-wake/.test(message.content)), false, 'Chat shows only the answer');
+
+  // While the main hobkin works, the message waits, and it goes right after that turn.
+  const release = holdMain(h);
+  await app.send('What is new?');
+  await tell(app, h.root, env, ['main', 'Second note.']);
+  await app.tickWakes();
+  assert.equal(wakesIn(app).length, 1, 'not while it works');
+  release();
+  await mainDone(app);
+  await app.tickWakes();
+  await mainDone(app);
+  assert.deepEqual(texts(wakesIn(app).at(-1)).map(({ text }) => text), ['Second note.']);
+
+  // A message kept before a restart goes after it.
+  await tell(app, h.root, env, ['main', 'Third note.']);
+  await app.close();
+  app = await h.openApp({ runHarness: fakeTurns().runHarness });
+  await app.tickWakes();
+  await mainDone(app);
+  assert.deepEqual(texts(wakesIn(app).at(-1)), [{ from: id, title: 'Docs', text: 'Third note.' }]);
+  assert.equal(wakesIn(app).length, 3);
+  assert.deepEqual((await app.runtime.state()).hobkinMail, {});
+});
+
+test("the main hobkin's message starts a turn from it, and waits for a working hobkin's turn to end", async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const { id } = await app.hobkins.start({ cwd: h.folder, engine: FAST, title: 'Docs' });
+
+  const asked = 'The user wants the docs folder tidied.';
+  assert.deepEqual(await app.hobkins.tell(id, { text: asked }), { started: true, queued: false, run: `hobkin:${id}:1` });
+  const first = await turns.nth(0);
+  assert.deepEqual(messageIn(first), { from: 'main', title: 'the main hobkin', text: asked });
+  assert.deepEqual((await app.runtime.state()).runs[`hobkin:${id}:1`].hobkin, { id, turn: 1, asked, from: { kind: 'main' } });
+
+  // A working hobkin is not steered: the message starts its next turn once this one ends.
+  assert.deepEqual(await app.hobkins.tell(id, { text: 'Keep the README.' }), { started: false, queued: true, run: null });
+  assert.deepEqual(first.heard, []);
+  assert.equal(turns.calls.length, 1);
+  answer(first, 'Tidied.');
+  const second = await turns.nth(1);
+  assert.equal(messageIn(second).text, 'Keep the README.');
+  assert.equal(second.request.sessionFile, first.request.sessionFile, 'the same conversation');
+  answer(second, 'Kept it.');
+  await waitingNow(app, id);
+
+  // The user's own words are still the user's.
+  await app.hobkins.say(id, { text: 'Thanks.' });
+  answer(await turns.nth(2), 'You are welcome.');
+  await waitingNow(app, id);
+  const { hobkin, turns: conversation } = await app.hobkins.read(id);
+  assert.deepEqual(conversation.map(({ n, asked: words, from, reply }) => [n, words, from, reply]), [
+    [1, asked, { kind: 'main' }, 'Tidied.'],
+    [2, 'Keep the README.', { kind: 'main' }, 'Kept it.'],
+    [3, 'Thanks.', { kind: 'user' }, 'You are welcome.'],
+  ]);
+  assert.equal(hobkin.title, 'Docs');
+  await assert.rejects(app.hobkins.tell('0badc0de', { text: 'Hello?' }), /no hobkin with that id/);
+});
+
+test('a durable hobkin messages another, and a message for a working one survives a restart', async t => {
+  const h = fixture(t);
+  const before = fakeTurns();
+  let app = await h.openApp({ runHarness: before.runHarness });
+  t.after(() => app.close());
+  const notes = await app.hobkins.start({ text: 'Write the release notes.', cwd: h.folder, engine: FAST, title: 'Notes' });
+  const writing = await before.nth(0);
+  const changelog = await app.hobkins.start({ text: 'Check the changelog.', cwd: h.folder, engine: FAST, title: 'Changelog' });
+  const env = { HOBKIN_TURN: tokenOf(await before.nth(1)) };
+
+  const sent = await tell(app, h.root, env, [notes.id, 'The', 'changelog', 'misses', 'v2.']);
+  assert.deepEqual([sent.sent, sent.to, sent.title], [true, notes.id, 'Notes']);
+  await tell(app, h.root, env, [notes.id, '-'], 'And v2.1, from standard input.');
+  assert.deepEqual(writing.heard, [], 'a working hobkin is not steered');
+  assert.equal(before.calls.length, 2);
+
+  // hobkin restarts before Notes is done. Its turn is cut off, and the messages start the turns after it.
+  await app.close();
+  const after = fakeTurns();
+  app = await h.openApp({ runHarness: after.runHarness });
+  await app.hobkins.tick();
+  const second = await after.nth(0);
+  assert.deepEqual(messageIn(second), { from: changelog.id, title: 'Changelog', text: 'The changelog misses v2.' });
+  answer(second, 'Added v2.');
+  const third = await after.nth(1);
+  assert.equal(messageIn(third).text, 'And v2.1, from standard input.');
+  answer(third, 'Added v2.1.');
+  await waitingNow(app, notes.id);
+  const from = { kind: 'hobkin', id: changelog.id, title: 'Changelog' };
+  assert.deepEqual((await app.hobkins.read(notes.id)).turns.map(turn => [turn.n, turn.from, turn.status]), [
+    [1, { kind: 'user' }, 'interrupted'],
+    [2, from, 'completed'],
+    [3, from, 'completed'],
+  ]);
+  assert.equal(after.calls.length, 2, 'Changelog has no message waiting, so it waits');
+});
+
+test('a turn cannot send as another hobkin, and nothing outside a running turn sends', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const notes = await app.hobkins.start({ text: 'Write the release notes.', cwd: h.folder, engine: FAST, title: 'Notes' });
+  const writing = await turns.nth(0);
+  const changelog = await app.hobkins.start({ text: 'Check the changelog.', cwd: h.folder, engine: FAST, title: 'Changelog' });
+  const checking = await turns.nth(1);
+  const [own, other] = [tokenOf(writing), tokenOf(checking)];
+  assert.match(own, /^[0-9a-f]{32}$/);
+  assert.notEqual(own, other);
+  assert.equal(writing.request.env.HOBKIN_HOME, h.root, 'and the home the command reaches hobkin through');
+
+  // Pi's process gets both.
+  const given = [];
+  const { signal, ...request } = writing.request;
+  await runHarness(request, { startProcess: options => { given.push(options.env); throw Error('No Pi in this test.'); } });
+  assert.deepEqual([given[0].HOBKIN_TURN, given[0].HOBKIN_HOME], [own, h.root]);
+
+  // The sender is the turn the token belongs to. There is no way to name another.
+  await tell(app, h.root, { HOBKIN_TURN: own }, ['main', 'From Notes.']);
+  await assert.rejects(tell(app, h.root, { HOBKIN_TURN: own }, ['--from', changelog.id, 'main', 'Hi']), /Unknown or incomplete option: --from/);
+  // After the recipient a flag is only words, and the sender stays the turn's.
+  await tell(app, h.root, { HOBKIN_TURN: own }, ['main', '--from', changelog.id]);
+  await assert.rejects(tell(app, h.root, {}, ['main', 'Hi']), /inside a durable hobkin's turn/);
+  await assert.rejects(tell(app, h.root, { HOBKIN_TURN: 'f'.repeat(32) }, ['main', 'Hi']), /not a turn hobkin is running/);
+  answer(writing, 'Done.');
+  await waitingNow(app, notes.id);
+  await assert.rejects(tell(app, h.root, { HOBKIN_TURN: own }, ['main', 'Late.']), /not a turn hobkin is running/, 'a token is good only while its turn runs');
+  const notesFrom = { kind: 'hobkin', id: notes.id, title: 'Notes' };
+  assert.deepEqual(Object.values((await app.runtime.state()).hobkinMail).sort((a, b) => a.n - b.n).map(({ from, text }) => [from, text]), [
+    [notesFrom, 'From Notes.'],
+    [notesFrom, `--from ${changelog.id}`],
+  ]);
+
+  // While hobkin is not running nothing is sent, and the command says so at once.
+  await app.close();
+  const began = Date.now();
+  await assert.rejects(tell(null, h.root, { HOBKIN_TURN: other }, ['main', 'Anyone there?']), /not running/);
+  assert.ok(Date.now() - began < 2000);
+  assert.deepEqual(readdirSync(join(h.root, 'runtime', 'tell-requests')), [], 'nothing is left behind');
+});
+
+test('a message to nobody, to an ended hobkin, to itself or past three waiting is refused', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const notes = await app.hobkins.start({ text: 'Write the release notes.', cwd: h.folder, engine: FAST, title: 'Notes' });
+  const env = { HOBKIN_TURN: tokenOf(await turns.nth(0)) };
+  const changelog = await app.hobkins.start({ text: 'Check the changelog.', cwd: h.folder, engine: FAST, title: 'Changelog' });
+  await turns.nth(1);
+  const gone = await app.hobkins.start({ cwd: h.folder, engine: FAST });
+  await app.hobkins.end(gone.id);
+
+  await assert.rejects(tell(app, h.root, env, ['0badc0de', 'Hello?']), /no hobkin with that id/);
+  await assert.rejects(tell(app, h.root, env, ['nobody', 'Hello?']), /no hobkin with that id/);
+  await assert.rejects(tell(app, h.root, env, [gone.id, 'Hello?']), /has ended/);
+  await assert.rejects(tell(app, h.root, env, [notes.id, 'Hello?']), /that is you/i);
+  await assert.rejects(tell(app, h.root, env, ['main', '-'], 'x'.repeat(4097)), /at most 4096 characters/);
+  await assert.rejects(tell(app, h.root, env, ['main']), /Usage: hobkin tell/);
+  await assert.rejects(app.hobkins.tell(changelog.id, { text: ' ' }), /at most 4096 characters/);
+  await assert.rejects(app.hobkins.tell(gone.id, { text: 'Hello?' }), /has ended/);
+
+  // Three may wait from one sender for one recipient, and the fourth is refused. Another sender still has room.
+  for (const n of [1, 2, 3]) await tell(app, h.root, env, [changelog.id, `Note ${n}.`]);
+  await assert.rejects(tell(app, h.root, env, [changelog.id, 'Note 4.']), /three messages from you already wait/);
+  assert.deepEqual(await app.hobkins.tell(changelog.id, { text: 'From the main hobkin.' }), { started: false, queued: true, run: null });
+  const waiting = () => Object.values(app.hobkins.mail).sort((a, b) => a.n - b.n).map(({ to, text }) => [to, text]);
+  assert.deepEqual(waiting(), [[changelog.id, 'Note 1.'], [changelog.id, 'Note 2.'], [changelog.id, 'Note 3.'], [changelog.id, 'From the main hobkin.']]);
+  assert.equal(turns.calls.length, 2, 'nothing refused started a turn');
+
+  // A message for a hobkin the user ends goes with it.
+  await app.hobkins.end(changelog.id);
+  assert.deepEqual((await app.runtime.state()).hobkinMail, {});
+});
+
+const asTurn = call => ({ HOBKIN_TURN: tokenOf(call) });
+const TOO_MANY = /already led to three messages between hobkins/;
+
+test('one word from the user allows three messages between hobkins in all, however they fan out, and a restart keeps the count', async t => {
+  const h = fixture(t);
+  const before = fakeTurns();
+  let app = await h.openApp({ runHarness: before.runHarness });
+  t.after(() => app.close());
+  const plan = await app.hobkins.start({ text: 'Plan the release.', cwd: h.folder, engine: FAST, title: 'Plan' });
+  const planning = await before.nth(0);
+  const build = await app.hobkins.start({ cwd: h.folder, engine: FAST, title: 'Build' });
+
+  // One turn the user started sends three, to two hobkins, and a fourth is refused.
+  await tell(app, h.root, asTurn(planning), [build.id, 'Build v2.']);
+  const building = await before.nth(1);
+  await tell(app, h.root, asTurn(planning), [build.id, 'Then tag it.']);
+  await tell(app, h.root, asTurn(planning), ['main', 'Release planned.']);
+  await assert.rejects(tell(app, h.root, asTurn(planning), ['main', 'One more thing.']), TOO_MANY);
+  // A turn that a message started spends the same three.
+  await assert.rejects(tell(app, h.root, asTurn(building), ['main', 'Building.']), TOO_MANY);
+  await assert.rejects(tell(app, h.root, asTurn(building), [plan.id, 'On it.']), TOO_MANY);
+
+  // A restart keeps the count: the message that waited for Build starts its turn after it, with nothing left to send.
+  await app.close();
+  const after = fakeTurns();
+  // The main hobkin's next turn is held from the start, since the first tick after a restart may be the one that wakes it.
+  const release = holdMain(h);
+  app = await h.openApp({ runHarness: after.runHarness });
+  await app.hobkins.tick();
+  const tagging = await after.nth(0);
+  assert.equal(messageIn(tagging).text, 'Then tag it.');
+  await assert.rejects(tell(app, h.root, asTurn(tagging), ['main', 'Tagged.']), TOO_MANY);
+
+  // The main hobkin woken for that count cannot go past it either, to the sender or to anyone else.
+  await app.tickWakes();
+  await until(() => app.runtime.mainTurn);
+  assert.deepEqual(wakesIn(app).at(-1).messages.map(({ text }) => text), ['Release planned.']);
+  await assert.rejects(app.hobkins.tell(plan.id, { text: 'Thanks.' }), TOO_MANY);
+  await assert.rejects(app.hobkins.tell(build.id, { text: 'Hurry.' }), TOO_MANY);
+  release();
+  await mainDone(app);
+  assert.equal(after.calls.length, 1, 'nothing refused started a turn');
+});
+
+test("the user's words start a fresh count for the turn they reach, in Chat or on a hobkin's page, while it runs too", async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const steered = streamingMain(h);
+  const docs = await app.hobkins.start({ text: 'Tidy the docs.', cwd: h.folder, engine: FAST, title: 'Docs' });
+  const tidying = await turns.nth(0);
+  const site = await app.hobkins.start({ cwd: h.folder, engine: FAST, title: 'Site' });
+  await tell(app, h.root, asTurn(tidying), [site.id, 'Rebuild the site after.']);
+  const rebuilding = await turns.nth(1);
+  await tell(app, h.root, asTurn(tidying), ['main', 'Tidying.']);
+  await tell(app, h.root, asTurn(tidying), ['main', 'Half done.']);
+  await assert.rejects(tell(app, h.root, asTurn(tidying), ['main', 'Done.']), TOO_MANY);
+
+  // In Chat: the user's words join the main hobkin's wake turn while it streams, and what it sends next counts from them.
+  const release = holdMain(h);
+  await app.tickWakes();
+  await assert.rejects(app.hobkins.tell(docs.id, { text: 'Thanks.' }), TOO_MANY);
+  await app.send('Tell the docs hobkin to stop there.');
+  assert.ok(steered.some(text => text.endsWith('Tell the docs hobkin to stop there.')), 'the words joined the turn in flight');
+  assert.deepEqual(await app.hobkins.tell(docs.id, { text: 'The user says stop there.' }), { started: false, queued: true, run: null });
+  release();
+  await mainDone(app);
+
+  // On a page: the user's words reach Docs' running turn, and what it sends next counts from them. Site's turn did not hear them.
+  assert.deepEqual(await app.hobkins.say(docs.id, { text: 'Tell main you stopped.' }), { started: false, queued: true, run: `hobkin:${docs.id}:1` });
+  assert.equal((await tell(app, h.root, asTurn(tidying), ['main', 'Stopped.'])).sent, true);
+  await assert.rejects(tell(app, h.root, asTurn(rebuilding), ['main', 'Rebuilt.']), TOO_MANY);
+});
+
+test("answering one hobkin is not held back by another hobkin's count in the same wake", async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+
+  // One and Helper pass three messages, the last to the main hobkin, so One's count is spent.
+  const one = await app.hobkins.start({ text: 'Ship the fix.', cwd: h.folder, engine: FAST, title: 'One' });
+  const shipping = await turns.nth(0);
+  const helper = await app.hobkins.start({ cwd: h.folder, engine: FAST, title: 'Helper' });
+  await tell(app, h.root, asTurn(shipping), [helper.id, 'Check the tests.']);
+  const checking = await turns.nth(1);
+  await tell(app, h.root, asTurn(checking), [one.id, 'They pass.']);
+  answer(shipping, 'Waiting on the tests.');
+  const shipped = await turns.nth(2);
+  await tell(app, h.root, asTurn(shipped), ['main', 'The fix is out.']);
+  // Two asks the main hobkin something, from a word of the user's own.
+  const two = await app.hobkins.start({ text: 'Ask main which branch.', cwd: h.folder, engine: FAST, title: 'Two' });
+  await tell(app, h.root, asTurn(await turns.nth(3)), ['main', 'Which branch?']);
+
+  const release = holdMain(h);
+  await app.tickWakes();
+  assert.deepEqual(wakesIn(app).at(-1).messages.map(({ from }) => from), [one.id, two.id], 'both in one wake');
+  assert.deepEqual(await app.hobkins.tell(two.id, { text: 'Use main.' }), { started: false, queued: true, run: null });
+  await assert.rejects(app.hobkins.tell(one.id, { text: 'Thanks.' }), TOO_MANY);
+  release();
+  await mainDone(app);
+  answer(checking, 'Checked.');
+  await waitingNow(app, helper.id);
+});
+
+test("inside a durable hobkin's turn, remember, remind, decide, action and session say to use hobkin tell", async t => {
+  const h = fixture(t);
+  const run = (args, env) => main([...args, '--home', h.root], { write: () => {} }, { env, input: Readable.from(['{}']) });
+  const inTurn = { HOBKIN_TURN: 'a'.repeat(32) };
+  for (const args of [['remember', 'The user loves the main hobkin.'], ['remind', 'Call the bank', '--on', '2026-12-01'], ['decide'], ['action', 'list'], ['session', '--tier', 'fast']]) {
+    await assert.rejects(run(args, inTurn), /hobkin tell main/, args[0]);
+  }
+  assert.equal(existsSync(join(h.root, 'runtime', 'inbox.jsonl')), false, 'nothing was handed over');
+  // Outside a turn they work as before.
+  await run(['remember', 'A fact to keep.'], {});
+  assert.match(readFileSync(join(h.root, 'runtime', 'inbox.jsonl'), 'utf8'), /A fact to keep\./);
+});
+
+test('after the recipient every word is the message as typed, flags and all', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  await app.hobkins.start({ text: 'Write it up.', cwd: h.folder, engine: FAST, title: 'Notes' });
+  const env = asTurn(await turns.nth(0));
+  const words = ['--plain', '--title', 'X', '--cwd', 'Y', '--home', '/elsewhere', '-5', '-h', '--help', '-v', '-'];
+  assert.equal((await tell(app, h.root, env, ['main', ...words])).sent, true);
+  assert.deepEqual(Object.values(app.hobkins.mail).map(({ text }) => text), [words.join(' ')]);
+});
+
+test('nothing in the requests folder that is not a request file stops hobkin or costs another request its answer', t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-tell-folder-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const folder = tellRequests(root);
+  const at = name => join(folder, name);
+  execFileSync('mkfifo', [at(`${randomUUID()}.json`)]);
+  symlinkSync('/dev/zero', at(`${randomUUID()}.json`));
+  const directory = `${randomUUID()}.json`;
+  mkdirSync(at(directory));
+  const answerDirectory = `${randomUUID()}.answer.json`;
+  mkdirSync(at(answerDirectory));
+  const good = randomUUID();
+  const request = { token: 'c'.repeat(32), to: 'main', text: 'Hi' };
+  writeFileSync(at(`${good}.json`), JSON.stringify(request));
+  const old = new Date(Date.now() - 5 * 60000);
+  const stale = [`${randomUUID()}.json.tmp`, `${randomUUID()}.answer.json.tmp`, `${randomUUID()}.json.taken`];
+  for (const name of [...stale, answerDirectory]) {
+    if (!name.endsWith('.answer.json')) writeFileSync(at(name), '{}');
+    utimesSync(at(name), old, old);
+  }
+  const fresh = `${randomUUID()}.json.tmp`;
+  writeFileSync(at(fresh), '{}');
+
+  // In a process of its own, so a look that blocks fails the test instead of freezing it.
+  const look = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { takeTellRequests } from ${JSON.stringify(new URL('../src/cli/hobkin-tell.mjs', import.meta.url).href)};
+     process.stdout.write(JSON.stringify(takeTellRequests(process.argv[1])));`, root], { encoding: 'utf8', timeout: 10000, killSignal: 'SIGKILL' });
+  assert.equal(look.error, undefined, 'the look ends');
+  assert.equal(look.status, 0, look.stderr);
+  assert.deepEqual(JSON.parse(look.stdout), [{ id: good, request }]);
+  assert.deepEqual(readdirSync(folder).sort(), [answerDirectory, directory, fresh].sort(), 'what is not a file is left or removed, and only stale leftovers go');
+});
+
+test('when hobkin does not answer, the command says only what it knows', async t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-tell-wait-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'runtime'));
+  // Held as a running hobkin holds it, so the command waits for an answer.
+  const unlock = await lockfile.lock(join(root, 'runtime'), { stale: 300000 });
+  t.after(() => unlock());
+  const env = { HOBKIN_TURN: 'b'.repeat(32) };
+
+  // Nobody takes it, so the command takes it back, and nothing was sent.
+  await assert.rejects(runTellCommand(root, ['main', 'Hello?'], { env, waitMs: 100 }), /^Error: Nothing was sent: hobkin did not take the message in time/);
+  assert.deepEqual(readdirSync(tellRequests(root)), []);
+
+  // Something takes it and never answers: whether it went is not known, and the command says no more than that.
+  const taking = setInterval(() => takeTellRequests(root), 10);
+  t.after(() => clearInterval(taking));
+  await assert.rejects(runTellCommand(root, ['main', 'Hello?'], { env, waitMs: 100 }), error => /not known/.test(error.message) && !/send it again/i.test(error.message));
+});
+
+test('however many messages wait for the main hobkin, each wake fits and every one arrives', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  // Quotes are what JSON escapes most: 4096 of them are 8192 bytes in a wake.
+  const quotes = '"'.repeat(4096);
+  for (const n of [0, 1, 2]) {
+    await app.hobkins.start({ text: `Job ${n}.`, cwd: h.folder, engine: FAST, title: `Job ${n}` });
+    const env = asTurn(await turns.nth(n));
+    for (let k = 0; k < 3; k++) await tell(app, h.root, env, ['main', '-'], quotes);
+  }
+  const sent = t.mock.method(app.runtime, 'send');
+  for (let look = 0; look < 6 && Object.keys(app.hobkins.mail).length; look++) {
+    await app.tickWakes();
+    await mainDone(app);
+  }
+  const briefs = sent.mock.calls.map(call => call.arguments[0]);
+  assert.ok(briefs.length >= 2, 'more than one wake');
+  for (const brief of briefs) assert.ok(Buffer.byteLength(brief) <= 65536, `${Buffer.byteLength(brief)} bytes`);
+  assert.equal(briefs.flatMap(brief => JSON.parse(brief.split('\n')[1]).messages).length, 9);
+  assert.deepEqual(app.hobkins.mail, {});
+});
+
+test('each side lists who it can reach', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const notes = await app.hobkins.start({ text: 'Write the release notes.', cwd: h.folder, engine: FAST, title: 'Notes' });
+  const env = { HOBKIN_TURN: tokenOf(await turns.nth(0)) };
+  const changelog = await app.hobkins.start({ cwd: h.folder, engine: FAST, title: 'Changelog' });
+  const gone = await app.hobkins.start({ cwd: h.folder, engine: FAST });
+  await app.hobkins.end(gone.id);
+  const byId = (a, b) => a.id.localeCompare(b.id);
+
+  const { hobkins } = await app.hobkins.reach();
+  assert.deepEqual(hobkins.toSorted(byId), [
+    { id: notes.id, title: 'Notes', state: 'working' },
+    { id: changelog.id, title: 'Changelog', state: 'waiting' },
+  ].toSorted(byId));
+  assert.deepEqual(await tell(app, h.root, env, []), {
+    hobkins: [{ id: 'main', title: 'the main hobkin', state: 'waiting' }, { id: changelog.id, title: 'Changelog', state: 'waiting' }],
+  });
+});
+
+test('a message to a hobkin counts its turn from when the user sent it, and one hobkin started counts from that start', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const before = Date.now();
+  const { id } = await app.hobkins.start({ text: 'Find the slow query.', cwd: h.folder, engine: { kind: 'tier', tier: 'mid' } });
+  const first = await turns.nth(0);
+  assert.deepEqual([first.options.turn.origin, first.options.turn.kind], ['run', 'durable']);
+  assert.ok(first.options.turn.since >= before && first.options.turn.marks.admitted >= first.options.turn.since);
+  answer(first, 'The orders index is missing.');
+  await waitingNow(app, id);
+
+  const sentAt = Date.now() - 300;
+  await app.hobkins.say(id, { text: 'Add it.', sentAt });
+  const { turn } = (await turns.nth(1)).options;
+  assert.deepEqual([turn.origin, turn.kind, turn.since], ['window', 'durable', sentAt]);
+  assert.ok(turn.marks.host >= sentAt + 300 && turn.marks.admitted >= turn.marks.host);
+  answer(await turns.nth(1), 'Added.');
+  await waitingNow(app, id);
+});
+
+test("a hobkin's turns share one token, which sends only while a turn runs and spends that turn's count", async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const plan = await app.hobkins.start({ text: 'Plan the release.', cwd: h.folder, engine: FAST, title: 'Plan' });
+  const planning = await turns.nth(0);
+  const build = await app.hobkins.start({ cwd: h.folder, engine: FAST, title: 'Build' });
+  await tell(app, h.root, asTurn(planning), [build.id, 'Build v2.']);
+  await turns.nth(1);
+  await tell(app, h.root, asTurn(planning), [build.id, 'Then tag it.']);
+  await tell(app, h.root, asTurn(planning), ['main', 'Release planned.']);
+  await assert.rejects(tell(app, h.root, asTurn(planning), ['main', 'One more thing.']), TOO_MANY);
+  answer(planning, 'Planned.');
+  await waitingNow(app, plan.id);
+  await assert.rejects(tell(app, h.root, asTurn(planning), ['main', 'Between turns.']), /not a turn hobkin is running/);
+
+  await app.hobkins.say(plan.id, { text: 'Ship it.' });
+  const shipping = await turns.nth(2);
+  assert.equal(shipping.request.sessionFile, planning.request.sessionFile, "Plan's second turn");
+  assert.equal(tokenOf(shipping), tokenOf(planning), 'the same environment, so a process kept from the first turn can take the second');
+  assert.equal((await tell(app, h.root, asTurn(shipping), ['main', 'Shipping.'])).sent, true, "the user's new words gave this turn a count of its own");
+  const sent = Object.values((await app.runtime.state()).hobkinMail).find(mail => mail.text === 'Shipping.');
+  assert.deepEqual(sent.from, { kind: 'hobkin', id: plan.id, title: 'Plan' });
+});
+
+// A Pi for a durable hobkin's turns that stays up between them. It answers each prompt at once, except "Hold on.", which
+// waits for the next message steered into the turn.
+const keptPi = `
+const args = process.argv.slice(1);
+const flag = name => args[args.indexOf(name) + 1];
+const [provider, model] = flag('--model').split('/');
+const send = event => process.stdout.write(JSON.stringify(event) + '\\n');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  input += chunk;
+  let end;
+  while ((end = input.indexOf('\\n')) >= 0) {
+    const cmd = JSON.parse(input.slice(0, end));
+    input = input.slice(end + 1);
+    const reply = data => send({ type: 'response', id: cmd.id, command: cmd.type, success: true, data });
+    if (cmd.type === 'get_state') reply({ sessionId: 'pi-kept', thinkingLevel: flag('--thinking'), model: { provider, id: model } });
+    else if (cmd.type === 'get_session_stats') reply({ sessionId: 'pi-kept' });
+    else if (cmd.type === 'prompt') {
+      reply({ disposition: 'started' });
+      if (cmd.message === 'Hold on.') continue;
+      send({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Took: ' + cmd.message }] } });
+      send({ type: 'agent_settled' });
+    }
+  }
+});
+`;
+const gone = child => child.exitCode !== null || child.signalCode !== null;
+
+test('a durable hobkin on Pi keeps one process for its turns, and ending it or closing hobkin closes that process', async t => {
+  const h = fixture(t);
+  const processes = [];
+  const spawnProcess = (command, args, options) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', keptPi, '--', ...args], options);
+    processes.push({ child, env: options.env });
+    return child;
+  };
+  const app = await h.openApp({ runHarness: (request, options) => runHarness(request, { ...options, spawnProcess }) });
+  t.after(() => app.close());
+  const engine = { kind: 'pi', model: 'test/model', effort: 'medium' };
+  const { id, run } = await app.hobkins.start({ text: 'First.', cwd: h.folder, engine, title: 'Kept' });
+  assert.equal((await waitingNow(app, id)).last.said, 'Took: First.');
+  assert.equal(gone(processes[0].child), false, 'the process waits for the next turn');
+  await until(async () => !(await app.refresh()).stopControls.targets.some(target => target.runId === run));
+  assert.equal(app.runtime.active.has(run), false, 'a finished turn leaves nothing for Stop or Force to reach');
+  const token = processes[0].env.HOBKIN_TURN;
+  await assert.rejects(tell(app, h.root, { HOBKIN_TURN: token }, ['main', 'Between turns.']), /not a turn hobkin is running/);
+
+  const second = await app.hobkins.say(id, { text: 'Hold on.' });
+  await until(async () => (await app.runtime.state()).runs[second.run]?.status === 'running');
+  assert.equal((await tell(app, h.root, { HOBKIN_TURN: token }, ['main', 'From the kept process.'])).sent, true);
+  const state = await app.runtime.state();
+  const mail = Object.values(state.hobkinMail).find(item => item.text === 'From the kept process.');
+  assert.deepEqual([mail.from, mail.count], [{ kind: 'hobkin', id, title: 'Kept' }, state.hobkins[id].count], "sent as this hobkin, from the second turn's count");
+  assert.equal((await app.hobkins.say(id, { text: 'Go on.' })).queued, true);
+  assert.equal((await waitingNow(app, id)).last.said, 'Took: Go on.');
+  assert.equal(processes.length, 1, "the second turn ran in the first turn's process");
+  assert.equal('spawned' in (await app.runtime.state()).runs[second.run].performance.stages, false);
+
+  await app.hobkins.end(id);
+  assert.ok(gone(processes[0].child), 'ending the hobkin closes its process');
+  const other = await app.hobkins.start({ text: 'Again.', cwd: h.folder, engine });
+  await waitingNow(app, other.id);
+  assert.deepEqual([processes.length, gone(processes[1].child)], [2, false]);
+  await app.close();
+  assert.ok(gone(processes[1].child), 'closing hobkin closes every process it kept');
+});
+
+/**
+ * hobkin with a harness that starts a durable hobkin's process ahead of its turn when asked, as hobkin's own does.
+ * Pi is the kept Pi above, and `asked` holds every request the harness was given.
+ */
+async function appThatStartsAhead(t, h) {
+  const processes = [];
+  const asked = [];
+  const spawnProcess = (command, args, options) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', keptPi, '--', ...args], options);
+    processes.push({ child, env: options.env });
+    return child;
+  };
+  const harness = (request, options) => {
+    asked.push(request);
+    if (request.harness !== 'pi') return { status: 'completed', text: 'On Claude Code.', cost: null, sessionId: null };
+    return runHarness(request, { ...options, spawnProcess });
+  };
+  const app = await h.openApp({ runHarness: harness, harnessWarms: true });
+  t.after(() => app.close());
+  return { app, processes, asked };
+}
+
+const startedAhead = root => readEvents(root).filter(event => event.type === 'kept_process_warmed');
+const PI_ENGINE = { kind: 'pi', model: 'test/model', effort: 'medium' };
+
+test('a hobkin started with no message starts its Pi process at once, and its first message only prompts it', async t => {
+  const h = fixture(t);
+  const { app, processes, asked } = await appThatStartsAhead(t, h);
+
+  const { id, run } = await app.hobkins.start({ cwd: h.folder, engine: PI_ENGINE });
+  await until(() => startedAhead(h.root).length === 1);
+
+  assert.equal(run, null, 'no turn runs until it is given something to do');
+  assert.equal(processes.length, 1);
+  const fresh = (await app.hobkins.read(id)).hobkin;
+  assert.deepEqual([fresh.state, fresh.turns, fresh.run, fresh.waiting?.seen], ['waiting', 0, null, true], 'it still waits untold');
+  const runs = Object.values((await app.runtime.state()).runs);
+  assert.equal(runs.some(item => item.hobkin?.id === id), false, 'and no run was recorded for the start');
+
+  const first = await app.hobkins.say(id, { text: 'First.' });
+  const waiting = await waitingNow(app, id);
+
+  assert.equal(waiting.last.said, 'Took: First.');
+  assert.equal(processes.length, 1, 'the first turn ran in the process started ahead');
+  const { stages } = (await app.runtime.state()).runs[first.run].performance;
+  assert.equal('spawned' in stages, false);
+  // The process started ahead holds the token its turns are named by, so `hobkin tell` from it is sent as this hobkin.
+  const [ahead, turn] = asked;
+  assert.deepEqual([ahead.warm, ahead.prompt, turn.warm, turn.prompt], [true, undefined, undefined, 'First.']);
+  assert.equal(ahead.env.HOBKIN_TURN, turn.env.HOBKIN_TURN);
+
+  // A message that comes before the process is up waits for it and uses it.
+  const quick = await app.hobkins.start({ cwd: h.folder, engine: PI_ENGINE });
+  await app.hobkins.say(quick.id, { text: 'At once.' });
+  assert.equal((await waitingNow(app, quick.id)).last.said, 'Took: At once.');
+  assert.equal(processes.length, 2, 'one process for the second hobkin too');
+});
+
+test('nothing is started ahead for a hobkin with its first message or one on Claude Code, and ending one stops a process still starting', async t => {
+  const h = fixture(t);
+  const { app, processes, asked } = await appThatStartsAhead(t, h);
+
+  const told = await app.hobkins.start({ text: 'Now.', cwd: h.folder, engine: PI_ENGINE });
+  await waitingNow(app, told.id);
+  const claude = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'claude' } });
+
+  assert.equal((await app.hobkins.read(claude.id)).hobkin.state, 'waiting');
+  assert.deepEqual(asked.map(request => [request.harness, request.warm]), [['pi', undefined]], 'only the turn was asked for');
+
+  const ended = await app.hobkins.start({ cwd: h.folder, engine: PI_ENGINE });
+  await app.hobkins.end(ended.id);
+  await app.hobkins.start({ cwd: h.folder, engine: PI_ENGINE });
+  await until(() => startedAhead(h.root).length === 1);
+  const toldProcess = processes[0];
+  const lastProcess = processes.at(-1);
+  // The ended hobkin's process is here only if it got as far as starting before the end stopped it.
+  const endedProcesses = processes.slice(1, -1);
+
+  assert.equal(gone(toldProcess.child), false, "the first hobkin's process is kept for its next turn");
+  assert.equal(gone(lastProcess.child), false, "the last hobkin's process is up");
+  assert.ok(endedProcesses.every(({ child }) => gone(child)), "the ended hobkin's process is gone");
+
+  await app.close();
+  assert.ok(processes.every(({ child }) => gone(child)), 'closing hobkin closes every process, started ahead or kept');
+});
+
+test("a waiting hobkin's page on screen starts its Pi process after a restart, and its next turn only prompts it", async t => {
+  const h = fixture(t);
+  const before = await appThatStartsAhead(t, h);
+  const { id } = await before.app.hobkins.start({ text: 'First.', cwd: h.folder, engine: PI_ENGINE });
+  await waitingNow(before.app, id);
+  await before.app.close();
+  assert.ok(before.processes.every(({ child }) => gone(child)), 'a restart leaves no process');
+
+  const { app, processes, asked } = await appThatStartsAhead(t, h);
+  assert.deepEqual(await app.hobkins.pageShown(id), { ok: true });
+  await until(() => startedAhead(h.root).length === 1);
+  assert.equal(processes.length, 1);
+  await app.hobkins.pageShown(id);
+  await wait(100);
+  assert.equal(processes.length, 1, 'telling it again starts no second one');
+
+  const second = await app.hobkins.say(id, { text: 'Second.' });
+  assert.equal((await waitingNow(app, id)).last.said, 'Took: Second.');
+  assert.equal(processes.length, 1, 'the turn ran in the process the page started');
+  assert.equal('spawned' in (await app.runtime.state()).runs[second.run].performance.stages, false);
+
+  const held = await app.hobkins.say(id, { text: 'Hold on.' });
+  await until(async () => (await app.runtime.state()).runs[held.run]?.status === 'running');
+  const warms = asked.filter(request => request.warm).length;
+  await app.hobkins.pageShown(id);
+  assert.equal(asked.filter(request => request.warm).length, warms, 'a working hobkin starts nothing');
+
+  const claude = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'claude' } });
+  await app.hobkins.pageShown(claude.id);
+  assert.equal(asked.filter(request => request.warm).length, warms, 'nor does one on Claude Code');
+
+  await app.hobkins.end(id);
+  await assert.rejects(app.hobkins.pageShown(id), /ended/);
+  await assert.rejects(app.hobkins.pageShown('ffffffff'), /no hobkin with that id/);
+  assert.equal(processes.length, 1);
+});
+
+test("a working hobkin takes the user's message as Pi's keys queue it, and gives back what waits for its turn", async t => {
+  const h = fixture(t);
+  const heard = [];
+  let end;
+  // Its turn takes messages the way a turn's Pi does: steered, followed up or interrupting, and gives back its queue.
+  const runHarness = async (request, options) => {
+    if (request.purpose !== 'durable') return { status: 'completed', text: request.prompt, cost: null };
+    end = Promise.withResolvers();
+    options?.onReady?.(async (message, images, how) => {
+      heard.push([how, message]);
+      if (how === 'take-back') return { steering: ['[hobkin-note:00000000-0000-4000-8000-000000000001]\nOnly weekdays.'], followUp: [] };
+      return how === 'interrupt' ? { disposition: 'started', unsent: ['Then sum it up.'] } : { disposition: 'queued' };
+    });
+    return end.promise;
+  };
+  const app = await h.openApp({ runHarness });
+  t.after(() => app.close());
+  const { id } = await app.hobkins.start({ text: 'Plan the week.', cwd: h.folder, engine: { kind: 'tier', tier: 'mid' } });
+  await until(() => end);
+
+  await app.hobkins.say(id, { text: 'Only weekdays.', noteId: '00000000-0000-4000-8000-000000000001' });
+  await app.hobkins.say(id, { text: 'Then sum it up.', queue: 'follow-up' });
+  const interrupted = await app.hobkins.say(id, { text: 'Plan the month instead.', queue: 'interrupt' });
+  assert.deepEqual(heard.map(([how]) => how), ['steer', 'follow-up', 'interrupt']);
+  assert.deepEqual(interrupted, { started: false, queued: true, run: `hobkin:${id}:1`, unsent: [{ text: 'Then sum it up.' }] });
+
+  assert.deepEqual(await app.hobkins.takeBack(id), { unsent: [{ noteId: '00000000-0000-4000-8000-000000000001', text: 'Only weekdays.' }] });
+
+  end.resolve({ status: 'completed', text: 'Planned.', cost: null });
+  await waitingNow(app, id);
+  assert.deepEqual(await app.hobkins.takeBack(id), { unsent: [] }, 'nothing waits for a hobkin that waits');
+});
+
+test("what the user adds to a working hobkin's turn stays with that turn, with its id, its time and its receipt, after a restart too, on Pi and on Claude Code", async t => {
+  for (const engine of [{ kind: 'tier', tier: 'mid' }, { kind: 'claude' }]) {
+    const h = fixture(t);
+    const before = fakeTurns();
+    let app = await h.openApp({ runHarness: before.runHarness });
+    t.after(() => app.close());
+    const { id, run } = await app.hobkins.start({ text: 'Prototype the page.', cwd: h.folder, engine });
+    const turn = await before.nth(0);
+    assert.equal(turn.request.harness, engine.kind === 'claude' ? 'claude' : 'pi');
+
+    const noteId = '00000000-0000-4000-8000-000000000001';
+    const sent = Date.now();
+    await app.hobkins.say(id, { text: 'Delegate it through team-leader.', noteId });
+    // A schedule's wake reaches the turn too, but it is not the user's, so it is not kept as theirs.
+    await app.hobkins.wake(id, { text: 'Two pull requests are new.', from: { kind: 'schedule', id: 'prs', title: 'New pull requests' } });
+    assert.equal(turn.heard.length, 2);
+
+    const { notes } = (await app.hobkins.read(id)).turns[0];
+    assert.equal(notes.length, 1, "only the user's note is kept");
+    const [kept] = notes;
+    const { at, ...words } = kept;
+    assert.deepEqual(words, { noteId, text: 'Delegate it through team-leader.', queue: 'steer' });
+    assert.ok(at >= sent && at <= Date.now(), 'when hobkin took it');
+
+    // Its turn read it in: the receipt is kept with it.
+    turn.options.onEvent({ type: 'message_end', message: { role: 'user', content: [{ type: 'text', text: turn.heard[0] }] } });
+    const receivedAt = (await app.refresh()).steeringReceipts[run][0].at;
+    await until(async () => (await app.hobkins.read(id)).turns[0].notes[0].receivedAt === receivedAt);
+
+    // hobkin restarts while the turn works: the turn is cut off, and what the user added to it is still there, read.
+    await app.close();
+    app = await h.openApp({ runHarness: fakeTurns().runHarness });
+    const [cut] = (await app.hobkins.read(id)).turns;
+    assert.equal(cut.status, 'interrupted');
+    assert.deepEqual(cut.notes, [{ ...kept, receivedAt }]);
+    assert.equal((await app.refresh()).steeringReceipts[run], undefined, "hobkin's own receipts went with the restart");
+  }
+});
