@@ -1,6 +1,6 @@
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Activity, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { HOBKIN_MESSAGE_MAX, HOBKIN_TITLE_MAX, hobkinAgentId, hobkinOfAgent, type HobkinConversation, type HobkinSummary, type HobkinTurn } from '#shared/protocol/hobkins.ts'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { holdStill, useStill } from '@/app/still.ts'
@@ -23,6 +23,7 @@ import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-ste
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
 import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
 import { useAgentActivity, useStepsMood } from '@/features/agent-activity/use-agent-activity.ts'
+import type { FollowStart } from '@/features/agent-activity/follow.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import type { Attachment } from '@/features/chat/draft.ts'
@@ -65,8 +66,8 @@ import { useTalkControls } from '@/features/work/use-talk-controls.ts'
 import { PageHeader, pageGutter, PartFrame, splitSpring } from './PageHeader.tsx'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
-import { keptPage, useShownPage } from './page-store.ts'
-import { timeOfTurn, useDrawnSteps, useNewestFirst, useWholeJobs } from './turn-steps.ts'
+import { KEPT_PAGES, keptPage, keptPagesOn, useKeptPage, useShownPage } from './page-store.ts'
+import { timeOfTurn, useDrawnSteps, useHeldJobs, useNewestFirst, useWholeJobs } from './turn-steps.ts'
 import { useConversation, useMarkSeen, usePageShown } from './use-conversation.ts'
 import { useOnClaudeCode } from './use-pal.ts'
 import { usePageSlash } from '@/features/work/use-agent-slash.ts'
@@ -83,7 +84,8 @@ import { DeliveryMark } from '@/features/work/DeliveryMark.tsx'
  *
  * Moving to another agent, durable or not, its own pieces cross-fade and the talk box stays in place. The page being left
  * stays until the next one can show whole, at most a moment (`useShownPage`; the user's call, 2026-11-26: "Wait, then
- * show it whole"): the next one is made ready unseen (`PreparePage`), and then it is drawn once, with what it has.
+ * show it whole"): the next one is made ready unseen (`PreparePage`), and then it is drawn once, with what it has. With
+ * `hobkin:kept-pages` on, the last pages left stay alive, hidden, and going back to one is instant (`KeptPage`).
  *
  * While a durable hobkin's canvas is open the page forms a split with it (`040-canvas-board`): the page takes the chat's
  * place and the canvas the right side. The agents list is covered then, so the page's keys no longer lead to it.
@@ -103,15 +105,32 @@ export function HobkinScreen() {
   const split = keptSplit.current
   const still = useStill()
   // The page on screen, and the one asked for while it gets ready. The talk box goes to the one asked for at once.
-  const pages = useShownPage(agentId, { keep: 0, frozen: !present })
+  const keep = keptPagesOn() ? KEPT_PAGES : 0
+  const pages = useShownPage(agentId, { keep, frozen: !present })
   const shown = pages.shown
-  const shownId = hobkinOfAgent(shown)
-  // The page left keeps the split it had while it stays.
-  const shownSplit = useRef(split)
-  if (shown === agentId) shownSplit.current = split
+  // A page left keeps the split it had while it stays.
+  const splits = useRef(new Map<string, boolean>())
+  if (shown && shown === agentId) splits.current.set(shown, split)
   // A page made ready draws first the turns its preparation drew.
   const prepared = useRef<string | null>(null)
   if (pages.preparing) prepared.current = pages.preparing
+
+  const pageOf = (agent: string) => {
+    const pageId = hobkinOfAgent(agent)
+    return pageId ? (
+      <Part
+        key={agent}
+        id={pageId}
+        split={splits.current.get(agent) ?? false}
+        prepared={prepared.current === agent}
+        sent={notes.sent[pageId] ?? NO_NOTES}
+        sending={notes.sending[pageId] ?? null}
+        recall={notes.recall}
+      />
+    ) : (
+      <RunPart key={agent} agentId={agent} />
+    )
+  }
 
   return (
     // In the split the page's gutter is the chat's, and it travels there with the split (`pageGutter`).
@@ -128,19 +147,15 @@ export function HobkinScreen() {
       <div className="relative min-h-0 flex-1">
         {/* Propagated, so a page leaving with its screen counts as gone. */}
         <AnimatePresence initial={false} propagate>
-          {shownId ? (
-            <Part
-              key={shown}
-              id={shownId}
-              split={shownSplit.current}
-              prepared={prepared.current === shown}
-              sent={notes.sent[shownId] ?? NO_NOTES}
-              sending={notes.sending[shownId] ?? null}
-              recall={notes.recall}
-            />
-          ) : shown ? (
-            <RunPart key={shown} agentId={shown} />
-          ) : null}
+          {keep
+            ? pages.mounted.map((agent) => (
+                <KeptPage key={agent} agent={agent} shown={agent === shown}>
+                  {pageOf(agent)}
+                </KeptPage>
+              ))
+            : shown
+              ? pageOf(shown)
+              : null}
         </AnimatePresence>
         {pages.preparing ? (
           <PreparePage key={`prepare:${pages.preparing}`} agent={pages.preparing} notes={notes} onReady={pages.ready} />
@@ -165,6 +180,42 @@ export function HobkinScreen() {
 }
 
 const NO_NOTES: readonly SentNote[] = []
+
+/**
+ * A page kept alive while another shows (the user's call, 2026-11-26: "Yes, last two"; behind `hobkin:kept-pages`).
+ * Hidden, React Activity keeps its state and its elements and runs none of its effects: its watches are held here,
+ * outside it, so the host keeps sending its whole steps, and going back to it draws nothing new. It fades out before it
+ * hides and fades in as it shows again, as pages cross-fade. A conversation opens again where it was left (`useFollow`).
+ */
+function KeptPage({ agent, shown, children }: { agent: string; shown: boolean; children: ReactNode }) {
+  const [hidden, setHidden] = useState(false)
+  if (shown && hidden) setHidden(false)
+  useHeldJobs(useKeptJobs(agent))
+  return (
+    <Activity mode={hidden ? 'hidden' : 'visible'}>
+      <motion.div
+        className="absolute inset-0 flex flex-col"
+        inert={!shown}
+        initial={false}
+        animate={shown ? { opacity: 1, transition: tween.enter } : { opacity: 0, transition: tween.exit }}
+        onAnimationComplete={(done: { opacity?: number }) => {
+          if (done.opacity === 0) setHidden(true)
+        }}
+      >
+        {children}
+      </motion.div>
+    </Activity>
+  )
+}
+
+/** Every job a kept page watches: its lines' jobs, and a durable hobkin's turns drawn and the one in flight. */
+function useKeptJobs(agent: string): readonly string[] {
+  const id = hobkinOfAgent(agent)
+  const lines = useAgentJobs(agent)
+  const { drawn } = useKeptPage(id)
+  const live = useHost((state) => (id ? (state.snapshot.hobkins?.find((summary) => summary.id === id)?.run ?? null) : null))
+  return useMemo(() => [...new Set([...lines, ...drawn, ...(live ? [live] : [])])], [lines, drawn, live])
+}
 
 /**
  * What the user sent from the page, by hobkin, and the message on its way now. Kept while the page is open, and read back
@@ -433,7 +484,15 @@ const Conversation = memo(ConversationRows)
 function ConversationRows({ id, prepared, turns, cwd, sending, problem, loading }: ConversationProps) {
   const still = useStill()
   const live = useHasHost()
-  const scroll = useFollow()
+  // A kept page opens again where the reader left it (`KeptPage`). Hiding runs this cleanup before the page is hidden.
+  const left = useRef<FollowStart | undefined>(undefined)
+  const scroll = useFollow({ start: () => left.current })
+  const pinned = useRef(scroll.pinned)
+  pinned.current = scroll.pinned
+  useLayoutEffect(() => () => {
+    const top = scroll.scroller.current?.scrollTop
+    if (top !== undefined) left.current = { following: pinned.current, top }
+  }, [scroll.scroller])
   // The live turn's feed keeps its newest steps. The ones it let go are read from its run's saved session, a page at a
   // time, and come after the turn's message, where the row that reads them stands.
   const run = turns.find((turn) => turn.live)?.run ?? null
