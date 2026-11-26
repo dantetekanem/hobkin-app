@@ -946,11 +946,11 @@ test('with nothing to decide the tab goes away, and an empty one never opens', (
 });
 
 const waiting = (rows = {}) => ({ wrong: [], asks: [], proposals: [], branches: [], yours: [], reports: [], ...rows });
-test('Decisions says what got done today and how many days in a row, so the user keeps a cadence', () => {
-  const ui = createDashboard({ ...base, decisions: [asked('one')], wins: { today: { merged: 2, decided: 3 }, streak: 4 } });
+test('Decisions says what got done today so far and how many days in a row, so the user keeps a cadence', () => {
+  const ui = createDashboard({ ...base, decisions: [asked('one')], wins: { today: { merged: 2, decided: 3, good: true, soFar: true }, streak: 4 } });
   for (const view of ['reports', 'schedules', 'decisions']) ui.input('\x1b[C');
 
-  assert.match(screen(ui, 110, 30), /Today: 2 merged · 3 decided · 4 days in a row/);
+  assert.match(screen(ui, 110, 30), /Today so far: 2 merged · 3 decided · 4 days in a row/);
 
   ui.update({ ...base, decisions: [asked('one')], wins: { today: { merged: 0, decided: 0 }, streak: 4 } });
   assert.match(screen(ui, 110, 30), /Nothing done yet today · 4 days in a row/);

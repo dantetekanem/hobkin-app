@@ -47,7 +47,7 @@ test('wins count what merged, not what the user answered, and how many good days
 
   const { today, streak } = winsNow(root, NOW);
 
-  assert.deepEqual(today, { merged: 1, decided: 2, asked: 1, good: true }, 'the card that asks how to tackle the pile is not a decision of its own');
+  assert.deepEqual(today, { merged: 1, decided: 2, asked: 1, good: true, soFar: true }, 'the card that asks how to tackle the pile is not a decision of its own');
   assert.equal(streak, 2, 'today and yesterday: answering a question two days ago made no good day');
 });
 
@@ -56,7 +56,37 @@ test('a day that needed fewer decisions than the day before is a good day, with 
   asked(root, daysAgo(3), 3);
   asked(root, daysAgo(2), 1);
 
-  assert.deepEqual(winsNow(root, NOW), { today: { merged: 0, decided: 0, asked: 0, good: false }, streak: 2 }, 'two days ago went from 3 to 1, and yesterday to none');
+  const { today, streak } = winsNow(root, NOW);
+  assert.deepEqual(today, { merged: 0, decided: 0, asked: 0, good: null, soFar: true });
+  assert.equal(streak, 2, 'two days ago went from 3 to 1, and yesterday to none');
+});
+
+test('today is so far: fewer questions than yesterday makes it good only once the day is over', t => {
+  const root = dataRoot(t);
+  asked(root, daysAgo(1), 3);
+  const justAfterMidnight = new Date(2026, 10, 3, 0, 30).getTime();
+  yesterdayLine(root, justAfterMidnight);
+
+  const early = winsNow(root, justAfterMidnight);
+  assert.deepEqual([early.today.good, early.today.soFar, early.streak], [null, true, 0], 'none asked yet is not yet fewer');
+
+  asked(root, NOW, 1);
+  const tomorrow = new Date(2026, 10, 4, 9, 0).getTime();
+  const later = winsNow(root, tomorrow);
+  assert.deepEqual(later.days.at(-2), { day: '2026-11-03', merged: 0, decided: 0, asked: 1, good: true, soFar: false });
+  assert.equal(later.streak, 1);
+  assert.equal(yesterdayLine(root, tomorrow), 'Yesterday: hobkin needed 1 decision from you, down from 3.');
+});
+
+test('the window gets the last seven days, oldest first, each good or not, with today last and so far', t => {
+  const root = dataRoot(t);
+  merged(root, site(root), 'Two', daysAgo(1));
+
+  const { days } = winsNow(root, NOW);
+
+  assert.deepEqual(days.map(({ day }) => day), ['2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03']);
+  assert.deepEqual(days.map(({ good }) => good), [false, false, false, false, false, true, null]);
+  assert.deepEqual(days.map(({ soFar }) => soFar), [false, false, false, false, false, false, true]);
 });
 
 test('a group\'s yes counts each card it answered, and the line that sums them up is no decision of its own', t => {
@@ -75,7 +105,9 @@ test('with nothing done yet today, the streak still counts up to yesterday', t =
   const root = dataRoot(t);
   merged(root, site(root), 'Two', daysAgo(1));
 
-  assert.deepEqual(winsNow(root, NOW), { today: { merged: 0, decided: 0, asked: 0, good: false }, streak: 1 });
+  const { today, streak } = winsNow(root, NOW);
+  assert.deepEqual(today, { merged: 0, decided: 0, asked: 0, good: null, soFar: true });
+  assert.equal(streak, 1);
 });
 
 test('Chat hears about yesterday once a day, and the first look only remembers', t => {
@@ -111,7 +143,7 @@ test('hobkin wins prints each day, today and the streak as JSON', async t => {
   assert.equal(await main(['wins', '--days', '3', '--home', root], { write: chunk => { text += chunk; } }), 0);
 
   const { today, streak, days } = JSON.parse(text);
-  assert.deepEqual(today, { merged: 1, decided: 0, asked: 0, good: true });
+  assert.deepEqual(today, { merged: 1, decided: 0, asked: 0, good: true, soFar: true });
   assert.equal(streak, 1);
   assert.equal(days.length, 3);
   assert.deepEqual(days.at(-1).merged, 1);

@@ -1353,14 +1353,14 @@ const decisionSections = ({ decisions, waiting, chosen, inner, clock, running = 
   const sections = groups.map(([heading, rows, ...rest]) => [heading, rows.map(({ render, ...entry }) => ({ ...entry, lines: render(entry.key === selectedKey, inner, clock) })), ...rest]);
   return { sections, selectedKey };
 };
-// What got done today and the days in a row, so walking the list keeps a cadence.
+// What got done today so far and the days in a row, so walking the list keeps a cadence. Today shows as won only once it is good.
 const winsLine = wins => {
   if (!wins) return [];
   const { today, streak } = wins;
   const done = [today.merged && `${today.merged} merged`, today.decided && `${today.decided} decided`].filter(Boolean).join(' · ');
   const run = streak > 1 ? `${streak} days in a row` : '';
-  const told = [done ? `Today: ${done}` : 'Nothing done yet today', run].filter(Boolean).join(' · ');
-  return [(done ? positive : dim)(told), ''];
+  const told = [done ? `Today so far: ${done}` : 'Nothing done yet today', run].filter(Boolean).join(' · ');
+  return [(today.good ? positive : dim)(told), ''];
 };
 const decisionLines = ({ sections, selectedKey, inner, wins }) => {
   if (!sections.length) return { content: [...winsLine(wins), dim('Nothing is waiting on you.')] };

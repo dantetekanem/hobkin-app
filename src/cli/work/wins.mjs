@@ -7,6 +7,8 @@ import { readJson } from './store.mjs';
 
 // A streak looks this far back, which is longer than anyone keeps one going without a break.
 const LOOK_BACK_DAYS = 60;
+// The days the window shows, today last.
+const WEEK_DAYS = 7;
 // The card that asks how to tackle the pile stands for what is on it, so what the user did from it is counted there instead.
 const CARD = 'pending';
 
@@ -53,15 +55,22 @@ function tallyByDay(root, since) {
 const tallyOn = (days, time) => days.get(dayKey(time)) ?? nothingDone();
 const askedBefore = (days, time) => tallyOn(days, daysBefore(time, 1)).asked;
 
-/** A day is good when work merged, or when it needed fewer decisions from the user than the day before. */
-const isGood = (days, time) => tallyOn(days, time).merged > 0 || tallyOn(days, time).asked < askedBefore(days, time);
-const dayOf = (days, time) => ({ ...tallyOn(days, time), good: isGood(days, time) });
+/**
+ * A day is good when work merged, or when it needed fewer decisions from the user than the day before. Fewer is known only once the day is
+ * over, so today, still so far, is good once work merged and undecided (null) until then.
+ */
+function goodOn(days, time, now) {
+  if (tallyOn(days, time).merged > 0) return true;
+  if (dayKey(time) === dayKey(now)) return null;
+  return tallyOn(days, time).asked < askedBefore(days, time);
+}
+const dayOf = (days, time, now) => ({ ...tallyOn(days, time), good: goodOn(days, time, now), soFar: dayKey(time) === dayKey(now) });
 
 /** Good days in a row, up to `from`, or up to the day before while `from` is not good yet. */
-function streakTo(days, from) {
-  let day = isGood(days, from) ? from : daysBefore(from, 1);
+function streakTo(days, from, now) {
+  let day = goodOn(days, from, now) ? from : daysBefore(from, 1);
   let streak = 0;
-  while (isGood(days, day)) {
+  while (goodOn(days, day, now)) {
     streak += 1;
     day = daysBefore(day, 1);
   }
@@ -70,19 +79,16 @@ function streakTo(days, from) {
 
 const lookBackFrom = time => startOfDay(daysBefore(time, LOOK_BACK_DAYS));
 
-/** Today's wins and the good days in a row, for the Decisions tab. */
-export function winsNow(root, now = Date.now()) {
-  const days = tallyByDay(root, lookBackFrom(now));
-  return { today: dayOf(days, now), streak: streakTo(days, now) };
-}
-
 /** Each of the last `days` days, oldest first, with today's wins and the good days in a row, for `hobkin wins`. */
-export function winsReport(root, { days = 7, now = Date.now() } = {}) {
+export function winsReport(root, { days = WEEK_DAYS, now = Date.now() } = {}) {
   const tallied = tallyByDay(root, lookBackFrom(now));
   const shown = Array.from({ length: days }, (_, back) => daysBefore(now, days - 1 - back))
-    .map(time => ({ day: dayKey(time), ...dayOf(tallied, time) }));
-  return { today: dayOf(tallied, now), streak: streakTo(tallied, now), days: shown };
+    .map(time => ({ day: dayKey(time), ...dayOf(tallied, time, now) }));
+  return { today: dayOf(tallied, now, now), streak: streakTo(tallied, now, now), days: shown };
 }
+
+/** Today's wins so far, the good days in a row, and the week's days, today last, for the Decisions tab and the window. */
+export const winsNow = (root, now = Date.now()) => winsReport(root, { days: WEEK_DAYS, now });
 
 const decisions = count => (count ? `${count} decision${count === 1 ? '' : 's'}` : 'no decisions');
 
@@ -107,7 +113,7 @@ export function yesterdayLine(root, now = Date.now()) {
   if (!told) return null;
   const yesterday = daysBefore(now, 1);
   const days = tallyByDay(root, lookBackFrom(yesterday));
-  if (!isGood(days, yesterday)) return null;
-  const streak = streakTo(days, yesterday);
+  if (!goodOn(days, yesterday, now)) return null;
+  const streak = streakTo(days, yesterday, now);
   return `Yesterday: ${winsWords(tallyOn(days, yesterday), askedBefore(days, yesterday))}${streak > 1 ? ` ${streak} days in a row.` : ''}`;
 }
