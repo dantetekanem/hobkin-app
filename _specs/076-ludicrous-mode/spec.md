@@ -23,32 +23,34 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
 - Their answers the same day: the controls are "just Start and Stop"; it runs on new or existing projects, and "if existing, it should be clear that no one else should work on that due to conflicts arising, so it talks clearly about what is going to happen"; the plan is shown and waits for Start; at the end hobkin pushes and opens the PR itself.
 - Later the same day, on the first mockup: ""press Start again" sounds stupid. "Not start" is wrong, should be a box "Write what you want, be as clear as possible" and "Let's plan this". and after the plan is done and approved, you click "Go Ludicruous" or something awesomely fun. The What Happens needs to be written in a much better way than that, more communicative and assertive, not just a payload".
 - Later the same day: "another thing we need to be careful is about testing, if each agent start running tests or linters or whatever, it will kill the machine. the leaders of each "branch" should run the tests, but the agent working on it should assume how it will work and plan with this, same for TLA+. so the "workers" will not compile and run checkers, but will work very hard to confirm they're true, so the leaders manage that branch".
+- Then, on the mockup: "i need bold and emphasis, not this block, not in a block, and before the idea"; "the buttons should be below"; ""100 agents" is repeated in several places, no need to. that is a compute max option, the difference between 20, 50 or 100 is just the time will take to get done and how much cpu will use"; "the steps should go like a line, maybe a node path. waiting should be outside the loop reconnecting. they need a line live and glowing on which step is working".
 
 ### Two words for tier
 
-- The machine tier is how many Ludicrous agents run at once: 30, 50 or 100. The model tiers are hobkin's `fast`, `mid`, `high` and `max` (`hobkin/src/cli/tiers.mjs`). The page and this spec always say which one they mean.
+- The machine tier is how many Ludicrous agents run at once: 30, 50 or 100. It is a compute setting: the plan and the quality are the same at every tier, and the tier only decides how long the run takes and how much of the Mac it uses. The model tiers are hobkin's `fast`, `mid`, `high` and `max` (`hobkin/src/cli/tiers.mjs`). The page and this spec always say which one they mean.
 
 ### The page
 
 - Ludicrous is a page of Work mode beside YOLO, a view of its own next to `yolo` in `ui/src/app/Canvas.tsx`. One run exists at a time, on one project.
-- Before any run, the page opens with one box, "Write what you want. Be as clear as possible.", and the main button, Let's plan this. One line under the box says that five agents plan it first and nothing gets built until the user approves their plan.
-- Below it, What happens says, in these words:
+- Before any run, the page opens with what Ludicrous does, as plain text on the page and not in a box: the first line large and bold, and the key phrases in bold, here in `**`:
 
-  > Ludicrous builds a whole project at once, as fast as your Mac allows and at the best quality it can reach.
+  > **Ludicrous builds a whole project at once, as fast as your Mac allows and at the best quality it can reach.**
   >
-  > Tell it what you want. Five planning agents pull your idea apart, challenge each other's drafts, and come back with a plan and a spec for every part of the project. When you approve the plan, 30, 50 or 100 agents start building, and they keep going until it's done.
+  > Tell it what you want. **Five planning agents** pull your idea apart, challenge each other's drafts, and come back with **a plan and a spec for every part of the project**. When you approve it, **a swarm of agents** starts building and keeps going until it's done.
   >
-  > It holds nothing back. It spends every token you have and runs your Mac at full power, so expect the fan to spin like crazy. Your other work keeps going, only slower. If your subscription runs out, Ludicrous waits for the reset and carries on by itself.
+  > **It holds nothing back.** It spends **every token you have** and runs your Mac at **full power**, so expect the fan to spin like crazy. Your other work keeps going, only slower. If your subscription runs out, Ludicrous waits for the reset and carries on by itself.
   >
-  > Nothing waits for your review. Agents commit to one branch as they go, and you get a single pull request at the end, maybe a million lines long. You won't see what each agent is doing. You'll see how many are working in each part of the project, and how far each part has come.
+  > **Nothing waits for your review.** Agents commit to one branch as they go, and you get **a single pull request** at the end, maybe a million lines long. You won't see what each agent is doing. You'll see how many are working in each part of the project, and how far each part has come.
   >
-  > Stop kills every agent instantly. hobkin keeps what they finished and puts it in the pull request.
+  > **Stop kills every agent instantly.** hobkin keeps what they finished and puts it in the pull request.
   >
-  > Save it for your most ambitious work. Don't think "add a feature". Think "create the whole platform".
+  > **Save it for your most ambitious work. Don't think "add a feature". Think "create the whole platform".**
 
-- Then the project (New project, as in 059, or one Work already has) and the machine tier.
-- On a project Work already has, the page says before any planning: while Ludicrous runs here, nobody else should work on this project. That means the user, another agent and hobkin's own Work, because anything else that changes these files will conflict with up to 100 agents. hobkin pauses its own Work here until the run's pull request is merged or closed. Ludicrous works in this folder, on its own branch, so the folder must have no uncommitted changes. Let's plan this stays disabled with that reason until it is clean.
-- The page has two controls, the main button and Stop, in the same place in every phase. The main button says Let's plan this before a plan exists, and Go Ludicrous once the plan is ready or after a stop. Go Ludicrous is the user's approval of the plan, and after a stop it resumes the run. While planners or builders run, the main button is disabled and keeps its place. With a stopped run on the page, picking another project opens the box for a new run there, and Go Ludicrous still resumes the stopped one.
+- Then the project (New project, as in 059, or one Work already has) and the machine tier, named "How hard to push your Mac", with one line for each tier on how long it takes and how much of the Mac it leaves free. The page names a number of agents only there and in the count of agents running.
+- Last comes the box, "Write what you want. Be as clear as possible.", with one line under it saying that five agents plan it first and nothing gets built until the user approves their plan, and the controls under that.
+- On a project Work already has, the page says before any planning: while Ludicrous runs here, nobody else should work on this project. That means the user, another agent and hobkin's own Work, because anything else that changes these files will conflict with the run's agents. hobkin pauses its own Work here until the run's pull request is merged or closed. Ludicrous works in this folder, on its own branch, so the folder must have no uncommitted changes. Let's plan this stays disabled with that reason until it is clean.
+- The page has two controls, the main button and Stop, always directly under the box or, once planning starts, under the phase line at the top. The main button says Let's plan this before a plan exists, and Go Ludicrous once the plan is ready or after a stop. Go Ludicrous is the user's approval of the plan, and after a stop it resumes the run. While planners or builders run, the main button is disabled and keeps its place. With a stopped run on the page, picking another project opens the box for a new run there, and Go Ludicrous still resumes the stopped one.
+- At the top, the run's path is one line of steps: Your idea, Planning, Plan ready, Building and Done. Building is a stretch of the line. Waiting for the subscription and Stopped are detours off that stretch, one above and one below, that leave it and join it again. Steps passed are solid, steps ahead are dotted, the detours are fainter, and the step at work glows, with a live flow along its line while agents work on it.
 - While building, the page shows the map, the numbers and the history, and nothing about what any single agent is doing. Ludicrous agents never appear in the running agents list, the Work map (`DelegationMap.tsx`) or an agent page.
 - The map draws each area of the plan as a region, laid out by code from the plan's dependencies, with the foundation in the middle. Each region shows its name, the agents in it now, its leader, and its steps done of total. The numbers above it are agents running of the tier, agents spawned this run, tokens used, and time running. Below it is the history: agents running over time and the spawned total. The phase line says planning (with its round), plan ready, building, waiting for the subscription (with when it starts again), compiling, stopped, or done.
 
@@ -128,7 +130,7 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
 
 ## Acceptance
 
-- A1. Work mode has a Ludicrous page beside YOLO. Before any run, it says what Ludicrous does in the words above. It has two controls, the main button (Let's plan this, then Go Ludicrous) and Stop, and they keep their place in every phase.
+- A1. Work mode has a Ludicrous page beside YOLO. Before any run, it says what Ludicrous does in the words above, with their bold, before the box. It has two controls, the main button (Let's plan this, then Go Ludicrous) and Stop, always under the box or the phase line. The path at the top shows every step, the two detours, and the step at work glowing.
 - A2. On a project Work already has, the page says nobody else should work on it while the run lasts, and why. Let's plan this stays disabled with the reason while the folder has uncommitted changes. Let's plan this pauses the project in Work, and it stays paused until the run's pull request is merged or closed.
 - A3. Let's plan this runs exactly five planners on `max` and no other Ludicrous agent. They leave a plan, one spec per area in the README's format, and the questions that change the path, each with a pick. The page shows the areas and the questions, and nothing builds until Go Ludicrous, which takes the picks for questions left unanswered.
 - A4. After Go Ludicrous, Ludicrous agents running never exceed the tier, and while any queue holds a ready packet the count returns to the tier within the start spacing.
