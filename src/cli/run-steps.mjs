@@ -6,6 +6,7 @@ import { JobActivity, MOST_OUTPUT, MOST_STEPS, outputText } from './job-activity
  * A run's steps read back from its saved Pi session (`jobs/<harnessId>.jsonl`), for what its live feed let go. Pi saves each message
  * when it ends, so the saved messages, in the order of the session's active branch, are the messages the feed saw. They go through the
  * feed's own reducer, so a saved step has the id, the words and the bounded output its live step had. Nothing here resumes a session.
+ * A durable hobkin's turns share one conversation (`hobkins/<id>.jsonl`), so a turn is read between its start and its end.
  */
 
 const SESSION_VERSIONS = new Set([2, 3]);
@@ -70,14 +71,22 @@ const savedAt = entry => {
   return Number.isFinite(at) ? at : entry.message?.timestamp;
 };
 
-/** Every step of the saved run, as its live feed would hold them with no limit on their number. */
-function replay(file) {
+/** Whether a message saved at `at` is between `since` and `until`, either of them open. One saved at no known time is in no bounds. */
+const within = (at, since, until) => (since === null && until === null)
+  || (Number.isFinite(at) && (since === null || at >= since) && (until === null || at <= until));
+
+/**
+ * Every step of the saved run, as its live feed would hold them with no limit on their number. With bounds, only what was saved from
+ * `since` to `until` is replayed, so the steps are numbered from there, as the turn's own feed numbered them.
+ */
+function replay(file, since, until) {
   let at;
   const feed = new JobActivity({ mostOutput: MOST_OUTPUT, now: () => at });
   for (const entry of savedBranch(file)) {
     const message = streamedMessage(entry);
     if (!message) continue;
     at = savedAt(entry);
+    if (!within(at, since, until)) continue;
     // Pi ends a tool's run before it sends the tool's result as a message.
     if (message.role === 'toolResult') {
       feed.accept({
@@ -94,20 +103,40 @@ function replay(file) {
   return feed.snapshot();
 }
 
-// A run's page asks for several pages in a row, and the session grows while the run lasts, so its steps are kept per version.
+// A run's page asks for several pages in a row, and the session grows while the run lasts, so its steps are kept per version, for
+// each of the bounds read lately. A page of a durable hobkin reads each of its turns with that turn's bounds.
 const savedSteps = new Map();
+const MOST_BOUNDS = 32;
 
-/** Every step of a run's saved session, oldest first, frozen. Throws when the file is missing or is not a Pi session. */
-export const runSteps = file => readVersioned(savedSteps, file, () => replay(file), 4);
+/** The steps kept for these bounds, by session file. The bounds read least lately go first. */
+function keptFor(since, until) {
+  const key = `${since}:${until}`;
+  const kept = savedSteps.get(key) ?? new Map();
+  savedSteps.delete(key);
+  savedSteps.set(key, kept);
+  if (savedSteps.size > MOST_BOUNDS) savedSteps.delete(savedSteps.keys().next().value);
+  return kept;
+}
+
+const bound = value => (Number.isFinite(value) ? value : null);
+
+/**
+ * Every step of a run's saved session, oldest first, frozen. `since` and `until`, in milliseconds, bound a run that shares its
+ * session with other turns: only what was saved between them is the run's. Throws when the file is missing or is not a Pi session.
+ */
+export function runSteps(file, { since = null, until = null } = {}) {
+  const [from, to] = [bound(since), bound(until)];
+  return readVersioned(keptFor(from, to), file, () => replay(file, from, to), 4);
+}
 
 /**
  * The `most` steps right before the step `before` (a feed entry id such as `tool:<call id>` or `message:<n>:<part>`), newest last, or
- * the newest `most` steps when `before` is null. A feed whose run shares its session with earlier turns can name a step the session
- * numbers differently: then `at`, the step's time in milliseconds, takes the steps saved before it. `more` says older steps remain,
- * and `found` whether the step it was asked about is there.
+ * the newest `most` steps when `before` is null, of the run saved from `since` to `until` (`runSteps`). A feed whose run shares its
+ * session with earlier turns can name a step the session numbers differently: then `at`, the step's time in milliseconds, takes the
+ * steps saved before it. `more` says older steps remain, and `found` whether the step it was asked about is there.
  */
-export function runStepsBefore(file, { before = null, at = null, most = MOST_STEPS } = {}) {
-  const steps = runSteps(file);
+export function runStepsBefore(file, { before = null, at = null, since = null, until = null, most = MOST_STEPS } = {}) {
+  const steps = runSteps(file, { since, until });
   let end = before === null ? steps.length : steps.findIndex(step => step.id === before);
   const found = end !== -1;
   if (!found && Number.isFinite(at)) end = steps.filter(step => step.at < at).length;
