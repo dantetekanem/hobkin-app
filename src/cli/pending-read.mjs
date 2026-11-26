@@ -10,6 +10,7 @@ import { nameOf } from './work/names.mjs';
 import { oneRead } from './work/one-read.mjs';
 import { attentionView, pullRequestRows, readyItems } from './work/reads.mjs';
 import { readItems, readLaunches, readProjects } from './work/store.mjs';
+import { readHeld } from './desk-queue.mjs';
 
 // The watch closes a launch the moment it goes wrong, so what ends the trouble for the user is the fix it filed.
 const FIX_OVER = ['merged', 'done', 'dropped', 'declined'];
@@ -58,6 +59,8 @@ function pendingInputs(root, now) {
     ready: readyAndPulls(root),
     decisions: openDecisions(root).filter(({ id }) => !hidden.has(id)),
     launches: launchesIn(root),
+    // What the desk holds for the next digest (075 S4), so nothing it held is out of sight.
+    held: readHeld(root),
     now,
   };
 }

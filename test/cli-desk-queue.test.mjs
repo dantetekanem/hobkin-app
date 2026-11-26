@@ -10,6 +10,7 @@ import { dayPath } from '../src/cli/day.mjs';
 import { deskPath, digestMessage, readHeld, roomLine } from '../src/cli/desk-queue.mjs';
 import { readEvents, recordEvent } from '../src/cli/events.mjs';
 import { pendingCard } from '../src/cli/pending.mjs';
+import { readPending } from '../src/cli/pending-read.mjs';
 import { writeMode } from '../src/cli/work/store.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
@@ -293,4 +294,16 @@ test('the digest says what to move when P1 work lands on a day too full', async 
   } finally {
     await app.close();
   }
+});
+
+test('hobkin pending shows what the desk holds for the next digest', t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-desk-pending-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
+  const heldAt = '2026-01-05T09:00:00.000Z';
+  atomicJson(deskPath(root), { version: 1, held: [{ level: 'P2', heldAt, notice: { content: 'Routine mail: The bank wrote back.' } }], posting: [], seen: {}, lastDigestAt: null });
+
+  const held = readPending(root, { now: Date.parse('2026-01-05T10:00:00Z') }).groups.find(({ name }) => name === 'held');
+
+  assert.deepEqual(held?.items, [{ level: 'P2', line: 'Routine mail: The bank wrote back.', at: heldAt }]);
 });
