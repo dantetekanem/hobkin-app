@@ -4,6 +4,8 @@
  */
 
 declare module 'hobkin/src/cli/work/unmerged.mjs' {
+  /** The default branch tip that deploy approval would select from the local refs. */
+  export function landingTip(repo: string, base: string): Promise<string | null>
   /** A pull request as hobkin's survey reads it from GitHub. */
   export interface SurveyPull {
     number?: number

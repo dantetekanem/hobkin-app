@@ -891,6 +891,11 @@ export const COMMANDS = {
     args: Type.Object({ id: Type.String({ pattern: KEPT_ID_PATTERN }) }, { additionalProperties: false }),
     hobkin: true,
   },
+  'work.local-test': {
+    description: 'Read an optional local test walkthrough location and revision comparison from the configured project checkout. No network or project scripts run.',
+    runs: 'host',
+    args: Type.Object({ slug: projectSlug }, { additionalProperties: false }),
+  },
   'file.read': {
     description: 'Read a file for the viewer: a text file up to 2 MB, or an image known by its bytes (PNG, JPEG, GIF, WebP, AVIF, BMP, ICO or SVG) up to 20 MB as a base64 data URL. A regular file only (links are followed). `path` is a full path or starts with ~/. Refused with a plain reason for anything else.',
     runs: 'host',
@@ -1647,6 +1652,7 @@ export interface CommandResults {
   'appearance.remove': { ok: true }
   'appearance.customize': ThemeOperation
   'appearance.status': ThemeOperation | null
+  'work.local-test': { repo: string | null; head: string | null; candidate: string | null; dirty: boolean | null; guides: (string | null)[] }
   'file.read': FileContent
   'file.open': { ok: true }
   'review.prepare': ReviewStatus

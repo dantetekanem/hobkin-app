@@ -11,6 +11,7 @@ import { canDismiss, dismissesKey } from './dismiss.ts'
 import { discussesKey } from './discuss.ts'
 import { answersOf, type WaitingRow } from './items.ts'
 import { KIND } from './kinds.ts'
+import { TestLocally } from './TestLocally.tsx'
 import { SCREEN_PANES } from '@/app/screen-layout.ts'
 
 interface OpenItemProps {
@@ -185,6 +186,7 @@ function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onOpenElse
             </p>
           ) : null}
 
+          <TestLocally answerTo={row.item?.answerTo} />
           {choices.length ? (
             <div role="group" aria-label="Answers" className="flex flex-col gap-1.5">
               {choices.map((choice, index) => (
