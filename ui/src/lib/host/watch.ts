@@ -46,18 +46,39 @@ export class Watched {
 
 /**
  * Tells the host which jobs the window watches: after every hello that says it takes `watch`, so again after a
- * reconnect, and whenever the set changes while it does. A host from before never hears it: it closes the socket on a
- * message it does not know.
+ * reconnect, and once for each batch of changes while it does. The holds and lets go made together, as by the pages one
+ * draw mounts and unmounts, are one message with the set they leave, sent once they are made (`later`, a microtask),
+ * and none when that set is the one the host was told last. A host from before never hears it: it closes the socket on
+ * a message it does not know.
  */
-export function followWatching(store: Pick<StoreApi<HostState>, 'getState' | 'subscribe'>, watched: Watched, send: (message: WatchMessage) => void): () => void {
-  const tell = () => send({ type: 'watch', jobs: watched.jobs() })
+export function followWatching(
+  store: Pick<StoreApi<HostState>, 'getState' | 'subscribe'>,
+  watched: Watched,
+  send: (message: WatchMessage) => void,
+  later: (run: () => void) => void = queueMicrotask,
+): () => void {
+  let told: string | null = null
+  let due = false
+  let stopped = false
+  const tell = () => {
+    const jobs = watched.jobs()
+    told = jobs.join('\n')
+    send({ type: 'watch', jobs })
+  }
+  const tellChanges = () => {
+    due = false
+    if (!stopped && store.getState().watching && watched.jobs().join('\n') !== told) tell()
+  }
   const stopHello = store.subscribe((state, previous) => {
     if (state.watching && !previous.watching) tell()
   })
   const stopChanges = watched.subscribe(() => {
-    if (store.getState().watching) tell()
+    if (due) return
+    due = true
+    later(tellChanges)
   })
   return () => {
+    stopped = true
     stopHello()
     stopChanges()
   }

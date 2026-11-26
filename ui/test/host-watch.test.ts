@@ -79,6 +79,7 @@ test('a window says what it reads in its address, and a host from before never h
   watched.hold('r1')
   socket!.receive(hello())
   watched.hold('r2')
+  await settle()
   assert.deepEqual(socket!.watches(), [], 'a hello without watch, from a host that would close on it')
 })
 
@@ -89,8 +90,11 @@ test('the window tells a host that takes watching what it watches, as the set ch
   const release = watched.hold('r1')
   sockets[0]!.receive(hello({ watch: true }))
   watched.hold('r2')
+  await settle()
   release()
+  await settle()
   watched.hold('r2')()
+  await settle()
   assert.deepEqual(sockets[0]!.watches(), [['r1'], ['r1', 'r2'], ['r2']], 'a second hold of a job held already says nothing new')
 
   sockets[0]!.close()
@@ -98,4 +102,24 @@ test('the window tells a host that takes watching what it watches, as the set ch
   await settle()
   sockets[1]!.receive(hello({ watch: true }))
   assert.deepEqual(sockets[1]!.watches(), [['r2']])
+})
+
+test('the holds and lets go made together, as by the pages one draw mounts and unmounts, are one message with the set they leave', async () => {
+  const { sockets, connection, watched } = windowWith()
+  connection.start()
+  await settle()
+  sockets[0]!.receive(hello({ watch: true }))
+  // A page leaves and the next one comes: its jobs go, and twenty turns come, in one draw.
+  const leaving = watched.hold('old')
+  await settle()
+  leaving()
+  const coming = Array.from({ length: 20 }, (_, index) => watched.hold(`turn-${String(index).padStart(2, '0')}`))
+  await settle()
+  assert.deepEqual(sockets[0]!.watches(), [[], ['old'], coming.map((_, index) => `turn-${String(index).padStart(2, '0')}`)])
+
+  // A job let go and held again in the same draw, as when a page moves, says nothing.
+  coming[0]!()
+  watched.hold('turn-00')
+  await settle()
+  assert.equal(sockets[0]!.watches().length, 3)
 })
