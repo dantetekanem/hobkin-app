@@ -361,8 +361,8 @@ function CommandCard({ command, time }: { command: Command; time?: EntryTime }) 
       ref={box}
       className={cn(
         'relative min-w-0 rounded-2xl bg-code-bg text-code-text',
-        // A hairline, so the card stands off a canvas of nearly its own color. A failed one also carries a red edge.
-        command.state === 'failed' ? 'shadow-[inset_3px_0_0_var(--hb-bad),inset_0_0_0_1px_var(--hb-border)]' : 'shadow-[inset_0_0_0_1px_var(--hb-border)]',
+        // A hairline, so the card stands off a canvas of nearly its own color. A failed one's hairline is red all round.
+        command.state === 'failed' ? 'shadow-[inset_0_0_0_1px_var(--hb-bad)]' : 'shadow-[inset_0_0_0_1px_var(--hb-border)]',
       )}
     >
       <RowStamp at={command.at} line="card" />
