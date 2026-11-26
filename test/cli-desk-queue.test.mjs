@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicJson, initialize, loadConfig } from '../src/cli/config.mjs';
@@ -423,6 +423,33 @@ test('when the desk cannot work, Chat posts as before', async t => {
     const view = await app.refresh();
 
     assert.deepEqual(linesIn(view, 'bank').map(({ content }) => content), ['Routine mail: The bank wrote back.']);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a desk file that cannot be read is kept aside, not lost, and Chat says so once', async t => {
+  const h = fixture(t);
+  const torn = '{"version":1,"held":[{"id":"notice:report:x","level":"P2"';
+  mkdirSync(join(h.root, 'runtime'), { recursive: true });
+  writeFileSync(deskPath(h.root), torn);
+  const app = await h.openApp();
+  try {
+    app.lookForReturn();
+    await app.runtime.change(state => { state.runs.mail = finished('mail', 'Useful: The bank wrote back.', h.clock.at); });
+    const view = await app.refresh();
+
+    const aside = readdirSync(join(h.root, 'runtime')).filter(name => name.startsWith('desk.unreadable-'));
+    assert.equal(aside.length, 1);
+    assert.equal(readFileSync(join(h.root, 'runtime', aside[0]), 'utf8'), torn);
+    const told = linesIn(view, 'could not be read');
+    assert.equal(told.length, 1);
+    assert.ok(told[0].content.includes(`runtime/${aside[0]}`));
+    assert.deepEqual(heldLines(h.root), [['P2', 'Routine mail: The bank wrote back.']], 'the desk works again');
+
+    const again = await app.refresh();
+    assert.equal(linesIn(again, 'could not be read').length, 1, 'said once');
+    assert.equal(readdirSync(join(h.root, 'runtime')).filter(name => name.startsWith('desk.unreadable-')).length, 1);
   } finally {
     await app.close();
   }

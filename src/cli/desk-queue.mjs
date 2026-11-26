@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicJson, loadConfig } from './config.mjs';
 import { dayLoad, readDay, TOO_FULL } from './day.mjs';
@@ -22,7 +22,8 @@ import { isPresent } from './pending.mjs';
  *   }
  *
  * `"desk": { "enabled": false }` in config.json turns it off, and Chat posts as before. Without a presence source nothing could time a
- * digest, so the desk stands aside then too. Nothing here throws: when the desk cannot work, the lines post as before.
+ * digest, so the desk stands aside then too. Nothing here throws: when the desk cannot work, the lines post as before. A file that is there
+ * but holds no queue is kept aside beside it, and the desk starts again with one line in Chat that says where.
  */
 export const deskPath = root => join(root, 'runtime', 'desk.json');
 
@@ -83,16 +84,32 @@ export function deskEnabled(root) {
   return Boolean(config) && config.desk?.enabled !== false;
 }
 
-/** The queue as saved. No file is an empty desk. A file that cannot be read throws, so the caller posts as before and the file stays as it is. */
+const emptyQueue = () => ({ version: VERSION, held: [], posting: [], seen: {}, lastDigestAt: null, returned: null });
+const UNREADABLE = 'DESK_UNREADABLE';
+const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+function parsed(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The queue as saved. No file is an empty desk. A file that cannot be read throws, so the caller posts as before and the file stays as it
+ * is. One that reads but holds no queue, as a torn write leaves it, throws with the code `DESK_UNREADABLE`.
+ */
 function readQueue(root) {
   let text;
   try {
     text = readFileSync(deskPath(root), 'utf8');
   } catch (error) {
-    if (error.code === 'ENOENT') return { version: VERSION, held: [], posting: [], seen: {}, lastDigestAt: null, returned: null };
+    if (error.code === 'ENOENT') return emptyQueue();
     throw error;
   }
-  const saved = JSON.parse(text);
+  const saved = parsed(text);
+  if (!isRecord(saved)) throw Object.assign(Error('The desk file holds no queue.'), { code: UNREADABLE });
   return {
     version: VERSION,
     held: Array.isArray(saved.held) ? saved.held : [],
@@ -101,6 +118,30 @@ function readQueue(root) {
     lastDigestAt: saved.lastDigestAt ?? null,
     returned: saved.returned && typeof saved.returned === 'object' ? saved.returned : null,
   };
+}
+
+/**
+ * The queue for the desk to work on. A file that holds no queue is kept aside as `runtime/desk.unreadable-<when>.json`, so what it held is
+ * not lost, and the desk starts again with the line that says so waiting to post, once.
+ */
+function openQueue(root, now) {
+  try {
+    return readQueue(root);
+  } catch (error) {
+    if (error.code !== UNREADABLE) throw error;
+  }
+  const name = `desk.unreadable-${iso(now).replace(/[:.]/g, '-')}.json`;
+  renameSync(deskPath(root), join(root, 'runtime', name));
+  const queue = emptyQueue();
+  queue.posting.push({
+    id: `notice:desk:${name}`,
+    role: 'notice',
+    content: `The desk's file could not be read, so hobkin kept it as runtime/${name} and started the desk again. Lines it held for the next digest may be in that file.`,
+    tone: 'critical',
+    at: iso(now),
+  });
+  writeQueue(root, queue, now);
+  return queue;
 }
 
 function writeQueue(root, queue, now) {
@@ -250,7 +291,7 @@ export class Desk {
     const plain = fresh.map(withoutDeskFacts);
     try {
       const now = this.now();
-      const queue = readQueue(this.root);
+      const queue = openQueue(this.root, now);
       const events = [];
       const post = [];
       let changed = false;
@@ -317,7 +358,7 @@ export class Desk {
     try {
       if (!presence || !deskEnabled(this.root)) return false;
       const now = this.now();
-      const queue = readQueue(this.root);
+      const queue = openQueue(this.root, now);
       const context = this.context(now, presence, busy);
       const events = [];
       let changed = this.release(queue, context, events);
