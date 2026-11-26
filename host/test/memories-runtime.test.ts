@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { remember } from 'hobkin/src/cli/inbox.mjs'
@@ -75,6 +75,9 @@ test("a memory an agent saves reaches the window as a quiet line with its note, 
   const window = await Client.connect(host)
   afterTest(t, () => window.close())
   const first = await window.live()
+  // This test reads the quiet line in Chat as it comes; when the desk delivers it is the desk's own tests (075).
+  const config = join(resolveDataRoot(host.root), 'config.json')
+  writeFileSync(config, JSON.stringify({ ...JSON.parse(readFileSync(config, 'utf8')), desk: { enabled: false } }))
   const stampAtStart = first.snapshot.memoriesStamp
   assert.match(String(stampAtStart), /^[0-9a-f]{16}$/)
 
