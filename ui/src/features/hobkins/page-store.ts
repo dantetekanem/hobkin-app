@@ -1,11 +1,11 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import type { HobkinConversation } from '#shared/protocol/hobkins.ts'
 import { latestWins } from './conversation.ts'
 
 /**
  * What the window keeps of agent pages from one switch to the next (`034-durable-hobkins`, spec 077), so a page opened
- * again shows at once and asks the host only for what changed.
+ * again shows at once and asks the host only for what changed, and which page shows while the next one gets ready.
  *
  * Of each durable hobkin opened lately, its page keeps its conversation as last read, what it read of each finished
  * turn's steps and the steps it last had of each, and the turns it draws. The last PAGES_KEPT hobkins' are kept, and
@@ -107,4 +107,70 @@ export function askOnce<Answer>(key: string, start: () => Promise<Answer>): Prom
   })
   keeper.asking.set(key, read)
   return read
+}
+
+/** How long the page being left stays while the next one gets ready, at most. */
+export const HOLD_MS = 400
+/** How many pages left are kept alive, hidden, when the window keeps pages (`keptPagesOn`). */
+export const KEPT_PAGES = 2
+const KEPT_PAGES_KEY = 'hobkin:kept-pages'
+
+/** The window keeps the last pages left alive: `localStorage['hobkin:kept-pages']` is `on`. Off by default, and wherever storage cannot be read. */
+export function keptPagesOn(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(KEPT_PAGES_KEY) === 'on'
+  } catch {
+    return false
+  }
+}
+
+export interface ShownPages {
+  /** The agent whose page is on screen. */
+  shown: string | null
+  /** The pages mounted: those kept hidden, the one left last at the end, then the one on screen. */
+  mounted: readonly string[]
+  /** The agent asked for, whose page gets ready while the one before stays, or null. */
+  preparing: string | null
+  /** Says `agent`'s page can show whole: it shows, if it is still the one asked for. */
+  ready: (agent: string) => void
+}
+
+interface Showing {
+  shown: string | null
+  /** The pages left that stay mounted, hidden, the one left last at the end. */
+  kept: readonly string[]
+}
+
+/** Shows `next`, keeping the newest `keep` pages left besides it. */
+const show = ({ shown, kept }: Showing, next: string | null, keep: number): Showing => {
+  if (next === shown) return { shown, kept }
+  const left = [...kept.filter((agent) => agent !== next && agent !== shown), ...(shown ? [shown] : [])]
+  return { shown: next, kept: keep > 0 ? left.slice(-keep) : [] }
+}
+
+/**
+ * Which agent page is on screen, as `asked` changes (the user's call, 2026-11-26: "Wait, then show it whole"). The page
+ * being left stays until the one asked for says it is ready (`ready`), or for HOLD_MS at most, and then the next shows.
+ * One with nothing to wait for shows at once: none asked for, or a page kept. With `keep`, the newest `keep` pages left
+ * stay mounted, hidden, so going back to one is instant. While `frozen`, as when the screen itself leaves, nothing changes.
+ */
+export function useShownPage(asked: string | null, { keep, frozen }: { keep: number; frozen: boolean }): ShownPages {
+  const [showing, setShowing] = useState<Showing>(() => ({ shown: asked, kept: [] }))
+  const waiting = !frozen && asked !== showing.shown
+  // Nothing to wait for: shown in this same draw.
+  if (waiting && (asked === null || showing.kept.includes(asked))) setShowing(show(showing, asked, keep))
+  if (!waiting && keep === 0 && showing.kept.length) setShowing({ ...showing, kept: [] })
+
+  useEffect(() => {
+    if (!waiting) return
+    const timer = setTimeout(() => setShowing((now) => show(now, asked, keep)), HOLD_MS)
+    return () => clearTimeout(timer)
+  }, [waiting, asked, keep])
+
+  const ready = useCallback(
+    (agent: string) => setShowing((now) => (agent === asked && agent !== now.shown ? show(now, agent, keep) : now)),
+    [asked, keep],
+  )
+  const mounted = showing.shown ? [...showing.kept, showing.shown] : showing.kept
+  return { shown: showing.shown, mounted, preparing: waiting ? asked : null, ready }
 }

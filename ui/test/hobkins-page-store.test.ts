@@ -59,7 +59,7 @@ const { hostStore, onWatchedChange } = await import('../src/lib/host/client.ts')
 const { pageRows, pageTurns } = await import('../src/features/hobkins/conversation.ts')
 const { useConversation } = await import('../src/features/hobkins/use-conversation.ts')
 const { useDrawnSteps, useHeldJobs, useNewestFirst } = await import('../src/features/hobkins/turn-steps.ts')
-const { useKeptPage } = await import('../src/features/hobkins/page-store.ts')
+const { HOLD_MS, useKeptPage, useShownPage } = await import('../src/features/hobkins/page-store.ts')
 after(() => {
   mock.restoreAll()
   Reflect.deleteProperty(globalThis, 'window')
@@ -172,6 +172,50 @@ test('a page kept hidden keeps its turns watched from outside, and reads nothing
   assert.deepEqual(asked.slice(before), [], 'nothing read again on show')
   stop()
   await mounted.unmount()
+})
+
+test('the page being left stays until the next one is ready, or for HOLD_MS at most, and a page kept shows at once', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const seen: { pages: ReturnType<typeof useShownPage> | null; ask: ((agent: string | null) => void) | null } = { pages: null, ask: null }
+    const Frame = ({ keep }: { keep: number }) => {
+      const [asked, setAsked] = useState<string | null>('a')
+      seen.ask = setAsked
+      seen.pages = useShownPage(asked, { keep, frozen: false })
+      return null
+    }
+    const mounted = await mountCounting(() => createElement(Frame, { keep: 2 }))
+    const pages = () => seen.pages!
+    assert.equal(pages().shown, 'a', 'the first page shows at once')
+    assert.equal(pages().preparing, null)
+
+    await mounted.change(() => seen.ask!('b'))
+    assert.equal(pages().shown, 'a', 'the page being left stays')
+    assert.equal(pages().preparing, 'b')
+    await mounted.change(() => pages().ready('b'))
+    assert.equal(pages().shown, 'b')
+    assert.equal(pages().preparing, null)
+    assert.deepEqual(pages().mounted, ['a', 'b'], 'the page left is kept')
+
+    await mounted.change(() => seen.ask!('c'))
+    await mounted.change(() => mock.timers.tick(HOLD_MS - 1))
+    assert.equal(pages().shown, 'b', 'not ready, within the cap')
+    await mounted.change(() => mock.timers.tick(1))
+    assert.equal(pages().shown, 'c', 'shown anyway once the cap is over')
+    assert.deepEqual(pages().mounted, ['a', 'b', 'c'])
+
+    await mounted.change(() => seen.ask!('a'))
+    assert.equal(pages().shown, 'a', 'a kept page shows at once')
+    assert.deepEqual(pages().mounted, ['b', 'c', 'a'])
+    await mounted.change(() => seen.ask!('d'))
+    await mounted.change(() => pages().ready('d'))
+    assert.deepEqual(pages().mounted, ['c', 'a', 'd'], 'the last two left are kept')
+    await mounted.change(() => seen.ask!(null))
+    assert.equal(pages().shown, null, 'no agent: at once')
+    await mounted.unmount()
+  } finally {
+    mock.timers.reset()
+  }
 })
 
 test('a turn the host holds is known once its whole steps come after the window watched it, not from its tail', async () => {

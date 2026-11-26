@@ -1,6 +1,6 @@
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { HOBKIN_MESSAGE_MAX, HOBKIN_TITLE_MAX, hobkinAgentId, hobkinOfAgent, type HobkinConversation, type HobkinSummary, type HobkinTurn } from '#shared/protocol/hobkins.ts'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { holdStill, useStill } from '@/app/still.ts'
@@ -9,6 +9,7 @@ import { Pals } from '@/avatar/Pals.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { useSplit } from '@/features/canvas-panel/use-board.ts'
+import { useAgentJobs } from '@/features/agent-activity/agent-jobs.ts'
 import { Arrivals, useArrival } from '@/features/agent-activity/arrive.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { AgentLines } from '@/features/agent-activity/AgentLines.tsx'
@@ -42,6 +43,7 @@ import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import {
   firstMessageNext,
+  pageReady,
   pageRows,
   pageState,
   pageTurns,
@@ -63,7 +65,8 @@ import { useTalkControls } from '@/features/work/use-talk-controls.ts'
 import { PageHeader, pageGutter, PartFrame, splitSpring } from './PageHeader.tsx'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
-import { timeOfTurn, useDrawnSteps, useNewestFirst } from './turn-steps.ts'
+import { keptPage, useShownPage } from './page-store.ts'
+import { timeOfTurn, useDrawnSteps, useNewestFirst, useWholeJobs } from './turn-steps.ts'
 import { useConversation, useMarkSeen, usePageShown } from './use-conversation.ts'
 import { useOnClaudeCode } from './use-pal.ts'
 import { usePageSlash } from '@/features/work/use-agent-slash.ts'
@@ -78,7 +81,9 @@ import { DeliveryMark } from '@/features/work/DeliveryMark.tsx'
  * its steps, and it ends with its work (`RunPage.tsx`). The user, 2026-11-25: "the UI of durable is much better, that
  * should be the only UI".
  *
- * Moving to another agent, durable or not, its own pieces cross-fade and the talk box stays in place.
+ * Moving to another agent, durable or not, its own pieces cross-fade and the talk box stays in place. The page being left
+ * stays until the next one can show whole, at most a moment (`useShownPage`; the user's call, 2026-11-26: "Wait, then
+ * show it whole"): the next one is made ready unseen (`PreparePage`), and then it is drawn once, with what it has.
  *
  * While a durable hobkin's canvas is open the page forms a split with it (`040-canvas-board`): the page takes the chat's
  * place and the canvas the right side. The agents list is covered then, so the page's keys no longer lead to it.
@@ -97,6 +102,16 @@ export function HobkinScreen() {
   if (present) keptSplit.current = id !== null && splitOwner === id
   const split = keptSplit.current
   const still = useStill()
+  // The page on screen, and the one asked for while it gets ready. The talk box goes to the one asked for at once.
+  const pages = useShownPage(agentId, { keep: 0, frozen: !present })
+  const shown = pages.shown
+  const shownId = hobkinOfAgent(shown)
+  // The page left keeps the split it had while it stays.
+  const shownSplit = useRef(split)
+  if (shown === agentId) shownSplit.current = split
+  // A page made ready draws first the turns its preparation drew.
+  const prepared = useRef<string | null>(null)
+  if (pages.preparing) prepared.current = pages.preparing
 
   return (
     // In the split the page's gutter is the chat's, and it travels there with the split (`pageGutter`).
@@ -113,12 +128,23 @@ export function HobkinScreen() {
       <div className="relative min-h-0 flex-1">
         {/* Propagated, so a page leaving with its screen counts as gone. */}
         <AnimatePresence initial={false} propagate>
-          {id ? (
-            <Part key={agentId} id={id} split={split} sent={notes.sent[id] ?? NO_NOTES} sending={notes.sending[id] ?? null} recall={notes.recall} />
-          ) : agentId ? (
-            <RunPart key={agentId} agentId={agentId} />
+          {shownId ? (
+            <Part
+              key={shown}
+              id={shownId}
+              split={shownSplit.current}
+              prepared={prepared.current === shown}
+              sent={notes.sent[shownId] ?? NO_NOTES}
+              sending={notes.sending[shownId] ?? null}
+              recall={notes.recall}
+            />
+          ) : shown ? (
+            <RunPart key={shown} agentId={shown} />
           ) : null}
         </AnimatePresence>
+        {pages.preparing ? (
+          <PreparePage key={`prepare:${pages.preparing}`} agent={pages.preparing} notes={notes} onReady={pages.ready} />
+        ) : null}
       </div>
       {id ? (
         <Talk
@@ -211,6 +237,8 @@ function TurnStopAsk({ id }: { id: string }) {
 interface PartProps {
   id: string
   split: boolean
+  /** It was made ready unseen (`PreparePage`): it draws first the turns that drew. */
+  prepared: boolean
   sent: readonly SentNote[]
   sending: SendingNote | null
   /** Takes what hobkin kept of the notes the user added to these turns, for those the page no longer has. */
@@ -218,7 +246,7 @@ interface PartProps {
 }
 
 /** The hobkin's own pieces: its header, its lines and its conversation. Leaving, they take no keyboard and no pointer. */
-function Part({ id, split, sent, sending, recall }: PartProps) {
+function Part({ id, split, prepared, sent, sending, recall }: PartProps) {
   const present = useIsPresent()
   const { hobkin, state, connected, fresh } = useHobkin(id)
   const onPage = useView((view) => view.screen === 'agent' && view.openAgent === hobkinAgentId(id))
@@ -230,12 +258,7 @@ function Part({ id, split, sent, sending, recall }: PartProps) {
     if (conversation) recall(id, conversation.turns)
   }, [conversation, id, recall])
 
-  // Before the first read answers, a turn in flight still shows, with the message that began it.
-  const read = useMemo<HobkinConversation | null>(() => conversation ?? (hobkin?.run ? { hobkin, turns: [] } : null), [conversation, hobkin])
-  // What waits for the turn in flight shows above the box until the turn reads it (`QueuedRows`).
-  const shownSent = useMemo(() => sent.filter((note) => !waitsForTurn(note, hobkin)), [sent, hobkin])
-  const shownSending = sending && waitsForTurn(sending, hobkin) ? null : sending
-  const turns = useMemo(() => pageTurns(read, hobkin, shownSent), [read, hobkin, shownSent])
+  const { read, turns, sending: shownSending } = useShownTurns(conversation, hobkin, sent, sending)
   // The live turn's steps: the one in flight, or the one just over until a read has its answer. The host keeps them.
   const liveRun = turns.find((turn) => turn.live)?.run ?? null
   // The face reads only the mood the live turn's steps give it. The tasks line and the conversation read the steps themselves.
@@ -250,6 +273,7 @@ function Part({ id, split, sent, sending, recall }: PartProps) {
       <AgentLines agentId={hobkinAgentId(id)} hue={hueOf(id)} name={hobkin?.title ?? 'This hobkin'} className="mx-[var(--page-gutter,10%)]" />
       <Conversation
         id={id}
+        prepared={prepared}
         turns={turns}
         cwd={hobkin?.cwd}
         sending={shownSending}
@@ -259,6 +283,74 @@ function Part({ id, split, sent, sending, recall }: PartProps) {
       />
     </PartFrame>
   )
+}
+
+/**
+ * The turns a page shows: those read, and before the first read answers, the turn in flight with the message that began
+ * it. What waits for the turn in flight shows above the box until the turn reads it (`QueuedRows`), not among them.
+ */
+function useShownTurns(conversation: HobkinConversation | null, hobkin: HobkinSummary | undefined, sent: readonly SentNote[], sending: SendingNote | null) {
+  const read = useMemo<HobkinConversation | null>(() => conversation ?? (hobkin?.run ? { hobkin, turns: [] } : null), [conversation, hobkin])
+  const shownSent = useMemo(() => sent.filter((note) => !waitsForTurn(note, hobkin)), [sent, hobkin])
+  const turns = useMemo(() => pageTurns(read, hobkin, shownSent), [read, hobkin, shownSent])
+  return { read, turns, sending: sending && waitsForTurn(sending, hobkin) ? null : sending }
+}
+
+interface PrepareProps {
+  agent: string
+  /** Says the page can show whole. */
+  onReady: (agent: string) => void
+}
+
+/**
+ * The page asked for while the one being left stays: it watches and reads what the page will draw first, and draws
+ * nothing. Once that is all there it says so, before the window paints.
+ */
+function PreparePage({ agent, notes, onReady }: PrepareProps & { notes: ReturnType<typeof useSentNotes> }) {
+  const id = hobkinOfAgent(agent)
+  return id ? (
+    <PrepareHobkin agent={agent} id={id} sent={notes.sent[id] ?? NO_NOTES} sending={notes.sending[id] ?? null} onReady={onReady} />
+  ) : (
+    <PrepareRun agent={agent} onReady={onReady} />
+  )
+}
+
+/** A run's page can show once the host sends its whole steps, or there is no host to wait for. */
+function PrepareRun({ agent, onReady }: PrepareProps) {
+  const whole = useWholeJobs(useAgentJobs(agent))
+  const connected = useHost((state) => hasHost(state) && state.link === 'open')
+  const ready = !connected || whole
+  useLayoutEffect(() => {
+    if (ready) onReady(agent)
+  }, [ready, agent, onReady])
+  return null
+}
+
+/**
+ * A durable hobkin's page can show once its conversation is read and the turns it draws first, newest first, have their
+ * steps, as the page will draw them (`ConversationRows`), and its lines' jobs are whole.
+ */
+function PrepareHobkin({ agent, id, sent, sending, onReady }: PrepareProps & { id: string; sent: readonly SentNote[]; sending: SendingNote | null }) {
+  const { hobkin, state, connected, fresh } = useHobkin(id)
+  const { conversation, problem } = useConversation(id, hobkin, connected)
+  const { turns, sending: shownSending } = useShownTurns(conversation, hobkin, sent, sending)
+  const run = turns.find((turn) => turn.live)?.run ?? null
+  const cwd = hobkin?.cwd
+  const activity = useAgentActivity(run)
+  const [drawn, setDrawn] = useState<readonly string[]>(NO_TURNS)
+  const runs = useMemo(() => (run && !drawn.includes(run) ? [...drawn, run] : drawn), [drawn, run])
+  const { finished, known } = useDrawnSteps(id, runs, { live: run, cwd })
+  const rows = useMemo(() => {
+    const liveSteps = activity ? { entries: activity.entries, cwd: activity.cwd ?? cwd, seenAt: (entry: string) => activity.timeOf(entry)?.seen } : null
+    return pageRows(turns, { sending: shownSending, activity: liveSteps, finished })
+  }, [turns, shownSending, activity, cwd, finished])
+  const settled = useNewestFirst(id, runs, setDrawn, { turns, rows, known, shown: null, window: NEWEST_STEPS })
+  const lines = useWholeJobs(useAgentJobs(agent))
+  const ready = pageReady({ connected, state, fresh, problem, read: conversation !== null, settled }) && (lines || !connected)
+  useLayoutEffect(() => {
+    if (ready) onReady(agent)
+  }, [ready, agent, onReady])
+  return null
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -317,6 +409,8 @@ const NO_TURNS: readonly string[] = []
 interface ConversationProps {
   /** The hobkin's id: how many of its newest rows are drawn is kept by it. */
   id: string
+  /** It was made ready unseen: it draws first the turns that drew, kept with its page. */
+  prepared: boolean
   turns: readonly ShownTurn[]
   cwd?: string
   /** The message on its way to the host now. */
@@ -336,7 +430,7 @@ interface ConversationProps {
  */
 const Conversation = memo(ConversationRows)
 
-function ConversationRows({ id, turns, cwd, sending, problem, loading }: ConversationProps) {
+function ConversationRows({ id, prepared, turns, cwd, sending, problem, loading }: ConversationProps) {
   const still = useStill()
   const live = useHasHost()
   const scroll = useFollow()
@@ -349,7 +443,7 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
   const saved = earlierRow(0, { more: older.more, loading: older.loading, mayHaveOlder: job !== null && mayHaveOlder(activity?.entries) })
   const offersOlder = saved !== null
   // The steps of each turn drawn so far, the one in flight among them, so they stay when it ends (`useNewestFirst`).
-  const [drawn, setDrawn] = useState<readonly string[]>(NO_TURNS)
+  const [drawn, setDrawn] = useState<readonly string[]>(() => (prepared ? keptPage(id).drawn : NO_TURNS))
   const turnsWithSteps = useMemo(() => (run && !drawn.includes(run) ? [...drawn, run] : drawn), [drawn, run])
   const { finished, known } = useDrawnSteps(id, turnsWithSteps, { live: run, cwd })
   // A step reads a whole output from its own turn's run, and its times as that run's.

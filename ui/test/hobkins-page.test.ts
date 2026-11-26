@@ -6,6 +6,7 @@ import {
   drawNext,
   firstMessageNext,
   latestWins,
+  pageReady,
   pageRows,
   pageState,
   pageTurns,
@@ -259,4 +260,15 @@ test('a page draws its turns newest first, and the next older one only while the
   const live = pageTurns({ hobkin: summary, turns: [turn(1, 'completed', 'Done.'), turn(2, 'completed', 'Done.'), turn(3, 'running')] }, summary, [])
   const liveRows = pageRows(live, { sending: null, activity: steps(3, 2), finished: {} })
   assert.deepEqual(drawNext([run(3)], { turns: live, rows: liveRows, known: known(run(3)), window }), { next: run(2), settled: false })
+})
+
+test('a page shows whole once what it draws first is there, and at once when there is nothing to wait for', () => {
+  const ready = { connected: true, state: 'live' as const, fresh: false, problem: null, read: true, settled: true }
+  assert.equal(pageReady(ready), true)
+  assert.equal(pageReady({ ...ready, read: false }), false, 'before its conversation is read')
+  assert.equal(pageReady({ ...ready, settled: false }), false, 'before its newest turns\' steps are known')
+  assert.equal(pageReady({ ...ready, read: false, settled: false, connected: false }), true, 'no host to wait for')
+  assert.equal(pageReady({ ...ready, read: false, settled: false, problem: 'refused' }), true, 'the read failed: the page says so')
+  assert.equal(pageReady({ ...ready, read: false, settled: false, fresh: true }), true, 'no turn yet')
+  assert.equal(pageReady({ ...ready, read: false, settled: false, state: 'ended' }), true, 'ended')
 })

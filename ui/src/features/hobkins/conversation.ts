@@ -324,6 +324,16 @@ export function drawNext(drawn: readonly string[], { turns, rows, known, window 
 }
 
 /**
+ * A durable hobkin's page can show whole: its conversation is read and the steps of the turns it draws first are there,
+ * so nothing drawn is thrown away when they come (`drawNext`). At once when there is nothing to wait for: no host, a
+ * hobkin with no turn yet or one that is not there, or a read that failed, which the page says.
+ */
+export function pageReady({ connected, state, fresh, problem, read, settled }: { connected: boolean; state: PageState; fresh: boolean; problem: string | null; read: boolean; settled: boolean }): boolean {
+  if (!connected || state !== 'live' || fresh || problem !== null) return true
+  return read && settled
+}
+
+/**
  * The notes the user sent, by hobkin, with each one hobkin's receipts now say its turn read in marked so. A receipt
  * counts only under the run of the turn the note reached. A hobkin's notes with nothing new stay the same list, and with
  * nothing new anywhere the same notes come back.
