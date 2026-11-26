@@ -7,7 +7,7 @@ import { atomicJson, initialize, loadConfig } from '../src/cli/config.mjs';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { writeBriefState } from '../src/cli/brief.mjs';
 import { dayPath } from '../src/cli/day.mjs';
-import { deskPath, digestMessage, readHeld, roomLine } from '../src/cli/desk-queue.mjs';
+import { Desk, deskPath, digestMessage, readHeld, roomLine } from '../src/cli/desk-queue.mjs';
 import { readEvents, recordEvent } from '../src/cli/events.mjs';
 import { pendingCard } from '../src/cli/pending.mjs';
 import { readPending } from '../src/cli/pending-read.mjs';
@@ -524,4 +524,18 @@ test('hobkin pending shows what the desk holds for the next digest', t => {
   const held = readPending(root, { now: Date.parse('2026-01-05T10:00:00Z') }).groups.find(({ name }) => name === 'held');
 
   assert.deepEqual(held?.items, [{ level: 'P2', line: 'Routine mail: The bank wrote back.', at: heldAt }]);
+});
+
+test('the line that says what the pick the user made on an Action Item did posts at once, never held', t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-desk-reply-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
+  const now = Date.parse('2026-01-05T14:00:00Z');
+  const desk = new Desk({ root, now: () => now });
+  const line = { id: 'notice:action-answer:abc', role: 'notice', tone: 'blocked', content: 'Action item "Renew" - you chose "Yes".', at: new Date(now).toISOString() };
+
+  const posted = desk.route([line], { presence: { seenAt: now, away: false, occupied: false }, inChat: new Set() });
+
+  assert.deepEqual(posted.map(({ id }) => id), ['notice:action-answer:abc']);
+  assert.deepEqual(readHeld(root), []);
 });

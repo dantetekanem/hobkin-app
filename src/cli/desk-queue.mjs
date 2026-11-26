@@ -38,7 +38,8 @@ const SEEN_MS = 14 * DAY_MS;
 const LONGEST_LINE = 300;
 // Lines that answer what the user just did, and the one that says once what usage upload sends. None of them is an incoming item, and
 // neither is a line marked `asked`, such as a run the user started by hand.
-const REPLIES = new Set(['answer', 'brief', 'card', 'feedback', 'memory', 'telemetry-upload']);
+// `action-answer` says what the user's own pick on an Action Item did.
+const REPLIES = new Set(['answer', 'action-answer', 'brief', 'card', 'feedback', 'memory', 'telemetry-upload']);
 // A notice's tone is the triage the desk levels by. A quiet line is news that can wait, never nothing.
 const TRIAGE = { critical: 'critical', blocked: 'blocked', useful: 'useful', quiet: 'useful' };
 const RANK = { P0: 0, P1: 1, P2: 2, P3: 3 };
