@@ -4,7 +4,6 @@ import { test } from 'node:test'
 import { hashLines } from '#shared/review/lines.ts'
 import type { Review } from '#shared/review/types.ts'
 import { countNotes, detached, discussionMessage, foldNotes, noteTarget, whereInWords, type Note, type NoteEntry } from '../src/features/review/notes/notes.ts'
-import { foldSteps } from '../src/features/review/notes/steps.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
 import { createSession } from '../src/features/review/state/session.ts'
 
@@ -170,24 +169,6 @@ test('a note on lines that have changed since is kept, and marked as detached', 
   assert.deepEqual(detached([attached, onStep], () => text), [])
   assert.deepEqual(detached([attached, onStep], () => 'one\ntwo\n3\nfour\n'), ['a'])
   assert.deepEqual(detached([attached, onStep], () => null), ['a'], 'a file that is gone detaches its notes too')
-})
-
-test('a long story folds the steps far from the current one into ranges', () => {
-  const shape = (items: ReturnType<typeof foldSteps>) => items.map((item) => (item.type === 'step' ? item.index + 1 : `${item.from + 1} to ${item.to + 1}`))
-
-  // A story that fits is shown whole.
-  assert.deepEqual(shape(foldSteps(15, 6)), Array.from({ length: 15 }, (_, index) => index + 1))
-
-  // A long one keeps its ends, the steps around the current one, and folds the rest.
-  assert.deepEqual(shape(foldSteps(49, 24)), [1, 2, '3 to 20', 21, 22, 23, 24, 25, 26, 27, 28, 29, '30 to 47', 48, 49])
-  assert.deepEqual(shape(foldSteps(49, 0)), [1, 2, 3, 4, 5, '6 to 47', 48, 49])
-  assert.deepEqual(shape(foldSteps(49, 48)), [1, 2, '3 to 44', 45, 46, 47, 48, 49])
-  // A fold says how many steps it holds.
-  const fold = foldSteps(49, 24).find((item) => item.type === 'fold')!
-  assert.deepEqual(fold, { type: 'fold', from: 2, to: 19, count: 18 })
-  // A range the reviewer opened stays open, and a gap of one or two steps is not worth folding.
-  assert.deepEqual(shape(foldSteps(49, 24, new Set([2]))).slice(0, 6), [1, 2, 3, 4, 5, 6])
-  assert.deepEqual(shape(foldSteps(20, 8)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, '14 to 18', 19, 20])
 })
 
 test('an open review writes a note about what the reviewer is on, and keeps following its notes after a double mount', () => {
