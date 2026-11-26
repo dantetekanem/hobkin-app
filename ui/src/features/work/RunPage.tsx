@@ -1,6 +1,6 @@
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { answerAgent, questionOf, useAgent, type RunningAgent } from '@/app/running-agents.ts'
 import { holdStill, useStill } from '@/app/still.ts'
@@ -15,12 +15,16 @@ import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-ste
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { atOf, exchangeOf, pauseOf, type ExchangeItem } from '@/features/agent-activity/steps.ts'
-import { withRuns } from '@/features/schedules/runs.ts'
+import { withRuns, type RunsRow } from '@/features/schedules/runs.ts'
 import { ScheduleRunsItem } from '@/features/schedules/ScheduleRuns.tsx'
 import { useScheduleRuns } from '@/features/schedules/use-schedule-runs.ts'
 import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
 import { lastStepTime, useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
+import type { FollowStart } from '@/features/agent-activity/follow.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
+import { useWindowedList, WindowedRows } from '@/features/agent-activity/windowed-list.tsx'
+import { windowedSteps } from '@/features/agent-activity/windowed-place.ts'
+import { nearRows } from '@/features/agent-activity/windowed-rows.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import { changeLine } from '@/features/chat/change-line.ts'
 import { releaseImages } from '@/features/chat/image-uploads.ts'
@@ -126,7 +130,18 @@ function QuestionBubble({ hue, question, waiting }: { hue: number; question: str
  * more, and each step drawn paints only while it is in view. It reads the run's activity itself, so a step draws the
  * steps alone.
  */
-const Exchange = memo(ExchangeSteps)
+const Exchange = memo(function Exchange(props: ExchangeProps) {
+  // With the switch `hobkin:windowed-steps` on, only the rows in view and a view's height around them are drawn.
+  return windowedSteps() ? <WindowedExchange {...props} /> : <ExchangeSteps {...props} />
+})
+
+interface ExchangeProps {
+  agentId: string
+  hue: number
+  question?: string
+  waiting: boolean
+  idle: boolean
+}
 
 /** When a step or a message happened, for the schedules' runs to stand among them (`withRuns`). */
 function itemTime(item: ExchangeItem): number | null {
@@ -134,7 +149,7 @@ function itemTime(item: ExchangeItem): number | null {
   return atOf(item) ?? null
 }
 
-function ExchangeSteps({ agentId, hue, question, waiting, idle }: { agentId: string; hue: number; question?: string; waiting: boolean; idle: boolean }) {
+function ExchangeSteps({ agentId, hue, question, waiting, idle }: ExchangeProps) {
   const activity = useAgentActivity(agentId)
   const still = useStill()
   const live = useHasHost()
@@ -150,7 +165,18 @@ function ExchangeSteps({ agentId, hue, question, waiting, idle }: { agentId: str
   }, [agentId, live])
   // What waits for the run's turn shows above the box until the turn reads it (`QueuedRows`).
   const notes = useMemo(() => allNotes?.filter((note) => !waitsForTurn(note)), [allNotes])
-  const scroll = useFollow()
+  // A kept page opens again where the reader left it (`KeptPage` in HobkinScreen.tsx). Hiding runs this cleanup before
+  // the page is hidden.
+  const left = useRef<FollowStart | undefined>(undefined)
+  const scroll = useFollow({ start: () => left.current })
+  const pinned = useRef(scroll.pinned)
+  pinned.current = scroll.pinned
+  useLayoutEffect(() => {
+    const element = scroll.scroller.current
+    return () => {
+      if (element) left.current = { following: pinned.current, top: element.scrollTop }
+    }
+  }, [scroll.scroller])
   // The run's feed keeps its newest steps. The ones it let go are read from the run's saved session, a page at a time,
   // and come before them.
   const job = live && activity && !activity.sample ? agentId : null
@@ -209,6 +235,152 @@ function ExchangeSteps({ agentId, hue, question, waiting, idle }: { agentId: str
                 ),
               )}
             </StepJob.Provider>
+            {/* It goes in the same moment the next step arrives. */}
+            {thinking ? <Thinking key="thinking" activity={activity} run={agentId} /> : <AgentWaits key="waits" agentId={agentId} />}
+          </Arrivals>
+        </ShowStamps>
+        {empty ? <li className="self-center text-[13px] text-muted-foreground">No steps yet. They draw here as it works.</li> : null}
+        {activity?.sample ? (
+          <li className="self-center text-[12px] text-muted-foreground">Sample activity. With a host this is the agent's own work, as it happens.</li>
+        ) : !live && notes?.length ? (
+          <li className="self-end text-[12px] text-muted-foreground">Sample data. The host will deliver these to the agent as it works.</li>
+        ) : null}
+      </ol>
+      {/* Stays just above the talk box while the user reads further up, and takes them back to the newest step. */}
+      <div className="pointer-events-none sticky bottom-3 z-10 flex h-0 justify-center">
+        <AnimatePresence>
+          {scroll.pinned ? null : (
+            <motion.button
+              type="button"
+              onClick={scroll.jumpToLatest}
+              initial={holdStill({ opacity: 0, transform: 'translateY(10px) scale(0.96)' }, still)}
+              animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: spring.alive }, still)}
+              exit={holdStill({ opacity: 0, transform: 'translateY(10px) scale(0.96)', transition: tween.exit }, still)}
+              className="pointer-events-auto absolute bottom-0 flex h-8 items-center gap-1.5 rounded-full border border-border bg-card pr-1.5 pl-3 text-[12px] font-medium shadow-panel transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2"
+            >
+              <ArrowDown className="size-3.5" aria-hidden="true" />
+              Newest message
+              <Kbd>End</Kbd>
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  )
+}
+
+/** The run's question, as the first row of a windowed exchange. */
+type QuestionRow = { kind: 'question'; key: 'question'; question: string }
+type RunRow = ExchangeItem | RunsRow | QuestionRow
+const runRowKey = (row: RunRow) => row.key
+/** How tall a row not drawn yet is guessed to be: a message's bubble, the question with its line, a step folded to its row. */
+function runRowHeight(row: RunRow): number {
+  if (row.kind === 'note') return 60
+  if (row.kind === 'question') return 84
+  return 36
+}
+/** The list's own gap and padding: `gap-3 pt-2 pb-3`. */
+const RUN_SPACING = { gap: 12, top: 8, bottom: 12 }
+/** How near the view, in rows, the run's first step is when the next page of its older steps is read. */
+const NEAR_OLDER = 4
+
+/**
+ * The run's steps drawn windowed, with the switch `hobkin:windowed-steps` on (windowed-list.tsx): only the rows in view
+ * and a view's height around them, the newest always, and spacers for the rest, opening where it was left. There is no
+ * "Show 40 more": the run's older steps are read from its saved session by themselves as its first step comes near the
+ * view, and asked again as the feed lets steps go only while they are in view or near it.
+ */
+function WindowedExchange({ agentId, hue, question, waiting, idle }: ExchangeProps) {
+  const activity = useAgentActivity(agentId)
+  const still = useStill()
+  const live = useHasHost()
+  const allNotes = useAgentThreads((threads) => threads.notes[agentId])
+  // What the user said to it while it worked comes back from hobkin, for a page a reload or a hot update took it from.
+  useEffect(() => {
+    if (!live) return
+    runCommand('agent.notes', { run: agentId }).then(
+      ({ notes: kept }) => useAgentThreads.getState().recall(agentId, kept),
+      () => {},
+    )
+  }, [agentId, live])
+  const notes = useMemo(() => allNotes?.filter((note) => !waitsForTurn(note)), [allNotes])
+  const job = live && activity && !activity.sample ? agentId : null
+  const [olderNear, setOlderNear] = useState(false)
+  const older = useOlderSteps(job, { follows: olderNear })
+  const entries = useMemo(() => (activity && older.steps.length ? [...older.steps, ...activity.entries] : activity?.entries), [activity, older.steps])
+  const items = useMemo<ExchangeItem[]>(
+    () =>
+      activity && entries
+        ? exchangeOf(entries, notes ?? [], { seenAt: (id) => activity.timeOf(id)?.seen, ended: activity.ended, cwd: activity.cwd, tasksOnLine: true })
+        : (notes ?? []).map((note) => ({ kind: 'note', key: `note:${note.id}`, note })),
+    [activity, entries, notes],
+  )
+  const runs = useScheduleRuns({ kind: 'run', id: agentId })
+  const rows = useMemo<readonly RunRow[]>(() => {
+    const steps = withRuns(items, runs, itemTime)
+    return question ? [{ kind: 'question', key: 'question', question }, ...steps] : steps
+  }, [items, runs, question])
+  const list = useWindowedList({ name: agentId, rows, keyOf: runRowKey, estimate: runRowHeight, spacing: RUN_SPACING })
+  const { scroll } = list
+
+  // The run's older steps go before its first step: the pages read so far, then the feed.
+  const { first, last } = useMemo(() => {
+    const first = job ? rows.findIndex((row) => row.kind !== 'question') : -1
+    const read = new Set(older.steps.map((step) => step.id))
+    let last = first
+    while (last >= 0 && last + 1 < rows.length && read.has(rows[last + 1]!.key)) last += 1
+    return { first, last }
+  }, [rows, job, older.steps])
+  const nearFirst = first >= 0 && nearRows(list.inView, first, first, NEAR_OLDER)
+  const nearPages = first >= 0 && nearRows(list.inView, first, last + 1, NEAR_OLDER)
+  useEffect(() => setOlderNear(nearPages), [nearPages])
+  const saved = earlierRow(0, { more: older.more, loading: older.loading, mayHaveOlder: job !== null && mayHaveOlder(activity?.entries) })
+  // Read once for each oldest step: a read that could not be answered is not asked again until the steps move.
+  const askedBefore = useRef<string | null>(null)
+  const oldest = older.steps[0]?.id ?? activity?.entries[0]?.id ?? null
+  const loadMore = older.loadMore
+  const readsOlder = saved?.kind === 'saved' && !saved.loading
+  useEffect(() => {
+    if (!nearFirst || !readsOlder || oldest === askedBefore.current) return
+    askedBefore.current = oldest
+    loadMore()
+  }, [nearFirst, readsOlder, oldest, loadMore])
+
+  const timeOf = activity?.timeOf
+  const ended = activity?.ended ?? false
+  const draw = useCallback(
+    (row: RunRow) =>
+      row.kind === 'question' ? (
+        <li data-step="question" tabIndex={-1} className="flex flex-col gap-2 rounded-[18px] outline-none [contain:content] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
+          <QuestionBubble hue={hue} question={row.question} waiting={waiting} />
+          <p className="flex h-6 items-center self-start pl-8 text-[12px] text-muted-foreground">{waiting ? 'Your answer goes in the box below.' : 'Answered.'}</p>
+        </li>
+      ) : row.kind === 'note' ? (
+        <Said note={row.note} />
+      ) : row.kind === 'schedule' ? (
+        <ScheduleRunsItem row={row} />
+      ) : timeOf ? (
+        <StepItem step={row} timeOf={timeOf} ended={ended} />
+      ) : null,
+    [hue, waiting, timeOf, ended],
+  )
+  const thinking = activity !== null && !waiting && !idle && pauseOf(activity.entries, { ended: activity.ended }) === 'thinking'
+  const empty = rows.length === 0 && !thinking
+
+  return (
+    <div
+      ref={scroll.scroller}
+      onScroll={scroll.onScroll}
+      // WebKit anchors no scroll here today; one that will must not move the view a second time (windowed-list.tsx).
+      className="scroll-quiet relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-[10%] [overflow-anchor:none] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
+    >
+      <ol ref={scroll.content} data-agent-exchange onKeyDown={walkSteps} aria-label="What the agent has done" className="mt-auto flex flex-col gap-3 pt-2 pb-3">
+        <ShowStamps>
+          {/* The rows drawn with the page are simply there. A row new to it arrives, and one scrolled back to does not. */}
+          <StepJob.Provider value={job}>
+            <WindowedRows list={list} draw={draw} />
+          </StepJob.Provider>
+          <Arrivals>
             {/* It goes in the same moment the next step arrives. */}
             {thinking ? <Thinking key="thinking" activity={activity} run={agentId} /> : <AgentWaits key="waits" agentId={agentId} />}
           </Arrivals>
