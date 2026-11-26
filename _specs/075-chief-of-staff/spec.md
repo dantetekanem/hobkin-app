@@ -84,11 +84,18 @@ hobkin runs the user's day the way a good chief of staff does, through the routi
 
 ## Proof
 
-- A1, A2, A4 and A10: fixture days on a throwaway home with a fake calendar.
-- A3: a rendered check of the window on that fixture.
-- A5 to A9: tests in hobkin's `test/`, written to fail first.
-- A11: direct reading of the review.
-- A12: the bank runner's report.
+- A1. Fixture days on a throwaway home with a fake calendar.
+- A2. Fixture days on a throwaway home with a fake calendar.
+- A3. check: a rendered check of the window on that fixture.
+- A4. Fixture days on a throwaway home with a fake calendar.
+- A5. Tests in hobkin's `test/`, written to fail first.
+- A6. Tests in hobkin's `test/`, written to fail first.
+- A7. Tests in hobkin's `test/`, written to fail first.
+- A8. Tests in hobkin's `test/`, written to fail first.
+- A9. Tests in hobkin's `test/`, written to fail first.
+- A10. Fixture days on a throwaway home with a fake calendar.
+- A11. Direct reading of the review.
+- A12. The bank runner's report.
 
 Nothing runs against `~/.hobkin` or the real calendar in tests.
 
@@ -104,14 +111,14 @@ Phase 1: the desk. This brings the fastest relief, and it needs no calendar.
 - [ ] S3 (A4). The four levels on every incoming item. Routines, agents, work mode, reminders and other sessions put items on the desk instead of posting straight to Chat.
 - [ ] S4 (A3, A4). About three digests a day, timed from the user's presence and use, built from the brief and the catch-up and posted in Chat, plus the "what's waiting" view. Before a week of presence data exists, a digest comes when the user returns after a gap.
 - [ ] S5 (A4). Quiet hours learned from when the user is usually away, and an awareness of meetings and focus blocks from the day file (S11). Sounds and notifications follow the levels.
-- [x] S6. The known bugs. Routine care runs hourly. Recall finds accented words. Report calls are already explicit Action Items that close on Done or Not doing it (67abad4, kept by tests), so only the leftovers go: `reports: []` in `pending.mjs`, the `calling` set in `brief.mjs`, and the prompt and doc lines that still promise calls from `Next:` alone.
+- [x] S6 (A5, A7). The known bugs. Routine care runs hourly. Recall finds accented words. Report calls are already explicit Action Items that close on Done or Not doing it (67abad4, kept by tests), so only the leftovers go: `reports: []` in `pending.mjs`, the `calling` set in `brief.mjs`, and the prompt and doc lines that still promise calls from `Next:` alone.
 
 Phase 2: decisions.
 
 - [ ] S7 (A5). One card and one queue. The 14 sources in notes §1 file into it, and `recommended` becomes the card's pick. Built so far: the card's fields in `hobkin decide`. Still to do: the window showing them, and the 14 sources moved into one queue.
 - [x] S8 (A6). The asking test, deadline defaults for reversible cards, and the order within a digest.
 - [x] S9 (A7). The precedent log, built on the 30-day key recall, plus learning questions, standing rules and their read-back.
-- [x] S10. Wins stop counting answered decisions. A day that needed fewer decisions counts as a good day.
+- [x] S10 (A11). Wins stop counting answered decisions. A day that needed fewer decisions counts as a good day.
 
 Phase 3: the day, inside the routines.
 
@@ -119,19 +126,19 @@ Phase 3: the day, inside the routines.
 - [x] S12 (A1). The morning brief's load line, from the day file, what is committed to that day, and what waits on the user.
 - [ ] S13 (A2). When P1 work lands and the day no longer fits, the next digest says what to move, and a resume note goes with any interruption.
 - [ ] S14 (A10). Openings, from the gaps in the day file: under 15 minutes, a break or up to 3 one-tap cards; 15 to 45 minutes, one bounded task with its checks attached; 60 minutes or more, the next deep task.
-- [x] S15. The end-of-day routine adds what agents did (including what they did alone), what waits and what runs overnight.
+- [x] S15 (A4). The end-of-day routine adds what agents did (including what they did alone), what waits and what runs overnight.
 
 Phase 4: delegation.
 
 - [ ] S16 (A8). The autonomy ledger for each task class: runs, checks passed, overrides and review minutes, with the five levels and the promotion question. The ledger and `hobkin telemetry autonomy` are built. Recording outcomes waits for the work/ files another session is editing.
 - [ ] S17 (A9). The tool-level guard for outward actions, with standing rules and a log of refusals. Stage one is built: it watches and blocks nothing, and `hobkin telemetry outward` shows it. Loading it into runs waits for `harnesses.mjs`, and patches are ready.
-- [ ] S18. Briefs with an intent, a done criterion, the sources, what not to touch, a budget, how the work will be checked and when to escalate. A mission stops after a set number of failures and says so. The results' next steps go back onto the desk, and what the class level allows starts at once.
+- [ ] S18 (A8). Briefs with an intent, a done criterion, the sources, what not to touch, a budget, how the work will be checked and when to escalate. A mission stops after a set number of failures and says so. The results' next steps go back onto the desk, and what the class level allows starts at once.
 
 Phase 5: learning and dreaming.
 
 - [x] S19 (A11). The weekly review gains the days that were too full, autonomy moves to approve, routines to stop and the decision-load view.
-- [ ] S20. Memory: record which memories are used, rank the index by source, use and recency within its budget, and run a nightly dream pass. The pass supersedes contradicted facts instead of deleting them, folds duplicates, and reports in one Chat line with Undo. Built so far: memory use is recorded, and `hobkin telemetry memory` shows it.
-- [ ] S21. Goals and commitments become memories that the brief and the desk rank by.
+- [ ] S20 (A7). Memory: record which memories are used, rank the index by source, use and recency within its budget, and run a nightly dream pass. The pass supersedes contradicted facts instead of deleting them, folds duplicates, and reports in one Chat line with Undo. Built so far: memory use is recorded, and `hobkin telemetry memory` shows it.
+- [ ] S21 (A1, A2). Goals and commitments become memories that the brief and the desk rank by.
 
 Order: Phase 1 and S6 first, because they help soonest and need no calendar. S1 starts on the first day. The core prompt is rewritten across Phases 1 to 4, one section at a time, each one proven on the bank.
 
