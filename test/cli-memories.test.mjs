@@ -280,6 +280,15 @@ test('recall finds by name, by kind and by words, every word matching, the name 
   assert.deepEqual(recallMemories(root, { words: 'nothing-like-it' }, { now: NOW }), []);
 });
 
+test('recall finds a word with accents whether the words asked have them or not', t => {
+  const root = home(t);
+  addMemory(root, { name: 'sister-city', kind: 'user', description: 'Sister lives in São Paulo', text: 'She runs a café near Ibirapuera.' }, MAIN);
+  for (const words of ['são', 'sao', 'SÃO PAULO', 'Sa\u0303o', 'cafe', 'café']) {
+    assert.deepEqual(names(recallMemories(root, { words }, { now: NOW })), ['sister-city'], `"${words}" finds it`);
+  }
+  assert.deepEqual(recallMemories(root, { words: 'sap' }, { now: NOW }), []);
+});
+
 test('the stamp moves when a memory or the right-now list changes, and stays while nothing does', t => {
   const root = home(t);
   const empty = memoriesStamp(root);

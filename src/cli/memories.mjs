@@ -96,7 +96,9 @@ const bytes = text => Buffer.byteLength(text);
 const fingerprint = source => createHash('sha256').update(source).digest('hex');
 const said = (value, most) => (typeof value === 'string' && value.trim() ? value.trim().slice(0, most) : undefined);
 const newest = memory => memory.changed?.at ?? memory.added?.at ?? '';
-const wordsOf = text => [...new Set(String(text ?? '').toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean))];
+// Words as recall compares them: lower case, with accents taken off, so "São" and "sao" are one word.
+const plain = text => String(text ?? '').toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '');
+const wordsOf = text => [...new Set(plain(text).split(/[^\p{L}\p{N}]+/u).filter(Boolean))];
 
 function realDay(value) {
   const match = DAY.exec(value);
@@ -1054,8 +1056,8 @@ function indexOf(shown, { maxBytes, recall }) {
 }
 
 function score(memory, terms) {
-  const description = memory.description.toLowerCase();
-  const text = (memory.text ?? '').toLowerCase();
+  const description = plain(memory.description);
+  const text = plain(memory.text);
   let total = 0;
   for (const term of terms) {
     const weight = memory.name.includes(term) ? 3 : description.includes(term) ? 2 : text.includes(term) ? 1 : 0;
