@@ -4,7 +4,7 @@ import { flushSync } from 'react-dom'
 import { ArriveAs } from './arrive.ts'
 import { UNFOLD, type FollowStart } from './follow.ts'
 import { useFollow, type Follow } from './use-follow.ts'
-import { keepList, keepRect, keptList, keptRect, openingOf, placeAt, type Opening } from './windowed-place.ts'
+import { keepList, keepRect, keptList, keptRect, openingOf, placeAt, type Opening, type Place } from './windowed-place.ts'
 import { endFrom, FreshKeys, mountedIndexes, nextWalkable, piecesOf, rowsAt, walkHere, type InView, type Piece, type Span } from './windowed-rows.ts'
 
 /**
@@ -58,6 +58,20 @@ type Rows = Virtualizer<HTMLDivElement, HTMLElement>
 const NONE: readonly VirtualItem[] = []
 const NO_KEYS: ReadonlySet<string> = new Set()
 
+/**
+ * Where a list shown again starts: at the row it was left reading, as far into it as it was, wherever its rows' heights
+ * have put that row since, or at its newest. TanStack takes the same place, as it writes its own when it takes the
+ * scroller again.
+ */
+function shownAgain(rows: Rows | null, place: Place | undefined, indexes: ReadonlyMap<string, number>): FollowStart {
+  const index = place && !place.pinned ? indexes.get(place.key) : undefined
+  const row = index === undefined ? undefined : rows?.measurementsCache[index]
+  if (!rows || !row || !place || place.pinned) return { following: true, top: 0 }
+  const top = row.start + place.offset
+  rows.scrollOffset = top
+  return { following: false, top }
+}
+
 /** What a list starts from: where it opens, and the row heights kept from the last time it was drawn, at its width. */
 function startOf(name: string, indexOf: (key: string) => number): { opening: Opening; seeded: VirtualItem[] } {
   const kept = keptList(name)
@@ -72,11 +86,15 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
   const indexes = useMemo(() => new Map(keys.map((key, index) => [key, index])), [keys])
   const [{ opening, seeded }] = useState(() => startOf(name, (key) => indexes.get(key) ?? -1))
   const self = useRef<Rows | null>(null)
-  // Where follow.ts starts: where the list opens, its top worked out below as the rows are first laid out, and once it
-  // was hidden, as a kept page is, where it was then.
+  // Where follow.ts starts: where the list opens, its top worked out below as the rows are first laid out, and each time
+  // it is shown again, as a kept page is, at the row it was left reading, wherever that row is now (`shownAgain`).
   const openTop = useRef(0)
-  const startAt = useRef<FollowStart | null>(null)
-  const scroll = useFollow({ start: () => startAt.current ?? { following: opening.pinned, top: openTop.current } })
+  const shows = useRef(0)
+  const indexesNow = useRef(indexes)
+  indexesNow.current = indexes
+  const scroll = useFollow({
+    start: () => (shows.current++ === 0 ? { following: opening.pinned, top: openTop.current } : shownAgain(self.current, keptList(name)?.place, indexesNow.current)),
+  })
   const following = useRef(scroll.pinned)
   following.current = scroll.pinned
 
@@ -132,7 +150,8 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
         margin: height * MARGIN_VIEWS,
         most: MOST_EACH_WAY,
         keep,
-        endFrom: scroll.pinned && list ? endFrom(range.count, spanOf, height * (1 + MARGIN_VIEWS)) : null,
+        // The view's own range is the end too once TanStack has read the scroll follow.ts wrote: until then, a view of it.
+        endFrom: scroll.pinned && list ? endFrom(range.count, spanOf, height) : null,
       })
     },
     [indexes, lastWalkable, opened, focused, walkedTo, scroll.pinned],
@@ -172,6 +191,13 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
   self.current = list
   list.shouldAdjustScrollPositionOnItemSizeChange = keepsView
   first.current = false
+  // A list drawn before it had rows, as a page waiting for its conversation, opens at its newest once they come, as it
+  // would have with them: TanStack works out its opening place again rather than read them from the top.
+  const hadRows = useRef(keys.length > 0)
+  if (!hadRows.current && keys.length > 0) {
+    hadRows.current = true
+    list.scrollOffset = null
+  }
 
   // The rows to draw. While the list has no size (hidden, as a kept page is), the rows it drew last stay.
   const drawnKeys = useRef<readonly string[]>([])
@@ -286,7 +312,6 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
       }
       keepList(name, { place, sizes, width })
       if (rows.scrollRect && rows.scrollRect.height > 0) keepRect(rows.scrollRect)
-      startAt.current = { following: place.pinned, top }
     },
     [name],
   )
