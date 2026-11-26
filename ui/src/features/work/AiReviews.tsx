@@ -542,7 +542,14 @@ function Card({ row, live, onAgain, line, at = null }: { row: ReviewRow; live: b
         <LayerArrow />
         <LayerLine row={row} line={line} news={news} menu={menu} />
       </div>
-      {line.opened ? <ul className="mt-2 ml-7">{whole}</ul> : null}
+      {/* A closed layer's menu acts on it too, so what its action will do, or why the host said no, shows under its line. */}
+      {line.opened ? (
+        <ul className="mt-2 ml-7">{whole}</ul>
+      ) : (
+        <div className="ml-7">
+          <RowSaid kind={item.kind} removal={rowControls.removal} flow={rowControls.flow} armed={rowControls.armed} doing={rowControls.doing} />
+        </div>
+      )}
     </li>
   )
 }

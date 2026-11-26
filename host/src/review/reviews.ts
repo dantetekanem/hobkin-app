@@ -313,6 +313,8 @@ interface BranchPlan {
   /** The files and folders git ignores in the worktree, such as `.env` or `build/`. An older hobkin says nothing of them. */
   ignored?: string[]
   lost: number | null
+  /** The other unfinished items that work on the branch too, which hobkin drops with it. None when it names none. */
+  sharing?: { id: string; title: string }[]
 }
 
 /** A folder as the user knows it, with their home folder as `~`. */
@@ -331,7 +333,7 @@ function remoteWords({ name, url }: { name: string; url: string }): string {
  * What deleting a finished change's branch takes, line by line: where the branch goes, its worktree and the files git
  * ignores in it (three by name, then how many more), and the commits no other branch or tag on this Mac holds.
  */
-function deletionLines({ branch, here, remote, worktree, ignored = [], lost }: BranchPlan): string[] {
+function deletionLines({ branch, here, remote, worktree, ignored = [], lost, sharing = [] }: BranchPlan): string[] {
   const there = remote ? remoteWords(remote) : null
   const where = here ? (there ? `on this Mac and ${there}` : 'on this Mac') : `${there ?? 'on origin'}. It is gone from this Mac already`
   const losing =
@@ -344,6 +346,7 @@ function deletionLines({ branch, here, remote, worktree, ignored = [], lost }: B
     `Then delete its branch ${branch} ${where}.`,
     ...(worktree ? [`Remove the worktree that holds it, at ${tilde(worktree)}.`] : []),
     ...(worktree && ignored.length > 0 ? [`Files git ignores in its worktree go with it: ${some(ignored)}.`] : []),
+    ...(sharing.length > 0 ? [`Drop ${some(sharing.map(({ title }) => title))} too, which ${sharing.length === 1 ? 'works' : 'work'} on that branch.`] : []),
     losing,
   ]
 }

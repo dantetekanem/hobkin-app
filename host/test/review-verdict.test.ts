@@ -773,6 +773,14 @@ test('what deleting the branch takes is said as it is: on this Mac, on GitHub or
     'Files git ignores in its worktree go with it: ".env" and "build/".',
     'No commit is lost: every one on it is on another branch or tag on this Mac.',
   ])
+  // Unfinished items that work on the same branch are dropped with it, and the preview names them first.
+  const describe = { id: 'a1b2c3', title: `Describe ${BRANCH}` }
+  assert.deepEqual(await linesFor({ ...PLAN, remote: null, worktree: null, lost: 0, sharing: [describe] }), [
+    `Then delete its branch ${BRANCH} on this Mac.`,
+    `Drop "Describe ${BRANCH}" too, which works on that branch.`,
+    'No commit is lost: every one on it is on another branch or tag on this Mac.',
+  ])
+  assert.equal((await linesFor({ ...PLAN, remote: null, worktree: null, lost: 0, sharing: [describe, { id: 'd4e5f6', title: 'Fix its proof' }] }))[1], `Drop "Describe ${BRANCH}" and "Fix its proof" too, which work on that branch.`)
   // A tree with nothing ignored in it says nothing of them, nor does what an older hobkin says without the list.
   const { ignored: _ignored, ...older } = PLAN
   assert.equal((await linesFor({ ...PLAN, ignored: [] })).some((line) => line.startsWith('Files git ignores')), false)
