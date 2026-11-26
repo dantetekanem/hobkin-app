@@ -18,6 +18,18 @@ export function Arrivals({ children }: { children?: ReactNode }) {
   return createElement(Drawn.Provider, { value: drawn }, children)
 }
 
+const ARRIVES = { current: true }
+const STAYS = { current: false }
+
+/**
+ * One row of a windowed list (`windowed-list.tsx`), which draws a row again each time it scrolls back into view: it
+ * arrives only when `arrives`, decided by its key (`windowed-rows.ts` FreshKeys), never because it was drawn again. A
+ * list or group inside the row arrives as it would anywhere.
+ */
+export function ArriveAs({ arrives, children }: { arrives: boolean; children?: ReactNode }) {
+  return createElement(Drawn.Provider, { value: arrives ? ARRIVES : STAYS }, children)
+}
+
 /** The class a row takes: the entrance when it came after its list was drawn, none when it was drawn with it. */
 export function useArrival(): string | undefined {
   const drawn = useContext(Drawn)
