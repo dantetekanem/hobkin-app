@@ -547,3 +547,20 @@ test('the dashboard writes its events to the data folder, connected or not', asy
   assert.deepEqual(h.ofType('tab_opened').map(({ tab }) => tab), ['reports']);
   assert.deepEqual(reacted, [{ event: 'unknown command' }]);
 });
+
+test('the return look records the first sighting of a day and a return after a gap, as facts only', async t => {
+  const h = fixture(t);
+  const clock = { at: Date.parse('2026-01-05T14:00:00Z') };
+  const presence = { value: { seenAt: clock.at, away: false, occupied: false } };
+  const app = await h.openApp({ now: () => clock.at, intervalMs: 3600000, presence: () => presence.value });
+  try {
+    app.lookForReturn();
+    clock.at += 40 * 60000;
+    presence.value = { seenAt: clock.at, away: false, occupied: false };
+    app.lookForReturn();
+  } finally {
+    await app.close();
+  }
+
+  assert.deepEqual(h.ofType('presence').map(({ kind, awayMs }) => [kind, awayMs]), [['first', undefined], ['returned', 40 * 60000]]);
+});

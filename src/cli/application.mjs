@@ -20,7 +20,7 @@ import { Telemetry } from './telemetry.mjs';
 import { RemoteSender, uploadNotice } from './telemetry/sender.mjs';
 import { feedbackQuestion } from './feedback/draft.mjs';
 import { crashToOffer, discardDraft, sendApproved } from './feedback/outbox.mjs';
-import { recordEvent } from './events.mjs';
+import { recordEvent, recordPresence } from './events.mjs';
 import { memoryBytes } from './memory.mjs';
 import { callName, readProfile } from './profile.mjs';
 import { MemoryIndex } from './memory-index.mjs';
@@ -45,7 +45,7 @@ import { answerRequest, takeRequests, tellRequests, turnToken } from './hobkin-t
 import { SCHEDULE_ENVIRONMENT, SCHEDULE_REQUESTS, scheduleAskedHere } from './agent-schedule-command.mjs';
 import { memoryHandler } from './memory-tools.mjs';
 import { memoriesStamp, RUN_MARKER } from './memories.mjs';
-import { fileTemplateNews } from './routine-care.mjs';
+import { fileTemplateNews, tickRoutineCare } from './routine-care.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
 import { askReminders, inboxNews, inboxNotice, inboxToPost, inboxToTell, markInboxHeard, markInboxPosted } from './inbox.mjs';
@@ -479,6 +479,8 @@ export class HobkinApplication {
           retireOffers(app.runtime.directory, app.now());
           retirePickUp(app.runtime.directory, app.now());
           app.tickInbox();
+          // Once an hour, with no model: a routine nobody reads, or that finds nothing new most times, gets one item in Action Items.
+          tickRoutineCare(app.runtime.directory, { loaded: app.runner.loaded, attention: app.snapshot.reportAttention, now: app.now() });
           // The daily catch-up, a pile of unread reports, or an ask from `hobkin reports catch-up` (069-report-catch-up).
           tickCatchUp(app.runtime.directory, app);
           app.piDirections?.tick();
@@ -2011,9 +2013,11 @@ export class HobkinApplication {
     try {
       const root = this.runtime.directory;
       const state = readBriefState(root);
+      // The first sighting each day and each return after a gap, as facts the desk learns digest times and quiet hours from (075).
+      const sighted = recordPresence(root, { lastSeenAt: state.lastSeenAt, seenAt: presence.seenAt });
       const since = returnedSince({ lastSeenAt: state.lastSeenAt, seenAt: presence.seenAt });
       const offer = since && state.offer?.since !== since ? this.offerAfter(root, since, now) : null;
-      const seen = seenMoved(state, presence.seenAt) ? { lastSeenAt: new Date(presence.seenAt).toISOString() } : {};
+      const seen = sighted || seenMoved(state, presence.seenAt) ? { lastSeenAt: new Date(presence.seenAt).toISOString() } : {};
 
       const patch = { ...seen, ...(offer ? { offer } : {}) };
       if (Object.keys(patch).length) writeBriefState(root, patch);
