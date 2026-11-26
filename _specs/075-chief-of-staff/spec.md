@@ -115,7 +115,7 @@ Phase 2: decisions.
 
 Phase 3: the day, inside the routines.
 
-- [x] S11 (A1, A3). When the morning-brief and meetings routines read the calendar through the source hobkin found, as they do today, they also write `runtime/day.json` with working hours, events and free gaps. The main chat reads that file. There is no new poller and no new run.
+- [ ] S11 (A1, A3). When the morning-brief and meetings routines read the calendar through the source hobkin found, as they do today, they also write `runtime/day.json` with working hours, events and free gaps. The main chat reads that file. There is no new poller and no new run. The routines' part is built (`day.mjs`, morning brief v2, meetings v2). The main chat's line in `v2-runtime.md` waits until another session is done editing that file.
 - [x] S12 (A1). The morning brief's load line, from the day file, what is committed to that day, and what waits on the user.
 - [ ] S13 (A2). When P1 work lands and the day no longer fits, the next digest says what to move, and a resume note goes with any interruption.
 - [ ] S14 (A10). Openings, from the gaps in the day file: under 15 minutes, a break or up to 3 one-tap cards; 15 to 45 minutes, one bounded task with its checks attached; 60 minutes or more, the next deep task.
