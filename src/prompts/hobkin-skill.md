@@ -62,6 +62,10 @@ These read saved state. They start nothing and call no model:
 | `hobkin routines templates` | Routine templates as JSON, hobkin's and the user's own from `routines/templates/`: `id`, `title`, `summary`, `recurrence`, `group`, `needs`, `effort`, `fits`, `asks`, `version` and `file`, then the `rules` every routine made from one keeps, and any template it could not read. |
 | `hobkin reports` | Every report as JSON, newest first: `id`, `title`, `routineId`, `at`, `body`, `outcome` and `read`. |
 | `hobkin telemetry [--days n]` | What happened in hobkin as JSON, 30 days by default: events by type and day, runs by routine and project, mean durations, what reached the user beside what they acted on, and a `scoreboard` of what hobkin brought, what came of it and what it settled alone. Facts only, never text. |
+| `hobkin telemetry questions [--days n]` | Questions filed per day by source, as JSON. `ended` says how each ended: `answered`, `settled` by hobkin from evidence, `handed` to hobkin, `later` when the user put it off, or `open`. Also the median time to answer, and `whileAway`: whether the user was `away`, `on` or `unknown` when each came. `sheet` counts the terminal's questions apart. |
+| `hobkin telemetry interruptions [--days n]` | Chat notices per day by source and tone, as JSON, and `byHour`, the count in each local hour. |
+| `hobkin telemetry presence [--days n]` | When the user is on, as JSON: for each day the first sighting, each return after 15 minutes or more away with `awayMs`, and the time on, then `minutesOnByHour` for each local hour. On means using hobkin's window. |
+| `hobkin telemetry help` | Each telemetry view in one line. |
 | `hobkin pending` | What is waiting on the user, across every routine and work mode, as JSON: the `total`, and one row per group with a `count`, a `label` and a short `fact`. |
 | `hobkin history` | History imported from the older Pi extension as JSON. Not recent runs. |
 | `hobkin skill` | This file. |
