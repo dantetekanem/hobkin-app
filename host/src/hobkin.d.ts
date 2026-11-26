@@ -155,6 +155,8 @@ declare module 'hobkin/src/cli/application.mjs' {
     integrations?: object
     /** The home whose pi-extended-teams tiers hobkin keeps equal to its own while it runs (`teams-tiers.mjs`). None keeps nothing. A runtime from before ignores it. */
     teamsHome?: string
+    /** The Pi folder whose AGENTS.md hobkin learns from when it changes, and asks about in Action Items (038-resources, A23). None learns nothing. A runtime from before ignores it. */
+    piAgentDir?: string
     memoryIndex?: object | null
     fetch?: typeof globalThis.fetch
     signal?: AbortSignal

@@ -13,6 +13,7 @@ import type { HostTiers, TiersChange } from '#shared/tiers/tiers.ts'
 import { agentHarness, type ClaudeCodeHooks } from './claude-code/agents.ts'
 import type { RunFacts } from './claude-code/route.ts'
 import { CLIENT_TOOL } from './client-tool.ts'
+import { loadPiCodingAgent, type PiCodingAgent } from './pi.ts'
 import { applyHostTiers, readHostTiers } from './tiers.ts'
 import { createScriptedModel, type ScriptedOptions, type SessionTool } from './scripted.ts'
 
@@ -66,6 +67,21 @@ export function keepToSurroundings({ root, live, real }: { root: string; live: b
     if (name.startsWith('HERDR_')) delete env[name]
   }
   if (!(live && real)) env.HOBKIN_HOME = root
+}
+
+/**
+ * The user's own folders hobkin reads while it runs: the home whose pi-extended-teams tiers it keeps equal to its own,
+ * and Pi's folder, whose AGENTS.md it learns from (038-resources, A23). Only the real home is given them, so a home
+ * started for development or a test never reads ~/.pi/agent.
+ */
+export async function usersFolders(real: boolean, loadPi: () => Promise<Pick<PiCodingAgent, 'getAgentDir'>> = loadPiCodingAgent): Promise<Pick<OpenOptions, 'teamsHome' | 'piAgentDir'>> {
+  if (!real) return {}
+  try {
+    return { teamsHome: homedir(), piAgentDir: (await loadPi()).getAgentDir() }
+  } catch {
+    // Without Pi's folder hobkin learns nothing from it, and still starts.
+    return { teamsHome: homedir() }
+  }
 }
 
 /** Native RPC binding APIs, with the SDK setters retained for in-process sessions. */
@@ -447,9 +463,8 @@ export class HomeOwner {
       // Runtime owns history recovery and launcher precedence; no parent SDK work precedes child capture.
       const client = tools.find(tool => tool.name === CLIENT_TOOL)
       const clientBridge = client ? { tool: client, extensionPath: fileURLToPath(new URL('./client-bridge-extension.ts', import.meta.url)) } : undefined
-      // pi-extended-teams reads its tiers from the user's own home, so only the real home keeps them equal to its own.
-      const teams = real ? { teamsHome: homedir() } : {}
-      return { createMain: this.tapped(options => openPiSession(options, { isolatedMain: true, recoverScriptedHistory: true, clientBridge })), memoryIndex: {}, ...offline, ...teams, ...(await this.agentHarness()) }
+      const folders = await usersFolders(real)
+      return { createMain: this.tapped(options => openPiSession(options, { isolatedMain: true, recoverScriptedHistory: true, clientBridge })), memoryIndex: {}, ...offline, ...folders, ...(await this.agentHarness()) }
     }
     const model = await createScriptedModel(root, { ...scripted, tools: [...(scripted?.tools ?? []), ...tools] })
     return {
