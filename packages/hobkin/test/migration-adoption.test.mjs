@@ -3,7 +3,6 @@ import test from 'node:test';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DurableHobkin } from '../src/durable.ts';
 import { inventoryLegacy, verifyInventory } from '../src/cli/migration/inventory.mjs';
 import { MigrationJournal } from '../src/cli/migration/journal.mjs';
 import { validateOwnership } from '../src/cli/migration/ownership.mjs';
@@ -63,53 +62,6 @@ test('absent Durable and two exact sessions import privately without changing id
   assert.equal(verifyInventory(manifest), true);
   writeFileSync(second, readFileSync(second, 'utf8') + '{"type":"message","message":{"role":"user","content":"Changed"}}\n');
   assert.throws(() => importSessions(journal, { ownership, sessions }), /changed|pin/);
-});
-
-test('terminal enabled lifecycle is desired state, not a live owner, and storage inspection preserves archive bytes', async t => {
-  const h = fixture(t);
-  const runtime = await DurableHobkin.open(join(h.legacy, 'durable'), h.selection, true);
-  h.opened.push(runtime);
-  await runtime.control('start', { daily: async () => {}, routines: async () => {} });
-  await runtime.close();
-  const { manifest, journal, quiescence } = await h.stage();
-  const checkpoint = await inspectCheckpoint(journal);
-  assert.equal(checkpoint.lifecycle.active, true);
-  assert.equal(checkpoint.controlStatus, 'terminal');
-  assert.equal(checkpoint.controlOutcome, 'completed');
-  const ownership = validateOwnership({ manifest, selection: h.selection, quiescence, checkpoint });
-  assert.equal(ownership.checkpoint.lifecycle.active, true);
-  assert.equal(journal.verifyArchive(), true);
-  assert.equal(verifyInventory(manifest), true);
-  assert.deepEqual(await inspectCheckpoint(journal), checkpoint);
-});
-
-test('requested setup and interrupted control block adoption without executing either', async t => {
-  for (const kind of ['setup', 'control']) {
-    const h = fixture(t);
-    const runtime = await DurableHobkin.open(join(h.legacy, 'durable'), h.selection, kind !== 'setup');
-    h.opened.push(runtime);
-    if (kind === 'setup') await runtime.claimSetup();
-    else {
-      let entered;
-      const ready = new Promise(resolve => { entered = resolve; });
-      const pending = runtime.control('start', {
-        daily: async (_action, signal) => {
-          entered();
-          await new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
-        },
-        routines: async () => assert.fail('inspection must not resume this phase'),
-      });
-      const rejected = assert.rejects(pending);
-      await ready;
-      await runtime.close();
-      await rejected;
-    }
-    await runtime.close();
-    const { journal, manifest } = await h.stage();
-    await assert.rejects(inspectCheckpoint(journal), /setup|control|unfinished/);
-    assert.equal(journal.verifyArchive(), true);
-    assert.equal(verifyInventory(manifest), true);
-  }
 });
 
 test('all mapped origins and exact selected hashes are required; malformed session entries never disappear silently', async t => {

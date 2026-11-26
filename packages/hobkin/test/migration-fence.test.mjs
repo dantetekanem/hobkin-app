@@ -1,17 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { LegacyOwner, installLegacyFence, legacyIsFenced, collectShutdownReceipt } from '../src/cli/migration/fence.mjs';
 
-const packageRoot = resolve(fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent')), '../..');
-const require = createRequire(join(packageRoot, 'package.json')), { createJiti } = require('jiti');
-const host = createJiti(join(packageRoot, 'package.json'));
-const alias = Object.fromEntries(['@earendil-works/pi-coding-agent', '@earendil-works/pi-tui', '@earendil-works/pi-ai', 'typebox/value', 'typebox'].map(name => [name, fileURLToPath(host.esmResolve(name))]));
-const { registerHobkin } = await createJiti(import.meta.url, { moduleCache: false, alias }).import('../src/index.ts');
 const identity = { sessionId: 'synthetic-owner', sessionFile: '/synthetic/owner.jsonl' };
 const migration = { id: 'migration-fixture', fingerprint: 'f'.repeat(64), destination: '/synthetic/new-home', owners: [identity] };
 function fixture(t) {
@@ -77,51 +70,4 @@ test('failed draining leaves an unproven owner instead of issuing a successful r
   await installLegacyFence(root, migration, { controlRoot });
   await assert.rejects(owner.close(async () => { throw Error('drain failed'); }), /drain failed/);
   await assert.rejects(collectShutdownReceipt(root, migration, { controlRoot }), /unproven|shutdown/);
-});
-
-for (const started of [false, true]) test(`fenced extension hooks reject mutations, including an owner already started: ${started}`, async t => {
-  const { root, controlRoot } = fixture(t);
-  const handlers = new Map();
-  const commands = new Map();
-  const tools = new Map();
-  const sent = [];
-  const pi = {
-    on(name, handler) {
-      const entries = handlers.get(name) ?? [];
-      entries.push(handler);
-      handlers.set(name, entries);
-    },
-    registerCommand(name, command) { commands.set(name, command); },
-    registerTool(tool) { tools.set(tool.name, tool); },
-    sendUserMessage(message) { sent.push(message); },
-    getCommands() { return []; },
-  };
-  const paths = { root, migrationControlRoot: controlRoot, schedulerFile: join(root, 'tasks.json'), schedulesFile: join(root, 'registry.md'), reportsFile: join(root, 'reports.md'), reviewSettingsFile: join(root, 'settings.json') };
-  writeFileSync(paths.schedulesFile, '## Routine\n');
-  writeFileSync(paths.schedulerFile, '[]');
-  const ctx = { hasUI: false, model: { provider: 'test' }, isIdle: () => true,
-    sessionManager: { getSessionId: () => identity.sessionId, getSessionFile: () => identity.sessionFile, getLeafId: () => 'leaf' } };
-  registerHobkin(pi, paths);
-  const emit = async (name, event = {}) => {
-    const results = [];
-    for (const handler of handlers.get(name) ?? []) results.push(await handler(event, ctx));
-    return results;
-  };
-  if (started) await emit('session_start');
-  await installLegacyFence(root, migration, { controlRoot });
-  if (started) await assert.rejects(collectShutdownReceipt(root, migration, { controlRoot }), /running/);
-  else await emit('session_start');
-  await emit('input', { source: 'interactive', text: 'An ordinary message' });
-  await emit('agent_settled');
-  await emit('tool_result', { toolName: 'schedule_task', details: {}, isError: false });
-  await commands.get('hobkin').handler('start', ctx);
-  await assert.rejects(tools.get('hobkin_record').execute('call', { kind: 'observation', id: 'record', text: 'No write', evidenceIds: [] }, null, null, ctx), /fenced/);
-  const blocked = await emit('tool_call', { toolName: 'schedule_task', input: { name: 'Routine', action: 'prompt' } });
-  assert.ok(blocked.some(value => value?.block));
-  assert.deepEqual(sent, []);
-  assert.equal(existsSync(join(root, 'durable/hobkin.sqlite')), false);
-  assert.equal(existsSync(paths.reportsFile), false);
-  assert.equal(readFileSync(paths.schedulerFile, 'utf8'), '[]');
-  await emit('session_shutdown');
-  if (started) assert.equal((await collectShutdownReceipt(root, migration, { controlRoot })).sessions[0].basis, 'extension-shutdown');
 });

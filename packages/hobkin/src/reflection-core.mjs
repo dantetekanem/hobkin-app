@@ -33,7 +33,7 @@ export const ReflectionSchema = object({
   answers: Type.Array(object({ questionId: id(), evidenceIds: ids() }), { maxItems: 5 }),
 });
 
-/** @param {import('./experience.ts').Experience} state @param {string[]} ids @param {string[]} [visible] */
+/** @param {object} state @param {string[]} ids @param {string[]} [visible] */
 export function references(state, ids, visible) {
   return ids.map(id => {
     const evidence = state.evidence.find(item => item.id === id);
@@ -41,7 +41,7 @@ export function references(state, ids, visible) {
     return evidence;
   });
 }
-/** @param {import('./experience.ts').Experience} state @param {string} questionId @param {string[]} evidenceIds @param {string[]} [visible] */
+/** @param {object} state @param {string} questionId @param {string[]} evidenceIds @param {string[]} [visible] */
 export function answer(state, questionId, evidenceIds, visible) {
   const question = state.questions.find(item => item.id === questionId);
   if (!question) throw Error('Unknown question.');
@@ -51,7 +51,7 @@ export function answer(state, questionId, evidenceIds, visible) {
   question.status = 'answered';
   question.answerIds = [...new Set([...question.answerIds, ...evidenceIds])];
 }
-/** @param {import('./experience.ts').Experience} state @param {import('./experience.ts').Reflection} result @param {string[]} visibleIds */
+/** @param {object} state @param {object} result @param {string[]} visibleIds */
 export function curate(state, result, visibleIds, at = new Date().toISOString()) {
   if (!Check(ReflectionSchema, result)) throw Error('Invalid reflection output.');
   for (const item of result.assessments) {
@@ -87,7 +87,7 @@ export function curate(state, result, visibleIds, at = new Date().toISOString())
     answer(state, item.questionId, item.evidenceIds, visibleIds);
   }
 }
-/** @param {import('./experience.ts').Experience} state */
+/** @param {object} state */
 export function view(state) {
   const latest = new Map(state.lessons.map(item => [item.id, item]));
   return {
@@ -99,7 +99,7 @@ export function view(state) {
     assessments: state.assessments.slice(-20),
   };
 }
-/** @param {import('./experience.ts').Experience} state @param {string} provider */
+/** @param {object} state @param {string} provider */
 export function experienceContext(state, provider, maxBytes = 32000) {
   const memory = view(state);
   const permitted = new Set(state.evidence.filter(item => item.provider === provider).map(item => item.id));
