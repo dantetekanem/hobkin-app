@@ -250,6 +250,17 @@ export function declinePromotion(root, taskClass) {
 /** Branch work on code in one work-mode project, by its slug. */
 export const codeBranchClass = slug => `${CODE_BRANCH_WORK}:${slug}`;
 
+/**
+ * The task class a session's brief names on a line of its own, `Task class: code-fix:hobkin`, or null when no line names one. A class hobkin
+ * cannot read is refused, so the brief's writer fixes it before the session starts.
+ */
+export function taskClassIn(brief) {
+  const named = /^[ \t]*task class:[ \t]*(.*?)\s*$/im.exec(brief)?.[1];
+  if (named === undefined) return null;
+  assertTaskClass(named);
+  return named;
+}
+
 const isAskingFor = taskClass => ({ answerTo }) => answerTo?.kind === 'autonomy' && answerTo.taskClass === taskClass;
 
 /** Files the promotion question when the class is due and none is open for it, whatever level that one would move the class to. */

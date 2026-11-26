@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { taskClassIn } from './autonomy.mjs';
 import { injectedLessons } from './learning/store.mjs';
 import { recordSessionStart } from './session-log.mjs';
 import { assertTier } from './tiers.mjs';
@@ -91,12 +92,13 @@ export async function startSession({ root, title = 'session', cwd = process.cwd(
   if (tier !== undefined) assertTier(tier);
   if (keep && wake) throw Error('--wake is for work handed off to end with a report, and --keep is for a conversation the user carries on in, so leave one of them out.');
   if (!approved) assertNotABurst(root, now);
+  const taskClass = taskClassIn(brief);
   const name = sessionName(title);
   // A kept one writes none, but a start that fails leaves why here.
   const report = join(handoffs(root), `${name}.report.md`);
   const file = saveBrief(root, name, brief, keep ? carryingOn(root) : finishing(root, report));
   const folder = resolve(cwd);
-  recordSessionStart(root, { name, title, report, brief: file, cwd: folder, tier, wake }, now);
+  recordSessionStart(root, { name, title, report, brief: file, cwd: folder, tier, wake, taskClass }, now);
   requestJob(root, { name, title, cwd: folder, wake, ...(keep ? { keep } : {}), ...(tier ? { tier } : {}) });
   const watch = "hobkin's agents list, where it shows within a second while hobkin runs";
   return keep ? { name, watch, note: KEPT } : { name, report, watch };

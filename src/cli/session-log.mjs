@@ -1,5 +1,6 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { noteOutcome } from './autonomy.mjs';
 import { readReport, runReport, saveReport } from './reports.mjs';
 
 const LOG = 'sessions.jsonl';
@@ -17,8 +18,13 @@ function append(folder, event) {
   appendFileSync(join(folder, LOG), `${JSON.stringify(event)}\n`, { mode: 0o600 });
 }
 
-/** The title has to outlive the command that started the session, and the job that runs it only knows the name. */
-export const recordSessionStart = (root, { name, title, report, wake }, now = Date.now()) => append(folderOf(root), { name, title, report, ...(wake ? { wake } : {}), startedAt: new Date(now).toISOString() });
+/**
+ * The title has to outlive the command that started the session, and the job that runs it only knows the name. So does the task class its
+ * brief named, which its end counts in (`autonomy.mjs`).
+ */
+export const recordSessionStart = (root, { name, title, report, wake, taskClass }, now = Date.now()) => append(folderOf(root), {
+  name, title, report, ...(wake ? { wake } : {}), ...(taskClass ? { taskClass } : {}), startedAt: new Date(now).toISOString(),
+});
 
 /** Written when a session's job ends (`session-jobs.mjs`). A session's report sits beside this log. */
 export const recordSessionEnd = ({ name, report, userStop, outcome }, now = Date.now()) => append(dirname(report), {
@@ -37,7 +43,8 @@ export function cutOffReport(said) {
 
 /**
  * What a session's end leaves: its failed run report or last reply when it wrote none, and its end in the session log. The run
- * posts its own notice and report, so the session log's would say it twice.
+ * posts its own notice and report, so the session log's would say it twice. A session whose brief named a task class counts in it:
+ * clean once it completed, and an override when the user stopped it.
  */
 export function endSessionJob(root, session, run) {
   const report = run?.result?.status === 'failed' ? runReport(run.result) : run?.result?.text;
@@ -45,6 +52,8 @@ export function endSessionJob(root, session, run) {
   const userStop = run?.userStop && run.status === 'interrupted'
     ? { runId: run.id, reason: run.userStop.reason } : undefined;
   recordSessionEnd({ ...session, userStop, outcome: run?.status });
+  const { taskClass } = readLog(root).find(({ name }) => name === session.name) ?? {};
+  if (taskClass) noteOutcome(root, taskClass, { clean: run?.status === 'completed' && !userStop, override: Boolean(userStop) });
   markPosted(root, [session]);
 }
 
