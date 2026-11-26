@@ -8,6 +8,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { agentGroups } from '@/features/hobkins/list.ts'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
+import { ScheduleRing } from '@/features/schedules/ScheduleRing.tsx'
 import { ChildCluster, ChildFaces } from '@/features/work/ChildAgents.tsx'
 import { agentEntry } from '@/features/work/agent-entry.ts'
 import { childrenSummary, helpersNow, HOBKIN_HUE } from '@/features/work/child-summary.ts'
@@ -270,6 +271,7 @@ const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, li
   const asks = agent.asks
   // A durable hobkin between turns, or a run waiting for its time: its face holds still and its label says it waits.
   const waits = atRest(agent)
+  const face = <AgentHood hue={agent.hue} size={agent.durable ? 22 : 24} mood={agent.mood} asking={Boolean(asks)} working={!waits} />
   return (
     <motion.div
       layout={still ? false : 'position'}
@@ -307,10 +309,15 @@ const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, li
       )}
     >
       <span className="grid w-7 shrink-0 place-items-center">
-        {/* A durable hobkin stays: its face sits in a faint ring, apart from the agents that come and go. */}
-        <span className={cn('grid place-items-center rounded-full', agent.durable && 'size-7 ring-1 ring-border-strong/50')}>
-          <AgentHood hue={agent.hue} size={agent.durable ? 22 : 24} mood={agent.mood} asking={Boolean(asks)} working={!waits} />
-        </span>
+        {/* A durable hobkin stays: its face sits in a faint ring, apart from the agents that come and go. The ring is lit
+            in the sun while it keeps a live schedule. */}
+        {agent.durable ? (
+          <ScheduleRing agentId={agent.id} className="grid size-7 place-items-center rounded-full ring-1 ring-border-strong/50">
+            {face}
+          </ScheduleRing>
+        ) : (
+          <span className="grid place-items-center rounded-full">{face}</span>
+        )}
       </span>
       {/* On Claude Code the crab pal stands still beside the face, drawn up close. A row on Pi keeps its layout. */}
       {agent.onClaudeCode ? <PalCrab className="-ml-2" size={agent.durable ? 22 : 24} mood={agent.mood} asking={Boolean(asks)} working={!waits} /> : null}

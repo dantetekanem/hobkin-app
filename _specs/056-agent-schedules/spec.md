@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["010-routines", "033-claude-code-agents", "034-durable-hobkins", "053-run-waits"],
-  "updated": "2026-11-25"
+  "updated": "2026-11-26"
 }
 ---
 # Schedules an agent keeps for itself
@@ -59,6 +59,7 @@ The user, 2026-11-23: "I also need schedule tasks to run inside Hobkin, like my 
 - A11. The line opens to every schedule, each with what it does, its next time, how often, its last run and what it has left, with Run now, Pause or Resume, and a Cancel that asks twice. Control+Option+W opens it and Escape closes it.
 - A12. With no host the window shows sample schedules in each of the three places.
 - A13. A schedule a durable hobkin makes in any of its turns belongs to the hobkin, by its id, not to that turn's run, so its page lists it during that turn, during its later turns and after them (2026-11-25).
+- A14. In the agents list under the input, a durable hobkin's face sits in a ring lit in the sun, with a soft light a few pixels wide, while the hobkin keeps a live schedule, and the ring's title says "Has schedules". It holds still, and breathes by its opacity only while one of those schedules runs or is due; under Still, or when the Mac asks for less motion, it does not move. The face keeps its size and nothing near it moves (2026-11-26).
 
 ## Proof
 
@@ -75,6 +76,7 @@ The user, 2026-11-23: "I also need schedule tasks to run inside Hobkin, like my 
 - A11. `ui/test/schedules.test.ts` › "what the last run found: how it ended, its exit code, how long ago and whether it woke the agent"; `ui/test/schedules-actions.test.ts` › "Cancel asks first, and only a second press within ten seconds cancels", › "Control+Option+W opens and closes the schedules, whatever character Option makes W type" and › "Escape closes the open list only while the keyboard is in it or on its line"; check: a still render of the open list with a running, a waiting, a paused and an ended schedule, light and dark (2026-11-23), then the live window.
 - A12. `ui/test/schedules.test.ts` › "the sample schedules keep counting down: a repeating one that came due moves on to its next time"
 - A13. In hobkin, `test/cli-agent-schedules-wakes.test.mjs` › "a schedule a durable hobkin's turn makes with its tool is the hobkin's own, by its id, and stays listed through its later turns"; here `ui/test/schedules.test.ts` › "the main chat shows only the schedules it made, and a page shows only its own agent’s"
+- A14. `ui/test/schedules.test.ts` › "a face in the agents list is lit while its agent keeps a live schedule, and breathes only while one runs or is due" and › "each face is lit by its own agent’s schedules: a durable hobkin’s from any of its turns, a run’s, and no one else’s"; `node scripts/perf/motion.ts ui/src/features/schedules/schedule-ring.css` passes; check: still renders of three durable rows (no schedule, lit, breathing held at its first frame), light and dark (2026-11-26), then the live window.
 
 ## Steps
 
@@ -88,6 +90,7 @@ The user, 2026-11-23: "I also need schedule tasks to run inside Hobkin, like my 
 - [x] S8 (A13). A durable hobkin's schedules across its turns, 2026-11-25, after the user asked a durable hobkin to watch the changes and saw no schedule. hobkin 3d18aff adds the test; nothing in the runtime or the window had to change. What that hobkin actually ran was not seen: its session is in the real home, which was not read. A durable hobkin on Pi with no launcher has `hobkin_schedule` and not the Pi scheduler, which the user's own Pi settings also turn off. With a launcher configured it has neither of hobkin's tools (S2), which would explain it; whether the user's home names one was not read. A durable hobkin on Claude Code schedules with `hobkin schedule` and is woken later (S3), so that limit does not bite here.
 - [x] S9 (A10, A11). The line under every agent's header, 2026-11-25: 49b1e45, on the one agent page of 8a8ad21. `SchedulesLine.tsx` draws it through the helpers line's `FoldLine` with the main chat's rows, and `placeOfAgent` reads a run's, a durable hobkin's and the main agent's. Seen only as still renders (no browser) of a run's page and a durable hobkin's, dark and light, with made-up schedules and the list open; not in the live window. Read on hobkin's main the same day, not run: every Pi session hobkin names its extensions for leaves `@jl1990/pi-scheduler` out (the user's settings already turn it off, and `harnesses.mjs` drops it by name wherever the schedule tools are given), and the main chat loads an exact list; durable.md and the main chat's directions send watching to `hobkin_schedule`, never a shell loop.
 - [x] S10 (A7). The schedule tools through a launcher, 2026-11-25, after the user's durable hobkin asked to watch changes made no schedule: hobkin 6e9a1e5. A run there that keeps schedules gets `--extension` for hobkin's schedule extension beside the launcher's own extensions (`launcherExtensions` in `harnesses.mjs`), and its tools answer over its own pipe as without a launcher. Tested with a stand-in Pi and a temporary home; not with a real launcher. It reaches the user only after the host restarts. Whether the user's home names a launcher was not read.
+- [x] S11 (A14). The face in the agents list, 2026-11-26: `ScheduleRing.tsx` reads the agent's own schedules with `useSchedules(placeOfAgent(id))`, and `faceRing` says whether its ring is lit or breathing. The list puts it around a durable hobkin's face, the one face with a ring. A run's face has no ring and is not wrapped, though the same component reads a run's schedules by its id. Seen only as still renders (no browser), on the sample schedules; not in the live window, and not with a real schedule.
 
 ## Open questions
 

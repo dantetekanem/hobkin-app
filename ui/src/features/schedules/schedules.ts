@@ -176,6 +176,15 @@ export function nextDueAt(list: readonly AgentSchedule[], now: number): number |
 export const schedulesGlow = (list: readonly AgentSchedule[], now: number): boolean =>
   list.some((schedule) => stateOf(schedule) === 'running' || whenWords(schedule, now) === 'due now')
 
+/**
+ * How an agent's face in the agents list wears its schedules (`ScheduleRing.tsx`): its ring lit in the sun while one is
+ * live, waiting, running or paused, and breathing only while one runs or is due, as the line glows. Null with none live.
+ */
+export function faceRing(list: readonly AgentSchedule[], now: number): 'lit' | 'breathes' | null {
+  if (!list.some(isLive)) return null
+  return schedulesGlow(list, now) ? 'breathes' : 'lit'
+}
+
 /** How often it fires: "once", "every minute", "every 2 min", "every hour", "every 6 h", "every day", "every 1 d 12 h". */
 export function everyWords(every: number | undefined): string {
   if (!every || every <= 0) return 'once'

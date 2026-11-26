@@ -6,6 +6,7 @@ import {
   doesWords,
   endedWords,
   everyWords,
+  faceRing,
   lastRunWords,
   leftWords,
   nextDueAt,
@@ -134,6 +135,31 @@ test('the schedules line counts the live ones, as the other lines count theirs, 
   assert.equal(schedulesCount([watch, { ...watch, id: 's2', state: 'paused' }, done]), '2 schedules', 'an ended one is not counted')
   assert.equal(schedulesCount([done]), null)
   assert.equal(schedulesCount([]), null)
+})
+
+test('a face in the agents list is lit while its agent keeps a live schedule, and breathes only while one runs or is due', () => {
+  const done: AgentSchedule = { ...watch, id: 'd', state: 'done', nextAt: undefined }
+  assert.equal(faceRing([watch], NOW), 'lit', 'a countdown with time left: lit and still')
+  assert.equal(faceRing([{ ...watch, state: 'paused', nextAt: undefined }], NOW), 'lit', 'a paused one is live')
+  assert.equal(faceRing([{ ...watch, nextAt: undefined }, done], NOW), 'lit')
+  assert.equal(faceRing([watch, { ...watch, id: 'r', state: 'running' }], NOW), 'breathes')
+  assert.equal(faceRing([{ ...watch, nextAt: at(-SECOND) }], NOW), 'breathes', 'due now')
+
+  assert.equal(faceRing([], NOW), null)
+  assert.equal(faceRing([done, { ...done, id: 'c', state: 'cancelled' }, { ...done, id: 'f', state: 'failed' }], NOW), null, 'only ended ones')
+})
+
+test('each face is lit by its own agent’s schedules: a durable hobkin’s from any of its turns, a run’s, and no one else’s', () => {
+  const all: AgentSchedule[] = [
+    { ...watch, id: 'h', owner: { kind: 'hobkin', id: 'abcd1234' } },
+    { ...watch, id: 'm', owner: { kind: 'main' } },
+    { ...watch, id: 'e', owner: { kind: 'hobkin', id: 'ffff0000' }, state: 'expired' },
+  ]
+  const ringOf = (agentId: string) => faceRing(schedulesIn(all, placeOfAgent(agentId)), NOW)
+  assert.equal(ringOf('hobkin:abcd1234'), 'lit')
+  assert.equal(ringOf('hobkin:ffff0000'), null, 'its one schedule ended')
+  assert.equal(ringOf('run-412'), null, 'the main chat’s schedule is not an agent’s')
+  assert.equal(faceRing(schedulesIn([watch, ...all], placeOfAgent('run-412')), NOW), 'lit', 'a run’s face reads its own the same way')
 })
 
 test('the line wakes when the soonest waiting schedule comes due, to glow, and waits for nothing else', () => {
