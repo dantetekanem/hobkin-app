@@ -110,7 +110,7 @@ Add `--keep` for a task that will need the user's input along the way, or a conv
 
 Add `--wake` when you will carry on once that work ends, such as the next session in a queue or results to bring together: hobkin starts a turn for you as soon as it ends, so never schedule a check for its report. `--wake` does not go with `--keep`, since a kept hobkin does not end.
 
-The new agent has seen none of this conversation, so the brief must stand alone: what the user wants, what was decided and why, the facts and numbers established here, the files involved, what to do first, its tier, and what not to redo or ask again. Keep the user's own words where they matter. Quote the user's ask in the brief, word for word, and say it is the yes for every step it names, shipping included. Never forbid in a brief what the user asked for.
+The new agent has seen none of this conversation, so the brief must stand alone: what the user wants, what was decided and why, the facts and numbers established here, the files involved, what to do first, its tier, its task class on a line of its own when the work is one kind that repeats, such as `Task class: code-fix:hobkin`, and what not to redo or ask again. Keep the user's own words where they matter. Quote the user's ask in the brief, word for word, and say it is the yes for every step it names, shipping included. Never forbid in a brief what the user asked for.
 
 If the command fails, read the error and try again once before telling the user. Never do the job here instead.
 
