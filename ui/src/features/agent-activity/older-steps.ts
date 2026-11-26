@@ -23,14 +23,17 @@ export const mayHaveOlder = (feed: readonly ActivityEntry[] | undefined): boolea
 /**
  * The steps a watched job's feed let go, read from its run's saved session a page at a time by `loadMore`: oldest
  * first, ending right before the feed's oldest step, again after the feed lets more go. `more` is null until the
- * host first answers, and false from a host from before these steps, which shows no error.
+ * host first answers, and false from a host from before these steps, which shows no error. A page that draws only
+ * the rows in view (windowed-list.tsx) says whether the pages are in view or near it (`follows`): while they are not,
+ * a feed that lets a step go at each tool call asks the host for nothing, and once they are, the page right before the
+ * feed joins them to it again. A page drawn whole always follows.
  */
-export function useOlderSteps(job: string | null): OlderPages & { loadMore: () => void } {
+export function useOlderSteps(job: string | null, { follows = true }: { follows?: boolean } = {}): OlderPages & { loadMore: () => void } {
   const feed = useHost((state) => (job ? (state.snapshot.jobActivity as JobActivity | undefined)?.[job] : undefined))
   const held = useStore(older.store, (jobs) => (job ? jobs[job] : undefined))
   useEffect(() => {
-    if (job && feed) void older.follow(job, feed)
-  }, [job, feed])
+    if (job && feed && follows) void older.follow(job, feed)
+  }, [job, feed, follows])
   const loadMore = useCallback(() => {
     if (job && feed) void older.loadMore(job, feed)
   }, [job, feed])
