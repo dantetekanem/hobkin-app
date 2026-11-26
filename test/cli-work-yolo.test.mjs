@@ -584,7 +584,7 @@ test('YOLO mode keeps a report on each project: whether it is ready, the plan, w
   await survey(h);
   assert.equal(writeYoloReports(h.root, { now: NOW + 2000 }).length, 1, 'only the project that changed');
 
-  assert.equal(yoloReportOf(h).body, `Useful: api is ready for YOLO mode.
+  assert.equal(yoloReportOf(h).body, `Useful: YOLO mode is active on api; api is ready.
 
 ## The plan
 
@@ -594,12 +594,12 @@ test('YOLO mode keeps a report on each project: whether it is ready, the plan, w
 - A regression after a deploy stops merges on api until its readiness is checked again.
 - Still asks you: a feature, a change its review could not place, one under 8 or under a floor, and every PR.
 
-## What will merge
+## Changes waiting to merge
 
 Your rate is 8.
 
-- "Fix login": a bug fix rated 10. It merges by itself on the next pass.
-- "Fix logout": a bug fix rated 7.6. It asks you: its general rate is 7.6, under 8.
+- "Fix login": a bug fix rated 10. Eligible subject to the final merge checks and pass limit.
+- "Fix logout": a bug fix rated 7.6. Not eligible for automatic merge: its general rate is 7.6, under 8.
 
 ## Merged and deployed
 
@@ -611,10 +611,10 @@ Your rate is 8.
 
   // A project still getting ready says what holds it and what hobkin is doing about it, and what each change would meet once it is ready.
   const web = yoloReportOf(h, 'web').body;
-  assert.match(web, /^Useful: web is getting ready for YOLO mode\.\n\n## What holds it\n\n- Its readiness has not been checked yet\.\n\nIts readiness work is queued to run\.\n\n## The plan once it is ready\n/);
+  assert.match(web, /^Useful: YOLO mode is on for web; web is not ready\.\n\n## What holds it\n\n- Its readiness has not been checked yet\.\n\nIts readiness work is queued to run\.\n\n## The plan when active\n/);
   assert.match(web, /- Nothing is deployed until its deploy path is set up\. Its readiness run sets this up\.\n/);
-  assert.match(web, /## What will merge once it is ready\n\nYour rate is 8\.\n\nNothing waits to merge on web\.\n\n## Merged and deployed\n\nNothing has merged by itself on web yet\.\n$/);
-  assert.doesNotMatch(`${web}${yoloReportOf(h).body}`, /not ready/);
+  assert.match(web, /## Changes waiting to merge\n\nYour rate is 8\.\n\nNothing waits to merge on web\.\n\n## Merged and deployed\n\nNothing has merged by itself on web yet\.\n$/);
+  assert.doesNotMatch(yoloReportOf(h).body, /not ready/);
 
   // While work mode waits, the report says nothing merges.
   writeMode(h.root, { pausedAt: new Date(NOW).toISOString() });
@@ -632,7 +632,7 @@ test('a change that cannot land says the landing list\'s own reason, and a deplo
   assert.deepEqual(await yoloPass(h.root, { now: NOW, handOff: () => {} }), []);
   writeYoloReports(h.root, { now: NOW });
   const { body } = yoloReportOf(h);
-  assert.match(body, /\n- "Fix login": a bug fix rated 10\. It asks you: it still has work left: The independent review still needs to cover the committed range\.\n/);
+  assert.match(body, /\n- "Fix login": a bug fix rated 10\. Not eligible for automatic merge: it still has work left: The independent review still needs to cover the committed range\.\n/);
   assert.match(body, /\n- Nothing is deployed until its deploy path is set up\. It waits on you: Make space for the release build\.\n/);
   assert.doesNotMatch(body, /cannot land as a local branch/);
 });
@@ -689,7 +689,7 @@ test('Reports lists each project\'s YOLO report as that project\'s work', async 
     await app.refresh();
     const listed = app.snapshot.reports.find(report => report.id === id);
     assert.deepEqual([listed?.title, listed?.scheduleId, listed?.outcome], ['YOLO mode on api', 'work.api.yolo', 'completed']);
-    assert.match(listed.body, /^Useful: api is ready for YOLO mode\./);
+    assert.match(listed.body, /^Useful: YOLO mode is active on api; api is ready\./);
   } finally {
     await app.close();
   }

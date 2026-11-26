@@ -38,7 +38,7 @@ test('with no rule set, each case of whyItAsks gives the answer it gave before, 
     ['not on the landing list', base({ landable: false }), 'the last survey did not list it to land, and hobkin work sync reads it again'],
     ['left out of the landing list', base({ landable: false, leftOut: 'something is left for the user' }), 'something is left for the user'],
     ['not finished work', base({ item: { ...base().item, state: 'open' } }), 'its item is open, not finished work waiting to merge'],
-    ['a pull request while pull requests do not merge', base({ item: { ...base().item, state: 'pr' } }), 'its pull request merges by itself once that is turned on'],
+    ['a pull request while pull requests do not merge', base({ item: { ...base().item, state: 'pr' } }), 'automatic PR merges are off'],
     ['brings earlier branches', base({ row: { holds: true } }), 'it brings earlier branches with it'],
     // The one answer spec 063 changes on purpose: only Change Review's grades are read, so a change with none, or with hobkin's own, asks so.
     ['no review', base({ item: { state: 'branch', kind: 'fix' } }), 'its review has not rated it'],

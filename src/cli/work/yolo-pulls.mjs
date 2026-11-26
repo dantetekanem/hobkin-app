@@ -22,7 +22,7 @@ import { rulesOf } from './yolo-rules.mjs';
  */
 export const pullRequestsMerge = (root, slug) => Boolean(root && slug) && rulesOf(root, slug).mergePulls === true;
 /** What a change waiting on its pull request says while YOLO mode does not take pull requests. */
-export const PULLS_OFF = 'its pull request merges by itself once that is turned on';
+export const PULLS_OFF = 'automatic PR merges are off';
 
 const GH_TIMEOUT_MS = 2 * 60000;
 const SHORT_SHA = 7;
@@ -51,20 +51,27 @@ export function pullCandidates(root) {
 }
 
 /** What the last survey read of the change's own pull request that keeps it asking, before anything is read again. */
-export function pullSurveyed(item, unit) {
-  if (!item.pr || !String(item.branch ?? '').startsWith(BRANCH_PREFIX)) return 'its pull request is not on a branch of hobkin\'s own';
-  if (unit.kind !== 'pr') return 'the last survey saw no open pull request for it';
+export function* pullSurveyHolds(item, unit) {
+  if (!item.pr || !String(item.branch ?? '').startsWith(BRANCH_PREFIX)) yield 'its pull request is not on a branch of hobkin\'s own';
+  if (unit.kind !== 'pr') {
+    yield 'the last survey saw no open pull request for it';
+    return;
+  }
   // The survey lists the pull requests of the project's own repository, by branch. A run's outcome can name any address, so only that one counts.
-  if (item.pr !== unit.url) return `its item names ${item.pr}, not the pull request the survey found on its branch in this repository`;
-  if (unit.headHere === false) return `its pull request's head ${String(unit.sha).slice(0, SHORT_SHA)} is not in this repository, so its files cannot be read, and hobkin fetches nothing`;
-  if (unit.draft) return 'its pull request is a draft';
-  if (unit.conflict) return 'its pull request conflicts with its base branch';
-  if (unit.review === 'CHANGES_REQUESTED') return 'changes were requested on its pull request';
-  if (unit.review === 'REVIEW_REQUIRED') return 'its pull request needs a review approval';
-  if (unit.ci === 'none') return 'its pull request has no checks at this commit';
-  if (unit.ci !== 'passing') return `its pull request's checks have not all passed at this commit: they are ${unit.ci}`;
-  return null;
+  if (item.pr !== unit.url) {
+    yield `its item names ${item.pr}, not the pull request the survey found on its branch in this repository`;
+    return;
+  }
+  if (unit.headHere === false) yield `its pull request's head ${String(unit.sha).slice(0, SHORT_SHA)} is not in this repository, so its files cannot be read, and hobkin fetches nothing`;
+  if (unit.draft) yield 'its pull request is a draft';
+  if (unit.conflict) yield 'its pull request conflicts with its base branch';
+  if (unit.review === 'CHANGES_REQUESTED') yield 'changes were requested on its pull request';
+  if (unit.review === 'REVIEW_REQUIRED') yield 'its pull request needs a review approval';
+  if (unit.ci === 'none') yield 'its pull request has no checks at this commit';
+  else if (unit.ci !== 'passing') yield `its pull request's checks have not all passed at this commit: they are ${unit.ci}`;
 }
+
+export const pullSurveyed = (item, unit) => pullSurveyHolds(item, unit).next().value ?? null;
 
 const parsed = text => {
   try {

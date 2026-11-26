@@ -32,7 +32,7 @@ test('pull requests ask while the switch is off, and with it on the unmet GitHub
 
   // Off, as shipped: it asks and says the switch is off, and nothing reaches the host for a merge.
   assert.deepEqual(await pass(), []);
-  assert.deepEqual(whyOf(h, change), { item: change.id, title: 'Fix login', kind: 'a bug fix', rate: 10, why: 'its pull request merges by itself once that is turned on', setting: 'mergePulls' });
+  assert.deepEqual(whyOf(h, change), { item: change.id, title: 'Fix login', kind: 'a bug fix', rate: 10, why: 'automatic PR merges are off', setting: 'mergePulls' });
   assert.equal(host.merges().length, 0);
 
   // On for this project, with GitHub unable to list what its branch requires: it asks, and names the setting.
