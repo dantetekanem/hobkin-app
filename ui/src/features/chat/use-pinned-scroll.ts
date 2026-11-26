@@ -93,10 +93,13 @@ export function usePinnedScroll(): PinnedScroll {
     // it changes height, and follows again only if the end is still in view. The way down is offered only then, so it
     // does not flash while a row closes at the end.
     let settling: ReturnType<typeof setTimeout> | undefined
+    const settle = () => {
+      tell({ type: 'settle', top: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight })
+    }
     const unfold = () => {
       follow.current = followAfter(follow.current, { type: 'unfold' })
       clearTimeout(settling)
-      settling = setTimeout(() => tell({ type: 'settle', top: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }), HOLD_MS)
+      settling = setTimeout(settle, HOLD_MS)
     }
     list.addEventListener(UNFOLD, unfold)
 

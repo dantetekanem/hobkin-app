@@ -89,9 +89,10 @@ function adapterOf(notices: NoticeShell) {
     send: async ({ id, title, body, reach }: { id: string; title: string; body: string; reach: Reach }) => {
       // hobkin's sound goes with each notice it raises, whether or not the Mac shows its banner: the chime, or the softer
       // nudge for what can wait a little. Several at once sound once. A cue is the nudge alone.
-      const cue = reachCue(reach)
-      play(cue.name)
-      if (reach !== 'cue') await notices.send({ key: id, title, body })
+      play(reachCue(reach).name)
+      if (reach !== 'cue') {
+        await notices.send({ key: id, title, body })
+      }
       return true
     },
   }

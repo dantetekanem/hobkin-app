@@ -85,26 +85,47 @@ test('a refusal is respected, while an unavailable shell or a dispatch that fail
   c.dispose()
 })
 
-test('a cue alone asks the Mac nothing and plays after a refusal; a digest is one soft notification that opens the chat', async () => {
+test('a refusal stops the notifications, never a cue beside them', async () => {
   const f = fixture(), c = createRequestNotifications(f.options)
   let asked = 0
-  f.options.adapter.permission = async () => { asked++; return false }
+  f.options.adapter.permission = async () => {
+    asked++
+    return false
+  }
   f.change({ needs: [need('line', 'notice', 'cue'), need('digest', 'digest', 'soft')] })
-  await c.refresh()
-  assert.equal(asked, 1); assert.deepEqual(f.reaches, ['cue']); assert.deepEqual(f.told()?.toSorted(), ['digest', 'line'])
-  c.dispose()
 
-  const g = fixture(), d = createRequestNotifications(g.options)
-  g.options.adapter.permission = async () => { throw new Error('a cue asks nothing') }
-  g.change({ needs: [need('line', 'notice', 'cue')] }); await d.refresh()
-  g.options.adapter.permission = async () => true
-  g.change({ needs: [need('digest', 'digest', 'soft')] }); await d.refresh()
-  assert.deepEqual(g.reaches, ['cue', 'soft'])
-  await g.click(g.sent.at(-1)!); assert.deepEqual(g.visits, [{ to: 'chat' }])
-  // With the window in front a cue is as quiet as a notification, and is not played later.
-  g.front(true); g.change({ needs: [need('line-2', 'notice', 'cue')] }); await d.refresh()
-  g.front(false); await d.refresh(); assert.deepEqual(g.reaches, ['cue', 'soft'])
-  d.dispose()
+  await c.refresh()
+
+  assert.equal(asked, 1)
+  assert.deepEqual(f.reaches, ['cue'])
+  assert.deepEqual(f.told()?.toSorted(), ['digest', 'line'])
+  c.dispose()
+})
+
+test('a cue asks the Mac nothing, a digest is one soft notification that opens the chat, and in front nothing sounds', async () => {
+  const f = fixture(), c = createRequestNotifications(f.options)
+  f.options.adapter.permission = async () => {
+    throw new Error('a cue asks nothing')
+  }
+  f.change({ needs: [need('line', 'notice', 'cue')] })
+  await c.refresh()
+  assert.deepEqual(f.reaches, ['cue'])
+
+  f.options.adapter.permission = async () => true
+  f.change({ needs: [need('digest', 'digest', 'soft')] })
+  await c.refresh()
+  assert.deepEqual(f.reaches, ['cue', 'soft'])
+  await f.click(f.sent.at(-1)!)
+  assert.deepEqual(f.visits, [{ to: 'chat' }])
+
+  // Seen with the window in front, a cue is not played later either.
+  f.front(true)
+  f.change({ needs: [need('line-2', 'notice', 'cue')] })
+  await c.refresh()
+  f.front(false)
+  await c.refresh()
+  assert.deepEqual(f.reaches, ['cue', 'soft'])
+  c.dispose()
 })
 
 test('home, generation, reset and closed requests invalidate pending permission checks', async () => {

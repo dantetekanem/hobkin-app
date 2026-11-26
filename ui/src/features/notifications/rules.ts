@@ -1,6 +1,6 @@
 import type { HobkinSummary } from '#shared/protocol/hobkins.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
-import type { ChatMessage } from '#shared/protocol/snapshot.ts'
+import type { ChatMessage, NoticeLevel } from '#shared/protocol/snapshot.ts'
 import { headingOf, type WaitingRow } from '../actions/items.ts'
 import { levelOf, readDigest } from '../chat/digest.ts'
 
@@ -116,15 +116,52 @@ function lineNeed(message: ChatMessage, now: number): Need | null {
   if (message.role !== 'notice') return null
   const at = timeOf(message.at)
   if (at === null || now - at > REVIEW_FRESH_MS) return null
+
   const digest = readDigest(message)
-  if (digest) return { id: message.id, kind: 'digest', title: 'Digest', body: line(digest.point.replace(/^Digest:\s*/, '')), opens: { to: 'chat' }, reach: 'soft' }
+  if (digest) {
+    return {
+      id: message.id,
+      kind: 'digest',
+      title: 'Digest',
+      body: line(digest.point.replace(/^Digest:\s*/, '')),
+      opens: { to: 'chat' },
+      reach: 'soft',
+    }
+  }
+
   const level = levelOf(message.level)
-  const reach: Reach | null = level === null || level === 'P0' ? 'chime' : level === 'P1' ? 'cue' : null
+  const reach = reachOfLevel(level)
   if (reach === null) return null
+
+  // hobkin's notice that a review is ready names it; the shared message type does not declare the field.
   const review = (message as { review?: unknown }).review
-  if (typeof review === 'string' && review) return { id: message.id, kind: 'review', title: 'Review ready', body: line(message.content), opens: { to: 'review', id: review }, reach }
+  if (typeof review === 'string' && review) {
+    return {
+      id: message.id,
+      kind: 'review',
+      title: 'Review ready',
+      body: line(message.content),
+      opens: { to: 'review', id: review },
+      reach,
+    }
+  }
+
   if (level === null) return null
-  return { id: message.id, kind: 'notice', title: level === 'P0' ? 'Needs you now' : 'For today', body: line(message.content), opens: { to: 'chat' }, reach }
+  return {
+    id: message.id,
+    kind: 'notice',
+    title: level === 'P0' ? 'Needs you now' : 'For today',
+    body: line(message.content),
+    opens: { to: 'chat' },
+    reach,
+  }
+}
+
+/** How a line reaches the user by its level, or null when it does not. A line without a level reaches the user as before levels. */
+function reachOfLevel(level: NoticeLevel | null): Reach | null {
+  if (level === null || level === 'P0') return 'chime'
+  if (level === 'P1') return 'cue'
+  return null
 }
 
 /**

@@ -201,7 +201,15 @@ function newEntry(message: ChatMessage): Entry {
  * have their own Undo, and digests, whose lines each act on their own, are never folded.
  */
 const repeats = (previous: Entry | undefined, next: Entry): previous is NoticeEntry =>
-  previous?.kind === 'notice' && next.kind === 'notice' && next.tone !== 'system' && !previous.memory && !next.memory && !previous.digest && !next.digest && previous.tone === next.tone && previous.text === next.text
+  previous?.kind === 'notice' &&
+  next.kind === 'notice' &&
+  next.tone !== 'system' &&
+  !previous.memory &&
+  !next.memory &&
+  !previous.digest &&
+  !next.digest &&
+  previous.tone === next.tone &&
+  previous.text === next.text
 
 /** Each local message goes before the first stored one that is newer than it, as in the terminal app. */
 function withLocal(stored: readonly ChatMessage[], local: readonly ChatMessage[]): readonly ChatMessage[] {

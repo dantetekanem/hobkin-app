@@ -121,15 +121,20 @@ export function createRequestNotifications(options: Options) {
       return
     }
     if (!targets.some(({ target }) => current(target))) return
-    const shows = ({ need }: (typeof targets)[number]) => need.reach !== 'cue'
-    // Only a notification asks the Mac. A cue is a sound in the window.
-    const refused = targets.some(shows) && !(await options.adapter.permission())
-    if (refused) mark(facts.home, targets.filter((each) => shows(each) && current(each.target)).map(({ need }) => need.id))
-    for (const each of targets) {
-      const { need, target } = each
-      if (!current(target) || (refused && shows(each))) continue
+
+    // Only a notification asks the Mac. A cue is a sound in the window, so a refusal never silences it.
+    const notifies = (need: Need) => need.reach !== 'cue'
+    const refused = targets.some(({ need }) => notifies(need)) && !(await options.adapter.permission())
+    if (refused) {
+      const unshown = targets.filter(({ need, target }) => notifies(need) && current(target)).map(({ need }) => need.id)
+      mark(facts.home, unshown)
+    }
+
+    for (const { need, target } of targets) {
+      if (!current(target) || (refused && notifies(need))) continue
       const key = JSON.stringify([facts.home, need.id, need.kind])
-      if ((await options.adapter.send({ id: key, title: need.title, body: need.body, reach: need.reach })) && current(target)) mark(facts.home, [need.id])
+      const sent = await options.adapter.send({ id: key, title: need.title, body: need.body, reach: need.reach })
+      if (sent && current(target)) mark(facts.home, [need.id])
     }
   }
 
