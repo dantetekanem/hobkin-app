@@ -196,12 +196,13 @@ test('help names the views', async () => {
   assert.match(output.text(), /telemetry help lists them all/);
 });
 
-test('the memory view lists the shared memories agents used and those nobody used, never a private one', t => {
+test('the memory view lists the shared memories agents used and those nobody used, never a private one or one past its day', t => {
   const root = dataRoot(t);
   const author = { by: { kind: 'main' }, source: { kind: 'chat' }, now: NOW - 2 * HOUR_MS };
   addMemory(root, { name: 'lives-in-lisbon', kind: 'user', description: 'Lives in Lisbon since 2025' }, author);
   addMemory(root, { name: 'tram-pass', kind: 'pointer', description: 'Monthly tram pass in the blue wallet' }, author);
   addMemory(root, { name: 'partner-name', kind: 'user', description: 'Partner is called Ana', private: true }, author);
+  addMemory(root, { name: 'old-trip', kind: 'date', description: 'Trip to Porto', until: '2026-10-01' }, author);
   recordMemoryUse(root, { kind: 'recall', names: ['lives-in-lisbon', 'partner-name'], by: 'main' }, { now: NOW - HOUR_MS });
 
   const { used, unused } = telemetryView(root, 'memory', { days: 30, now: NOW });

@@ -155,14 +155,15 @@ function presence(events) {
  */
 /**
  * Which shared memories agents recalled or had in their index, from the local memory-use file, and the shared ones nobody
- * used in that time. A private memory is left out, as everywhere outside the main chat and durable hobkins (057).
+ * used in that time, leaving out one past its day. A private memory is left out, as everywhere outside the main chat and
+ * durable hobkins (057).
  */
 function memory(events, { root, since, now }) {
   const { memories: shared } = readMemories(root, { private: false, now });
   const names = new Set(shared.map(({ name }) => name));
   const used = readMemoryUse(root, { days: Math.max(1, Math.round((now - since) / DAY_MS)), now }).filter(({ name }) => names.has(name));
   const usedNames = new Set(used.map(({ name }) => name));
-  return { used, unused: shared.filter(({ name }) => !usedNames.has(name)).map(({ name, kind }) => ({ name, kind })) };
+  return { used, unused: shared.filter(({ name, past }) => !past && !usedNames.has(name)).map(({ name, kind }) => ({ name, kind })) };
 }
 
 export const TELEMETRY_VIEWS = {
@@ -178,7 +179,7 @@ export const VIEW_USAGE = `Usage: hobkin telemetry [--days n] | hobkin telemetry
 export function telemetryHelp(defaultDays) {
   const width = Math.max(...NAMES.map(name => name.length)) + 2;
   const lines = [...Object.entries(TELEMETRY_VIEWS).map(([name, { line }]) => [name, line]), ['help', 'this list']];
-  return `Usage: hobkin telemetry <view> [--days n]. Each view prints JSON from this machine's events, ${defaultDays} days by default. Facts only, never text.\n${lines.map(([name, line]) => `  ${name.padEnd(width)}${line}`).join('\n')}\n`;
+  return `Usage: hobkin telemetry <view> [--days n]. Each view prints JSON from this machine's events, ${defaultDays} days by default. Facts and memory names only, never their text.\n${lines.map(([name, line]) => `  ${name.padEnd(width)}${line}`).join('\n')}\n`;
 }
 
 export function telemetryView(root, name, { days, now = Date.now() }) {
