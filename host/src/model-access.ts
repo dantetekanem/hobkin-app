@@ -178,7 +178,7 @@ export async function piModelAccess(options: Record<string, unknown> = {}, provi
     const { loadProviderExtensions } = await import('hobkin/src/cli/provider-extensions.mjs')
     await loadProviderExtensions(runtime, providerExtensions)
   }
-  // The id Pi gives this machine for OpenAI's sign-in, kept in Pi's settings as `hobkin login` does it.
+  // The id Pi gives this machine for OpenAI's sign-in, kept in Pi's settings, where the old `hobkin login` kept it too.
   const settings = pi.SettingsManager.create(process.cwd(), pi.getAgentDir())
   const nameOf = (provider: string) => runtime.getProviders().find(({ id }) => id === provider)?.name ?? provider
 

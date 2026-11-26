@@ -72,7 +72,7 @@ const happyEyes = still(
 const KEY_COLUMNS = [56, 69, 82, 95, 108, 121, 134]
 
 /**
- * Coordinates and paths are the art from hobkin's `assets/animations`. The thinking dots, the question mark and the Zs
+ * Coordinates and paths are the art from the terminal app's `assets/animations` (removed in 4c02ae7b). The thinking dots, the question mark and the Zs
  * sit further right and higher, clear of the pets' ears, antenna and sprout (avatar/pets.ts). Each part that loops on
  * its own is a piece of its own, in the order it is drawn.
  */
