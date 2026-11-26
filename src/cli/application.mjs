@@ -68,6 +68,7 @@ import { stalled } from './checks.mjs';
 import { DISMISSALS_FILE } from './action-dismissal.mjs';
 import { fileDecision, findDecision, findOpenDecision, markShown, QUESTION_WAIT_MS, tickDecisionDefaults } from './decisions.mjs';
 import { isPresent } from './pending.mjs';
+import { Desk } from './desk-queue.mjs';
 import { readActionDecisions, readPending, readWaiting } from './pending-read.mjs';
 import { arrivedCount, arrivedSince, asksForBrief, BRIEF_BAR, briefMaterial, briefNote, briefSince, offerLine, readBriefState, returnedSince, seenMoved, withoutBriefNote, writeBriefState } from './brief.mjs';
 import { readReportIds, reportReadStates } from './telemetry.mjs';
@@ -453,6 +454,8 @@ export class HobkinApplication {
       // Before the first tick and before `app_opened`, so upload begins with this start and never sends what came before.
       app.remote = new RemoteSender({ root: app.runtime.directory, fetch, now: app.now });
       app.learner = new Learner({ root: app.runtime.directory, telemetry: app.telemetry, now: app.now });
+      // The desk (075): what comes in for Chat waits for a digest or the user's pause, unless it cannot wait.
+      app.desk = new Desk({ root: app.runtime.directory, now: app.now });
       // Pi's own AGENTS.md, learned from when it changes and asked about in Action Items; only in the Pi folder the host names (038-resources).
       app.piDirections = piAgentDir ? new PiDirectionsLearner({ root: app.runtime.directory, agentDir: piAgentDir, runHarness, now: app.now, onChange: () => app.requestRefresh() }) : null;
       app.runner = new HobkinRunner({
@@ -715,6 +718,8 @@ export class HobkinApplication {
     // What was in Chat when this process opened is not news. One that scrolled away is worked out again on each refresh, so a count needs a memory of its own.
     this.noticesCounted ??= new Set(notices.map(({ id }) => id));
     const noticeIds = new Set(notices.map(message => message.id));
+    // Every line after these is new to Chat, for the desk.
+    const fresh = notices.length;
     const noticedRunIds = new Set(this.noticeRunIds);
     const work = this.workView(workAsRead);
     const asked = work.allowanceRequest;
@@ -833,9 +838,14 @@ export class HobkinApplication {
           : `Report available for ${scheduleName}`,
         tone: held ? 'blocked' : triage?.level,
         at: run.finishedAt,
+        // Work stops on a work run's item until the user acts. The desk weighs it and takes it off the line.
+        ...(run.work?.slug ? { blocksWork: true } : {}),
       });
       noticeIds.add(id);
     }
+    // Every line new to Chat goes through the desk (075): what can wait is held for a digest, and the rest posts now.
+    const incoming = notices.splice(fresh);
+    notices.push(...(this.desk?.route(incoming, { presence: this.presence?.(), busy: this.runtime.mainBusy, inChat: new Set(notices.map(({ id }) => id)) }) ?? incoming));
     const messages = foldFinishedLines([
       ...inReadOrder(visibleChatMessages(this.runtime.messages()).map(chatMessage)),
       ...notices.map(message => ({ message, time: messageTime(message) })),
@@ -909,6 +919,7 @@ export class HobkinApplication {
     markCardActionsPosted(this.runtime.directory, cardActions);
     markInboxPosted(this.runtime.directory, handedOver);
     markClientNoticesPosted(this.runtime.directory, clientLines);
+    this.desk?.markPosted();
     const active = new Set(runs
       .filter(run => run.kind === 'background' && run.scheduleId && run.status === 'running')
       .map(run => run.id));
@@ -2020,6 +2031,8 @@ export class HobkinApplication {
       // When the user was last here moves with it at once, so trouble after it can never record the same sighting again.
       const sighted = recordPresence(root, { lastSeenAt: state.lastSeenAt, seenAt: presence.seenAt });
       if (sighted) writeBriefState(root, { lastSeenAt });
+      // A digest once one is due, and what the desk held for the user's pause (075). It never throws.
+      if (this.desk?.look({ presence, returned: sighted, busy: this.runtime.mainBusy })) this.requestRefresh();
       const since = returnedSince({ lastSeenAt: state.lastSeenAt, seenAt: presence.seenAt });
       const offer = since && state.offer?.since !== since ? this.offerAfter(root, since, now) : null;
       const seen = !sighted && seenMoved(state, presence.seenAt) ? { lastSeenAt } : {};
