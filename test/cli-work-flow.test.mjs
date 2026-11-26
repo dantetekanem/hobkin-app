@@ -68,6 +68,8 @@ function fixture(t) {
   setProfile(root, 'call', 'Ada');
   config.main.model = 'fixture/local';
   config.background.model = 'fixture/check';
+  // These flows read their lines in Chat as they come; when the desk delivers them is the desk's own tests (075).
+  config.desk = { enabled: false };
   atomicJson(join(root, 'config.json'), config);
   writeMode(root, { startGapMs: 0 });
   const folder = join(base, 'projects');

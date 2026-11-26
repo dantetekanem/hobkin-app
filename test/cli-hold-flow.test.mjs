@@ -57,6 +57,8 @@ function fixture(t) {
   const config = initialize(root, { cwd: base, now: '2026-01-01T00:00:00Z' });
   config.main.model = 'fixture/local';
   config.background.model = 'fixture/check';
+  // These flows read their lines in Chat as they come; when the desk delivers them is the desk's own tests (075).
+  config.desk = { enabled: false };
   atomicJson(join(root, 'config.json'), config);
   const h = { base, root };
   writeSchedule(h, { id: 'mail', title: 'Mail', at: '00:00' });
