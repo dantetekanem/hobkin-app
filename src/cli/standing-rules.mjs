@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { atomicJson } from './config.mjs';
+import { isGuardedKind } from './outward.mjs';
 import { readJson } from './work/store.mjs';
 
 /**
- * What the user said once that settles later cases of its kind (075). An `answer` rule answers a card of its kind the way the user did, and an
- * `outward` rule lets an action leave this machine. Each was said back to the user in `said` before it was kept, and only the user makes one.
+ * What the user said once that settles later cases of its kind (075). An `answer` rule answers a card of its kind from the same asker, such as
+ * `routine:<id>`, the way the user did, and an `outward` rule lets an action leave this machine. Each was said back to the user in `said` before it was kept, and only the user makes one.
  * `runtime/standing-rules.json` is read by more than this file, so its shape stays `{ version: 1, rules: [{ id, kind, match, then, said, savedAt,
  * by }] }`.
  */
@@ -25,7 +26,9 @@ function assertRule({ kind, match, then, said }) {
   if (!RULE_KINDS.includes(kind)) throw Error('A standing rule\'s `kind` is answer or outward.');
   if (!isMatch(match)) throw Error('A standing rule needs a `match` that says which cases it settles.');
   if (!isObject(then) && !isWord(then)) throw Error('A standing rule needs a `then` that says what follows.');
-  if (kind === 'answer' && (!isWord(match?.kind) || !isWord(then?.answer))) throw Error('An answer rule matches a card `kind` and `then` gives its `answer`.');
+  if (kind === 'answer' && (!isWord(match?.kind) || !isWord(match?.asker) || !isWord(then?.answer))) {
+    throw Error('An answer rule matches a card `kind` and its `asker`, and `then` gives its `answer`.');
+  }
   if (typeof said !== 'string' || !said.trim() || said.length > LONGEST_SAID) throw Error(`A standing rule needs \`said\`, the sentence the user heard, up to ${LONGEST_SAID} characters.`);
 }
 
@@ -74,8 +77,12 @@ export function forgetStandingRule(root, id) {
   return rule;
 }
 
-/** The newest `answer` rule that settles this card: every field of its match is the card's, and its answer is one of the card's choices. */
+/**
+ * The newest `answer` rule that settles this card: every field of its match is the card's, its kind and its asker among them, and its answer
+ * is one of the card's choices. A card that cannot be undone, or whose kind is guarded (`outward.mjs`), is never answered by a rule.
+ */
 export function findAnswerRule(root, card) {
+  if (card.reversible === false || isGuardedKind(card.kind)) return null;
   const values = new Set((card.choices ?? []).map(({ value }) => value));
   const settles = ({ kind, match, then }) => kind === 'answer'
     && Object.entries(match).every(([field, value]) => card[field] !== undefined && card[field] === value)

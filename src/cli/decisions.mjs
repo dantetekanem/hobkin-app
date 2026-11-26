@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readEvents, recordEvent } from './events.mjs';
 import { readVersioned } from './file-version.mjs';
+import { isGuardedKind } from './outward.mjs';
 import { findAnswerRule, saveStandingRule } from './standing-rules.mjs';
 
 /** How long a question from a routine or work mode stays on screen before it joins the Action Items tab. */
@@ -167,16 +168,27 @@ export const markShown = (root, id) => append(root, { id, shown: true });
 
 const ruleSaid = ({ kind, rule }, label) => rule ?? `From now on, questions of the kind ${kind} take "${label}" without asking.`;
 
+/** Whose questions a standing rule answers, as its match names them: one routine's, or one other session's by its name. A work run has none. */
+function ruleAsker({ answerTo, from }) {
+  if (answerTo?.kind === 'routine' && answerTo.id) return `routine:${answerTo.id}`;
+  if (answerTo?.kind === 'outside' && from) return `outside:${from}`;
+  return null;
+}
+
+/** A rule could answer this card when it comes again: it has a kind and an asker, it can be undone, and its kind is not guarded (`outward.mjs`). */
+const ruleCouldAnswer = decision => Boolean(decision.kind && ruleAsker(decision)) && decision.reversible !== false && !isGuardedKind(decision.kind);
+
 /**
- * The user's answer that settles later cases of its kind: a learn card answered with its pick, or any card answered with the choice they
- * said always to take. The card was the read-back, so nothing more is asked. A default is never the user's yes, so it keeps no rule.
+ * The user's answer that settles later cases of its kind from the same asker: a learn card answered with its pick, or any card answered with
+ * the choice they said always to take. The card was the read-back, so nothing more is asked. A default is never the user's yes, so it keeps no rule.
  */
 function keepAsRule(root, id, answer, now) {
   const decision = readAll(root).find(entry => entry.id === id);
-  const kept = decision?.kind && (decision.always === answer || (decision.learn && answer === decision.recommended));
+  const kept = decision && ruleCouldAnswer(decision) && (decision.always === answer || (decision.learn && answer === decision.recommended));
   if (!kept) return;
   const label = decision.choices.find(choice => choice.value === answer)?.label ?? answer;
-  saveStandingRule(root, { kind: 'answer', match: { kind: decision.kind }, then: { answer, label }, said: ruleSaid(decision, label) }, now);
+  const match = { kind: decision.kind, asker: ruleAsker(decision) };
+  saveStandingRule(root, { kind: 'answer', match, then: { answer, label }, said: ruleSaid(decision, label) }, now);
 }
 
 /** An answer in the user's own words is `typed`, and `typed` keeps the words. One the card took at its deadline is `byDefault`. */
@@ -194,6 +206,9 @@ export function markAlways(root, [id, value] = []) {
   const decision = findOpenDecision(root, id);
   const choice = value ?? decision.recommended;
   if (!decision.kind) throw Error('This card has no kind, so no rule could match it again. Answer it with `hobkin decisions answer <id> <value>`.');
+  if (!ruleCouldAnswer(decision)) {
+    throw Error('This card comes from a work run, cannot be undone, or is about sending, spending, deleting, the user\'s time, health, money or law, so no rule could answer it again. Answer it with `hobkin decisions answer <id> <value>`.');
+  }
   if (!decision.choices.some(entry => entry.value === choice)) throw Error(`Say which choice to always take: ${decision.choices.map(entry => entry.value).join(', ')}.`);
   append(root, { id, always: choice });
   return ['answer', id, choice];
@@ -372,9 +387,9 @@ export async function runDecideCommand(root, args, input, now = Date.now(), from
     recordEvent(root, 'decision_recalled', { routine: asker.answerTo.id }, now);
     return earlierAnswer(earlier);
   }
-  // Then what the user settled for good. Like the recall, it answers only a routine: a work run deletes with it, and two sessions can mean
-  // different things by one kind, so they read `hobkin decisions rules` themselves.
-  const rule = asker.answerTo.kind === 'routine' && !changed?.trim() ? findAnswerRule(root, asked) : null;
+  // Then what the user settled for good, for this routine's questions of this kind. Like the recall, it answers only a routine: a work run
+  // deletes with it, and two sessions can mean different things by one kind, so they read `hobkin decisions rules` themselves.
+  const rule = asker.answerTo.kind === 'routine' && !changed?.trim() ? findAnswerRule(root, { ...asked, asker: ruleAsker(asker) }) : null;
   if (rule) {
     recordEvent(root, 'decision_recalled', { routine: asker.answerTo.id, by: 'rule' }, now);
     return ruleAnswer(rule);

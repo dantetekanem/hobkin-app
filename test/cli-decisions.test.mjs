@@ -292,21 +292,35 @@ test('the filed event names the topic as a hash, never its words, so a question 
 
 const learnCard = (fields = {}) => card({ kind: 'merge-small-fix', learn: true, rule: 'From now on, small fixes merge without asking.', ...fields });
 
-test('a learn card answered with its pick becomes a standing rule, and the next routine asking that kind is answered by it', async t => {
+test('a learn card answered with its pick becomes a standing rule, and the next question of that kind from that routine is answered by it', async t => {
   const root = home(t);
   const { id } = await runDecideCommand(root, ['routine', 'site'], learnCard(), FILED);
   answerDecision(root, id, 'merge', FILED + 60000);
 
   const [rule] = readStandingRules(root);
-  assert.deepEqual([rule.kind, rule.match, rule.then, rule.said, rule.by], ['answer', { kind: 'merge-small-fix' }, { answer: 'merge', label: 'Merge it' }, 'From now on, small fixes merge without asking.', 'user']);
+  assert.deepEqual([rule.kind, rule.match, rule.then, rule.said, rule.by], ['answer', { kind: 'merge-small-fix', asker: 'routine:site' }, { answer: 'merge', label: 'Merge it' }, 'From now on, small fixes merge without asking.', 'user']);
 
-  const again = await runDecideCommand(root, ['routine', 'docs'], card({ kind: 'merge-small-fix', question: 'Merge the readme fix?' }), FILED + 40 * DAY_MS);
+  const again = await runDecideCommand(root, ['routine', 'site'], card({ kind: 'merge-small-fix', question: 'Merge the readme fix?' }), FILED + 40 * DAY_MS);
 
   assert.deepEqual(openDecisions(root), [], 'nothing was filed, even past the 30 days of the key recall');
   assert.deepEqual([again.ok, again.answer, again.label, again.rule.id, again.rule.said], [true, 'merge', 'Merge it', rule.id, rule.said]);
   assert.match(again.message, /2026-11-26.*From now on, small fixes merge without asking\./);
   const recalled = readEvents(root).filter(({ type }) => type === 'decision_recalled');
-  assert.deepEqual(recalled.map(({ routine, by }) => [routine, by]), [['docs', 'rule']]);
+  assert.deepEqual(recalled.map(({ routine, by }) => [routine, by]), [['site', 'rule']]);
+});
+
+test('a rule answers only its own routine, and never a card that cannot be undone or whose kind is guarded', async t => {
+  const root = home(t);
+  const { id } = await runDecideCommand(root, ['routine', 'site'], learnCard(), FILED);
+  answerDecision(root, id, 'merge', FILED);
+  saveStandingRule(root, { kind: 'answer', match: { kind: 'email-reply', asker: 'routine:site' }, then: { answer: 'merge', label: 'Merge it' }, said: 'From now on, replies go.' }, FILED);
+
+  await runDecideCommand(root, ['routine', 'backup'], card({ kind: 'merge-small-fix', question: 'Skip the backup?' }), FILED);
+  await runDecideCommand(root, ['routine', 'site'], card({ kind: 'merge-small-fix', question: 'Merge the schema fix?', reversible: false }), FILED);
+  await runDecideCommand(root, ['routine', 'site'], card({ kind: 'email-reply', question: 'Reply to the landlord?' }), FILED);
+
+  assert.deepEqual(openDecisions(root).map(({ from, kind }) => [from, kind]), [['Routine backup', 'merge-small-fix'], ['Routine site', 'merge-small-fix'], ['Routine site', 'email-reply']]);
+  assert.equal(readEvents(root).some(({ type }) => type === 'decision_recalled'), false);
 });
 
 test('a learn card answered another way, or in the user\'s own words, keeps no rule', async t => {
@@ -322,7 +336,7 @@ test('a learn card answered another way, or in the user\'s own words, keeps no r
 
 test('a rule answers only a routine, only when its answer is a choice, and changed still asks', async t => {
   const root = home(t);
-  saveStandingRule(root, { kind: 'answer', match: { kind: 'merge-small-fix' }, then: { answer: 'merge', label: 'Merge it' }, said: 'From now on, small fixes merge without asking.' }, FILED);
+  saveStandingRule(root, { kind: 'answer', match: { kind: 'merge-small-fix', asker: 'routine:site' }, then: { answer: 'merge', label: 'Merge it' }, said: 'From now on, small fixes merge without asking.' }, FILED);
 
   await runDecideCommand(root, ['work', 'api', 'abc'], card({ kind: 'merge-small-fix' }), FILED);
   await runDecideCommand(root, [], card({ kind: 'merge-small-fix', key: 'other' }), FILED, 'Claude Code');
