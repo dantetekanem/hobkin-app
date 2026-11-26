@@ -58,7 +58,7 @@ const iso = time => new Date(time).toISOString();
 const sourceOf = ({ id }) => String(id ?? '').split(':')[1] ?? '';
 // One line whatever was written, so nothing in it can pass for a line of its own.
 const flat = text => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, LONGEST_LINE);
-const withoutDeskFacts = ({ blocksWork, ...notice }) => notice;
+const withoutDeskFacts = ({ blocksWork, asked, ...notice }) => notice;
 const isItem = notice => ['notice', 'system'].includes(notice.role) && !REPLIES.has(sourceOf(notice));
 
 /** The item the desk levels: its source, its triage, and whether work is stopped until the user acts. */
@@ -242,8 +242,9 @@ export class Desk {
 
   /**
    * What of `fresh`, the lines new to Chat in this refresh, posts now, with what the desk let go since and is not `inChat` already. Each
-   * line the desk lets through carries its `level`. With the desk off, or no `presence` to time a digest, everything posts as before,
-   * and so does what it held. When anything here goes wrong, `fresh` posts as before and the queue stays as it was.
+   * line the desk lets through carries its `level`. A line that is `asked`, the answer to something the user did, is no incoming item
+   * and posts at once. With the desk off, or no `presence` to time a digest, everything posts as before, and so does what it held. When
+   * anything here goes wrong, `fresh` posts as before and the queue stays as it was.
    */
   route(fresh, { presence, busy = false, inChat = new Set() } = {}) {
     const plain = fresh.map(withoutDeskFacts);
@@ -264,7 +265,7 @@ export class Desk {
         const taken = new Set([...Object.keys(queue.seen), ...queue.held.map(({ id }) => id)]);
         fresh.forEach((notice, index) => {
           const line = plain[index];
-          if (!isItem(line)) {
+          if (!isItem(line) || notice.asked) {
             post.push(line);
             return;
           }

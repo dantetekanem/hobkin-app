@@ -162,6 +162,24 @@ test('a useful report waits for the next digest, stays in hobkin pending meanwhi
   }
 });
 
+test('what the user asked for posts at once: a run they started by hand, and the line that says what their yes to a pair did', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    app.lookForReturn();
+    await app.runtime.change(state => { state.runs.mail = finished('mail', 'Useful: The bank wrote back.', h.clock.at, { trigger: 'manual' }); });
+    writeMode(h.root, { ship: { said: iso(h.clock.at - HOUR_MS), notice: { at: iso(h.clock.at), line: 'Both changes merged here.', asked: true } } });
+    const view = await app.refresh();
+
+    assert.deepEqual(linesIn(view, 'The bank wrote back').map(({ content, asked }) => [content, asked]), [['Routine mail: The bank wrote back.', undefined]]);
+    assert.equal(linesIn(view, 'Both changes merged here').length, 1);
+    assert.deepEqual(readHeld(h.root), []);
+    assert.deepEqual(h.ofType('desk_posted'), [], 'an answer to the user is no interruption');
+  } finally {
+    await app.close();
+  }
+});
+
 test('a critical report from work posts at once, marked P0', async t => {
   const h = fixture(t);
   const app = await h.openApp();
