@@ -96,7 +96,7 @@ Nothing runs against `~/.hobkin` or the real calendar in tests.
 
 Phase 0: baseline. hobkin measures before anything changes.
 
-- [ ] S1 (A4, A11). Count from today's events, for two weeks: questions per day by source, and Chat lines and notifications outside any batch.
+- [x] S1 (A4, A11). Count from today's events, for two weeks: questions per day by source, and Chat lines and notifications outside any batch.
 - [ ] S2 (A12). The scenario bank and its runner, scored on today's hobkin. hobkin builds the bank itself from its own history in the user's home, with names and private details taken out, and keeps it local. Outside agents never read it.
 
 Phase 1: the desk. This brings the fastest relief, and it needs no calendar.
@@ -104,7 +104,7 @@ Phase 1: the desk. This brings the fastest relief, and it needs no calendar.
 - [ ] S3 (A4). The four levels on every incoming item. Routines, agents, work mode, reminders and other sessions put items on the desk instead of posting straight to Chat.
 - [ ] S4 (A3, A4). About three digests a day, timed from the user's presence and use, built from the brief and the catch-up and posted in Chat, plus the "what's waiting" view. Before a week of presence data exists, a digest comes when the user returns after a gap.
 - [ ] S5 (A4). Quiet hours learned from when the user is usually away, and an awareness of meetings and focus blocks from the day file (S11). Sounds and notifications follow the levels.
-- [ ] S6. The known bugs. Routine care runs hourly. Recall finds accented words. Report calls are already explicit Action Items that close on Done or Not doing it (67abad4, kept by tests), so only the leftovers go: `reports: []` in `pending.mjs`, the `calling` set in `brief.mjs`, and the prompt and doc lines that still promise calls from `Next:` alone.
+- [x] S6. The known bugs. Routine care runs hourly. Recall finds accented words. Report calls are already explicit Action Items that close on Done or Not doing it (67abad4, kept by tests), so only the leftovers go: `reports: []` in `pending.mjs`, the `calling` set in `brief.mjs`, and the prompt and doc lines that still promise calls from `Next:` alone.
 
 Phase 2: decisions.
 
@@ -115,11 +115,11 @@ Phase 2: decisions.
 
 Phase 3: the day, inside the routines.
 
-- [ ] S11 (A1, A3). When the morning-brief and meetings routines read the calendar through the source hobkin found, as they do today, they also write `runtime/day.json` with working hours, events and free gaps. The main chat reads that file. There is no new poller and no new run.
+- [x] S11 (A1, A3). When the morning-brief and meetings routines read the calendar through the source hobkin found, as they do today, they also write `runtime/day.json` with working hours, events and free gaps. The main chat reads that file. There is no new poller and no new run.
 - [ ] S12 (A1). The morning brief's load line, from the day file, what is committed to that day, and what waits on the user.
 - [ ] S13 (A2). When P1 work lands and the day no longer fits, the next digest says what to move, and a resume note goes with any interruption.
 - [ ] S14 (A10). Openings, from the gaps in the day file: under 15 minutes, a break or up to 3 one-tap cards; 15 to 45 minutes, one bounded task with its checks attached; 60 minutes or more, the next deep task.
-- [ ] S15. The end-of-day routine adds what agents did (including what they did alone), what waits and what runs overnight.
+- [x] S15. The end-of-day routine adds what agents did (including what they did alone), what waits and what runs overnight.
 
 Phase 4: delegation.
 
