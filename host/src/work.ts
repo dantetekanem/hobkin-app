@@ -269,18 +269,14 @@ const gradeOf = (value: unknown): Grade | null => (GRADES.includes(value as Grad
 const count = (amount: number, noun: string) => `${amount} ${noun}${amount === 1 ? '' : 's'}`
 const sentence = (words: string) => `${words.charAt(0).toUpperCase()}${words.slice(1)}${/[.!?]$/.test(words) ? '' : '.'}`
 
-/** Why work mode runs fewer agents than the user chose, as hobkin's terminal says it (`subscriptionLine` in its `src/cli/ui.mjs`). */
+/** Why work mode runs fewer agents than the user chose, in one line. */
 function agentsHeldBy({ agents = 0, agentsAllowed = agents, subscription }: WorkStatus): string | null {
   if (agents >= agentsAllowed) return null
   if (subscription?.known === false) return 'Subscription: not known yet, so one agent runs at a time.'
   return `Work mode runs ${count(agents, 'agent')} at a time for now.`
 }
 
-/*
- * What an approval card says and offers, in hobkin's terminal words: `reviewLine`, `mergeLine`, `mergeWords` and
- * `cardChoices` in its `src/cli/ui.mjs`, which does not export them. They are written out here as they are there,
- * until hobkin exports them.
- */
+/* What an approval card says and offers, in hobkin's words. */
 
 const LONGEST_CARD_LINE = 280
 /** hobkin sends a proof whole up to this, and a card shows a few lines of it and all of it on Show all (`LONGEST_PROOF` in its `src/cli/work/reads.mjs`). */
@@ -483,7 +479,7 @@ export function changeOf(entry: ReadyRow, group: GroupName): FinishedChange {
   }
 }
 
-/** The kinds of finished work that ask for a yes, as the terminal's Decisions sorts them (`branchType` in its `src/cli/ui.mjs`). */
+/** The kinds of finished work that ask for a yes. */
 const asksForAYes = ({ gap = 'land' }: ReadyRow) => !['unlanded', 'elsewhere', 'yours'].includes(gap)
 /** The most urgent first. The sort is stable, so rows of one grade keep the order that puts the easiest yes first. */
 const urgency = ({ grade }: ReadyRow) => (grades.includes(grade ?? '') ? grades.indexOf(grade!) : grades.length)

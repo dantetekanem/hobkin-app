@@ -75,9 +75,9 @@ function withMemoryNote(message: ChatMessage): ChatMessage {
 }
 
 /**
- * hobkin's snapshot as the UI gets it: its top-level keys, and the conversation as the terminal app shows it,
- * without what the user cleared and without messages that have nothing to read, such as a reply stopped
- * before its first word (`isVisible` in hobkin's `src/cli/ui.mjs`). `schedules` gives the routines' rows, and
+ * hobkin's snapshot as the UI gets it: its top-level keys, and the conversation without what the user cleared and
+ * without messages that have nothing to read, such as a reply stopped before its first word. `schedules` gives the
+ * routines' rows, and
  * `work` the work status's projects. A quiet line's note about a memory and the memories' stamp are read without trust.
  */
 export function toWire(

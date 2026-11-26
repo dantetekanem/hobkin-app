@@ -28,8 +28,8 @@ export const isGoal = (project: Pick<WorkProject, 'kind'>): boolean => project.k
 const plural = (amount: number, one: string, many = `${one}s`) => `${amount} ${amount === 1 ? one : many}`
 
 /**
- * What a project has going, as the terminal's Work tab says it (`projectStatus` in hobkin's `src/cli/ui.mjs`). A goal says
- * Goal, then its steps to do, done and left for the user, always: it has no pull requests or branches to count.
+ * What a project has going, in hobkin's words. A goal says Goal, then its steps to do, done and left for the user,
+ * always: it has no pull requests or branches to count.
  */
 export function projectFacts(project: WorkProject, now: number): string {
   const next = timeOf(project.nextLookAt)

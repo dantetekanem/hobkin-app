@@ -49,10 +49,10 @@ interface Open {
 const GONE = 'That question is no longer open.'
 
 /**
- * hobkin's `askQuestion`, answered through the UI. The rules are the terminal dashboard's (`askQuestion` in
- * hobkin's `src/cli/ui.mjs`): one question at a time, a question someone waits on takes the place of one nobody
- * waits on, and a question that times out or is put off resolves to null, which hobkin files under Action items,
- * the main agent's own questions included. Undefined means it could not be asked at all, and hobkin tries again later.
+ * hobkin's `askQuestion`, answered through the UI. One question at a time, a question someone waits on takes the
+ * place of one nobody waits on, and a question that times out or is put off resolves to null, which hobkin files under
+ * Action items, the main agent's own questions included. Undefined means it could not be asked at all, and hobkin
+ * tries again later.
  */
 export class Questions {
   private open: Open | null = null

@@ -7,12 +7,11 @@ import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { Unavailable } from './commands.ts'
 
 /**
- * The slash commands of the message input: hobkin's own, as the terminal app has them, and the ones Pi offers
- * for the main session, or on an agent's page for that agent's own session. Each run is counted in the home, so the
- * list can put the most used first.
+ * The slash commands of the message input: hobkin's own, and the ones Pi offers for the main session, or on an
+ * agent's page for that agent's own session. Each run is counted in the home, so the list can put the most used first.
  */
 
-/** hobkin's commands and their one line each, in the terminal app's order (`localCommands` in `src/cli/ui.mjs`). */
+/** hobkin's own commands and their one line each. */
 const HOBKIN_COMMANDS: readonly [name: string, description: string][] = [
   ['/help', 'what hobkin can do'],
   ['/setup', 'get hobkin ready'],
@@ -24,12 +23,12 @@ const HOBKIN_COMMANDS: readonly [name: string, description: string][] = [
   ['/feedback', 'report a bug or an idea (not built yet)'],
 ]
 
-// What the terminal app sends and says for these (`src/cli/ui.mjs`).
+// What /setup sends to hobkin, and what /learning says as it turns learning on or off.
 const SETUP_REQUEST = 'Help me set up hobkin.'
 const LEARNING_ON = 'Learning on. Every agent now gets what past outcomes taught. Run hobkin learning to see it.'
 const LEARNING_OFF = 'Learning off. Nothing is judged, and agents get nothing.'
 
-/** The terminal app's help, without the command the app answers Unavailable for, and with the one the app adds. */
+/** hobkin's help (`src/prompts/help.md`), without the command the app answers Unavailable for, and with the one it adds. */
 export const helpGuide = () =>
   readFileSync(fileURLToPath(import.meta.resolve('hobkin/src/prompts/help.md')), 'utf8')
     .trim()

@@ -1,7 +1,7 @@
 /**
- * What hobkin says in the bubble by its face: what it is doing while it works, and the terminal app's greeting and
- * tips while it waits. The words, the tips and the clock they follow are hobkin's own (`src/cli/ui.mjs:155-228`,
- * `src/cli/doing.mjs`). Pure, so the rules are tested without a window.
+ * What hobkin says in the bubble by its face: what it is doing while it works, and a greeting and tips while it
+ * waits. The words for what it is doing are hobkin's own (`src/cli/doing.mjs`). Pure, so the rules are tested without
+ * a window.
  */
 
 /** The greeting shows for the first 30 seconds after the window opens. */

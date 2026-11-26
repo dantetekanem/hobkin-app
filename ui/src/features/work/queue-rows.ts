@@ -10,8 +10,7 @@ export const SHOWN_SHUT = 5
 
 /**
  * The rows in sight: waiting ones in hobkin's order, then skipped ones. Shut, the first five show, and every P0 among
- * them even past five, as the terminal keeps every P0 in sight (`rowsInSight` in hobkin's `src/cli/ui.mjs`). Open,
- * all of them. `hidden` is how many the shut queue holds back.
+ * them even past five, so no P0 is out of sight. Open, all of them. `hidden` is how many the shut queue holds back.
  */
 export function queueInSight(queue: readonly QueueRow[], open: boolean, most = SHOWN_SHUT): { rows: QueueRow[]; hidden: number } {
   const ordered = [...queue.filter(({ skipped }) => !skipped), ...queue.filter(({ skipped }) => skipped)]

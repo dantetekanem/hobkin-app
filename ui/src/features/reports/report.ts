@@ -2,8 +2,8 @@ import type { ReportReadState } from '#shared/protocol/reports.ts'
 
 /**
  * A report as hobkin lists it (`src/cli/application.mjs`, `project`): what one finished run brought back.
- * Everything here reads a report the way hobkin's terminal app does (`src/cli/reports.mjs`, `src/cli/ui.mjs`),
- * so both front ends say the same thing about it. Pure, so the rules can be tested without a window.
+ * Everything here reads a report the way hobkin does (`src/cli/reports.mjs`), so hobkin and the window say the same
+ * thing about it. Pure, so the rules can be tested without a window.
  * Spec: 012-reports-actions.
  */
 export interface Report {

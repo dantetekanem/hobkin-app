@@ -233,7 +233,7 @@ export function commandFor(action: WorkAction): WorkCall {
     case 'change': {
       const { slug, item, head } = action.change
       const { choice } = action
-      // "Have an agent rebase it" is a note with no words, and typed changes are the note (`cardRequest` in hobkin's `src/cli/ui.mjs`).
+      // "Have an agent rebase it" is a note with no words, and typed changes are the note.
       if (choice === 'rebase' || choice === 'changes') return { name: 'work.change', args: { slug, item, action: 'ask', note: choice === 'changes' ? (action.note ?? '') : '' } }
       // A landing is pinned to the commit the card showed, so a change that moved since is refused.
       const lands = choice === 'merge' || choice === 'mergePr' || choice === 'refreshMerge'

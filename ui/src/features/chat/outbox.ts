@@ -29,9 +29,8 @@ export interface Outbox {
 export const emptyOutbox: Outbox = { entries: [], delivered: [] }
 
 /**
- * What is still waiting once the stored conversation has moved on. The rule is the terminal app's
- * (`settleOutbox` in hobkin's `src/cli/ui.mjs`): a message leaves when the conversation shows a user message
- * stored after it was sent, or when hobkin took it and the turn ended without it. A copy with the same words is
+ * What is still waiting once the stored conversation has moved on. A message leaves when the conversation shows a
+ * user message stored after it was sent, or when hobkin took it and the turn ended without it. A copy with the same words is
  * matched first, since Pi reads what steers a turn before what follows it up, whichever was sent first.
  * Returns the same outbox when nothing changed.
  */

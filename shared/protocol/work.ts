@@ -217,9 +217,9 @@ export type FinishedGroupName = 'merge' | 'refresh' | 'needs' | 'left'
 export type Landing = 'merge' | 'mergePr' | 'refreshMerge'
 
 /**
- * What a card offers, in hobkin's words and order (`cardChoices` in its `src/cli/ui.mjs`). `diff` is the terminal's
- * "Show the diff", which here opens the change in Change Review. `open` opens the PR. `done` is hobkin's own done,
- * "Close without merging": the item is closed and its branch, or PR, stays as it is, unmerged.
+ * What a card offers, in hobkin's words and order. `diff` is "Show the diff", which opens the change in Change Review.
+ * `open` opens the PR. `done` is hobkin's own done, "Close without merging": the item is closed and its branch, or PR,
+ * stays as it is, unmerged.
  */
 export type ChangeChoice = Landing | 'rebase' | 'diff' | 'open' | 'review' | 'decline' | 'done'
 

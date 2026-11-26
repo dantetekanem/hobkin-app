@@ -232,7 +232,7 @@ export const childrenFrom = (snapshot: WireSnapshot, runId: string, freshness?: 
 
 export const mainChildrenFrom = (snapshot: WireSnapshot, freshness?: ChildFreshness): readonly RunChild[] => projectChildren(snapshot.mainChildren ?? NO_CHILDREN, snapshot, freshness)
 
-/** What waits on the user: open questions, plus every row hobkin counts as waiting (`decisionCount` in its `src/cli/ui.mjs`). */
+/** What waits on the user: open questions, plus every row hobkin counts as waiting. */
 export function actionItemCountFrom(snapshot: WireSnapshot): number {
   const rows = Object.values(snapshot.waiting ?? {}).reduce<number>((sum, value) => sum + (Array.isArray(value) ? value.length : 0), 0)
   return (snapshot.decisions?.length ?? 0) + rows

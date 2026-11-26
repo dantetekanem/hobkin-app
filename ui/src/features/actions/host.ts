@@ -42,8 +42,7 @@ const PI_DIRECTIONS_CHOICES = [
 ]
 
 /**
- * What a learning proposal offers, in the words hobkin's terminal uses for it (`learningChoicesFor` in its
- * `src/cli/ui.mjs`). A proposal about a repo is never asked again for that repo.
+ * What a learning proposal offers, in hobkin's words. A proposal about a repo is never asked again for that repo.
  */
 const learningChoices = (scope: string) =>
   scope === 'pi-directions'
