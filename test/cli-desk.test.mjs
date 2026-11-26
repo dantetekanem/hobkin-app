@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { deliveryFor, digestDue, itemLevel, learnMoments, learnQuietHours, nextDigestAt } from '../src/cli/desk.mjs';
+import { deliveryFor, digestDue, itemLevel, learnMoments, learnQuietHours, nextDigestAt, userDay } from '../src/cli/desk.mjs';
 
 // Every date here is in November 2026, after the clocks went back, so Toronto is five hours behind UTC all month.
 const timeZone = 'America/Toronto';
@@ -81,6 +81,14 @@ test('a night past midnight belongs to the day it started, so a late stop is tha
   const days = usualDays.map(({ date }) => ({ date, first: '10:00', breaks: [['14:00', '15:00']], stop: '01:00', stopOn: dayAfter(date) }));
   assert.deepEqual(learnMoments(workdays(days), { now: usualNow, days: 14, timeZone }).moments,
     [{ at: '10:00', why: 'first' }, { at: '15:00', why: 'return' }, { at: '00:30', why: 'stop' }]);
+});
+
+test('the user\'s day turns at 04:00 on the clock, on the days the clocks change too', () => {
+  // On 2026-03-08 Toronto's clocks go from 02:00 to 03:00, and on 2026-11-01 from 02:00 back to 01:00.
+  assert.deepEqual(userDay(Date.parse('2026-03-08T03:30:00-04:00'), timeZone), { date: '2026-03-07', minute: 23 * 60 + 30 });
+  assert.deepEqual(userDay(Date.parse('2026-03-08T04:30:00-04:00'), timeZone), { date: '2026-03-08', minute: 30 });
+  assert.deepEqual(userDay(Date.parse('2026-11-01T03:30:00-05:00'), timeZone), { date: '2026-10-31', minute: 23 * 60 + 30 });
+  assert.deepEqual(userDay(Date.parse('2026-11-01T04:30:00-05:00'), timeZone), { date: '2026-11-01', minute: 30 });
 });
 
 test('quiet hours are the hours the user was on in fewer than half their days', () => {

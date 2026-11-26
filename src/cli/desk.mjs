@@ -41,8 +41,18 @@ function wallClock(time, timeZone) {
   return { date: `${parts.year}-${parts.month}-${parts.day}`, hour, minute: hour * 60 + Number(parts.minute) };
 }
 
-/** The user's day at `time` and its minute counted from when that day turns. */
-const userDay = (time, timeZone) => wallClock(time - DAY_TURNS_MINUTES * MINUTE_MS, timeZone);
+const dateBefore = date => new Date(Date.parse(`${date}T12:00:00Z`) - DAY_MS).toISOString().slice(0, 10);
+
+/**
+ * The user's day at `time` in `timeZone` and its minute counted from when that day turns. It turns at 04:00 on the clock, so it is
+ * read from the clock time and not from four real hours before, which a day the clocks change would put an hour off.
+ */
+export function userDay(time, timeZone = machineZone()) {
+  const { date, minute } = wallClock(time, timeZone);
+  return minute >= DAY_TURNS_MINUTES
+    ? { date, minute: minute - DAY_TURNS_MINUTES }
+    : { date: dateBefore(date), minute: minute + DAY_MINUTES - DAY_TURNS_MINUTES };
+}
 
 const fromUserMinute = minute => (minute + DAY_TURNS_MINUTES) % DAY_MINUTES;
 const toUserMinute = minute => (minute - DAY_TURNS_MINUTES + DAY_MINUTES) % DAY_MINUTES;
