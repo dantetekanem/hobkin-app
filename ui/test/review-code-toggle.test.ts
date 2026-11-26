@@ -32,6 +32,20 @@ test('Enter opens the code of the node in focus, and Enter again closes it and p
   assert.deepEqual(where(session.getState()), before, 'the review is back as it was before the code opened')
 })
 
+test('navigation to another code file drops selected lines before starting a note', () => {
+  const session = createSession(sample, createReviewMemory(memoryStorage()))
+  session.getState().goTo(3)
+  press(session, 'Enter')
+  const anchor = session.getState().nodeOf.get(session.getState().code!)!.anchors[0]!
+  session.getState().selectLines({ kind: 'lines', fileId: anchor.fileId, side: anchor.side, startLine: anchor.startLine, endLine: anchor.startLine, hash: 'h' })
+  session.getState().goTo(5)
+  const next = session.getState().nodeOf.get(session.getState().code!)!.anchors[0]!
+  assert.notEqual(next.fileId, anchor.fileId)
+  session.getState().startNote('comment')
+  assert.deepEqual(session.getState().editor?.target, { kind: 'step' })
+  assert.equal(session.getState().selection, null)
+})
+
 test('a move while the code is open keeps the reviewer where they went once Enter closes it, and Escape still closes it as before', () => {
   const session = createSession(sample, createReviewMemory(memoryStorage()))
   session.getState().goTo(3)

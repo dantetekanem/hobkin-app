@@ -190,7 +190,9 @@ export function CodePanel({ height, windowHeight, units, ask }: {
 
   const select = (tab: Tab) => {
     setFileOf((before) => ({ ...before, [tab.node.id]: tab.fileId }))
-    store.getState().showCode(tab.node.id)
+    const session = store.getState()
+    if (session.selection && session.selection.fileId !== tab.fileId) session.selectLines(null)
+    session.showCode(tab.node.id)
   }
   const resize = (share: number) => reviewMemory.getState().setPanelShare(clampShare(share))
 
