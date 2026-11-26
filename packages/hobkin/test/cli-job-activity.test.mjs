@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { JobActivity, MOST_OUTPUT, MOST_STEPS } from '../src/cli/job-activity.mjs';
-import { runStepOutput, runStepsBefore } from '../src/cli/run-steps.mjs';
+import { runStepOutput, runSteps, runStepsBefore } from '../src/cli/run-steps.mjs';
 import * as activity from '../src/cli/job-activity.mjs';
 
 const update = (type, extra = {}) => ({ type: 'message_update', assistantMessageEvent: { type, contentIndex: 0, ...extra } });
@@ -472,4 +472,33 @@ test('a feed at its cap that takes a new step keeps the objects of the steps tha
   }
   assert.ok(copies.mock.callCount() <= 1000, `${copies.mock.callCount()} copies for 1,000 steps past the cap`);
   assert.deepEqual(feed.snapshot().map(entry => entry.id), feed.entries.map(entry => entry.id));
+});
+
+test('a long saved run reads back in a time that grows with its length, not with its square', t => {
+  const folder = mkdtempSync(join(tmpdir(), 'hobkin-run-steps-'));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const file = join(folder, 'long.jsonl');
+  // 20,000 tool calls, each said and answered: 40,000 steps, as a run that works for hours saves them.
+  const start = Date.parse('2026-11-01T09:00:00.000Z');
+  const lines = [JSON.stringify({ type: 'session', version: 3, id: 'long', timestamp: new Date(start).toISOString(), cwd: '/work' })];
+  let parent = null;
+  const save = message => {
+    const id = `e${lines.length}`;
+    const at = start + lines.length * 10;
+    lines.push(JSON.stringify({ type: 'message', id, parentId: parent, timestamp: new Date(at).toISOString(), message: { ...message, timestamp: at } }));
+    parent = id;
+  };
+  for (let i = 0; i < 20_000; i++) {
+    save({ role: 'assistant', content: [{ type: 'text', text: `Step ${i}.` }, { type: 'toolCall', id: `c${i}`, name: 'bash', arguments: { command: `echo ${i}` } }] });
+    save({ role: 'toolResult', toolCallId: `c${i}`, toolName: 'bash', content: [{ type: 'text', text: `${i}` }], isError: false });
+  }
+  writeFileSync(file, `${lines.join('\n')}\n`);
+
+  const started = performance.now();
+  const steps = runSteps(file);
+  const ms = performance.now() - started;
+  assert.equal(steps.length, 40_000);
+  assert.deepEqual([steps[1].output, steps.at(-1).output], ['0', '19999']);
+  // Read as before, each message's end looked at every step so far: 8 s on the machine this was written on.
+  assert.ok(ms < 1500, `${ms.toFixed(0)} ms for 40,000 steps`);
 });

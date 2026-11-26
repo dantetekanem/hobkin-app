@@ -117,6 +117,11 @@ export class JobActivity {
   whole = true;
   /** Each entry by its id, so the entry an event writes to is found without walking the feed. */
   byId = new Map();
+  /**
+   * The message whose words were last put in the feed (`text`). A message's end walks the feed for words it no longer holds only
+   * when it put some there, so a feed that takes each message whole, as a saved run is read back, never walks it.
+   */
+  said = -1;
 
   /**
    * `most` keeps only the latest entries, for a feed with no end such as the main chat's. `mostOutput` bounds each tool's output
@@ -165,7 +170,10 @@ export class JobActivity {
     if (!Number.isInteger(index) || index < 0 || typeof value !== 'string') return;
     const id = `message:${this.message}:${index}`;
     let entry = this.byId.get(id);
-    if (!entry) entry = this.add({ id, kind: 'assistant', text: '' });
+    if (!entry) {
+      entry = this.add({ id, kind: 'assistant', text: '' });
+      this.said = this.message;
+    }
     // The kept text is already clean, and two clean texts make a clean one, so only the new part is cleaned.
     const text = append ? entry.text + clean(value) : clean(value);
     if (text === entry.text) return;
@@ -234,14 +242,16 @@ export class JobActivity {
         && this.visibleMessage(event.message)) {
         const content = typeof event.message.content === 'string' ? [{ type: 'text', text: event.message.content }] : event.message.content;
         if (!Array.isArray(content)) return;
-        const ids = new Set(content.flatMap((part, index) =>
-          part?.type === 'text' && part.display !== false ? [`message:${this.message}:${index}`] : []));
-        const kept = this.entries.filter(entry =>
-          !entry.id.startsWith(`message:${this.message}:`) || ids.has(entry.id));
-        if (kept.length !== this.entries.length) {
-          this.entries = kept;
-          this.byId = new Map(kept.map(entry => [entry.id, entry]));
-          this.changed();
+        if (this.said === this.message) {
+          const ids = new Set(content.flatMap((part, index) =>
+            part?.type === 'text' && part.display !== false ? [`message:${this.message}:${index}`] : []));
+          const kept = this.entries.filter(entry =>
+            !entry.id.startsWith(`message:${this.message}:`) || ids.has(entry.id));
+          if (kept.length !== this.entries.length) {
+            this.entries = kept;
+            this.byId = new Map(kept.map(entry => [entry.id, entry]));
+            this.changed();
+          }
         }
         content.forEach((part, index) => {
           if (part?.display === false) return;
