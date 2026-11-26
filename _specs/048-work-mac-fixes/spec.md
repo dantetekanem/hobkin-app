@@ -48,7 +48,7 @@ The fixes the user made on their work Mac, which stayed uncommitted there, are r
 - [x] S1 (A3). The canvas only when asked: hobkin ef6d989, client dcf4d4b.
 - [x] S2 (A1, A2). Performance with subagents running: 938ef44 (44), e8a831a, 8d3f2ce, 1f2b259, de62b84, 3057f50; 28 and 29 in the window: cc55aa3, d043796.
 - [x] S3 (A1, A2). In hobkin: 3b79dd7 (24), b48126c (41, Esc), 7d42a93 (33), b46fe91 (23), 3d97be9 (29); performance 634de70, b070dd4, e63dcc8, 5660fb5.
-- [x] S4 (A1, A2). Change Review: cdab6f5 (40), 7395763 (31, 41), d23d256 (18), b3d28c5 (38), e4eaad2 (25, 9), de78112 (17), e3cb12d (10), e4e897f (46), 83dba4e (16), 6bbfbe5 (42), 076ebaf (37), 13a7f2a and ea5d50e (40, the title link); other code hosts e94c020, a912a70, 6ed0130, a8c082c, 519a5c0, 85b6336 (13), 30fadec (15), 5c7538a, 65ea1a8, 636d742 (26), 4ff4905, 5a58c39, b0c208f, 1cf4de0 (27).
+- [x] S4 (A1, A2). Change Review: cdab6f5 (40), 7395763 (31, 41), d23d256 (18), b3d28c5 (38), e4eaad2 (25, 9), de78112 (17), e3cb12d (10), e4e897f (46), 83dba4e (16), 6bbfbe5 (42), 076ebaf (37), 13a7f2a and ea5d50e (40, the title link); other code hosts e94c020, a912a70, 6ed0130, a8c082c, 519a5c0, 85b6336 (13; 79891f1 shows it on a Mac without gh), 30fadec (15), 5c7538a, 65ea1a8, 636d742 (26), 4ff4905, 5a58c39, b0c208f, 1cf4de0 (27).
 - [x] S5 (A1). Review window: 5461c60 (43), 63d2cdf (19), f43bc28 (14).
 - [x] S6 (A1). Setup and routines: 03688b4 (3), a42fa73 (5), 6176739 (6), 514728b (21), b5abf50 (8), 6ffea4d (11), 584d331 (7), 266b93a (20).
 - [x] S7 (A1). Views: 388e3f9 (30), 876048f and 755c659 (32), f8616cd (34).
