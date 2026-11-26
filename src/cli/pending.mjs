@@ -80,6 +80,10 @@ function readyFact(rows) {
 
 const row = (name, label, items, fact) => (items.length ? [{ name, count: items.length, label, fact: fact() }] : []);
 
+// What the desk holds for the next digest (075) is only here until the digest posts it, so its row lists every line.
+const heldRow = (held, now) => row('held', 'for the next digest', held, () => `oldest ${oldest(held, now)}`)
+  .map(group => ({ ...group, items: held.map(({ level, content, at }) => ({ level, line: content, at })) }));
+
 /**
  * Everything the card counts, one row each, for Action Items to list under the questions and items it already holds.
  * `asks` are work mode's questions and `proposals` learning's. Nothing here reads or writes anything.
@@ -95,8 +99,11 @@ export function waitingRows({ ready = [], attention = [], proposals = [], launch
   };
 }
 
-/** What waits on the user, across every routine and work mode, one row per group. Each fact is worked out from what is given, and nothing here reads or writes anything. */
-export function pendingCard({ decisions = [], now, ...given }) {
+/**
+ * What waits on the user, across every routine and work mode, one row per group. Each fact is worked out from what is given, and nothing here reads or writes anything.
+ * `held` is what the desk holds for the next digest, as `readHeld` gives it.
+ */
+export function pendingCard({ decisions = [], held = [], now, ...given }) {
   const { wrong, asks, proposals, branches, yours } = waitingRows({ now, ...given });
   const landable = branches.filter(isReady);
   const branchesToRead = branches.filter(isToRead);
@@ -110,6 +117,7 @@ export function pendingCard({ decisions = [], now, ...given }) {
     ...row('questions', questions.length === 1 ? 'question' : 'questions', questions, () => questionFact(questions, now)),
     ...row('todo', 'to do', toDo, () => toDo[0].tldr),
     ...row('yours', 'yours', yours, () => yours.slice(0, 2).map(({ title }) => title).join(', ')),
+    ...heldRow(held, now),
   ];
   const total = groups.reduce((sum, { count }) => sum + count, 0);
   return { total, groups };

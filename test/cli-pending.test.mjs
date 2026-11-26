@@ -215,3 +215,23 @@ test('a terminal that lost focus, a screen in use or a running turn keeps a ques
   assert.equal(canShowCard({ presence: { ...free, occupied: true }, busy: false, now: NOW }), false);
   assert.equal(canShowCard({ presence: free, busy: true, now: NOW }), false);
 });
+
+test('what the desk holds for the next digest waits here, every line of it, until the digest posts it', () => {
+  const held = [
+    { level: 'P1', content: 'Routine lease: The lease needs a signature.', at: ago(3) },
+    { level: 'P2', content: 'Routine mail: The bank wrote back.', at: ago(1) },
+  ];
+
+  assert.deepEqual(groupOf(card({ held }), 'held'), {
+    name: 'held',
+    count: 2,
+    label: 'for the next digest',
+    fact: 'oldest 3 hours',
+    items: [
+      { level: 'P1', line: 'Routine lease: The lease needs a signature.', at: ago(3) },
+      { level: 'P2', line: 'Routine mail: The bank wrote back.', at: ago(1) },
+    ],
+  });
+  assert.equal(card({ held }).total, 2);
+  assert.deepEqual(card({ held: [] }), { total: 0, groups: [] });
+});
