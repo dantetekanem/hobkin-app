@@ -90,11 +90,14 @@ const OWN_AT_HOME: Names = [
 ]
 const OWN_IN_RUNTIME: Names = [
   'answers.md', // decided.mjs
+  'autonomy.json', // autonomy.mjs: each task class's autonomy level and its clean runs
   'brief.json', // brief.mjs
   'catch-up.json', // catch-up.mjs: when the last catch-up was written and the day the daily one last came
   'catch-up-asked.json', // catch-up.mjs: a catch-up `hobkin reports catch-up` asked for, until the running hobkin takes it
   'client-notices.jsonl', // client-notices.mjs
+  'day.json', // day.mjs: the day the morning brief planned and the evening close
   'deleted-reports.json', // reports.mjs
+  'desk.json', // desk-queue.mjs: what the desk holds for a digest and what it has let go
   'events', // events.mjs
   'handoffs', // session.mjs, session-jobs.mjs, session-log.mjs
   'hobkin.sqlite', // runtime.mjs, and beside it SQLite's own files, which `backupNow` leaves out
@@ -106,11 +109,14 @@ const OWN_IN_RUNTIME: Names = [
   'lessons.md', // learning/store.mjs
   'lock-holder.json', // home-lock.mjs
   'memory-index.json', // memory-index.mjs
+  'memory-use.jsonl', // memory-use.mjs: recalls and index builds
   'pasted', // paste-image.mjs
+  'pi-directions.json', // learning/pi-directions.mjs: the version of Pi's AGENTS.md last looked at and its proposal
   'presentation.json', // view.mjs
   'remote.json', // remote/credentials.mjs
   'report-attention.json', // telemetry.mjs
   'session-requests', // session.mjs, session-jobs.mjs
+  'standing-rules.json', // standing-rules.mjs, outward-guard-extension.mjs: the user's standing decision rules
   'telemetry.jsonl', // telemetry.mjs
   'tell-requests', // hobkin-tell.mjs
   'templates-seen.json', // routine-templates.mjs
