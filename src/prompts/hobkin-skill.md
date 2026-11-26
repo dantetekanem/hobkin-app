@@ -41,7 +41,11 @@ hobkin decide --from "Claude Code" <<'JSON'
 JSON
 ```
 
+Add what you know about the choice. `sure` is how sure you are of `recommended`: `high`, `medium` or `low`. `reversible` is `true` when it can be undone later, and `false` when it cannot. A reversible question can have a `deadline`, an ISO time such as `2026-11-26T17:00:00Z`: when the user has not answered by then, it takes `recommended`. `kind` is a short class in lowercase words joined by hyphens, such as `merge-small-fix`, the same each time this sort of question comes up. With `"learn": true` and a `rule` that says it back, such as "From now on, small fixes on the site merge without asking.", the user's yes to `recommended` becomes a standing rule.
+
 This session never hears the answer. hobkin's main agent does, and acts on it there, so carry on with what you have and never wait for it.
+
+Before you ask, read `hobkin decisions rules`. When a standing rule the user set already answers your question, follow it instead of asking, and tell the user in one line which rule you followed.
 
 **A fact** about the user or how they like things is saved at once as a memory every agent hobkin runs reads, from your session, and hobkin's main agent hears of it with the user's next message there. Hand over one fact at a time, in a sentence that reads alone, and never a password, a key, a token or an account number, which hobkin refuses:
 
@@ -62,13 +66,14 @@ These read saved state. They start nothing and call no model:
 | `hobkin routines templates` | Routine templates as JSON, hobkin's and the user's own from `routines/templates/`: `id`, `title`, `summary`, `recurrence`, `group`, `needs`, `effort`, `fits`, `asks`, `version` and `file`, then the `rules` every routine made from one keeps, and any template it could not read. |
 | `hobkin reports` | Every report as JSON, newest first: `id`, `title`, `routineId`, `at`, `body`, `outcome` and `read`. |
 | `hobkin telemetry [--days n]` | What happened in hobkin as JSON, 30 days by default: events by type and day, runs by routine and project, mean durations, what reached the user beside what they acted on, and a `scoreboard` of what hobkin brought, what came of it and what it settled alone. Facts only, never text. |
-| `hobkin telemetry questions [--days n]` | Questions filed per day by source, as JSON. `ended` says how each ended: `answered`, `settled` by hobkin from evidence, `handed` to hobkin, `later` when the user put it off, or `open`. Also the median time to answer, and `whileAway`: whether the user was `away`, `on` or `unknown` when each came. `sheet` counts the terminal's questions apart. |
+| `hobkin telemetry questions [--days n]` | Questions filed per day by source, as JSON. `ended` says how each ended: `answered`, `settled` by hobkin from evidence or by its pick at its deadline, `handed` to hobkin, `later` when the user put it off, or `open`. Also the median time to answer, `whileAway`: whether the user was `away`, `on` or `unknown` when each came, `repeats`: questions asked again on a topic already answered, and `notAsked`: those answered with nothing filed, from an `earlierAnswer` or a `standingRule`. `sheet` counts the terminal's questions apart. |
 | `hobkin telemetry interruptions [--days n]` | Chat notices per day by source and tone, as JSON, and `byHour`, the count in each local hour. |
 | `hobkin telemetry presence [--days n]` | When the user is on, as JSON: for each day the first sighting, each return after 15 minutes or more away with `awayMs`, and the time on, then `minutesOnByHour` for each local hour. On means using hobkin's window. |
 | `hobkin telemetry memory [--days n]` | Which shared memories agents used, as JSON: `used` with each memory's `recalls`, how often it was in an agent's index (`indexed`), when it was last used and by whom, and `unused`, the shared memories nobody used in that time. Private memories are left out. |
 | `hobkin telemetry autonomy` | How much each task class may do alone, as JSON, from the local ledger in `runtime/autonomy.json`. For each class: its `level` (`draft`, `recommend`, `deadline`, `report` or `log`), `cleanStreak`, `overrides`, `undos`, `medianReviewMinutes` and whether `promotionDue`. A class is `<kind>` or `<kind>:<project slug>`. `--days` does not narrow it. |
 | `hobkin telemetry outward [--days n]` | Outward calls agents made, as JSON: `attempts`, then `byKind` (`send`, `calendar-write`, `spend`, `delete` or `post`), `byVerdict` (`allowed-by-rule`, `allowed-by-ask` or `would-block`), `byRun` (`main`, `routine`, `session`, `work`, `durable` or `unknown`) and `wouldBlock`, the count of each kind a guard would have blocked, in total and for each day in `byDay`. Nothing is blocked yet. Facts only, never what was sent or to whom. |
 | `hobkin telemetry help` | Each telemetry view in one line. |
+| `hobkin decisions rules` | The standing rules the user set, as JSON: each with its `id`, what it matches, what follows and `said`, the sentence it was said back in. |
 | `hobkin pending` | What is waiting on the user, across every routine and work mode, as JSON: the `total`, and one row per group with a `count`, a `label` and a short `fact`. |
 | `hobkin history` | History imported from the older Pi extension as JSON. Not recent runs. |
 | `hobkin skill` | This file. |
@@ -95,6 +100,7 @@ These change things. Use them only when the user asked, except the three in Hand
 | Command | Effect |
 | --- | --- |
 | `hobkin remind`, `hobkin decide --from`, `hobkin remember` | Hand hobkin a reminder, a question or a fact, as above. |
+| `hobkin decisions rules forget <id>` | Removes a standing rule, so hobkin asks about that kind again. |
 | `hobkin skill install [--to <folder>]` | Writes this file to `<folder>/hobkin/SKILL.md`, `~/.pi/agent/skills` by default, and changes nothing else. |
 | `hobkin work add item <project> <title>`, `trigger`, `pause`, `cancel`, `priority`, `prs`, `grade`, `sync`, ... | Each prints `ok` and a `message`. See `hobkin work help`. |
 | `hobkin work trouble <project> <item> [severe] [why]` | Records that a merge went wrong and files an urgent fix. Nothing is rolled back. |

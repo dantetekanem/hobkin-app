@@ -82,8 +82,13 @@ Only ask what you cannot settle yourself and what changes the next run. A yes yo
 - `key` stays the same each time you ask this question, whatever words you use. Without one, hobkin makes it from the question's text.
 - `recommended` is the value of the choice you would take. The tab marks it and keeps your order, so put the harmless choice first, because Enter takes the first.
 - `why` says in a sentence why only the user can answer.
+- `sure` says how sure you are of `recommended`: `high`, `medium` or `low`.
+- `reversible` is `true` when the choice can be undone later, and `false` when it cannot.
+- `deadline` is an ISO time still to come, such as `2026-11-26T17:00:00Z`. A reversible question with `recommended` takes that choice at its deadline when the user has not answered, and the answer reaches you the same way. Give one when waiting costs more than a pick that can be undone.
+- `kind` is a short class for this sort of question, in lowercase words joined by hyphens, such as `routine-time` or `merge-small-fix`. Use the same kind each time this sort of question comes up, so an earlier decision can answer it.
+- `learn` is `true` when one answer should settle every later question of this kind. Then `rule` says the rule back in one sentence, such as "From now on, small dependency bumps on the site merge without asking." When the user takes `recommended`, hobkin keeps it as a standing rule. The question is the read-back, so never ask again to confirm it. Ask one when the same doubt will come back, because one answer then settles many cases.
 
-The same question twice is the worst thing you can ask. If the user answered this key in the last 30 days, the command files nothing and returns that answer with its date, so carry on with it. If something has really changed, ask again with `"changed": "what is new"`.
+The same question twice is the worst thing you can ask. If the user answered this key in the last 30 days, the command files nothing and returns that answer with its date, so carry on with it. The same goes for a standing rule the user set for this `kind`: the command returns its answer with the date and the rule's words. Carry on with it, and say in your report which rule you followed. If something has really changed, ask again with `"changed": "what is new"`.
 
 ## Something for the user to do
 
