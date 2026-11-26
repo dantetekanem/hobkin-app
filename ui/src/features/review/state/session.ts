@@ -458,6 +458,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         opened: null,
         // An open code panel follows the story, so stepping with code on screen reads like a tour.
         code,
+        // A different code target may show a different file; its previous lines no longer apply.
+        selection: code !== before.code ? null : before.selection,
       })
     }
     const graph = () => ({ ...review, ...get().view })
@@ -597,7 +599,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         if (get().look === 'code') return followInCode([target]), true
         // A folded test shows its own code, with its card in focus.
         if (nodeId && !focus.includes(drawnAs(view, nodeId))) get().focusOn(nodeId)
-        set({ code: target, wire: null, ...(get().code == null ? { codeAt: (openedCount += 1) } : {}) })
+        set({ code: target, wire: null, ...(get().code !== target ? { selection: null } : {}), ...(get().code == null ? { codeAt: (openedCount += 1) } : {}) })
         markSeen(reviewNodesOf(get().view, target))
         return true
       },
@@ -751,14 +753,14 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       showCode: (nodeId) => {
         if (get().look === 'code') return followInCode([nodeId])
         if (get().code == null || !get().nodeOf.has(nodeId)) return
-        set({ code: nodeId })
+        set({ code: nodeId, ...(get().code !== nodeId ? { selection: null } : {}) })
         markSeen(reviewNodesOf(get().view, nodeId))
       },
       showTest: (testId) => {
         if (!get().nodeOf.has(testId)) return false
         if (get().look === 'code') return followInCode([testId]), true
         beforeCode = null
-        set({ code: testId, wire: null, ...(get().code == null ? { codeAt: (openedCount += 1) } : {}) })
+        set({ code: testId, wire: null, ...(get().code !== testId ? { selection: null } : {}), ...(get().code == null ? { codeAt: (openedCount += 1) } : {}) })
         markSeen([testId])
         return true
       },
