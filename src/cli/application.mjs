@@ -80,6 +80,8 @@ import { readingUsage } from './work/usage.mjs';
 import { atomicJson, learningEnabled, loadConfig, readPersona, setLearning } from './config.mjs';
 import { runLearningCommand } from './learning/commands.mjs';
 import { Learner, proposalMessage } from './learning/learner.mjs';
+import { DIRECTIONS_KIND } from './learning/pi-directions.mjs';
+import { PiDirectionsLearner } from './learning/pi-directions-learner.mjs';
 import { learningState } from './learning/store.mjs';
 import { withoutLearningNote } from './learning/note.mjs';
 import { Moods, searchingTool } from './mood.mjs';
@@ -368,7 +370,7 @@ export class HobkinApplication {
    * folder of workflows, `[{ id, folder, tools }]`, which run as routines do with only those tools (`workflows.mjs`).
    * Without it no agent is given anything new.
    */
-  static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, harnessWarms, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch, integrations = null, teamsHome = null } = {}) {
+  static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, harnessWarms, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch, integrations = null, teamsHome = null, piAgentDir = null } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
@@ -451,6 +453,8 @@ export class HobkinApplication {
       // Before the first tick and before `app_opened`, so upload begins with this start and never sends what came before.
       app.remote = new RemoteSender({ root: app.runtime.directory, fetch, now: app.now });
       app.learner = new Learner({ root: app.runtime.directory, telemetry: app.telemetry, now: app.now });
+      // Pi's own AGENTS.md, learned from when it changes and asked about in Action Items; only in the Pi folder the host names (038-resources).
+      app.piDirections = piAgentDir ? new PiDirectionsLearner({ root: app.runtime.directory, agentDir: piAgentDir, runHarness, now: app.now, onChange: () => app.requestRefresh() }) : null;
       app.runner = new HobkinRunner({
         runtime: app.runtime,
         root: app.runtime.directory,
@@ -477,6 +481,7 @@ export class HobkinApplication {
           app.tickInbox();
           // The daily catch-up, a pile of unread reports, or an ask from `hobkin reports catch-up` (069-report-catch-up).
           tickCatchUp(app.runtime.directory, app);
+          app.piDirections?.tick();
           app.remote.tick();
           app.landOffers.next();
           app.lookForReturn();
@@ -2136,6 +2141,7 @@ export class HobkinApplication {
     this.showRow?.({ tab: 'chat' });
     const about = { id: `learning:${id}`, title: 'Learning proposal', at: proposal.at, body: `${proposalMessage(proposal)}\nProposal ID: ${id}` };
     void this.send('Yes, plan it.', about).catch(() => {});
+    if (proposal.kind === DIRECTIONS_KIND) return { ok: true, message: 'The main agent adds them to Your directions and says what it added.' };
     return { ok: true, message: 'The main agent writes the plan, and asks before changing anything.' };
   }
 
@@ -2168,6 +2174,7 @@ export class HobkinApplication {
         clearTimeout(this.refreshTimer);
         clearTimeout(this.pulseTimer);
         this.shortReports?.close();
+        this.piDirections?.close();
         this.moods?.stop();
         this.deletionWatcher?.close();
         this.tellWatcher?.close();

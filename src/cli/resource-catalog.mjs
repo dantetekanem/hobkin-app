@@ -1,4 +1,4 @@
-import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, realpathSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LEFT_OUT_OF_THE_MAIN_CHAT } from './pi-extensions.mjs';
@@ -70,11 +70,12 @@ function firstLine(file) {
   }
 }
 
-function contextFileIn(folder) {
+/** The one context file Pi takes from this folder, as Pi finds it: the first name in its order that is a file, a linked one included. */
+export function contextFileIn(folder) {
   for (const name of CONTEXT_NAMES) {
     const file = join(folder, name);
     try {
-      if (existsSync(file) && lstatSync(file).isFile()) return file;
+      if (existsSync(file) && statSync(file).isFile()) return file;
     } catch {}
   }
   return undefined;

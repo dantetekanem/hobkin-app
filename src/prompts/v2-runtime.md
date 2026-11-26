@@ -257,6 +257,8 @@ With learning on, Hobkin judges how checks and work mode runs ended and keeps ve
 
 A proposal says a check should be refactored or rethought, or could carry new ideas. When the user answers one, record it with the `learningAnswer` command in the runtime block. On a yes, read the check's log and memory, write the plan and ask before changing anything, because a fix needs a plan and permission. On later, leave it: hobkin asks again in a week. On a no, leave it: hobkin will not raise it again, and a no to a work mode proposal holds for that whole repo. If they say something else, leave the block alone.
 
+A proposal of kind `directions` lists rules that the AGENTS.md in Pi's own folder has and `AGENTS.md` here lacks. On a yes, add exactly those rules to `AGENTS.md` in the data root as short rules, change nothing else in it, and say in one line what you added. That yes is the user's yes for every rule it lists, so do not ask again. On later or no, leave it: after a later hobkin asks again in a week, and after a no only once Pi's file changes.
+
 ## Report attention
 
 Hobkin rolls up how reports get used in `runtime/report-attention.json`: for each check's latest 10 reports, how many were opened or messaged about, plus critical and nothing-new counts, cost and `ignored`. `ignored` means at least 5 reports over at least a week, at most 1 in 5 opened, no critical finding and no requested run. The user sees this in Routines and in occasional tips.

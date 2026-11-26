@@ -6,6 +6,7 @@ import { readItems, readProjects } from '../work/store.mjs';
 import { gatherEvidence, rejectsReport, stillOpen } from './judge.mjs';
 import { conclude, proposalLine, proposalQuestion, proposing, renderLessons } from './lessons.mjs';
 import { learningNote, NO_LEARNING, noteInContext } from './note.mjs';
+import { DIRECTIONS_KIND, directionsMessage } from './pi-directions.mjs';
 import { appendAction, learningState, readActions, readState, saveState } from './store.mjs';
 
 const HOUR_MS = 3600000;
@@ -30,7 +31,8 @@ const putOffAt = (answers, id) => answers
   .filter(answer => answer.id === id && answer.answer === 'later')
   .reduce((last, answer) => Math.max(last, Date.parse(answer.at)), -Infinity);
 
-export const proposalMessage = proposal => `**Learning:** ${proposalQuestion(proposal)} Say yes for a plan, later to be asked again in a week, or no and this will not come up again.`;
+export const proposalMessage = proposal => (proposal.kind === DIRECTIONS_KIND ? directionsMessage(proposal)
+  : `**Learning:** ${proposalQuestion(proposal)} Say yes for a plan, later to be asked again in a week, or no and this will not come up again.`);
 
 const proposalOrder = (left, right) => proposing.indexOf(left.kind) - proposing.indexOf(right.kind)
   || right.seen - left.seen

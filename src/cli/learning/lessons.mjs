@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { DIRECTIONS_KIND, directionsQuestion } from './pi-directions.mjs';
 
 const language = readFileSync(new URL('../../prompts/learning-language.md', import.meta.url), 'utf8');
 const OPENING = language.match(/^Opening line: (.+)$/m)[1];
@@ -119,8 +120,9 @@ const asks = {
   ideas: 'Want new ideas built on it?',
 };
 
-/** What a proposal asks the user, the same in Chat and in Action Items. */
-export const proposalQuestion = proposal => `${proposal.title}: ${evidenceText(proposal)}. ${asks[proposal.kind]}`;
+/** What a proposal asks the user, the same in Chat and in Action Items. One from Pi's AGENTS.md lists its rules. */
+export const proposalQuestion = proposal => (proposal.kind === DIRECTIONS_KIND ? directionsQuestion(proposal)
+  : `${proposal.title}: ${evidenceText(proposal)}. ${asks[proposal.kind]}`);
 
 export const isLesson = lesson => Boolean(lesson) && typeof lesson.latest === 'string' && lessonLine(lesson) !== null;
 

@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { atomicJson, learningEnabled } from '../config.mjs';
 import { writePrivate } from '../reports.mjs';
 import { isLesson, isProposal, lessonsMarkdown, renderLessons } from './lessons.mjs';
+import { piDirectionsProposals } from './pi-directions.mjs';
 
 const MAX_STATE_BYTES = 1048576;
 const MAX_ACTIONS_BYTES = 1048576;
@@ -80,7 +81,7 @@ export const clearedAt = (clears, scope) => Math.max(0, ...clears
   .filter(clear => clear.all || clear.scope === scope)
   .map(clear => Date.parse(clear.at)));
 
-/** A clear or an answer shows at once, even with no owner running to work everything out again. */
+/** A clear or an answer shows at once, even with no owner running to work everything out again. The proposal from Pi's AGENTS.md waits with the others. */
 export function learningState(root) {
   const state = readState(root);
   const { clears, answers, covered } = readActions(root);
@@ -91,7 +92,8 @@ export function learningState(root) {
   return {
     ...state,
     lessons: state.lessons.filter(stands),
-    proposals: state.proposals.filter(proposal => stands(proposal) && !answered(proposal) && !covered.some(({ id }) => id === proposal.id)),
+    proposals: [...state.proposals, ...piDirectionsProposals(root, answers)]
+      .filter(proposal => stands(proposal) && !answered(proposal) && !covered.some(({ id }) => id === proposal.id)),
   };
 }
 

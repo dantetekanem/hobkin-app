@@ -1,6 +1,7 @@
 import { learningEnabled, setLearning } from '../config.mjs';
 import { resolveDataRoot } from '../migration/admission.mjs';
-import { evidenceText, lessonLine, MAX_TOKENS, renderLessons, requestTokens } from './lessons.mjs';
+import { evidenceText, lessonLine, MAX_TOKENS, proposalQuestion, renderLessons, requestTokens } from './lessons.mjs';
+import { DIRECTIONS_KIND } from './pi-directions.mjs';
 import { appendAction, learningState, readActions, readState } from './store.mjs';
 
 const USAGE = 'Usage: hobkin learning [on | off | clear <id> | clear all | answer <id> yes|later|no | cover <id> "evidence"]';
@@ -34,7 +35,10 @@ export function learningView(root) {
   if (lessons.length) lines.push('', ...lessonRows(lessons, injected));
   if (proposals.length) {
     lines.push('', 'Proposals, told in Chat one a day:', '');
-    for (const proposal of proposals) lines.push(`  ${proposal.id}  ${proposal.kind} ${plain(proposal.title)}: ${evidenceText(proposal)}`);
+    for (const proposal of proposals) {
+      const about = proposal.kind === DIRECTIONS_KIND ? plain(proposalQuestion(proposal)) : `${plain(proposal.title)}: ${evidenceText(proposal)}`;
+      lines.push(`  ${proposal.id}  ${proposal.kind} ${about}`);
+    }
   }
   if (lessons.length) lines.push('', 'Remove one with hobkin learning clear <id>, or all of them with hobkin learning clear all.');
   return `${lines.join('\n')}\n`;
