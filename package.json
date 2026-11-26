@@ -2,6 +2,7 @@
   "name": "hobkin-client",
   "version": "0.2.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "A Mac client for hobkin: the conversation on the left, its work on the right.",
   "packageManager": "pnpm@11.12.0",

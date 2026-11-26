@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Review a code change for a person: the change as reviewable units, a level per unit (safe, mid, high), and a story to read top to bottom.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=22.19.0"
   },
