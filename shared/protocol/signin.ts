@@ -39,6 +39,3 @@ export type SignInState =
       /** What Pi said along the way, oldest first. */
       lines: string[]
     }
-
-/** Pi's "Sign in with ChatGPT". */
-export const OPENAI_PROVIDER = 'openai'

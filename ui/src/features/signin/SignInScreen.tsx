@@ -44,6 +44,3 @@ export function SignInScreen({ face = true }: { face?: boolean } = {}) {
     </div>
   )
 }
-
-/** For pages that mount the screen by what it does. */
-export const ConnectScreen = SignInScreen

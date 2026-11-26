@@ -1883,9 +1883,6 @@ const isCoreScreen = (id: string): boolean => (NUDGE_SCREENS as readonly string[
 /** Whether the app has a screen by this id, one of its own or an integration's. */
 export const isScreen = (id: string): boolean => isCoreScreen(id) || addedScreens().has(id)
 
-/** The ids of the screens integrations added, in the order they were registered. */
-export const integrationScreens = (): string[] => [...addedScreens()]
-
 /**
  * Throws the reason when `registerIntegration` would refuse this manifest, and changes nothing. A loader asks before it
  * runs the integration's code, so a refused folder has run none.

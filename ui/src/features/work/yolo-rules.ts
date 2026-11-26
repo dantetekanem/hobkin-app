@@ -217,12 +217,6 @@ export const wordsText = (words: readonly string[]): string => words.join(', ')
 /** The kinds with one switched on or off. */
 export const toggleKind = (kinds: readonly string[], kind: string): string[] => (kinds.includes(kind) ? kinds.filter((one) => one !== kind) : KINDS.map(({ value }) => value).filter((value) => value === kind || kinds.includes(value)))
 
-/** A project's own settings, said once. */
-export const overrideWords = (project: YoloProject): string => {
-  const count = project.overrides?.length ?? 0
-  return count ? `${count} ${count === 1 ? 'setting differs' : 'settings differ'} from the rest` : 'Same as the rest'
-}
-
 // What the page draws with no host.
 const SAMPLE_RULES: YoloRules = {
   testsPass: true,

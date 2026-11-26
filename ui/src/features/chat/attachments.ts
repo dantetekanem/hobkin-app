@@ -20,9 +20,6 @@ export function attachmentRefusal(file: { name: string; type: string; size: numb
   return null
 }
 
-/** The image files among what was pasted or dropped. */
-export const imageFiles = (files: Iterable<File> | null | undefined): File[] => [...(files ?? [])].filter((file) => file.type.startsWith('image/'))
-
 /** A file's bytes in base64, as the host takes them. */
 export function fileAsBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {

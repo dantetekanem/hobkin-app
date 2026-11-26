@@ -383,9 +383,6 @@ export function sampleRun(phase: SamplePhase, started = SAMPLE_STARTED): ProofRu
 /** Every phase, started at 14:05 today. */
 export const SAMPLE_RUNS: Readonly<Record<SamplePhase, ProofRun>> = Object.fromEntries(SAMPLE_PHASES.map((phase) => [phase, sampleRun(phase)])) as Record<SamplePhase, ProofRun>
 
-/** The full example: the broken check, with its counterexample, its state graph and its spec. */
-export const SAMPLE_RUN: ProofRun = SAMPLE_RUNS.broken
-
 /** What the `proofs` slice carries of a run: everything but its chart, trace, graph, spec, proof and log. */
 export function sampleSummary(run: ProofRun): ProofRunSummary {
   const { samples: _samples, trace: _trace, graph: _graph, definitions: _definitions, proof: _proof, log: _log, ...summary } = run

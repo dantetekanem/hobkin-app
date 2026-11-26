@@ -36,8 +36,6 @@ function said(words: string, evidence: string): string {
 }
 
 export const proofWords = (facts: Facts): string => said(PROOF[facts.proof.value], facts.proof.evidence)
-export const exposureWords = (facts: Facts): string => said(EXPOSURE[facts.exposure.value], facts.exposure.evidence)
-export const undoWords = (facts: Facts): string => said(UNDO[facts.undo.value], facts.undo.evidence)
 /** Who it reaches and how it is undone, short: "Runs for everyone. Undone by a rollback." */
 export const reachWords = (facts: Facts): string => `${EXPOSURE[facts.exposure.value]}. ${UNDO[facts.undo.value]}.`
 

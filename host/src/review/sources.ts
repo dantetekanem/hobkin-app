@@ -6,7 +6,7 @@
  */
 import { captureChange, type SizeLimit } from '#shared/review/capture.ts'
 import type { PrepareInput } from '#shared/review/draft.ts'
-import { pullUrl, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
+import { reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
 import type { PullOwner, ReviewStatus } from '#shared/review/status.ts'
 import { SIZE_LIMIT } from '#shared/review/types.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
@@ -289,6 +289,3 @@ export function pullSource({
     },
   }
 }
-
-/** The address a pull request review is about, for the words the screen shows. */
-export const pullAddress = pullUrl

@@ -220,8 +220,6 @@ export function blockScan(text: string): BlockScan {
   return { starts, definitions }
 }
 
-export const blockStarts = (text: string): number[] => blockScan(text).starts
-
 /**
  * What to show next of a reply, given what is shown now. `done`: the reply ended, or failed, and all of it shows.
  * Otherwise the next piece shows, or a few when many wait. Text the model rewrote goes back to the last place

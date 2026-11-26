@@ -61,10 +61,6 @@ export const readFlow = (value: unknown): GraphFlow => (value === 'top-to-bottom
 const BAND_OF: Record<NodeKind, Band> = { criterion: 'spec', test: 'tests', code: 'code', file: 'code', context: 'context' }
 const BAND_ORDER: readonly Band[] = ['spec', 'tests', 'code', 'context']
 
-export function bandOf(kind: NodeKind): Band {
-  return BAND_OF[kind]
-}
-
 export function nodeRect(kind: NodeKind, position: Point): Rect {
   return { x: position.x, y: position.y, ...NODE_SIZE[kind] }
 }

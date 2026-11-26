@@ -54,8 +54,3 @@ export function loadGrammar(language: string | null): Promise<LanguageRegistrati
   if (!fetched.has(language)) fetched.set(language, GRAMMARS[language]!().then((grammar) => grammar.default))
   return fetched.get(language)!
 }
-
-/** The grammars fetched so far. */
-export function fetchedGrammars(): string[] {
-  return [...fetched.keys()]
-}

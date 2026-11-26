@@ -20,8 +20,6 @@ export type HobkinEngine =
   /** Any model Pi can reach, as `provider/id`, with one of its thinking levels; `tier: null` records an explicit Custom launch. */
   | { kind: 'pi'; model: string; effort: Effort; tier?: null }
 
-export const HOBKIN_ENGINE_KINDS = ['tier', 'claude', 'pi'] as const
-
 /** The thinking a durable hobkin on Claude Code runs at: Claude Code's own, or one of its `--effort` levels. */
 export const HOBKIN_CLAUDE_EFFORTS = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 export type HobkinClaudeEffort = (typeof HOBKIN_CLAUDE_EFFORTS)[number]
@@ -110,8 +108,6 @@ export interface HobkinReach {
   state: 'working' | 'waiting'
 }
 
-/** A turn's run has this before the hobkin's id in its schedule id, so the window never lists it as an agent of its own. */
-export const HOBKIN_SCHEDULE = 'hobkin.'
 /** In the window a durable hobkin is an agent with this before its id, so the agent screen and the list address it. */
 export const HOBKIN_AGENT = 'hobkin:'
 

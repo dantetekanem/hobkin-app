@@ -67,8 +67,3 @@ export function markSetupEnded(as: 'finished' | 'unfinished', computer?: Compute
     // As above: without storage nothing is kept, and the next load opens the setup again.
   }
 }
-
-/** Marks the setup seen, finished or skipped, so it does not open by itself again. */
-export function markSetupSeen(): void {
-  markSetupEnded('finished')
-}

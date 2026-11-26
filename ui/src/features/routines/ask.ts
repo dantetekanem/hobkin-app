@@ -26,13 +26,6 @@ export function suggestMessage(text: string): void {
   useRoutineSuggestion.setState({ suggestion: { id: made, text } })
 }
 
-/** For the composer: the waiting suggestion, which is then gone. */
-export function takeSuggestion(): RoutineSuggestion | null {
-  const { suggestion } = useRoutineSuggestion.getState()
-  if (suggestion) useRoutineSuggestion.setState({ suggestion: null })
-  return suggestion
-}
-
 /** The one action of the empty screen: ask hobkin for a first routine. */
 export function askForFirstRoutine(): void {
   suggestMessage('Help me set up my first routine. Ask me what it should check and when it should run.')

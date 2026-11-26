@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { hostStore, runCommand } from '../../lib/host/client.ts'
@@ -322,30 +321,6 @@ function onMinute(): void {
   minuteTimer = setTimeout(onMinute, MINUTE - (Date.now() % MINUTE))
 }
 minuteTimer = setTimeout(onMinute, MINUTE - (Date.now() % MINUTE))
-
-export interface RunningRoutine {
-  id: string
-  title: string
-  startedAt: number
-  trigger: 'manual' | 'scheduled'
-}
-
-/**
- * The routines running right now, for the frame. A running routine shows in the agents list under the chat
- * too (010-routines). The list is the frame's to draw; this is what it would draw from.
- */
-export function useRunningRoutines(): RunningRoutine[] {
-  const data = useRoutines((state) => state.data)
-  return useMemo(
-    () =>
-      Object.entries(data.running).flatMap(([id, run]) => {
-        const routine = data.routines.find((item) => item.id === id)
-        if (!routine) return []
-        return [{ id, title: routine.title, startedAt: run.startedAt, trigger: run.trigger }]
-      }),
-    [data],
-  )
-}
 
 /**
  * Sample routines that come due while the screen is open run by themselves and finish a few seconds later,
