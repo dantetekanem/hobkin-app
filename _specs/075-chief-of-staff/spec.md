@@ -16,7 +16,7 @@ hobkin runs the user's day the way a good chief of staff does, through the routi
 
 - **The day.** The morning brief says whether the day holds more than fits, then names what to move. A work day fits 8 hours; a day off work fits what the user's normal day off holds. The meetings, end-of-day, weekly plan and weekly review routines carry the rest. The window gets no new sidebar rows, tabs or visible runs for any of this.
 - **Incoming work.** Everything that comes in goes through one desk: a routine's finding, an agent's result, an email, a reminder. hobkin handles what it may handle alone. It holds the rest for one of three daily digests, and it interrupts only when waiting would cost more than the interruption.
-- **Decisions.** Each one reaches the user as a small card: hobkin's pick first, at most three options, and what happens if they say nothing. A daily budget limits how many come. An answer becomes a rule, so the same kind of question is not asked twice.
+- **Decisions.** hobkin finds out what it can by itself and asks only what would change the path. A question an earlier decision already answers is never asked again. What it does ask comes as a small card: hobkin's pick first, at most three options, and what happens if the user says nothing. It learns what matters to the user, and asks to learn it when that will help with many later cases.
 - **Delegation.** hobkin hands work to agents by task class, checks the work itself, and widens what a class may do alone only when the user says yes.
 - **Urgent work and openings.** When something urgent arrives, hobkin makes room by moving the least important work first and says what moved. When an opening appears, it offers one thing that fits, or a break.
 - **Learning.** It learns from the user's answers and memories.
@@ -41,8 +41,10 @@ hobkin runs the user's day the way a good chief of staff does, through the routi
   - At most three options, one of them "later" or "do nothing", each marked as reversible or not.
   - For a reversible decision, a deadline and what happens if the user does not answer.
   - Replies of approve, another option, later, "always do this" and "stop asking about this".
-- Daily decision budget: about 6, adjusted from the user's own numbers. Over budget, hobkin turns low-stakes reversible questions into deadline defaults or postpones them, and says so in the digest. Within a digest, irreversible and high-stakes cards come first and routine approvals last, bundled as "approve all except".
-- Before asking, hobkin checks the precedent log. If a precedent matches, it acts and cites it. On the second similar question, it asks for a standing rule instead, and it reads every rule back before saving it.
+- The asking test. hobkin asks only when the answer would change what happens and it cannot find the answer itself, from memories, precedents, files, the calendar, mail or the work's own evidence. Otherwise it decides, acts within the class's level, and reports. There is no quota of questions to fill. The count is measured and should fall over time.
+- A question an earlier decision answers is never asked. hobkin checks the precedent log first, then acts and cites the precedent.
+- Learning questions. When hobkin is unsure in a way that will come up again, it asks one question meant to learn what matters to the user. The answer becomes a standing rule, and hobkin reads the rule back before saving it. These are worth asking because one answer settles many later cases.
+- A reversible card takes hobkin's pick at its deadline when the user says nothing. Within a digest, the cards that change the path come first, and routine approvals come last, bundled as "approve all except".
 - Autonomy has five levels, set per task class, never per agent:
   1. draft
   2. recommend
@@ -72,12 +74,12 @@ hobkin runs the user's day the way a good chief of staff does, through the routi
 - A3. The day, the desk and the digests add no sidebar row, tab, routine or visible run in the window.
 - A4. Outside meetings, focus blocks and quiet hours, the user sees at most the chosen digests plus P0 interruptions. The weekly review shows the day's count of interruptions outside digests.
 - A5. Every question from every source arrives as a card in the format above, in one queue.
-- A6. Past the daily budget, no new low-stakes card interrupts the user. Each one becomes a deadline default or waits, and the digest says which.
+- A6. A question whose answer hobkin could have found itself, or that would not change what happens, is not asked. In the bank, each such question counts against the score.
 - A7. A question matching a precedent is not asked. hobkin acts and cites it. A third ask of the same kind without a rule counts as a bug.
 - A8. A task class moves to a lower level only after the user's yes, and back up after an override, with no question.
 - A9. No send, spend, delete or commitment of the user's time happens without a standing rule or the user's own ask. The tool layer refuses it and logs the refusal. The count stays at zero.
 - A10. An opening of 15 minutes or more gets at most one offer sized to it, or a break. Nothing deep is offered within 30 minutes of a meeting.
-- A11. The weekly review shows the days that were too full, questions per day (in total and outside digests), the rubber-stamp signal, overrides and repeats. It also asks one question: "How heavy did deciding feel?" on a scale of 1 to 7.
+- A11. The weekly review shows the days that were too full, questions per day (in total and outside digests; this should fall), the rubber-stamp signal, overrides and repeats. It also asks one question: "How heavy did deciding feel?" on a scale of 1 to 7.
 - A12. A scenario bank of at least 200 cases covering the day, the desk, decisions and delegation has a score before any change. Each phase holds or raises it, with zero breaks of A9.
 
 ## Proof
@@ -95,7 +97,7 @@ Nothing runs against `~/.hobkin` or the real calendar in tests.
 Phase 0: baseline. hobkin measures before anything changes.
 
 - [ ] S1 (A4, A11). Count from today's events, for two weeks: questions per day by source, and Chat lines and notifications outside any batch.
-- [ ] S2 (A12). The scenario bank and its runner, scored on today's hobkin.
+- [ ] S2 (A12). The scenario bank and its runner, scored on today's hobkin. hobkin builds the bank itself from its own history in the user's home, with names and private details taken out, and keeps it local. Outside agents never read it.
 
 Phase 1: the desk. This brings the fastest relief, and it needs no calendar.
 
@@ -107,8 +109,8 @@ Phase 1: the desk. This brings the fastest relief, and it needs no calendar.
 Phase 2: decisions.
 
 - [ ] S7 (A5). One card and one queue. The 14 sources in notes §1 file into it, and `recommended` becomes the card's pick.
-- [ ] S8 (A6). The daily budget, deadline defaults for reversible cards, and the order within a digest.
-- [ ] S9 (A7). The precedent log, built on the 30-day key recall, with standing rules and their read-back.
+- [ ] S8 (A6). The asking test, deadline defaults for reversible cards, and the order within a digest.
+- [ ] S9 (A7). The precedent log, built on the 30-day key recall, plus learning questions, standing rules and their read-back.
 - [ ] S10. Wins stop counting answered decisions. A day that needed fewer decisions counts as a good day.
 
 Phase 3: the day, inside the routines.
@@ -134,9 +136,3 @@ Phase 5: learning and dreaming.
 Order: Phase 1 and S6 first, because they help soonest and need no calendar. S1 starts on the first day. The core prompt is rewritten across Phases 1 to 4, one section at a time, each one proven on the bank.
 
 Phase 1 touches hobkin files where another writer has uncommitted edits: `application.mjs`, `wake.mjs`, `session.mjs`, `harnesses.mjs`, `hobkins.mjs` and `v2-runtime.md`. It starts once those are committed.
-
-## Open questions
-
-1. Should the daily decision budget start at 6?
-2. May a reversible card take its default at a deadline when the user says nothing? Or should every card wait?
-3. Where do the bank's real cases come from? Agents here never read `~/.hobkin`, so the options are cases hobkin exports, redacted, on the user's word, or cases the user picks.
