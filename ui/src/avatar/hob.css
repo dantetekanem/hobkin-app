@@ -1,5 +1,5 @@
 /*
- * The hobkin character. Ported from ~/Poetry/hobkin/assets/animations/{light,dark}/*.svg,
+ * The hobkin character. Ported from packages/hobkin/assets/animations/{light,dark}/*.svg,
  * with every class prefixed "hob-" so it cannot collide with the app's own names.
  *
  * A face is a stack of HTML boxes (Hob.tsx, Layer.tsx), each the art's square with one SVG in it. Everything that moves

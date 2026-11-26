@@ -73,17 +73,16 @@ You can do everything from the keyboard. Tab walks the screens, the arrows walk 
 - Your chats, reports, memory and reviews live in `~/.hobkin` on your Mac.
 - Agents work on branches. They never commit to your default branch, and deploying, publishing and deleting what git can't bring back stay with you.
 - Nothing merges without your word, unless you turn on YOLO mode and a change clears your rules.
-- Your model provider, and the tools you connect, see what agents work on. hobkin itself sends usage events made of fixed words and counts, never your messages, names or paths, and you can turn them off. Feedback goes only when you send it, and the app checks hobkin.dev for updates. The runtime's README says more about [what leaves your Mac](https://github.com/dantetekanem/hobkin#what-leaves-your-machine).
+- Your model provider, and the tools you connect, see what agents work on. hobkin itself sends usage events made of fixed words and counts, never your messages, names or paths, and you can turn them off. Feedback goes only when you send it, and the app checks hobkin.dev for updates. The runtime's README says more about [what leaves your Mac](packages/hobkin/README.md#what-leaves-your-machine).
 
 ## Run it from source
 
-You need a Mac, Node 22.19 or newer, pnpm, and Rust for Tauri. The app runs on hobkin's runtime, so clone both repositories side by side:
+You need a Mac, Node 22.19 or newer, pnpm, and Rust for Tauri. hobkin's runtime, the part that runs the agents and keeps `~/.hobkin`, is in `packages/hobkin` and installs its own packages:
 
 ```sh
-git clone https://github.com/dantetekanem/hobkin.git
 git clone https://github.com/dantetekanem/hobkin-client.git
-(cd hobkin && pnpm install)
 cd hobkin-client
+(cd packages/hobkin && pnpm install)
 pnpm install
 pnpm tauri dev
 ```
@@ -94,7 +93,7 @@ The first time it opens, setup finds what hobkin needs and installs what it can:
 
 ## How it's built
 
-hobkin is a Tauri 2 window, a React 19 interface, and a Node host that runs hobkin's runtime. Every feature has a spec in [`_specs/`](_specs) that says what it must do and which tests prove it.
+hobkin is a Tauri 2 window, a React 19 interface, and a Node host that runs hobkin's runtime from `packages/hobkin`. Every feature has a spec in [`_specs/`](_specs) that says what it must do and which tests prove it.
 
 ## License
 

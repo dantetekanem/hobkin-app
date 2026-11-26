@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["001-foundation"],
-  "updated": "2026-11-10"
+  "updated": "2026-11-26"
 }
 ---
 # Host: hobkin behind a local socket
@@ -16,7 +16,7 @@ A Node process opens hobkin's application for a home and serves it to the UI ove
 
 ## Decisions
 
-- The host imports `HobkinApplication` from the hobkin checkout, linked as a dependency (`link:../hobkin`). It mirrors the wiring in hobkin's `src/cli/main.mjs:120-164`.
+- The host imports `HobkinApplication` from hobkin's runtime in this repository, `packages/hobkin`, linked as a dependency (`link:packages/hobkin`). It mirrors the wiring in hobkin's `src/cli/main.mjs:120-164`.
 - It binds `127.0.0.1` on a random port. A random token is created at launch. A connection must present the token and come from an allowed origin.
 - It writes `client/host.json` in the home (pid, port, token, mode 0600) and removes it on exit.
 - Protocol version 1, as listed in `000-product/architecture.md`. Snapshot changes are sent per top-level key. Messages are sent as append and update operations, so a long history is not resent on every token.

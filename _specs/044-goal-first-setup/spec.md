@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "draft",
   "depends": ["025-onboarding", "010-routines", "012-reports-actions", "022-questions"],
-  "updated": "2026-11-14"
+  "updated": "2026-11-26"
 }
 ---
 # Goal-first setup
@@ -234,7 +234,7 @@ This takes over the questions half of `025-onboarding` on the user's word of 202
 
 ## Steps
 
-Runtime steps (S1 to S5, and S11) commit in `~/Poetry/hobkin`, client steps in this repository. S11 comes first: it lands before S1, so S1's eight templates reach the real home as one Action Item. S1, S2, S3 and S4 share no file and can be built at once. S4 shares `routine-care.mjs` with S11, so it comes after it. S5 comes after S1 and S2. S6 comes after S1. S7 and S8 can start at once. S9 comes after S2, S6, S7 and S8. S10 comes last. S4 ships switched off, and the user's go-ahead turns routine care on.
+Runtime steps (S1 to S5, and S11) commit in `packages/hobkin`, where paths below that start with `hobkin/` live, and client steps elsewhere in this repository. S11 comes first: it lands before S1, so S1's eight templates reach the real home as one Action Item. S1, S2, S3 and S4 share no file and can be built at once. S4 shares `routine-care.mjs` with S11, so it comes after it. S5 comes after S1 and S2. S6 comes after S1. S7 and S8 can start at once. S9 comes after S2, S6, S7 and S8. S10 comes last. S4 ships switched off, and the user's go-ahead turns routine care on.
 
 - [ ] S1 (A5, A10, A11). Runtime: templates by goal. `TEMPLATE_GOALS`; the `goals`, `tells`, `skips`, `gives`, `closes` and `private` keys, required ones checked; `group` read for the user's own templates and mapped; the starters; `goalCards`. The new keys in every shipped template's header, the eight new templates, and the README's list of keys. The one line of the guide that lists templates by `group` lists them by goal. Files: `hobkin/src/cli/routine-templates.mjs`, `hobkin/src/prompts/routine-templates/README.md` and each template there, eight new templates in that folder, one line of `hobkin/src/prompts/setup.md`; tests `hobkin/test/cli-routine-templates.test.mjs`.
 - [ ] S2 (A17). Runtime: a routine names its template. The `template` key in the loader, held to `<id>@<version>`. Files: `hobkin/src/cli/schedules.mjs`; tests `hobkin/test/cli-schedules.test.mjs`.

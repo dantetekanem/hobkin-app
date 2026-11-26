@@ -115,7 +115,7 @@ shadcn/ui components, added as they are needed: button, input, textarea, tabs, t
 
 ## The avatar
 
-The hood and eyes from hobkin.dev, drawn as one inline SVG. Art source: `~/Poetry/hobkin/assets/animations/{light,dark}/01-idle.svg` to `18-sleepy.svg`.
+The hood and eyes from hobkin.dev, drawn as one inline SVG. Art source: `packages/hobkin/assets/animations/{light,dark}/01-idle.svg` to `18-sleepy.svg`.
 
 - Moods: idle, hello, listening, thinking, searching, working, focused, happy, celebrating, love, wink, surprised, confused, sad, grumpy, error, dizzy, sleepy.
 - The mood comes from hobkin (`src/cli/mood.mjs`), so the avatar matches the terminal face.

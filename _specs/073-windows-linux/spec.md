@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "draft",
   "depends": [],
-  "updated": "2026-11-25"
+  "updated": "2026-11-26"
 }
 ---
 # hobkin on Windows and Linux
@@ -27,7 +27,7 @@ Most of the Rust is already behind macOS-only switches (`src-tauri/src/backdrop.
 - `scripts/package/tauri.release.conf.json` builds only `app` and `dmg`, has a `macOS` block and points its resources at `dist/package/node/`. Windows needs a `tauri.windows.conf.json` (NSIS) and Linux a `tauri.linux.conf.json` (AppImage and deb).
 - `stage.ts:46` and `:252-281` and `rules.ts:249-262` expect an arm64 Mac Node, run codesign and otool, and use `node/bin/node`. Each target downloads its own Node from nodejs.org and checks it against SHASUMS256, as `host/src/pi/node.ts` already does.
 - `release.ts:26-55` (Info.plist, .dmg, .app.tar.gz) and `feed.ts:13` and `:49` (`darwin-${Chip}`) need Windows and Linux entries; the updater's platform keys are `windows-x86_64` and `linux-x86_64`.
-- The repository has no workflows, and hobkin is a private sibling (`link:../hobkin`, `package.json:42`).
+- The repository has no workflows. hobkin's runtime is inside it, in `packages/hobkin` (`link:packages/hobkin` in `package.json`), so a build clones one repository.
 
 ### What breaks running on Windows
 
@@ -62,7 +62,7 @@ Most of the Rust is already behind macOS-only switches (`src-tauri/src/backdrop.
 
 ### How to build
 
-Recommended: GitHub Actions with tauri-action, `windows-latest` for NSIS and `ubuntu-22.04` for AppImage and deb, while Mac builds stay local. About 15 Linux and 25 Windows minutes (billed at twice the rate), roughly 65 billed minutes a release, inside the free 2,000. It needs a token to clone the private hobkin repository. Cross-compiling from the Mac is possible but poor: cargo-xwin is experimental and makes NSIS only, and Linux in Docker runs emulated and slowly. No route tests the app, so a Windows and a Linux machine (or VMs) are needed either way.
+Recommended: GitHub Actions with tauri-action, `windows-latest` for NSIS and `ubuntu-22.04` for AppImage and deb, while Mac builds stay local. About 15 Linux and 25 Windows minutes (billed at twice the rate), roughly 65 billed minutes a release, inside the free 2,000. Cross-compiling from the Mac is possible but poor: cargo-xwin is experimental and makes NSIS only, and Linux in Docker runs emulated and slowly. No route tests the app, so a Windows and a Linux machine (or VMs) are needed either way.
 
 ### Worth doing, not required
 

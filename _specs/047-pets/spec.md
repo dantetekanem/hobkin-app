@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["020-settings", "025-onboarding"],
-  "updated": "2026-11-23"
+  "updated": "2026-11-26"
 }
 ---
 # Four pets in place of the hood
@@ -30,7 +30,7 @@ hobkin's character is no longer a pointed hood. The user picks one of four pets 
 
 ## Out of scope
 
-- hobkin's terminal art in `~/Poetry/hobkin/assets/animations`. The terminal app is no longer used.
+- hobkin's terminal art in `packages/hobkin/assets/animations`. The terminal app is no longer used.
 - Letting the user draw or upload a pet of their own.
 
 ## Acceptance

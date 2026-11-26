@@ -1,6 +1,6 @@
 # Architecture
 
-Facts about hobkin and Pi in this file were read from `~/Poetry/hobkin` at commit `a78669a` and from the Pi 1.5.0 packages in its `node_modules`. File references are relative to `~/Poetry/hobkin`.
+Facts about hobkin and Pi in this file were read from hobkin's runtime at commit `a78669a` and from the Pi 1.5.0 packages in its `node_modules`. File references are relative to the runtime's folder, `packages/hobkin`.
 
 ## Processes
 
@@ -22,8 +22,11 @@ Facts about hobkin and Pi in this file were read from `~/Poetry/hobkin` at commi
     host/          Node host
     shared/        code used by both: protocol types, command registry, review model, spec parser
     src-tauri/     Rust shell
+    packages/hobkin/  hobkin's runtime, the package named `hobkin`
 
-One package, one lockfile. The host runs TypeScript directly with Node.
+The app is one package with one lockfile. The host runs TypeScript directly with Node.
+
+hobkin's runtime moved into this repository on 2026-11-26 (merge `1013f95`), with its whole history. It is its own pnpm project, with its own `node_modules`, Pi among them, and the app links it as a dependency (`link:packages/hobkin`). Specs and notes written before that day call it `~/Poetry/hobkin`, `../hobkin` or `hobkin/`. Their paths hold under `packages/hobkin`, and the hobkin commits they name are in this repository's history.
 
 ## How the client uses hobkin
 
@@ -36,7 +39,7 @@ One package, one lockfile. The host runs TypeScript directly with Node.
 
 ### Planned changes inside hobkin
 
-Small and additive, on a branch named `client-host` in the hobkin repo, for the user to review. Each one is listed in the spec that needs it.
+Small and additive, each one listed in the spec that needs it. They are commits in `packages/hobkin`, on `main` like the rest of this repository.
 
 - Let a front end receive the main session's raw events (text deltas, tool calls). Today the terminal app reduces them to one word (`src/cli/runtime.mjs:175`, `src/cli/doing.mjs`).
 - Let a front end add tools to the main session, for the `client` and `canvas` tools.

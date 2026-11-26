@@ -5,7 +5,7 @@
   "kind": "context",
   "status": "draft",
   "depends": [],
-  "updated": "2026-11-09"
+  "updated": "2026-11-26"
 }
 ---
 # hobkin client
@@ -60,6 +60,7 @@ The client is a second front end for the hobkin that the terminal app runs. It u
 - Change Review opens hobkin's finished work (`hobkin/*` branches) in the first version.
 - Continuity covers four things: reopening where the user left off, work that survives a quit, memory from run to run, and the same data as the terminal app.
 - The host imports hobkin from `~/Poetry/hobkin`. Small additive changes to hobkin are allowed, on a branch for review.
+  - On 2026-11-26 the user moved hobkin's runtime into this repository, in `packages/hobkin`. The host imports it from there, and changes to it are commits here.
 - After the foundation, real chat and Change Review are built in parallel.
 - hobkin's access covers driving the app and drawing on the canvas.
 - Delegated work uses four model tiers (fast, mid, high, max). Each is a model plus a thinking level, picked in a lightbox, with no split between reading and writing. hobkin gets its own version of `teams.md` and of the team-leader skill.
