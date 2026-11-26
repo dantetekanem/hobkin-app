@@ -1,22 +1,27 @@
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
 import { defineTool } from '@earendil-works/pi-coding-agent';
+import { actionParameters } from './action-parameters.mjs';
 
 /** Same validated tool contract in an SDK session and on both sides of RPC. */
 export function createOwnedAgentSessionTool(hostCallback) {
   const id = Type.String({ minLength: 1, maxLength: 200 });
-  const parameters = Type.Union([
-    Type.Object({ action: Type.Literal('spawn'), name: Type.String({ minLength: 1, maxLength: 120 }), allowHelpers: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
-    Type.Object({ action: Type.Literal('list') }, { additionalProperties: false }),
-    ...['status', 'cancel'].map(action => Type.Object({ action: Type.Literal(action), id }, { additionalProperties: false })),
-  ]);
+  const { parameters, refusal } = actionParameters({
+    spawn: { name: Type.String({ minLength: 1, maxLength: 120 }), allowHelpers: Type.Optional(Type.Boolean()) },
+    list: {},
+    status: { id },
+    cancel: { id },
+  });
   return defineTool({
     name: 'owned_agent',
     label: 'Owned agents',
     description: 'Spawn a named owned helper, list descendants, inspect status or cancel an exact owned ID. The host binds parent, root, task, role and model; requests cannot choose them. allowHelpers can restrict further delegation. Availability and admission are decided by the host.',
     parameters,
     async execute(_id, request, signal, _update, ctx) {
-      if (!Check(parameters, request) || (request.action === 'spawn' && !request.name.trim())) throw Error('Invalid owned-agent request');
+      if (!Check(parameters, request)) throw Error('Invalid owned-agent request');
+      const unfit = refusal(request);
+      if (unfit) throw Error(`Invalid owned-agent request. ${unfit}`);
+      if (request.action === 'spawn' && !request.name.trim()) throw Error('Invalid owned-agent request');
       signal?.throwIfAborted();
       if (!hostCallback) throw Error('Owned agents are unavailable.');
       const details = await hostCallback(request, signal, ctx, _id);

@@ -2,16 +2,14 @@ import { Type } from 'typebox';
 import { Check } from 'typebox/value';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { listActionItems, dismissActionItems } from './pending-read.mjs';
+import { actionParameters } from './action-parameters.mjs';
 
 export function createActionItemTool(root) {
-  const parameters = Type.Union([
-    Type.Object({ action: Type.Literal('list') }, { additionalProperties: false }),
-    Type.Object({
-      action: Type.Literal('dismiss'),
-      id: Type.String({ minLength: 1, maxLength: 512, pattern: '\\S' }),
-    }, { additionalProperties: false }),
-    Type.Object({ action: Type.Literal('dismiss_all') }, { additionalProperties: false }),
-  ]);
+  const { parameters, refusal } = actionParameters({
+    list: {},
+    dismiss: { id: Type.String({ minLength: 1, maxLength: 512, pattern: '\\S' }) },
+    dismiss_all: {},
+  });
   return defineTool({
     name: 'hobkin_action_items',
     label: 'List or dismiss Action Items',
@@ -19,6 +17,8 @@ export function createActionItemTool(root) {
     parameters,
     async execute(_id, request, signal) {
       if (!Check(parameters, request)) throw Error('Invalid Action Item request. Choose list, dismiss with an exact id, or dismiss_all.');
+      const unfit = refusal(request);
+      if (unfit) throw Error(`Invalid Action Item request. ${unfit}`);
       signal?.throwIfAborted();
       if (!root) throw Error('Action Items are unavailable.');
       const details = request.action === 'list'

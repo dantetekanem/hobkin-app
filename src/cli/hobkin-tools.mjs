@@ -3,39 +3,36 @@ import { Check } from 'typebox/value';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { efforts, inRoutineWords } from './schedules.mjs';
 import { tierNames } from './tiers.mjs';
+import { actionParameters } from './action-parameters.mjs';
 
 const settingsScope = Type.Union(['main', 'background', 'routines', 'all', ...tierNames].map(value => Type.Literal(value)));
 const settingsEffort = Type.Union([...new Set(Object.values(efforts).flat())].map(value => Type.Literal(value)));
 const routineId = Type.Optional(Type.String({ minLength: 1, maxLength: 80, pattern: '^[a-z0-9][a-z0-9._-]*$' }));
-const settingsParameters = Type.Union([
-  Type.Object({ action: Type.Literal('inspect'), scope: settingsScope, routineId }, { additionalProperties: false }),
-  Type.Object({
-    action: Type.Literal('update'),
-    scope: settingsScope,
-    routineId,
-    model: Type.Optional(Type.String({ minLength: 3, maxLength: 200 })),
-    effort: Type.Optional(settingsEffort),
-  }, { additionalProperties: false }),
-]);
+const settings = actionParameters({
+  inspect: { scope: settingsScope, routineId },
+  update: { scope: settingsScope, routineId, model: Type.Optional(Type.String({ minLength: 3, maxLength: 200 })), effort: Type.Optional(settingsEffort) },
+});
 
 const forModel = details => JSON.parse(inRoutineWords(JSON.stringify(details)));
 
 export function createStopWorkloadTool(stopWorkload) {
-  const parameters = Type.Union([
-    Type.Object({ action: Type.Literal('list') }, { additionalProperties: false }),
-    Type.Object({
-      action: Type.Literal('stop'),
+  const { parameters, refusal } = actionParameters({
+    list: {},
+    stop: {
       id: Type.String({ minLength: 1, maxLength: 200, pattern: '^work:[a-zA-Z0-9._:-]+$' }),
       reason: Type.String({ minLength: 1, maxLength: 200 }),
-    }, { additionalProperties: false }),
-  ]);
+    },
+  });
   return defineTool({
     name: 'stop_workload',
     label: 'Stop an owned Work parent',
     description: 'List up to 20 active owned Work parent IDs, titles and lanes with action list. With action stop, stop one exact listed parent ID and give a nonempty reason. Main may stop its own Work for safety or on user request. No automatic restart; an explicit repick is required. Cannot target routines, the main chat, PIDs or named helpers. The receipt confirms only the parent interruption; nested helper cleanup is unconfirmed.',
     parameters,
     async execute(_id, request, signal) {
-      if (!Check(parameters, request) || (request.action === 'stop' && !request.reason.trim())) throw Error('Invalid workload Stop request.');
+      if (!Check(parameters, request)) throw Error('Invalid workload Stop request.');
+      const unfit = refusal(request);
+      if (unfit) throw Error(`Invalid workload Stop request. ${unfit}`);
+      if (request.action === 'stop' && !request.reason.trim()) throw Error('Invalid workload Stop request.');
       signal?.throwIfAborted();
       if (!stopWorkload) throw Error('Stopping Work is unavailable.');
       const details = await stopWorkload({ ...request, ...(request.action === 'stop' ? { reason: request.reason.trim() } : {}) });
@@ -87,9 +84,11 @@ export function createSettingsTool(run) {
     name: 'model_settings',
     label: 'Model and effort settings',
     description: 'Inspect or update model and effort for exactly main, background, routines, or all, or for one tier of delegated work by its name: fast, mid, high or max. Inspecting a tier lists all four, each with its own model and effort or the setting it follows until it is set. Add routineId with scope routines to target one routine. Inspect lists availableModels. Updates require an installed provider/model reference and persist only Hobkin settings, never Pi global defaults. Main updates also change this session without saving Pi defaults and apply from the next model call; the receipt separates saved settings from the observed active binding.',
-    parameters: settingsParameters,
+    parameters: settings.parameters,
     async execute(_id, request, signal) {
-      if (!Check(settingsParameters, request)) throw Error('Invalid model settings request.');
+      if (!Check(settings.parameters, request)) throw Error('Invalid model settings request.');
+      const unfit = settings.refusal(request);
+      if (unfit) throw Error(`Invalid model settings request. ${unfit}`);
       signal?.throwIfAborted();
       if (!run) throw Error('Model settings are unavailable.');
       const details = forModel(await run(request, signal));
