@@ -232,14 +232,20 @@ async function conflictsWith(repo, tip, name) {
 
 const lines = text => text.split('\n').filter(Boolean);
 
-/** `work` for each of `list`, AT_ONCE at a time, with the answers in the order of `list`. */
+/** `work` for each of `list`, AT_ONCE at a time, with the answers in the order of `list`. Once one fails, no more start. */
 async function inTurns(list, work) {
   const answers = new Array(list.length);
   let next = 0;
+  let failed = false;
   const worker = async () => {
-    while (next < list.length) {
+    while (!failed && next < list.length) {
       const index = next++;
-      answers[index] = await work(list[index]);
+      try {
+        answers[index] = await work(list[index]);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(AT_ONCE, list.length) }, worker));

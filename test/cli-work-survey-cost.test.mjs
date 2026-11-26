@@ -164,6 +164,17 @@ test('a survey of many branches runs at most two git commands at once', async t 
   assert.equal(readUnmerged(h.root).projects.api.open.length, 8);
 });
 
+test('a survey of a repository with specs still runs at most two git commands at once', async t => {
+  const h = workspace(t);
+  mkdirSync(join(h.checkout, '_specs', 'tla', 'work'), { recursive: true });
+  for (const name of ['One', 'Two', 'Three']) commit(h.checkout, `_specs/tla/work/${name}.tla`, `---- MODULE ${name} ----\n====\n`);
+  for (const index of [1, 2, 3, 4]) branched(h.checkout, `hobkin/${index}`);
+
+  const most = await mostGitAtOnce(t, () => survey(h));
+
+  assert.ok(most <= 2, `${most} git commands ran at once`);
+});
+
 test('hobkin work sync with a project surveys only that project, and the others keep what they had', async t => {
   const h = workspace(t);
   const web = repository(h.base, 'web');

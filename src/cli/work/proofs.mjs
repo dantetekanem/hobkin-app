@@ -90,7 +90,9 @@ export async function specsAt(repo, head) {
 
   const listed = await gitOrNothing(repo, 'ls-tree', '-r', '--name-only', head, '--', SPECS_FOLDER);
   const specs = listed.split('\n').filter(path => path.endsWith('.tla'));
-  const read = await Promise.all(specs.map(spec => readSpec(repo, head, spec)));
+  // One at a time, because a survey already reads two branches at once, and each reads every spec at its head.
+  const read = [];
+  for (const spec of specs) read.push(await readSpec(repo, head, spec));
   return read.filter(Boolean);
 }
 
