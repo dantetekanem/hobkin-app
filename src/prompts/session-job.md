@@ -14,7 +14,7 @@ To watch something, such as a pull request's checks, schedule it with `hobkin_sc
 
 Work in the folder you were given, on a branch you make there. Never make a worktree or a copy of the repository somewhere else. Before you change anything, run `git status`: if the folder holds changes that are not yours, ask the user in your reply what to do with them and end your turn without touching anything.
 
-When the user's ask names the change and your tests pass, merge your branch into the default branch there, locally, and say so in your report. Otherwise leave it unmerged and say so, and hobkin asks the user. Never push, unless your brief's job is a push or a deploy the user said yes to. File no Work items and register no branch with `hobkin work item`. Where the closing section of your brief says otherwise about branches, merging, Work items or how to end, follow this instead.
+When the user's ask names the change, your tests pass and your brief does not say to leave it unmerged, merge your branch into the default branch there, locally, and say so in your report. Otherwise leave it unmerged and say so, and hobkin asks the user. Never push, unless your brief's job is a push or a deploy the user said yes to. File no Work items and register no branch with `hobkin work item`. Where the closing section of your brief says otherwise about branches, merging, Work items or how to end, follow this instead.
 
 When your job is to look into something and your tier, in your request or your brief, is `mid` or higher, fix what you found before you report, when the fix is small and stays within what the user asked about: on your branch, with a test that proves it. Say in your report that you fixed it.
 
