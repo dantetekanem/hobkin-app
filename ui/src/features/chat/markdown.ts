@@ -7,6 +7,7 @@ import { spring, tween } from '../../lib/motion.ts'
 import { localPathOf, remarkFilePaths } from '../viewer/paths.ts'
 import { keepSlackLinks } from '../viewer/slack-links.ts'
 import { Fence } from './CopyBlock.ts'
+import { drawnOnce } from './markdown-kept.ts'
 import { blockScan, type Definition } from './stream-buffer.ts'
 
 /**
@@ -94,9 +95,12 @@ const components: Components = {
 
 const plugins = [remarkGfm, remarkFilePaths]
 
-/** Renders Markdown text. The same component draws a message in the conversation and the preview in the prompt editor. */
+/** Markdown text as its elements. They depend on the text alone, so a text drawn once is kept (`markdown-kept.ts`). */
+const drawMarkdown = (text: string): ReactElement => ReactMarkdown({ remarkPlugins: plugins, components, urlTransform, children: text })
+
+/** Renders Markdown text: a message in the conversation, a file in the viewer, a review's words. A text drawn before is not parsed again. */
 export const Markdown = memo(function Markdown({ text }: { text: string }): ReactElement {
-  return createElement(ReactMarkdown, { remarkPlugins: plugins, components, urlTransform }, text)
+  return drawnOnce(text, drawMarkdown)
 })
 
 /** A message's words. hobkin's replies and the user's own messages are both Markdown. */
@@ -230,9 +234,13 @@ export const sameBlock = (left: BlockProps, right: BlockProps): boolean =>
   left.marks.length === right.marks.length &&
   left.marks.every((mark, at) => mark === right.marks[at])
 
-/** One block of Markdown that may still grow, parsed after the definitions of the rest. */
-const BlockMarkdown = memo(function BlockMarkdown({ text, prefix }: { text: string; prefix: string }): ReactElement {
-  return createElement(ReactMarkdown, { remarkPlugins: pluginsAfter(prefix), components, urlTransform }, prefix + text)
+/**
+ * One block of Markdown that may still grow, parsed after the definitions of the rest. The whole text draws as a stored
+ * message does, and is kept. A block is not: the one still being written changes with every piece.
+ */
+const BlockMarkdown = memo(function BlockMarkdown({ text, prefix, whole }: { text: string; prefix: string; whole: boolean }): ReactElement {
+  if (whole) return drawnOnce(text, drawMarkdown)
+  return ReactMarkdown({ remarkPlugins: pluginsAfter(prefix), components, urlTransform, children: prefix + text })
 })
 
 /**
@@ -242,7 +250,7 @@ const BlockMarkdown = memo(function BlockMarkdown({ text, prefix }: { text: stri
  */
 export function GrowingMarkdown({ text, whole = false }: { text: string; whole?: boolean }): ReactElement {
   const blocks = whole ? [{ key: 0, text, prefix: '' }] : blocksOf(text)
-  return joined(blocks.map(({ key, text: block, prefix }) => createElement(BlockMarkdown, { key, text: block, prefix })))
+  return joined(blocks.map(({ key, text: block, prefix }) => createElement(BlockMarkdown, { key, text: block, prefix, whole })))
 }
 
 /**
