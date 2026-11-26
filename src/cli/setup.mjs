@@ -148,7 +148,10 @@ const isProgram = file => {
 };
 
 /** The program a name runs from the PATH, as execFile finds it, or null. */
-const onPath = name => (process.env.PATH ?? '').split(delimiter).filter(Boolean).map(folder => join(folder, name)).find(isProgram) ?? null;
+const onPath = name => {
+  const folders = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
+  return folders.map(folder => join(folder, name)).find(isProgram) ?? null;
+};
 
 /**
  * git in facts, which the app's own setup words for itself: its version, or why it is missing. Apple's stand-in is
@@ -156,8 +159,9 @@ const onPath = name => (process.env.PATH ?? '').split(delimiter).filter(Boolean)
  * line tools is told so, and never asked to install them.
  */
 export async function gitState(ask, { which = onPath, platform = process.platform } = {}) {
+  const standIn = platform === 'darwin' && which('git') === APPLE_GIT;
   let git = 'git';
-  if (platform === 'darwin' && which('git') === APPLE_GIT) {
+  if (standIn) {
     const folder = await ask('xcode-select', ['-p']);
     const developer = folder.failed ? '' : folder.text.trim();
     if (!developer) return { found: false, why: 'no-tools' };
@@ -167,7 +171,7 @@ export async function gitState(ask, { which = onPath, platform = process.platfor
   const answer = await ask(git, ['--version']);
   if (!answer.failed) return { found: true, version: answer.text.match(VERSION)?.[0] ?? null };
   // The folder it names can be gone, as when the tools were deleted.
-  if (git !== 'git' && answer.absent) return { found: false, why: 'no-tools' };
+  if (standIn && answer.absent) return { found: false, why: 'no-tools' };
   return { found: false, why: answer.absent ? 'absent' : 'failed' };
 }
 
