@@ -158,6 +158,12 @@ test('the next digest is the next moment, tomorrow once today\'s have passed, an
   assert.equal(nextDigestAt([], on('10:00'), timeZone), null);
 });
 
+test('in a digest\'s own minute, the next digest is a later one and never now or before', () => {
+  assert.equal(nextDigestAt(moments, on('13:00') + 30000, timeZone), on('17:00'));
+  assert.equal(nextDigestAt(moments, on('13:00'), timeZone), on('17:00'));
+  assert.equal(nextDigestAt([{ at: '13:00', why: 'first' }], on('13:00') + 30000, timeZone), at('2026-11-24', '13:00'));
+});
+
 const learned = { moments, quiet, timeZone, present: true };
 
 test('P3 is logged and P2 waits for the next digest', () => {

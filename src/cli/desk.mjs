@@ -161,13 +161,16 @@ export function learnQuietHours(presenceEvents, { now, days = 14, timeZone = mac
   };
 }
 
-/** When the next learned digest comes after `now`, tomorrow's first once today's have passed, or null with none learned. */
+/**
+ * When the next learned digest comes after `now`, tomorrow's first once today's have passed, or null with none learned. A digest whose
+ * minute `now` is in has come, so the next one is from 1 to 1440 minutes on.
+ */
 export function nextDigestAt(moments, now, timeZone = machineZone()) {
   if (!moments?.length) return null;
   const { minute } = wallClock(now, timeZone);
   const minuteStart = now - (now % MINUTE_MS);
   // Counted in wall minutes, so a day the clocks change can be off by that hour.
-  return minuteStart + Math.min(...moments.map(({ at }) => (clockMinute(at) - minute + DAY_MINUTES) % DAY_MINUTES)) * MINUTE_MS;
+  return minuteStart + Math.min(...moments.map(({ at }) => ((clockMinute(at) - minute - 1 + DAY_MINUTES) % DAY_MINUTES) + 1)) * MINUTE_MS;
 }
 
 /** When the latest learned digest moment came, at or before `now`. */
