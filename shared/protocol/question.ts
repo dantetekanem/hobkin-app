@@ -37,28 +37,35 @@ const SURE: readonly string[] = ['high', 'medium', 'low'] satisfies Sure[]
 const DEFAULT_ASKERS: readonly string[] = ['routine', 'work']
 
 const isTime = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value))
+const isSure = (value: unknown): value is Sure => typeof value === 'string' && SURE.includes(value)
 
 /**
- * When the card takes its pick by itself, as hobkin's `isDueAt` decides: a card that can be undone, with a pick among its
- * choices and a deadline, from a routine or a work run. hobkin also keeps cards of the kinds it guards (`outward.mjs`) waiting,
- * which this cannot tell, so hobkin's own `defaultsAt`, when the card carries one, settles it.
+ * When a card with a pick takes it by itself, as hobkin's `isDueAt` decides: one that can be undone, with a deadline, from a
+ * routine or a work run. hobkin also keeps cards of the kinds it guards (`outward.mjs`) waiting, which this cannot tell, so
+ * hobkin's own `defaultsAt`, when the card carries one, settles it.
  */
-function defaultOf(card: FiledCard, picks: boolean): string | null {
-  if (!picks) return null
-  if (card.defaultsAt !== undefined) return isTime(card.defaultsAt) ? card.defaultsAt : null
-  if (card.reversible !== true || !DEFAULT_ASKERS.includes(card.answerTo?.kind ?? '')) return null
+function defaultOf(card: FiledCard): string | null {
+  if (card.defaultsAt !== undefined) {
+    return isTime(card.defaultsAt) ? card.defaultsAt : null
+  }
+
+  const fromDefaultAsker = DEFAULT_ASKERS.includes(card.answerTo?.kind ?? '')
+  if (card.reversible !== true || !fromDefaultAsker) return null
   return isTime(card.deadline) ? card.deadline : null
 }
 
 /** What a filed card says of itself, read the way hobkin writes it. A value hobkin does not write is left out, never guessed at. */
 export function cardFacts(card: FiledCard): CardFacts {
-  const picks = card.choices.some(({ value }) => value === card.recommended)
-  const defaultsAt = defaultOf(card, picks)
+  const hasPick = card.choices.some(({ value }) => value === card.recommended)
+  const keepsRule = card.learn === true && card.choices.some(({ value }) => value === ALWAYS_CHOICE)
+  // How sure, and when it is taken, are said of a pick, so a card without one says neither.
+  const defaultsAt = hasPick ? defaultOf(card) : null
+
   return {
-    ...(picks && typeof card.sure === 'string' && SURE.includes(card.sure) ? { sure: card.sure as Sure } : {}),
+    ...(hasPick && isSure(card.sure) ? { sure: card.sure } : {}),
     ...(typeof card.reversible === 'boolean' ? { reversible: card.reversible } : {}),
     ...(defaultsAt ? { defaultsAt } : {}),
-    ...(card.learn === true && card.choices.some(({ value }) => value === ALWAYS_CHOICE) ? { learn: true as const } : {}),
+    ...(keepsRule ? { learn: true as const } : {}),
   }
 }
 

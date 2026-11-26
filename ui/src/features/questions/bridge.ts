@@ -32,8 +32,11 @@ export interface QuestionLinks {
 }
 
 /** A question as the sheet asks it, headed the way Action Items heads it (`headingOf`), its pick first, with what its card says. */
-export function fromHost({ id, from, question, tldr, choices, recommended, why, sure, reversible, defaultsAt, learn }: PendingQuestion): Question {
+export function fromHost(pending: PendingQuestion): Question {
+  const { id, from, question, tldr, choices, recommended, why } = pending
+  const { sure, reversible, defaultsAt, learn } = pending
   const { question: heading, summary } = headingOf(question, tldr)
+
   return {
     id,
     from,
