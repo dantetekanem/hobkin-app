@@ -10,9 +10,9 @@ import { markAlways, openDecisions } from '../src/cli/decisions.mjs';
 import { endSessionJob } from '../src/cli/session-log.mjs';
 import { startSession } from '../src/cli/session.mjs';
 import { readStandingRules } from '../src/cli/standing-rules.mjs';
-import { askAgent, declineItem, declineStopped, mergeItem, mergePullRequest } from '../src/cli/work/controls.mjs';
+import { answerOffer, askAgent, declineItem, declineStopped, mergeItem, mergePullRequest } from '../src/cli/work/controls.mjs';
 import { pulseLaunches } from '../src/cli/work/launches.mjs';
-import { chooseProject, fileItem, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { branched, git, repository } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-11-26T20:00:00Z');
@@ -152,6 +152,18 @@ test('the user\'s no, from a card or a stopped run, and a branch sent back are o
 
   const row = readAutonomy(h.root)[BRANCH_WORK];
   assert.deepEqual([row.level, row.runs, row.overrides, row.cleanStreak], ['draft', 3, 3, 0]);
+});
+
+test('the user\'s no to an offer of several branches is one override, however many branches it named', async t => {
+  const h = workspace(t);
+  const [one, two, three] = ['one', 'two', 'three'].map(name => finished(h, `hobkin/${name}`));
+  const offered = { slug: 'api', item: one.id, head: 'tip', also: [{ item: two.id, head: 'tip' }, { item: three.id, head: 'tip' }] };
+
+  await answerOffer(h.root, offered, 'no', NOW);
+
+  assert.deepEqual(readItems(h.root, 'api').map(({ state }) => state), ['declined', 'declined', 'declined']);
+  const row = readAutonomy(h.root)[BRANCH_WORK];
+  assert.deepEqual([row.level, row.runs, row.overrides], ['deadline', 1, 1]);
 });
 
 test('a run\'s own question answered sends the agent on and says nothing against the work', t => {

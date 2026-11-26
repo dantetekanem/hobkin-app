@@ -727,22 +727,32 @@ function pushbackOn(root, { slug }, { branch, pushbacks = [] }, now) {
 
 function recordNo(root, project, item, now) {
   updateItem(root, project.slug, item.id, { state: 'declined', ...pushbackOn(root, project, item, now) }, now);
-  noteOutcome(root, codeBranchClass(project.slug), { clean: false, override: true }, now);
 }
 
-/** A no is the user's answer, and it is what learning reads. The branch stays, so changing their mind costs nothing. */
-export function declineItem(root, reference, id, now = Date.now()) {
+/** One answer of the user's is one override of the project's branch work, however many branches it named. */
+const overriddenOn = (root, project, now) => noteOutcome(root, codeBranchClass(project.slug), { clean: false, override: true }, now);
+
+function sayNo(root, reference, id, now) {
   const project = findProject(root, reference);
   const item = findItem(root, project, id);
   assertNotRunning(root, project, item);
   recordNo(root, project, item, now);
+  return { project, item };
+}
+
+/** A no is the user's answer, and it is what learning reads. The branch stays, so changing their mind costs nothing. */
+export function declineItem(root, reference, id, now = Date.now()) {
+  const { project, item } = sayNo(root, reference, id, now);
+  overriddenOn(root, project, now);
   return cardReply(project, item, 'said no', named => `Said no to ${named}. Its branch stays, and hobkin learns from this.`);
 }
 
 /** The same no, for a run the user stopped as not approved. The owner records it once that run has ended, so nothing the run recorded on its way out stands. */
 export function declineStopped(root, slug, id, now = Date.now()) {
   const { project, item } = runningItem(root, { slug, item: id });
-  if (item) recordNo(root, project, item, now);
+  if (!item) return;
+  recordNo(root, project, item, now);
+  overriddenOn(root, project, now);
 }
 
 // Items nothing works on any more, so a branch only they name is free to go.
@@ -972,12 +982,15 @@ export async function answerOffer(root, offered, value, now = Date.now()) {
   const rows = offeredIn(offered).filter(({ item }) => stateOf(root, slug, item) === 'branch');
   if (!rows.length) return reply('That has already gone from the list, so nothing changed.');
   if (value === 'merge') return mergeOffered({ root, slug, rows, route: offered.also?.length ? 'batch' : 'offer', now });
-
-  for (const { item } of rows) {
-    if (value === 'no') declineItem(root, slug, item, now);
-    else updateItem(root, slug, item, { offerHeldUntil: new Date(now + OFFER_HOLD_MS).toISOString() }, now);
+  if (value === 'no') {
+    // A no that stops partway leaves the offer open, and answering it again counts the override for what is left.
+    const [{ project }] = rows.map(({ item }) => sayNo(root, slug, item, now));
+    overriddenOn(root, project, now);
+    return reply('Said no. The branches stay, and hobkin learns from this.');
   }
-  return reply(value === 'no' ? 'Said no. The branches stay, and hobkin learns from this.' : 'Held for a day.');
+
+  for (const { item } of rows) updateItem(root, slug, item, { offerHeldUntil: new Date(now + OFFER_HOLD_MS).toISOString() }, now);
+  return reply('Held for a day.');
 }
 
 /** The user's switch for a pattern, and the only way back on after severe trouble. Its record stays as it is: trouble has already reset that. */
