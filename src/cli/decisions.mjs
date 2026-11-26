@@ -418,23 +418,22 @@ export async function runDecideCommand(root, args, input, now = Date.now(), from
   return { ok: true, id, message };
 }
 
-// The askers of `hobkin decide`, the only cards that carry a deadline. hobkin's own questions carry their choices out in answer.mjs.
-const DEFAULT_ASKERS = ['routine', 'work', 'outside'];
+// The askers of `hobkin decide` whose cards can take their pick at a deadline. hobkin's own questions carry their choices out in answer.mjs.
+// Another session's card waits for the user, because only that session says it can be undone, and hobkin cannot check what it would do.
+const DEFAULT_ASKERS = ['routine', 'work'];
 
-const isDueAt = now => ({ reversible, recommended, deadline, answerTo }) =>
-  reversible === true && Boolean(recommended) && Date.parse(deadline) <= now && DEFAULT_ASKERS.includes(answerTo?.kind);
+// A card of a guarded kind (`outward.mjs`) waits for the user too, whatever its asker says of undoing it.
+const isDueAt = now => ({ reversible, recommended, deadline, answerTo, kind }) =>
+  reversible === true && Boolean(recommended) && Date.parse(deadline) <= now && DEFAULT_ASKERS.includes(answerTo?.kind) && !isGuardedKind(kind);
 
 /**
- * The asker hears the pick the way it hears an answer (`carryOutAnswer` in answer.mjs), in words that say nobody gave it. The modules that
- * reach work mode and the inbox import this one, so they load here, when a default is due.
+ * The asker hears the pick the way it hears an answer (`carryOutAnswer` in answer.mjs), in words that say nobody gave it. The module that
+ * reaches work mode imports this one, so it loads here, when a default is due.
  */
-async function tellDefault(root, { question, answerTo, from }, label, now) {
+async function tellDefault(root, { question, answerTo }, label) {
   const said = `The user was asked: ${question} Nobody answered by its deadline, so it took the recommended choice: ${label}`;
   if (answerTo.kind === 'routine') (await import('./checks.mjs')).noteForCheck(root, answerTo.id, said);
   if (answerTo.kind === 'work') (await import('./work/controls.mjs')).askAgent(root, answerTo.slug, answerTo.item, said, { answering: true });
-  if (answerTo.kind === 'outside') {
-    (await import('./inbox.mjs')).handAnswer(root, { from, question, answer: `${label}, the recommended choice, because nobody answered by its deadline` }, now);
-  }
 }
 
 /**
@@ -452,7 +451,7 @@ export async function tickDecisionDefaults(root, now = Date.now()) {
   for (const decision of due) {
     try {
       const { id, recommended, choices, answerTo, at } = decision;
-      await tellDefault(root, decision, choices.find(choice => choice.value === recommended)?.label ?? recommended, now);
+      await tellDefault(root, decision, choices.find(choice => choice.value === recommended)?.label ?? recommended);
       answerDecision(root, id, recommended, now, { byDefault: true });
       recordEvent(root, 'decision_defaulted', { id, source: answerTo.kind, ms: now - Date.parse(at) }, now);
       settled.push(id);

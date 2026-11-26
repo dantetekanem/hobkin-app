@@ -403,15 +403,23 @@ test('a pick taken at its deadline is no answer to recall: the same question ask
   assert.equal(readEvents(root).some(({ type }) => type === 'decision_recalled'), false);
 });
 
-test('a default reaches another session\'s card through hobkin\'s main agent, and a learn card that defaults keeps no rule', async t => {
+test('a learn card that takes its pick at its deadline keeps no rule', async t => {
   const root = home(t);
-  await runDecideCommand(root, [], learnCard({ reversible: true, deadline: LATER }), FILED, 'Claude Code');
+  const { id } = await runDecideCommand(root, ['routine', 'site'], learnCard({ reversible: true, deadline: LATER }), FILED);
 
-  await tickDecisionDefaults(root, Date.parse(LATER));
+  assert.deepEqual(await tickDecisionDefaults(root, Date.parse(LATER)), [id]);
 
-  const [told] = inboxToTell(root, Date.parse(LATER));
-  assert.deepEqual([told.kind, told.from, told.answer], ['answer', 'Claude Code', 'Merge it, the recommended choice, because nobody answered by its deadline']);
   assert.deepEqual(readStandingRules(root), [], 'only the user\'s yes keeps a rule');
+});
+
+test('another session\'s card and a card of a guarded kind wait for the user, whatever they say of undoing', async t => {
+  const root = home(t);
+  await runDecideCommand(root, [], card({ reversible: true, deadline: LATER }), FILED, 'Claude Code');
+  await runDecideCommand(root, ['routine', 'mail'], card({ kind: 'email-reply', reversible: true, deadline: LATER }), FILED);
+
+  assert.deepEqual(await tickDecisionDefaults(root, Date.parse(LATER) + 60000), []);
+  assert.equal(openDecisions(root).length, 2);
+  assert.deepEqual(inboxToTell(root, Date.parse(LATER) + 60000), []);
 });
 
 test('a card that cannot be undone, has no pick, says nothing of undoing or whose deadline is ahead keeps waiting', async t => {
