@@ -55,7 +55,7 @@ const isProgram = (file: string) => {
 }
 
 /** The program to run: the first one on the PATH, then the usual places. Looked up on every call. */
-export function findProgram(name: 'pi' | 'npm' | 'node', { path = process.env.PATH ?? '', home = homedir(), ownNode, places }: FindProgramOptions = {}): string | null {
+export function findProgram(name: string, { path = process.env.PATH ?? '', home = homedir(), ownNode, places }: FindProgramOptions = {}): string | null {
   for (const folder of [...path.split(delimiter), ...(places ?? programPlaces(home, ownNode))]) {
     if (folder && isProgram(join(folder, name))) return join(folder, name)
   }

@@ -69,6 +69,45 @@ export interface PiNodeState {
   installs: string
 }
 
+/**
+ * Where a need sits in the setup's review: what hobkin needs to run at all, what Work and Change Review need for
+ * code, what one feature needs, and what only makes something better.
+ */
+export const SETUP_NEED_GROUPS = ['run', 'code', 'features', 'optional'] as const
+export type SetupNeedGroup = (typeof SETUP_NEED_GROUPS)[number]
+
+/**
+ * How a missing need is fixed: one of the setup's own installs, its sign-in, or a command for the user to copy and
+ * run. The setup installs only on the user's press.
+ */
+export type SetupFix =
+  | { kind: 'install'; what: 'node' | 'pi' | 'proof-tools' }
+  | { kind: 'install-package'; name: string }
+  | { kind: 'sign-in' }
+  | { kind: 'command'; command: string }
+
+/** One thing hobkin needs on this Mac, as the setup's review shows it. */
+export interface SetupNeed {
+  /** Its own id, such as `git` or `package:pi-coder`. */
+  id: string
+  group: SetupNeedGroup
+  name: string
+  /** What needs it, in a few words. */
+  neededBy: string
+  found: boolean
+  /** Its version, where one applies and it said. */
+  version: string | null
+  /** Why it is missing, in a few words. Null when it is found. */
+  problem: string | null
+  /** How to fix it. Null when it is found. */
+  fix: SetupFix | null
+}
+
+/** What `setup.needs` read: every need, in the order the review shows them. */
+export interface SetupNeeds {
+  needs: SetupNeed[]
+}
+
 /** A folder inside the user's projects folder. */
 export interface ProjectFolder {
   /** The folder's own name, such as `my-blog`. */

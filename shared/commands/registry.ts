@@ -29,6 +29,7 @@ import {
   SETUP_ASK_MAX,
   type PiSetup,
   type ProjectsFound,
+  type SetupNeeds,
   type SetupSaved,
   type SetupWorkDone,
   type UserProfile,
@@ -509,6 +510,12 @@ export const COMMANDS = {
   },
   'setup.pi': {
     description: "Read whether Pi is installed on this Mac at the version hobkin runs on, whether npm is there to install it, and which of the Pi packages hobkin's agents use Pi has. It only reads.",
+    runs: 'host',
+    args: nothing,
+  },
+  'setup.needs': {
+    description:
+      "Read everything hobkin needs on this Mac, for the setup's review: Node, Pi and a model sign-in to run; git and gh for code work; Pi's packages, the TLA+ tools, agentic-search and, while its agents are on, Claude Code; and qmd for memory search. Each says what needs it, whether it was found, its version, and how to fix it. It only reads, and only `gh auth status` reaches the network.",
     runs: 'host',
     args: nothing,
   },
@@ -1589,6 +1596,7 @@ export interface CommandResults {
   'directions.read': DirectionsFile
   'directions.save': DirectionsSaved
   'setup.pi': PiSetup
+  'setup.needs': SetupNeeds
   /** Pi as it is once the install is done. */
   'setup.install-pi': PiSetup
   'setup.install-package': PiSetup
