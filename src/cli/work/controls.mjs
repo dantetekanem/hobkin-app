@@ -557,7 +557,8 @@ export async function mergeItem(root, reference, id, { route = 'chat', read = 'n
     .catch(error => { throw Error(whyNoMerge(error, base, title)); });
   const landing = { ...facts, route, read, readMs, spot: Boolean(offer?.spot) };
   const closed = await closeWhatLanded({ root, repo, slug: project.slug, merged: item, target, landing, now });
-  noteOutcome(root, codeBranchClass(project.slug), { clean: true, ...(readMs > 0 ? { reviewMinutes: readMs / 60000 } : {}) }, now);
+  const reviewed = readMs > 0 ? { reviewMinutes: readMs / 60000 } : {};
+  noteOutcome(root, codeBranchClass(project.slug), { clean: true, ...reviewed }, now);
   const others = closed - 1;
   const alongside = others > 0 ? ` It brought ${others} earlier ${others === 1 ? 'branch' : 'branches'} with it.` : '';
   const message = `Merged "${title}" into ${base} on ${nameOf(project)}.${alongside} Nothing was pushed.`;
@@ -882,8 +883,9 @@ export function askAgent(root, reference, id, note, { answering = false, toMainA
 
   const words = note?.trim();
   const finished = isFinished(item);
-  const sentBack = finished && !answering ? pushbackOn(root, project, item, now) : {};
-  if (finished && !answering) noteOutcome(root, codeBranchClass(project.slug), { clean: false, override: true }, now);
+  const sendsBack = finished && !answering;
+  const sentBack = sendsBack ? pushbackOn(root, project, item, now) : {};
+  if (sendsBack) overriddenOn(root, project, now);
   const held = answering ? null : whyWorkModeWaits(readMode(root), now);
   if (held && toMainAgent && finished && item.branch) {
     return handOff(root, { project, item, why: held, now, also: sentBack }, noteJob(words));
@@ -983,8 +985,9 @@ export async function answerOffer(root, offered, value, now = Date.now()) {
   if (!rows.length) return reply('That has already gone from the list, so nothing changed.');
   if (value === 'merge') return mergeOffered({ root, slug, rows, route: offered.also?.length ? 'batch' : 'offer', now });
   if (value === 'no') {
-    // A no that stops partway leaves the offer open, and answering it again counts the override for what is left.
-    const [{ project }] = rows.map(({ item }) => sayNo(root, slug, item, now));
+    const project = findProject(root, slug);
+    for (const { item } of rows) sayNo(root, slug, item, now);
+    // A no that stops partway throws and leaves the offer open, so answering it again still counts one override.
     overriddenOn(root, project, now);
     return reply('Said no. The branches stay, and hobkin learns from this.');
   }

@@ -191,11 +191,17 @@ export const namingExtensions = run => async (request, options) => {
     ...(offer ? [integrationExtension] : [])];
   // Naming them comes before the process starts, so the turn's stages show how long it took.
   const turn = { since: asked, origin: 'run', ...options?.turn, marks: { ...options?.turn?.marks, resolved: Date.now() } };
-  // The outward guard records which kind of run each outward call came from (075-chief-of-staff S17).
-  const runKind = request.purpose === 'durable' ? 'durable' : workPurposes.includes(request.purpose) ? 'work' : request.untilDone === true ? 'session' : 'routine';
-  const env = { ...request.env, [RUN_KIND_ENV]: runKind, ...(offer ? integrationEnvironment(offer) : {}) };
+  const env = { ...request.env, [RUN_KIND_ENV]: outwardRunKind(request), ...(offer ? integrationEnvironment(offer) : {}) };
   return run({ ...request, extensions, env }, { ...options, turn });
 };
+
+/** The kind of run the outward guard records each outward call under (075-chief-of-staff S17). A session job is the run that lives until it is done. */
+function outwardRunKind({ purpose, untilDone }) {
+  if (purpose === 'durable') return 'durable';
+  if (workPurposes.includes(purpose)) return 'work';
+  if (untilDone === true) return 'session';
+  return 'routine';
+}
 
 // A durable hobkin's Pi process stays up after a turn that ended well, so the next turn of that conversation only prompts
 // it. Each is kept by its conversation file, and goes after this long without a turn or when more are kept than this.

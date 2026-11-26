@@ -59,6 +59,8 @@ export const CODE_BRANCH_WORK = 'code-branch';
 export const SEEDED_LEVELS = Object.freeze({ [CODE_BRANCH_WORK]: 'report' });
 
 const TASK_CLASS = /^[a-z][a-z0-9-]{0,59}(?::[a-z0-9][a-z0-9-]{0,59})?$/;
+// A brief's `Task class: code-fix:hobkin` line, in any case, with what follows the colon taken as written.
+const TASK_CLASS_LINE = /^[ \t]*task class:[ \t]*(.*?)\s*$/im;
 const GUARD_CEILING = LEVELS.indexOf('recommend');
 
 function assertTaskClass(taskClass) {
@@ -255,8 +257,9 @@ export const codeBranchClass = slug => `${CODE_BRANCH_WORK}:${slug}`;
  * cannot read is refused, so the brief's writer fixes it before the session starts.
  */
 export function taskClassIn(brief) {
-  const named = /^[ \t]*task class:[ \t]*(.*?)\s*$/im.exec(brief)?.[1];
+  const named = TASK_CLASS_LINE.exec(brief)?.[1];
   if (named === undefined) return null;
+
   assertTaskClass(named);
   return named;
 }
@@ -292,9 +295,9 @@ export function noteOutcome(root, taskClass, outcome, now = Date.now()) {
 
 /** The user's answer to a promotion question (`answer.mjs`): yes moves the class one level further from draft, and no keeps it where it is. */
 export function answerPromotion(root, taskClass, value, now = Date.now()) {
-  const { level } = value === 'yes' ? promote(root, taskClass, now) : declinePromotion(root, taskClass);
-  const said = value === 'yes' ? 'now' : 'still';
-  return { ok: true, message: `${taskClass} ${said} ${LEVEL_WORDS[level].does}.` };
+  const promoted = value === 'yes';
+  const { level } = promoted ? promote(root, taskClass, now) : declinePromotion(root, taskClass);
+  return { ok: true, message: `${taskClass} ${promoted ? 'now' : 'still'} ${LEVEL_WORDS[level].does}.` };
 }
 
 const classView = (taskClass, row) => ({

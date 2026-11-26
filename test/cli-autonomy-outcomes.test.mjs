@@ -145,7 +145,8 @@ test('the user\'s no, from a card or a stopped run, and a branch sent back are o
   const sentBack = finished(h, 'hobkin/back');
 
   declineItem(h.root, 'api', declined.id, NOW);
-  assert.deepEqual([readAutonomy(h.root)[BRANCH_WORK].level, readAutonomy(h.root)[BRANCH_WORK].overrides], ['deadline', 1]);
+  const afterTheNo = readAutonomy(h.root)[BRANCH_WORK];
+  assert.deepEqual([afterTheNo.level, afterTheNo.overrides], ['deadline', 1]);
 
   declineStopped(h.root, 'api', stopped.id, NOW);
   askAgent(h.root, 'api', sentBack.id, 'Rename it.', { now: NOW });
@@ -184,6 +185,7 @@ test('a revert of a landed change is one undo, however many pulses see it', asyn
   const sha = git(h.checkout, 'rev-parse', 'HEAD');
   const { id } = fileItem(h.root, 'api', { key: 'change', kind: 'fix', title: 'Change', brief: 'Evidence and first change.' }, NOW);
   updateItem(h.root, 'api', id, { state: 'merged', branch: 'hobkin/1-change', landed: { sha, at: new Date(NOW).toISOString(), route: 'key' } }, NOW);
+
   await pulse(NOW + HOUR);
   assert.equal(readAutonomy(h.root)[BRANCH_WORK], undefined, 'a merge no one undid is no undo');
 
@@ -201,18 +203,18 @@ test('a session whose brief names its task class counts its end there: clean onc
 
   const done = await startSession({ root, cwd: root, brief, approved: true, now: NOW });
   endSessionJob(root, done, { id: 'run-1', status: 'completed', result: { text: 'Fixed it.' } });
-  let row = readAutonomy(root)['code-fix:hobkin'];
-  assert.deepEqual([row.runs, row.cleanStreak, row.overrides], [1, 1, 0]);
+  const afterDone = readAutonomy(root)['code-fix:hobkin'];
+  assert.deepEqual([afterDone.runs, afterDone.cleanStreak, afterDone.overrides], [1, 1, 0]);
 
   const stopped = await startSession({ root, cwd: root, brief, approved: true, now: NOW });
   endSessionJob(root, stopped, { id: 'run-2', status: 'interrupted', userStop: { reason: 'Stopped from the agent view.' }, result: { text: '' } });
-  row = readAutonomy(root)['code-fix:hobkin'];
-  assert.deepEqual([row.runs, row.cleanStreak, row.overrides], [2, 0, 1]);
+  const afterStop = readAutonomy(root)['code-fix:hobkin'];
+  assert.deepEqual([afterStop.runs, afterStop.cleanStreak, afterStop.overrides], [2, 0, 1]);
 
   const failed = await startSession({ root, cwd: root, brief, approved: true, now: NOW });
   endSessionJob(root, failed, { id: 'run-3', status: 'failed', result: { status: 'failed', error: 'It broke.' } });
-  row = readAutonomy(root)['code-fix:hobkin'];
-  assert.deepEqual([row.runs, row.overrides], [3, 1], 'a failed run is no clean one, and no override either');
+  const afterFailure = readAutonomy(root)['code-fix:hobkin'];
+  assert.deepEqual([afterFailure.runs, afterFailure.overrides], [3, 1], 'a failed run is no clean one, and no override either');
 });
 
 test('a session cut off when hobkin closed or restarted counts nothing, so its class keeps its streak', async t => {

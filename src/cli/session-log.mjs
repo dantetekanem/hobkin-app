@@ -53,10 +53,17 @@ export function endSessionJob(root, session, run) {
   const userStop = run?.userStop && run.status === 'interrupted'
     ? { runId: run.id, reason: run.userStop.reason } : undefined;
   recordSessionEnd({ ...session, userStop, outcome: run?.status });
-  const cutOff = run?.status === 'interrupted' && !userStop;
   const { taskClass } = readLog(root).find(({ name }) => name === session.name) ?? {};
-  if (taskClass && !cutOff) noteOutcome(root, taskClass, { clean: run?.status === 'completed' && !userStop, override: Boolean(userStop) });
+  const outcome = judged(run, userStop);
+  if (taskClass && outcome) noteOutcome(root, taskClass, outcome);
   markPosted(root, [session]);
+}
+
+/** The outcome a session's end counts in its task class, or null when nobody judged the work. */
+function judged(run, userStop) {
+  if (userStop) return { clean: false, override: true };
+  if (run?.status === 'interrupted') return null;
+  return { clean: run?.status === 'completed' };
 }
 
 function readLog(root) {

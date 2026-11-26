@@ -297,6 +297,8 @@ test('every hobkin run with tools loads the guard once, is named its kind, and r
   // Each keeps its conversation where its own code puts it: a durable hobkin in `hobkins/`, every other run in `jobs/`.
   const base = { harness: 'pi', cwd: agentDir };
   const inJobs = id => join(root, 'jobs', `${id}.jsonl`);
+  // The home its Pi may inherit in HOBKIN_HOME, such as the user's real one, never gets a run's attempts.
+  const inherited = home(t);
 
   await run({ ...base, sessionFile: inJobs('routine') });
   await run({ ...base, purpose: 'work-do', sessionFile: inJobs('work') });
@@ -307,8 +309,6 @@ test('every hobkin run with tools loads the guard once, is named its kind, and r
   const [routine, work, durable, session, toolFree, ...rest] = started;
   assert.deepEqual(rest, []);
   assert.equal(toolFree.extensions, undefined, 'a run with no tools loads no extensions');
-  // The home its Pi may inherit in HOBKIN_HOME, such as the user's real one, never gets a run's attempts.
-  const inherited = home(t);
   for (const [job, kind] of [[routine, 'routine'], [work, 'work'], [durable, 'durable'], [session, 'session']]) {
     assert.equal(job.extensions.filter(path => path === outwardGuardExtension).length, 1, `a ${kind} run loads it once`);
     assert.equal(job.env[RUN_KIND_ENV], kind, `a ${kind} run is named one`);
