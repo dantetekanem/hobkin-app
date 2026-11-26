@@ -38,13 +38,11 @@ const { openCheck } = await import('../src/cli/checks.mjs');
 const { retireOffers } = await import('../src/cli/work/land-offer.mjs');
 const { chooseProject, fileItem, readItems, readProject, updateItem, writeMode } = await import('../src/cli/work/store.mjs');
 const { branched, git, repository } = await import('./helpers/work-fixture.mjs');
-const { createDashboard } = await import('../src/cli/ui.mjs');
 const { readActions, saveState } = await import('../src/cli/learning/store.mjs');
 const { startSession } = await import('../src/cli/session.mjs');
 const { recordSessionEnd, recordSessionStart, sessionsToPost, sessionsToWake } = await import('../src/cli/session-log.mjs');
 const { allCardActions, cardActionsToTell, markCardActionsHeard } = await import('../src/cli/work/card-actions.mjs');
 const { listTemplates } = await import('../src/cli/routine-templates.mjs');
-const { stripTerminalSequences } = await import('@earendil-works/pi-tui');
 
 function fixture(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-app-')));
@@ -278,8 +276,9 @@ test('presentation clear state is private, unions across writes and hides messag
   assert.equal(readFileSync(file, 'utf8'), saved);
   const reopened = readLocalView(h.root);
   assert.deepEqual(reopened.presentation.hiddenMessageIds, ['old', 'new']);
-  const ui = createDashboard(reopened);
-  assert.doesNotMatch(stripTerminalSequences(ui.render(80, 24).join('\\n')), /Old answer|New answer/);
+  // Clearing hides the messages and keeps them: both stay in the view, each under a hidden ID.
+  assert.deepEqual(reopened.messages.map(message => message.content), ['Old answer', 'New answer']);
+  assert.deepEqual(reopened.messages.filter(message => !reopened.presentation.hiddenMessageIds.includes(message.id)), []);
 });
 
 test('saved reports retain real results from an older view format', t => {
@@ -392,14 +391,15 @@ test('connected application serves input while a background check waits, saves r
   await app.runtime.mainWork;
   assert.equal(app.runtime.mainBusy, false);
   assert.equal(app.runtime.active.size, 2);
-  const ui = createDashboard(await app.refresh(), { send: text => app.send(text) });
+  const shown = await app.refresh();
   const sessionBytes = readFileSync(app.runtime.main.sessionFile, 'utf8');
   const stateBeforeClear = await app.runtime.state();
-  ui.input('/clear');
-  ui.input('\r');
-  await ui.pending();
-  ui.update(await app.refresh());
-  assert.doesNotMatch(stripTerminalSequences(ui.render(80, 24).join('\n')), /Reply: Hello/);
+  // /clear hides every message the view shows, and leaves the conversation, its state and the running checks alone.
+  const reply = shown.messages.find(message => message.content === 'Reply: Hello');
+  assert.ok(reply);
+  savePresentationState(h.root, shown.messages.map(message => message.id));
+  await app.refresh();
+  assert.ok(readPresentationState(h.root).hiddenMessageIds.includes(reply.id));
   assert.equal(readFileSync(app.runtime.main.sessionFile, 'utf8'), sessionBytes);
   assert.deepEqual(await app.runtime.state(), stateBeforeClear);
   assert.equal(app.runtime.active.size, 2);
@@ -421,15 +421,9 @@ test('connected application serves input while a background check waits, saves r
   assert.equal(files.length, 2);
   assert.deepEqual(files.map(file => readFileSync(file, 'utf8')).sort(), [answer, failureBody].sort());
   const failedReport = snapshot.reports.find(report => report.id === failedRun.id);
+  // A failed report keeps both the failure and what the run found.
   assert.equal(failedReport.body, failureBody);
   assert.equal(snapshot.reports.find(report => report.id === completedRun.id).body, answer);
-  const failureUi = createDashboard({ ...snapshot, reports: [failedReport] });
-  failureUi.input('\x1b[C');
-  failureUi.input('\x1b[B');
-  failureUi.input('\r');
-  const displayedFailure = stripTerminalSequences(failureUi.render(120, 40).join('\n'));
-  assert.match(displayedFailure, /A useful detail/);
-  assert.match(displayedFailure, /Pi session identity changed during the job\./);
   const viewFile = join(h.root, 'runtime/view.json');
   const savedView = readFileSync(viewFile, 'utf8');
   const displayedTick = app.snapshot.lastTick;
@@ -528,26 +522,19 @@ test('activity projection keeps live scheduled jobs visible beyond history limit
     );
     assert.equal(view.runs.find(run => run.id === 'daily-job').scheduleId, 'daily-one');
     assert.equal(view.runs.find(run => run.id === 'backup-job').scheduleId, 'daily-two');
-    const ui = createDashboard(view);
-    ui.input('\x1b[C');
-    ui.input('\x1b[C');
-    const live = stripTerminalSequences(ui.render(140, 60).join('\n'));
-    assert.match(live, /Routines 2\b/);
-    assert.match(live, /2 running/);
-    for (const text of [
-      'Daily audit', 'Backup review', 'fixture-harness', 'fixture/daily', 'fixture/backup',
-      'high', 'low',
+    // Each running routine keeps what it runs on, for the Routines list to show.
+    assert.equal(view.connection, 'connected');
+    for (const [id, title, harness, model, effort] of [
+      ['daily-job', 'Daily audit', 'fixture-harness', 'fixture/daily', 'high'],
+      ['backup-job', 'Backup review', 'fixture-harness', 'fixture/backup', 'low'],
     ]) {
-      assert.ok(live.includes(text), `Missing live schedule detail: ${text}`);
+      const run = view.runs.find(entry => entry.id === id);
+      assert.deepEqual({ title: run.title, harness: run.harness, model: run.model, effort: run.effort }, { title, harness, model, effort });
     }
+    // A saved run is not a live one: the offline view says it is offline.
     const offline = readLocalView(h.root);
     assert.equal(offline.connection, 'offline');
     assert.equal(offline.runs.filter(run => run.state === 'running').length, 3);
-    const staleUi = createDashboard(offline);
-    staleUi.input('\x1b[C');
-    staleUi.input('\x1b[C');
-    const stale = stripTerminalSequences(staleUi.render(140, 60).join('\n'));
-    assert.doesNotMatch(stale, /Running now|2 running/);
   } finally {
     app.runtime.state = state;
     await app.close();
@@ -654,12 +641,10 @@ test('visible scheduled reports add stable local notices without changing contex
     const view = await reopened.refresh();
     assert.deepEqual(view.messages.filter(message => message.role === 'notice').map(message => message.id).sort(),
       notices.map(message => message.id).sort());
-    const ui = createDashboard(view, { clear: ids => savePresentationState(h.root, ids) });
-    ui.input('/clear');
-    ui.input('\r');
-    await ui.pending();
-    ui.update(await reopened.refresh());
-    assert.doesNotMatch(stripTerminalSequences(ui.render(80, 24).join('\n')), /Report available for Morning check/);
+    // /clear hides every message the view shows.
+    savePresentationState(h.root, view.messages.map(message => message.id));
+    await reopened.refresh();
+    assert.ok(readPresentationState(h.root).hiddenMessageIds.includes(notice.id));
   } finally {
     await reopened.close();
   }
@@ -671,7 +656,9 @@ test('visible scheduled reports add stable local notices without changing contex
     const view = await final.refresh();
     assert.deepEqual(view.messages.filter(message => message.role === 'notice').map(message => message.id).sort(),
       notices.map(message => message.id).sort());
-    assert.doesNotMatch(stripTerminalSequences(createDashboard(view).render(80, 24).join('\n')), /Report available for/);
+    // The notices come back after a restart, and stay hidden.
+    assert.deepEqual(view.messages.filter(message => /Report available for/.test(message.content)
+      && !view.presentation.hiddenMessageIds.includes(message.id)), []);
     assert.equal(providerCalls, 0);
   } finally {
     await final.close();
@@ -819,8 +806,8 @@ test('application reset refreshes the connected view after preserving the previo
   const previous = app.runtime.main;
   const previousBytes = readFileSync(previous.sessionFile);
   const binding = app.snapshot.main;
-  const dashboard = createDashboard(app.snapshot);
-  app.onChange = view => dashboard.update(view);
+  const views = [];
+  app.onChange = view => views.push(view);
   const reset = await app.reset();
   const tools = toolSets.at(-1);
   assert.deepEqual(tools.map(tool => tool.name), ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings']);
@@ -837,7 +824,9 @@ test('application reset refreshes the connected view after preserving the previo
   assert.equal(app.snapshot.main.model, binding.model);
   assert.equal(app.snapshot.main.effort, binding.effort);
   assert.equal(app.snapshot.usage.usd, 0);
-  assert.match(stripTerminalSequences(dashboard.render(80, 24).join('\n')), /\$0\.00 est\./);
+  // The front end hears the reset view, with its estimate back at zero.
+  assert.equal(views.at(-1).connection, 'connected');
+  assert.equal(views.at(-1).usage.usd, 0);
   assert.equal(readLocalView(h.root).usage.usd, 0);
   assert.deepEqual(readFileSync(previous.sessionFile), previousBytes);
   const header = JSON.parse(readFileSync(reset.sessionFile, 'utf8').split('\\n')[0]);
@@ -847,7 +836,7 @@ test('application reset refreshes the connected view after preserving the previo
   await app.send('Accrue from reset');
   await app.runtime.idle();
   assert.equal((await app.refresh()).usage.usd, 0.25);
-  assert.match(stripTerminalSequences(dashboard.render(80, 24).join('\n')), /\$0\.25 est\./);
+  assert.equal(views.at(-1).usage.usd, 0.25);
   assert.equal(readLocalView(h.root).usage.usd, 0.25);
 });
 
@@ -2588,7 +2577,7 @@ test('a turn the model refused says why in Chat, and how to sign in again', asyn
   const { content } = (await app.refresh()).messages.at(-1);
 
   assert.match(content, /Authentication Fails, Your api key: \*\*\*\*0000 is invalid/);
-  assert.match(content, /hobkin login/);
+  assert.match(content, /\/login in `pi`/);
   assert.doesNotMatch(content, /authentication_error/);
 });
 
@@ -2601,7 +2590,7 @@ test('a failure that is not about signing in does not send anyone to sign in', a
   const { content } = (await app.refresh()).messages.at(-1);
 
   assert.match(content, /Connection reset by peer/);
-  assert.doesNotMatch(content, /hobkin login/);
+  assert.doesNotMatch(content, /\/login/);
 });
 
 test("a failure whose message is JSON, or JSON inside JSON as Gemini's are, shows the provider's own words", async t => {

@@ -5,7 +5,7 @@ description: Hand hobkin, the user's local assistant, what matters to them from 
 
 # hobkin
 
-hobkin is a terminal app that runs scheduled checks through Pi and saves each result as a Markdown report. A person chats with its main agent in a dashboard. You work with it from outside, through its CLI and its files.
+hobkin is an app that runs scheduled checks through Pi and saves each result as a Markdown report. A person chats with its main agent in hobkin's window. You work with it from outside, through its CLI and its files.
 
 Everything here is local files plus a few commands. There is no API or server, and no command to send a chat message or read the conversation. To bring something to the main agent, hand it over as the next section says. For anything else, tell the user what to ask it.
 
@@ -13,7 +13,7 @@ Everything here is local files plus a few commands. There is no API or server, a
 
 The data folder is `$HOBKIN_HOME`, or `~/.hobkin`. Every command also takes `--home /absolute/path`. If the folder holds `active.json`, the data lives in the subfolder its `directory` field names. Paths below are relative to the data folder.
 
-Checks and work mode only run while a dashboard is open. Only one dashboard can own a workspace. A live dashboard refreshes the `runtime.lock` entry beside `runtime/` every few seconds, so one modified within the last minute means a dashboard is open. A saved file or view proves nothing ran.
+Checks and work mode only run while the app is open. Only one app can own a workspace. A running app refreshes the `runtime.lock` entry beside `runtime/` every few seconds, so one modified within the last minute means the app is open. A saved file or view proves nothing ran.
 
 ## Hand hobkin what matters
 
@@ -61,8 +61,8 @@ These read saved state. They start nothing and call no model:
 
 | Command | Output |
 | --- | --- |
-| `hobkin status --plain` | Workspace, bindings, and each routine as `enabled` or `paused`. Exits 1 if any routine is invalid. |
-| `hobkin routines` | The same, without needing `--plain`. Use it to validate a routine file. |
+| `hobkin status` | Workspace, bindings, and each routine as `enabled` or `paused`. Exits 1 if any routine is invalid. |
+| `hobkin routines` | The same. Use it to validate a routine file. |
 | `hobkin routines templates` | Routine templates as JSON, hobkin's and the user's own from `routines/templates/`: `id`, `title`, `summary`, `recurrence`, `group`, `needs`, `effort`, `fits`, `asks`, `version` and `file`, then the `rules` every routine made from one keeps, and any template it could not read. |
 | `hobkin reports` | Every report as JSON, newest first: `id`, `title`, `routineId`, `at`, `body`, `outcome` and `read`. |
 | `hobkin telemetry [--days n]` | What happened in hobkin as JSON, 30 days by default: events by type and day, runs by routine and project, mean durations, what reached the user beside what they acted on, and a `scoreboard` of what hobkin brought, what came of it and what it settled alone. Facts only, never text. |
@@ -109,7 +109,6 @@ These change things. Use them only when the user asked, except the three in Hand
 | `hobkin init` | Creates a workspace. |
 | `hobkin patterns-submit`, `upgrade-apply` | Model spend and migrations, with their own confirmation steps. |
 
-Never run bare `hobkin` from an agent. In a terminal it opens the dashboard and takes ownership.
 
 ## Read results
 
@@ -214,14 +213,14 @@ After two blocked or failed runs in a row, a check is held and retries after 1, 
 Only the main agent can run a routine on request. From outside, write a one-time check instead. This is the supported way to hand hobkin work:
 
 1. Write `routines/once/<unique-id>.md` with today's `date` in the file's timezone, `at` set to the current minute or later, and `enabled: true`.
-2. An open dashboard picks it up within seconds of that minute. If none is open, it runs once as soon as one opens, however late.
+2. The open app picks it up within seconds of that minute. If the app is not open, the check runs once as soon as it opens, however late.
 3. Watch `hobkin reports` for its `routineId`, or `checks/<id>/log.md`.
 
 A one-time file never runs twice. Once it has run, hobkin moves it to `checks/<id>/once-<date>.md`, so it leaves `routines/once/`. Use a new ID for new work.
 
 ## Stay out of
 
-- `runtime/hobkin.sqlite` and `runtime.lock`. Never edit or delete them. Removing a live dashboard's lock can let two run on one workspace.
+- `runtime/hobkin.sqlite` and `runtime.lock`. Never edit or delete them. Removing a running app's lock can let two run on one workspace.
 - `runtime/view.json`, `runtime/presentation.json`, `runtime/learning.json`, `runtime/learning-actions.jsonl`, `sessions/` and `jobs/`. hobkin owns these, and their formats can change. `hobkin learning` shows what was learned and removes it.
 - `decisions.jsonl` and `runtime/inbox.jsonl`. Hand things over with `hobkin remind`, `decide` and `remember` instead.
 - `reports/`. Read reports with `hobkin reports` and delete them with its `delete` command.

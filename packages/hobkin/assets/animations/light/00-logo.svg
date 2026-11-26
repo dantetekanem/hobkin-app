@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="-28 -28 256 256" role="img" aria-label="Hobkin">
-<title>Hobkin</title>
-<rect x="-28" y="-28" width="256" height="256" fill="#FFFFFF"></rect>
-<g class="body"><path d="M40 180 Q40 100 100 22 Q160 100 160 180 Q160 188 152 188 L48 188 Q40 188 40 180 Z" fill="#16181F"></path>
-<g class="look"><g class="blink" opacity="1"><circle cx="84" cy="138" r="8" fill="#FFC940"></circle><circle cx="116" cy="138" r="8" fill="#FFC940"></circle></g></g></g>
-</svg>

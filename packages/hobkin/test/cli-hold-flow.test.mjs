@@ -1,24 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { createAgentSession, ModelRuntime, SettingsManager } from '@earendil-works/pi-coding-agent';
-import { stripTerminalSequences } from '@earendil-works/pi-tui';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { isHoldBrief } from '../src/cli/holds.mjs';
-import { main } from '../src/cli/main.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
-import { startDashboard } from '../src/cli/ui.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
 
-const LEFT = '\x1b[D';
-const DOWN = '\x1b[B';
-const ENTER = '\r';
-const ESCAPE = '\x1b';
 const CHROME_DOWN = 'Timed out: the Chrome extension is not polling (last seen never).';
 const BLOCKED = 'Blocked: Chrome is not polling.\n\nDetails.';
 const PLAN = 'Mail is held. Its last two runs stopped at a Chrome test and never called Gmail, which was fine. I propose to remove that test from its memory, then run it once.';
@@ -26,27 +18,6 @@ const QUESTION = {
   question: 'Remove the Chrome test from the memory of Mail and run it once?',
   choices: [{ value: 'leave', label: 'Leave it held' }, { value: 'fix', label: 'Yes, fix it and run it once' }],
 };
-
-class FakeTerminal {
-  columns = 100;
-  rows = 40;
-  start(input, resize) {
-    this.input = input;
-    this.resize = resize;
-  }
-  stop() {}
-  drainInput() { return Promise.resolve(); }
-  write() {}
-  moveBy() {}
-  hideCursor() {}
-  showCursor() {}
-  clearLine() {}
-  clearFromCursor() {}
-  clearScreen() {}
-  setTitle() {}
-  setProgress() {}
-  get kittyProtocolActive() { return false; }
-}
 
 function fixture(t) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-hold-flow-')));
@@ -161,60 +132,82 @@ async function mainAgent(h, play) {
   });
 }
 
-/** The real `main()` on a fake terminal. `play` is the model behind the main agent and `check` every scheduled run. */
+const chatText = view => (view?.messages ?? []).map(message => message.content).join('\n');
+const routine = (view, id) => view?.schedules?.find(schedule => schedule.id === id);
+
+/**
+ * HobkinApplication opened as the window's host opens it. `play` is the model behind the main agent and `check` every scheduled run.
+ * Its questions wait in `questions`, one open at a time, for the test to answer by a choice's value: `null` puts one off, as Escape
+ * did, and closing leaves an open one unanswered, as a quit does.
+ */
 async function openHobkin(h, { play, check }) {
-  const signals = new EventEmitter();
-  const terminal = new FakeTerminal();
-  const createMain = await mainAgent(h, play);
-  let ui;
-  let app;
-  const finished = main(['--home', h.root], { isTTY: true, write() {} }, {
-    signals,
-    input: { isTTY: true },
-    startDashboard: (view, handlers, options) => {
-      ui = startDashboard(view, handlers, { ...options, terminal, agentDir: h.root, theme: undefined });
-      return ui;
-    },
-    openApplication: async (home, options) => {
-      app = await HobkinApplication.open(home, {
-        ...options,
-        memoryIndex: null,
-        intervalMs: 100,
-        createMain,
-        // Only the check is scripted here. An editor that cannot run leaves its report as written.
-        runHarness: async (run, settings) => (run.purpose === 'humanizer'
-          ? { status: 'failed', text: '' }
-          : { status: 'completed', text: await check(run, settings) }),
+  const views = [];
+  const questions = [];
+  const seenAt = Date.now();
+  let open = null;
+  let closed = false;
+  const app = await HobkinApplication.open(h.root, {
+    memoryIndex: null,
+    intervalMs: 100,
+    createMain: await mainAgent(h, play),
+    // Only the check is scripted here. An editor that cannot run leaves its report as written.
+    runHarness: async (run, settings) => (run.purpose === 'humanizer'
+      ? { status: 'failed', text: '' }
+      : { status: 'completed', text: await check(run, settings) }),
+    onChange: view => views.push(view),
+    askQuestion: (request, signal) => {
+      if (open || closed) return Promise.resolve(undefined);
+      if (signal?.aborted) return Promise.resolve(null);
+      return new Promise(resolve => {
+        const asked = {
+          request,
+          answer(value) {
+            if (open !== asked) return;
+            open = null;
+            signal?.removeEventListener('abort', leave);
+            resolve(value);
+          },
+        };
+        const leave = () => asked.answer(null);
+        signal?.addEventListener('abort', leave, { once: true });
+        open = asked;
+        questions.push(asked);
       });
-      return app;
     },
+    presence: () => ({ seenAt, away: false, occupied: open !== null }),
   });
-  const screen = (width = 120, height = 45) => stripTerminalSequences(ui.render(width, height).join('\n'));
+  const view = () => views.at(-1) ?? app.snapshot;
   const hobkin = {
-    screen,
-    get app() { return app; },
-    state: () => ui.state(),
-    async until(expected, { timeout = 8000 } = {}) {
+    app,
+    questions,
+    view,
+    chat: () => chatText(view()),
+    get open() { return open; },
+    async settled(done, { timeout = 8000 } = {}) {
       const deadline = Date.now() + timeout;
-      while (!expected.test(screen())) {
-        if (Date.now() > deadline) assert.fail(`Never saw ${expected} on this screen:\n${screen()}`);
+      while (!done()) {
+        if (Date.now() > deadline) assert.fail(`Never settled. Chat says:\n${hobkin.chat()}`);
         await new Promise(resolve => setTimeout(resolve, 20));
       }
     },
-    press: data => terminal.input(data),
-    type(text) {
-      for (const character of text) terminal.input(character);
+    until: (expected, options) => hobkin.settled(() => expected.test(hobkin.chat()), options),
+    /** The question open now, once one is. */
+    async asked(options) {
+      await hobkin.settled(() => open !== null, options);
+      return open;
     },
+    // As Enter in Chat did: the message goes, and the test does not wait for its turn.
     send(text) {
-      hobkin.type(text);
-      terminal.input(ENTER);
+      const sent = app.send(text);
+      sent.catch(() => {});
+      return sent;
     },
     async close() {
-      signals.emit('SIGTERM');
-      await finished;
+      closed = true;
+      open?.answer(undefined);
+      await app.close();
     },
   };
-  await hobkin.until(/connected/);
   return hobkin;
 }
 
@@ -237,26 +230,25 @@ test('a check held over one broken tool brings a plan, and a yes fixes it and pr
   hobkin.send('run mail again');
 
   // Nobody asked for this part: the second block is enough.
-  await hobkin.until(/hobkin asks/);
+  const question = await hobkin.asked();
   await hobkin.until(/stopped at a Chrome test/);
-  const asked = hobkin.screen();
-  for (const text of ['Paused until', 'stopped at a Chrome test', 'then run it once', QUESTION.question, 'Leave it held', 'Yes, fix it and run it once']) {
-    assert.ok(asked.includes(text), `Chat should say ${text}:\n${asked}`);
+  const chat = hobkin.chat();
+  for (const text of ['Paused until', 'stopped at a Chrome test', 'then run it once']) {
+    assert.ok(chat.includes(text), `Chat should say ${text}:\n${chat}`);
   }
-  assert.doesNotMatch(asked, /hobkin-hold/);
+  assert.equal(question.request.question, QUESTION.question);
+  assert.deepEqual(question.request.choices.map(choice => choice.label), ['Leave it held', 'Yes, fix it and run it once']);
+  assert.doesNotMatch(JSON.stringify(hobkin.view().messages), /hobkin-hold/);
   assert.equal(briefs(seen).length, 1);
   const brief = details(briefs(seen)[0]);
   assert.equal(brief.routineFile, join(h.root, 'routines/daily/mail.md'));
   assert.deepEqual(brief.runs.at(-1).toolErrors, [{ tool: 'chrome_tab', error: CHROME_DOWN }]);
 
-  hobkin.press(DOWN);
-  hobkin.press(ENTER);
+  question.answer('fix');
   await hobkin.until(/Mail is running once to prove the fix/);
   await hobkin.until(/Mail: Sent two follow-ups\./);
 
-  hobkin.press(LEFT);
-  await hobkin.until(/UPCOMING/);
-  assert.doesNotMatch(hobkin.screen(), /held, retries/);
+  assert.notEqual(routine(hobkin.view(), 'mail').nextRun?.state, 'held');
   assert.equal(logLines(h).length, 3, 'the check ran once more, and the plan is not one of its runs');
   assert.equal(briefs(seen).length, 1);
 });
@@ -268,13 +260,13 @@ test('a no leaves the check held, and nothing asks again, even after a restart',
   let hobkin = await openHobkin(h, { play: planning(seen, runsAgain), check });
   await hobkin.until(/Mail: Chrome is not polling\./);
   hobkin.send('run mail again');
-  await hobkin.until(/hobkin asks/);
 
   // The do-nothing choice comes first, so Enter on its own never approves anything.
-  hobkin.press(ENTER);
+  const question = await hobkin.asked();
+  assert.equal(question.request.choices[0].value, 'leave');
+  question.answer('leave');
   await hobkin.until(/Mail stays held/);
-  hobkin.press(LEFT);
-  await hobkin.until(/held, retries/);
+  await hobkin.settled(() => routine(hobkin.view(), 'mail')?.nextRun?.state === 'held');
   await rest(300);
   await hobkin.close();
 
@@ -283,7 +275,7 @@ test('a no leaves the check held, and nothing asks again, even after a restart',
   await hobkin.until(/Mail stays held/);
   await rest(400);
 
-  assert.doesNotMatch(hobkin.screen(), /hobkin asks/);
+  assert.deepEqual(hobkin.questions, []);
   assert.equal(briefs(seen).length, 1);
   assert.equal(logLines(h).length, 2);
 });
@@ -314,57 +306,34 @@ test('a hold that lands during the user\'s turn waits for that turn, and never s
   await rest(400);
 
   assert.equal(briefs(seen).length, 0, 'the agent is busy, so the plan waits');
-  assert.doesNotMatch(hobkin.screen(), /hobkin asks/);
+  assert.deepEqual(hobkin.questions, []);
 
   thinking.resolve();
-  await hobkin.until(/hobkin asks/);
+  await hobkin.asked();
   await hobkin.until(/Your answer\./);
 
   assert.deepEqual(seen.filter(message => message.role === 'user').map(message => isHoldBrief(textOf(message))), [false, true], 'one turn, then the other');
 });
 
-test('an Enter meant for a draft cannot approve anything, and the draft survives', async t => {
+test('a hold\'s question opens in Chat, and answering it runs nothing and leaves the check held', async t => {
   const h = fixture(t);
   const seen = [];
   const hobkin = await openHobkin(h, { play: planning(seen), check: async run => failingRun(run.sessionFile) });
   t.after(() => hobkin.close());
   await hobkin.until(/Mail: Chrome is not polling\./);
 
-  hobkin.type('half a thought');
   await hobkin.app.runner.trigger('mail', 'second-try');
-  await hobkin.until(/hobkin asks/);
-  assert.equal(hobkin.state().draft, 'half a thought');
+  const question = await hobkin.asked();
 
-  hobkin.press(ENTER);
+  // The main agent's question is about the message just above it, so it opens in Chat.
+  assert.equal(question.request.inChat, true);
+  assert.equal(question.request.question, QUESTION.question, 'the question has to stand alone');
+
+  question.answer('leave');
   await hobkin.until(/Mail stays held/);
-
-  assert.equal(hobkin.state().draft, 'half a thought');
-  assert.equal(hobkin.state().view, 'conversation');
+  assert.equal(hobkin.open, null);
+  assert.equal(routine(hobkin.view(), 'mail').nextRun?.state, 'held');
   assert.equal(logLines(h).length, 2, 'it ran nothing');
-});
-
-test('the question reaches the user on another tab, opens in Chat, and leaves them back where they were', async t => {
-  const h = fixture(t);
-  const seen = [];
-  const hobkin = await openHobkin(h, { play: planning(seen), check: async run => failingRun(run.sessionFile) });
-  t.after(() => hobkin.close());
-  await hobkin.until(/Mail: Chrome is not polling\./);
-  hobkin.press(LEFT);
-  await hobkin.until(/UPCOMING/);
-
-  await hobkin.app.runner.trigger('mail', 'second-try');
-  await hobkin.until(/hobkin asks/);
-
-  // The main agent's question is about the message just above it, so it opens there whichever tab the user was on.
-  assert.equal(hobkin.state().view, 'conversation');
-  assert.ok(hobkin.screen().includes(QUESTION.question), 'the question has to stand alone here');
-
-  hobkin.press(ENTER);
-  await rest(100);
-  assert.doesNotMatch(hobkin.screen(), /hobkin asks/);
-  // Answering takes the user back to the tab they left, so the held check is still in front of them.
-  assert.equal(hobkin.state().view, 'schedules');
-  assert.match(hobkin.screen(), /held, retries/);
 });
 
 test('quitting with the question open is not a no, however long the quit takes: the next start asks again', async t => {
@@ -381,7 +350,7 @@ test('quitting with the question open is not a no, however long the quit takes: 
   let hobkin = await openHobkin(h, { play: planning(seen), check });
   await hobkin.until(/Mail: Chrome is not polling\./);
   await hobkin.app.runner.trigger('mail', 'second-try');
-  await hobkin.until(/hobkin asks/);
+  await hobkin.asked();
   await hobkin.app.runner.trigger('slow', 'slow-check');
   await hobkin.close();
 
@@ -389,10 +358,10 @@ test('quitting with the question open is not a no, however long the quit takes: 
 
   hobkin = await openHobkin(h, { play: planning(seen), check });
   t.after(() => hobkin.close());
-  await hobkin.until(/hobkin asks/);
+  const question = await hobkin.asked();
 
   assert.equal(briefs(seen).length, 2);
   assert.equal(details(briefs(seen)[1]).resumed, true);
-  hobkin.press(ESCAPE);
+  question.answer(null);
   await hobkin.until(/Mail stays held/);
 });

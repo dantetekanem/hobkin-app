@@ -46,8 +46,8 @@ const RUNTIME_OUT = join(MODULES, 'hobkin')
 const NODE_OUT = join(OUT, 'node', 'bin', 'node')
 /** The host's entry. Every other file it loads is found from here. */
 const ENTRY = 'host/src/main.ts'
-/** What hobkin's code needs from its checkout: its code, the faces it draws, and the package.json it reads its version and pins from. */
-const RUNTIME_PARTS = ['src', 'assets', 'package.json']
+/** What hobkin's code needs from its checkout: its code, and the package.json it reads its version and pins from. */
+const RUNTIME_PARTS = ['src', 'package.json']
 /** What pnpm needs to install hobkin's packages. hobkin's repository ignores its lockfile, so an archive of it has none. */
 const RUNTIME_INSTALL_FILES = ['pnpm-lock.yaml', 'pnpm-workspace.yaml']
 /** What pnpm leaves in node_modules for itself. Nothing reads it at run time, and `.bin` holds links. */
@@ -352,7 +352,7 @@ function stage(args: readonly string[]): void {
   const parts: [string, number, string][] = [
     [`host files (${files.length})`, sizes.app - modules, ''],
     ['host packages', modules - runtimeAll, Object.entries(hostVersions).map(([name, version]) => `${name}@${version}`).join(' ')],
-    ['hobkin code and assets', runtimeAll - runtimeModules, ''],
+    ['hobkin code', runtimeAll - runtimeModules, ''],
     ['hobkin packages', runtimeModules, Object.entries(hobkin.packages).map(([name, version]) => `${name}@${version}`).join(' ')],
     ['node', sizes.node, ''],
     ['total', sizes.app + sizes.node, ''],

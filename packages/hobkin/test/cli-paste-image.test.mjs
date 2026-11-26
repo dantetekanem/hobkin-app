@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { visibleWidth } from '@earendil-works/pi-tui';
-import { MAX_PASTE_BYTES, PastedImages, halfBlocks, pngPixels, previewRows } from '../src/cli/paste-image.mjs';
+import { MAX_PASTE_BYTES, PastedImages, halfBlocks, pngPixels } from '../src/cli/paste-image.mjs';
 import { png } from './helpers/png.mjs';
 
 const fixture = (t, clipboard) => {
@@ -201,13 +201,4 @@ test('an image too tiny for Pi to redraw has no preview, and still attaches', as
   assert.ok(existsSync(image.file));
   assert.deepEqual(image.preview, []);
   assert.equal(image.picture, undefined);
-});
-
-test('previews sit side by side and stop before the width runs out', () => {
-  const image = (columns, rows) => ({ columns, preview: Array.from({ length: rows }, () => 'x'.repeat(columns)) });
-  const images = [image(12, 3), image(4, 2), image(12, 3), image(12, 3)];
-
-  assert.deepEqual(previewRows(images, 18), ['xxxxxxxxxxxx xxxx', 'xxxxxxxxxxxx xxxx', 'xxxxxxxxxxxx     ']);
-  assert.deepEqual(previewRows(images, 10), []);
-  assert.deepEqual(previewRows([{ columns: 0, preview: [] }], 40), []);
 });

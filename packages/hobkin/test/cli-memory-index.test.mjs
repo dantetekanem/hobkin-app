@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { exec, spawnSync } from 'node:child_process';
-import { EventEmitter } from 'node:events';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { stripTerminalSequences } from '@earendil-works/pi-tui';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize, setLearning } from '../src/cli/config.mjs';
 import { writeAnswersView } from '../src/cli/decided.mjs';
@@ -18,11 +16,9 @@ import { injectedLessons, saveState, writeLessonsView } from '../src/cli/learnin
 import { main } from '../src/cli/main.mjs';
 import { indexStatus, MemoryIndex } from '../src/cli/memory-index.mjs';
 import { createQuestionTool } from '../src/cli/questions.mjs';
-import { startDashboard } from '../src/cli/ui.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 import { readHeld } from '../src/cli/desk-queue.mjs';
 
-const ENTER = '\r';
 const FAST = { pollMs: 10, quietMs: 30, retryMs: 60 };
 const STATUS = 'Documents\n  Total:    7 files indexed\n  Vectors:  7 embedded\n';
 const LESSON = '-site-audit blocked x5: do the rest, name what stopped it';
@@ -593,77 +589,42 @@ test('hobkin status says how the index stands', async t => {
   assert.match(await statusText(), /^Index 7 files · 3 waiting for embeddings · checked \d{4}-/m);
 });
 
-class FakeTerminal {
-  columns = 100;
-  rows = 40;
-  start(input, resize) {
-    this.input = input;
-    this.resize = resize;
-  }
-  stop() {}
-  drainInput() { return Promise.resolve(); }
-  write() {}
-  moveBy() {}
-  hideCursor() {}
-  showCursor() {}
-  clearLine() {}
-  clearFromCursor() {}
-  clearScreen() {}
-  setTitle() {}
-  setProgress() {}
-  get kittyProtocolActive() { return false; }
-}
-
-/** The real `main()` on a fake terminal. */
-function openHobkin(root, { timing = FAST } = {}) {
-  const signals = new EventEmitter();
-  const terminal = new FakeTerminal();
+/** Hobkin's application as the app opens it, with the memory index the app gives it. */
+async function openHobkin(root, { timing = FAST } = {}) {
   const fake = fakePi(root);
-  let ui;
-  const finished = main(['--home', root], { isTTY: true, write() {} }, {
-    signals,
-    input: { isTTY: true },
-    startDashboard: (view, handlers, options) => {
-      ui = startDashboard(view, handlers, { ...options, terminal, agentDir: root, theme: undefined });
-      return ui;
-    },
-    openApplication: (home, options) => HobkinApplication.open(home, {
-      ...options,
-      memoryIndex: options.memoryIndex && { ...options.memoryIndex, ...timing },
-      intervalMs: 100,
-      sessionDependencies: fake.dependencies,
-      createMain: fake.createMain,
-      runHarness: async () => ({ status: 'completed', text: 'Useful: Done.' }),
-    }),
+  let view = null;
+  const app = await HobkinApplication.open(root, {
+    memoryIndex: { ...timing },
+    intervalMs: 100,
+    sessionDependencies: fake.dependencies,
+    createMain: fake.createMain,
+    runHarness: async () => ({ status: 'completed', text: 'Useful: Done.' }),
+    onChange: next => { view = next; },
+    // The user is there, as at a window they just opened.
+    presence: () => ({ seenAt: Date.now(), away: false, occupied: false }),
   });
-  const screen = () => stripTerminalSequences(ui.render(200, 50).join('\n'));
+  const chat = () => (view?.messages ?? []).map(({ content }) => content).join('\n');
   return {
-    screen,
-    async until(expected, timeout = 8000) {
-      await settled(() => expected.test(screen()), expected, timeout);
+    chat,
+    async heard(pattern, timeout = 8000) {
+      await settled(() => pattern.test(chat()), pattern, timeout);
     },
-    send(text) {
-      for (const character of text) terminal.input(character);
-      terminal.input(ENTER);
-    },
-    async close() {
-      signals.emit('SIGTERM');
-      await finished;
-    },
+    send: text => app.send(text),
+    close: () => app.close(),
   };
 }
 
-test('the dashboard opens and answers while qmd hangs, and a quit ends qmd', async t => {
+test('the application opens and answers while qmd hangs, and closing it ends qmd', async t => {
   const { root } = fixture(t);
   const qmd = fakeQmd(t);
   qmd.set('hold-update');
-  const hobkin = openHobkin(root, { timing: { ...FAST, quietMs: 0 } });
+  const hobkin = await openHobkin(root, { timing: { ...FAST, quietMs: 0 } });
   cleanup(t, () => hobkin.close());
 
-  await hobkin.until(/connected/);
   await settled(() => qmd.started('update') === 1, 'update start');
-  hobkin.send('Are you there?');
-  await hobkin.until(/Reply: Are you there\?/, 2000);
+  const sent = hobkin.send('Are you there?');
+  await hobkin.heard(/Reply: Are you there\?/, 2000);
+  await sent;
 
   const [{ pid }] = qmd.runs('update');
   assert.ok(alive(pid));
@@ -682,22 +643,22 @@ test('a missing qmd is told once, in Chat or held for the next digest, and leave
     rmSync(process.env.PATH, { recursive: true, force: true });
     process.env.PATH = saved;
   });
-  const hobkin = openHobkin(root);
+  const hobkin = await openHobkin(root);
   cleanup(t, () => hobkin.close());
 
-  // A quiet line may wait for the desk's next digest (075), so it counts on screen or held, never both and never twice.
-  const told = () => (hobkin.screen().match(/qmd is not installed/g) ?? []).length
+  // A quiet line may wait for the desk's next digest (075), so it counts in Chat or held, never both and never twice.
+  const told = () => (hobkin.chat().match(/qmd is not installed/g) ?? []).length
     + readHeld(root).filter(({ content }) => /qmd is not installed/.test(content)).length;
   await settled(() => told() > 0, 'the missing qmd to be told');
-  hobkin.send('Still fine?');
-  await hobkin.until(/Reply: Still fine\?/);
+  await hobkin.send('Still fine?');
+  await hobkin.heard(/Reply: Still fine\?/);
   assert.equal(told(), 1);
 });
 
-test('the dashboard keeps the index current, and a signal stops it', async t => {
+test('the application keeps the index current, and closing it stops it', async t => {
   const { root } = fixture(t);
   const qmd = fakeQmd(t);
-  const hobkin = openHobkin(root);
+  const hobkin = await openHobkin(root);
   cleanup(t, () => hobkin.close());
 
   await settled(() => qmd.ended('status') === 1, 'the first pass finish');

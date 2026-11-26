@@ -114,20 +114,6 @@ export const halfBlocks = image => {
   return rows;
 };
 
-/** As many previews as fit, side by side. The row of names above them still counts them all. */
-export const previewRows = (images, width) => {
-  const shown = [];
-  let used = 0;
-  for (const image of images.filter(({ preview }) => preview.length)) {
-    if (used + image.columns > width) break;
-    shown.push(image);
-    used += image.columns + 1;
-  }
-  const height = Math.max(0, ...shown.map(({ preview }) => preview.length));
-  const rowAt = y => shown.map(({ preview, columns }) => preview[y] ?? ' '.repeat(columns)).join(' ');
-  return Array.from({ length: height }, (_, y) => rowAt(y));
-};
-
 // The image is already safe to send by here, so a preview that fails only leaves the preview out.
 const previewOf = async (resizeImage, { data, mimeType }) => {
   try {

@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
 import { mkdtempSync, readdirSync, rmSync, symlinkSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -8,8 +7,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initialize } from '../src/cli/config.mjs';
 import { main } from '../src/cli/main.mjs';
-import { readPresentationState } from '../src/cli/view.mjs';
-import { setProfile } from '../src/cli/profile.mjs';
 import { fileDecision } from '../src/cli/decisions.mjs';
 import { chooseProject, fileItem, recordLaunch, updateItem } from '../src/cli/work/store.mjs';
 
@@ -17,9 +14,8 @@ function fixture(t, isTTY = false) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-main-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   initialize(root, { cwd: root });
-  const signals = new EventEmitter();
   const output = { isTTY, text: '', write(text) { this.text += text; } };
-  return { root, signals, output };
+  return { root, output };
 }
 
 function freshHome(t) {
@@ -37,30 +33,18 @@ function freshHome(t) {
   return { home, root: join(home, '.hobkin') };
 }
 
-test('interactive launch initializes the default workspace without touching legacy data', async t => {
+test('a new default workspace is created without touching legacy data', t => {
   const { home, root } = freshHome(t);
   const legacy = join(home, '.pi/agent/hobkin');
   mkdirSync(legacy, { recursive: true });
   writeFileSync(join(legacy, 'state.json'), '{"legacy":"preserved"}');
-  const signals = new EventEmitter();
-  let opens = 0;
-  const dependencies = {
-    signals,
-    input: { isTTY: true },
-    startDashboard: () => ({ update() {}, stop() {} }),
-    openApplication: async selectedRoot => {
-      assert.equal(selectedRoot, root);
-      assert.equal(JSON.parse(readFileSync(join(root, 'config.json'))).version, 2);
-      opens++;
-      signals.emit('SIGTERM');
-      return { close: async () => {} };
-    },
-  };
-  assert.equal(await main([], { isTTY: true, write() {} }, dependencies), 0);
+
+  // The app creates a missing home this way (host/src/owner.ts, prepareHome).
+  initialize(root, { cwd: root });
   const config = readFileSync(join(root, 'config.json'), 'utf8');
-  assert.equal(await main([], { isTTY: true, write() {} }, dependencies), 0);
+  assert.equal(JSON.parse(config).version, 2);
+  initialize(root, { cwd: root });
   assert.equal(readFileSync(join(root, 'config.json'), 'utf8'), config);
-  assert.equal(opens, 2);
   for (const cadence of ['daily', 'weekly', 'monthly']) {
     assert.equal(existsSync(join(root, 'routines', cadence)), true);
   }
@@ -69,13 +53,10 @@ test('interactive launch initializes the default workspace without touching lega
   assert.equal(existsSync(join(root, 'migration')), false);
 });
 
-test('finite reads do not initialize, and connected startup cannot bypass an incomplete migration', async t => {
+test('finite reads do not initialize, and a status cannot bypass an incomplete migration', async t => {
   const { root } = freshHome(t);
-  const dependencies = {
-    input: { isTTY: true },
-    openApplication: () => { throw Error('Must not open'); },
-  };
-  for (const [args, isTTY] of [[[], false], [['--plain'], true], [['routines'], true], [['schedules'], true]]) {
+  const dependencies = { input: { isTTY: true } };
+  for (const [args, isTTY] of [[[], false], [[], true], [['--plain'], true], [['routines'], true], [['schedules'], true]]) {
     await assert.rejects(main(args, { isTTY, write() {} }, dependencies), { code: 'ENOENT' });
     assert.equal(existsSync(root), false);
   }
@@ -110,410 +91,13 @@ test('the published hobkin executable runs from PATH outside the checkout and pr
   assert.ok(rejected.stderr.length > 0);
 });
 
-test('the dashboard holds one owner until a signal, then closes and removes handlers', async t => {
+test('status prints the saved state on a TTY too, with or without --plain', async t => {
   const h = fixture(t, true);
-  const started = Promise.withResolvers();
-  let closes = 0;
-  const work = main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    startDashboard: () => ({ update() {}, stop() {} }),
-    openApplication: async () => {
-      started.resolve();
-      return { close: async () => { closes++; } };
-    },
-  });
-
-  await started.promise;
-  await new Promise(resolve => setImmediate(resolve));
-  h.signals.emit('SIGTERM');
-
-  assert.equal(await work, 0);
-  assert.equal(closes, 1);
-  assert.equal(h.signals.listenerCount('SIGTERM'), 0);
-  assert.equal(h.signals.listenerCount('SIGINT'), 0);
-});
-
-test('dashboard quit stops the application and releases lifecycle resources', async t => {
-  const h = fixture(t, true);
-  const opened = Promise.withResolvers();
-  let handlers;
-  let signal;
-  let dashboardStopped = false;
-  const closeCalls = [];
-  const work = main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    startDashboard: (_view, callbacks) => {
-      handlers = callbacks;
-      return { update() {}, stop() { dashboardStopped = true; } };
-    },
-    openApplication: async (_root, options) => {
-      signal = options.signal;
-      opened.resolve();
-      return { close: async (...args) => { closeCalls.push(args); } };
-    },
-  });
-
-  await Promise.race([
-    opened.promise,
-    work.then(code => { throw Error(`CLI exited before opening the application (${code})`); }),
-  ]);
-  await new Promise(resolve => setImmediate(resolve));
-  handlers.onQuit();
-
-  assert.equal(await work, 0);
-  assert.equal(signal.aborted, true);
-  assert.deepEqual(closeCalls, [[]]);
-  assert.equal(dashboardStopped, true);
-  assert.equal(h.signals.listenerCount('SIGTERM'), 0);
-  assert.equal(h.signals.listenerCount('SIGINT'), 0);
-});
-
-test('connected command exits the process only after the application has closed', async t => {
-  const h = fixture(t, true);
-  const started = Promise.withResolvers();
-  const steps = [];
-  const work = main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    startDashboard: () => ({ update() {}, stop() {} }),
-    exit: code => { steps.push(`exit ${code}`); },
-    openApplication: async () => {
-      started.resolve();
-      return {
-        close: async () => {
-          await Promise.resolve();
-          steps.push('closed');
-        },
-      };
-    },
-  });
-
-  await started.promise;
-  h.signals.emit('SIGINT');
-  await work;
-
-  assert.deepEqual(steps, ['closed', 'exit 0']);
-});
-
-test('quitting during startup exits cleanly without waiting for the connection', async t => {
-  const h = fixture(t, true);
-  const started = Promise.withResolvers();
-  const connecting = Promise.withResolvers();
-  const exits = [];
-  const work = main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    startDashboard: () => ({ update() {}, stop() {} }),
-    exit: code => { exits.push(code); },
-    openApplication: () => {
-      started.resolve();
-      return connecting.promise;
-    },
-  });
-
-  await started.promise;
-  h.signals.emit('SIGINT');
-
-  assert.equal(await work, 0);
-  assert.deepEqual(exits, [0]);
-
-  const closed = Promise.withResolvers();
-  connecting.resolve({ close: async () => { closed.resolve(); } });
-  await closed.promise;
-});
-
-test('a connection that fails after a quit stays silent', async t => {
-  const h = fixture(t, true);
-  const started = Promise.withResolvers();
-  const connecting = Promise.withResolvers();
-  const work = main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    startDashboard: () => ({ update() {}, stop() {} }),
-    openApplication: () => {
-      started.resolve();
-      return connecting.promise;
-    },
-  });
-
-  await started.promise;
-  h.signals.emit('SIGINT');
-  assert.equal(await work, 0);
-
-  connecting.reject(Error('This operation was aborted'));
-  await new Promise(resolve => setImmediate(resolve));
-});
-
-test('a new home signs in before the dashboard, then starts setup once the chat is ready', async t => {
-  const h = fixture(t, true);
-  const steps = [];
-
-  await main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    signIn: async () => { steps.push('sign in'); },
-    startDashboard: () => {
-      steps.push('dashboard');
-      return {
-        update() {},
-        stop() {},
-        startSetup() {
-          steps.push('setup');
-          h.signals.emit('SIGTERM');
-        },
-      };
-    },
-    openApplication: async () => {
-      steps.push('open');
-      return { close: async () => {} };
-    },
-  });
-
-  assert.deepEqual(steps, ['sign in', 'dashboard', 'open', 'setup']);
-});
-
-test('hobkin login signs in on request, and only in a terminal', async t => {
-  const h = fixture(t, true);
-  const requests = [];
-  const signIn = async request => { requests.push(request); };
-
-  assert.equal(await main(['login', '--home', h.root], h.output, { input: { isTTY: true }, signIn }), 0);
-  await assert.rejects(main(['login', '--home', h.root], { isTTY: false, write() {} }, { input: { isTTY: true }, signIn }), /needs a terminal/);
-
-  assert.deepEqual(requests, [{ always: true }]);
-});
-
-test('a home with a name saved does not start setup by itself', async t => {
-  const h = fixture(t, true);
-  setProfile(h.root, 'call', 'Ada');
-  let started = 0;
-
-  await main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    signIn: async () => {},
-    startDashboard: () => ({ update() {}, stop() {}, startSetup() { started++; } }),
-    openApplication: async () => {
-      setImmediate(() => h.signals.emit('SIGTERM'));
-      return { close: async () => {} };
-    },
-  });
-
-  assert.equal(started, 0);
-});
-
-test('dashboard paints before connection, wires sends and restores terminal on startup failure', async t => {
-  const h = fixture(t, true);
-  let painted = false;
-  let stopped = false;
-
-  await assert.rejects(main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    startDashboard: (view, handlers, options) => {
-      painted = true;
-      assert.equal(view.connection, 'connecting', 'it says it is connecting until the main conversation can take a message');
-      assert.equal(typeof handlers.send, 'function');
-      assert.equal(options.theme.cwd, view.config.main.cwd);
-      return { update() {}, askQuestion: request => request.choices[0].value, stop() { stopped = true; } };
-    },
-    openApplication: async (_root, options) => {
-      assert.equal(painted, true);
-      assert.equal(await options.askQuestion({ choices: [{ value: 'keep' }] }), 'keep');
-      throw Error('Synthetic startup failure');
-    },
-  }), /Synthetic startup failure/);
-
-  assert.equal(stopped, true);
-  assert.equal(h.signals.listenerCount('SIGTERM'), 0);
-});
-
-test('interactive dashboard wiring persists clear state through the activated root', async t => {
-  const h = fixture(t, true);
-  const started = Promise.withResolvers();
-  let handlers;
-  const work = main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    startDashboard: (_view, next) => {
-      handlers = next;
-      started.resolve();
-      return { update() {}, stop() {} };
-    },
-    openApplication: async () => ({ close: async () => {} }),
-  });
-
-  await started.promise;
-  assert.deepEqual((await handlers.clear(['visible'])).hiddenMessageIds, ['visible']);
-  assert.deepEqual(readPresentationState(h.root).hiddenMessageIds, ['visible']);
-  h.signals.emit('SIGTERM');
-  assert.equal(await work, 0);
-});
-
-test('interactive pasting goes through the connected application, and images go out with their message', async t => {
-  const h = fixture(t, true);
-  const started = Promise.withResolvers();
-  const connecting = Promise.withResolvers();
-  const calls = [];
-  let handlers;
-  const work = main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    startDashboard: (_view, next) => {
-      handlers = next;
-      started.resolve();
-      return { update() {}, stop() {} };
-    },
-    openApplication: async () => {
-      await connecting.promise;
-      return {
-        close: async () => {},
-        pasteImage: () => calls.push('paste'),
-        dropImages: images => calls.push(images),
-        send: (...sent) => calls.push(sent),
-      };
-    },
-  });
-
-  await started.promise;
-  assert.throws(() => handlers.pasteImage(), /connecting/);
-  connecting.resolve();
-  await new Promise(resolve => setImmediate(resolve));
-  handlers.pasteImage();
-  handlers.dropImages(['one']);
-  handlers.send('look', null, ['one']);
-
-  assert.deepEqual(calls, ['paste', ['one'], ['look', null, ['one']]]);
-  h.signals.emit('SIGTERM');
-  assert.equal(await work, 0);
-});
-
-test('interactive reset awaits the connected application and refreshes the dashboard', async t => {
-  const h = fixture(t, true);
-  const started = Promise.withResolvers();
-  const resetStarted = Promise.withResolvers();
-  const releaseReset = Promise.withResolvers();
-  const updates = [];
-  let handlers;
-  const work = main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    startDashboard: (_view, next) => {
-      handlers = next;
-      started.resolve();
-      return { update: view => updates.push(view), stop() {} };
-    },
-    openApplication: async (_root, options) => ({
-      async reset() {
-        resetStarted.resolve();
-        await releaseReset.promise;
-        const view = { connection: 'connected', refreshed: true };
-        options.onChange(view);
-        return { sessionId: 'fresh-session' };
-      },
-      async close() {},
-    }),
-  });
-  t.after(async () => {
-    releaseReset.resolve();
-    h.signals.emit('SIGTERM');
-    await work;
-  });
-
-  await started.promise;
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(typeof handlers.reset, 'function');
-
-  let completed = false;
-  const reset = handlers.reset().then(result => {
-    completed = true;
-    return result;
-  });
-  await resetStarted.promise;
-  assert.equal(completed, false);
-  releaseReset.resolve();
-  assert.deepEqual(await reset, { sessionId: 'fresh-session' });
-  assert.equal(completed, true);
-  assert.ok(updates.some(view => view.refreshed));
-
-  h.signals.emit('SIGTERM');
-  assert.equal(await work, 0);
-});
-
-test('interactive dashboard cancellation delegates outcomes to the connected application', async t => {
-  const h = fixture(t, true);
-  const started = Promise.withResolvers();
-  const requested = [];
-  let handlers;
-  const work = main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    startDashboard: (_view, next) => {
-      handlers = next;
-      started.resolve();
-      return { update() {}, stop() {} };
-    },
-    openApplication: async () => ({
-      kill: async runId => {
-        requested.push(runId);
-        if (runId === 'error') throw Error('Cancellation unavailable.');
-        return runId === 'live-job';
-      },
-      interrupt: async () => ['not read yet'],
-      async close() {},
-    }),
-  });
-
-  await started.promise;
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(await handlers.kill('live-job'), true);
-  assert.equal(await handlers.kill('stale-job'), false);
-  await assert.rejects(handlers.kill('error'), /Cancellation unavailable/);
-  assert.deepEqual(requested, ['live-job', 'stale-job', 'error']);
-  assert.deepEqual(await handlers.interrupt(), ['not read yet']);
-  h.signals.emit('SIGTERM');
-  assert.equal(await work, 0);
-});
-
-test('interactive dashboard reaches learning through the connected application and says when it is still connecting', async t => {
-  const h = fixture(t, true);
-  const started = Promise.withResolvers();
-  const connecting = Promise.withResolvers();
-  let handlers;
-  const work = main(['--home', h.root], h.output, {
-    signals: h.signals,
-    input: { isTTY: true },
-    startDashboard: (_view, next) => {
-      handlers = next;
-      started.resolve();
-      return { update() {}, stop() {} };
-    },
-    openApplication: () => connecting.promise,
-  });
-  t.after(async () => {
-    h.signals.emit('SIGTERM');
-    await work;
-  });
-
-  await started.promise;
-  assert.throws(() => handlers.toggleLearning(), /hobkin is still connecting\./);
-
-  connecting.resolve({ toggleLearning: async () => ({ enabled: true }), async close() {} });
-  await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(await handlers.toggleLearning(), { enabled: true });
-});
-
-test('plain status never opens an application even on a TTY', async t => {
-  const h = fixture(t, true);
-  const code = await main(['status', '--plain', '--home', h.root], h.output, {
-    input: { isTTY: true },
-    openApplication: () => { throw Error('Must not open'); },
-  });
-
-  assert.equal(code, 0);
-  assert.match(h.output.text, /Main not connected/);
+  for (const args of [['status'], ['status', '--plain'], []]) {
+    h.output.text = '';
+    assert.equal(await main([...args, '--home', h.root], h.output, { input: { isTTY: true } }), 0);
+    assert.match(h.output.text, /Main not connected/);
+  }
 });
 
 test('plain status shows the main binding and a configured launcher', async t => {

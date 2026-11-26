@@ -6,7 +6,6 @@ import { migrationFixture } from './helpers/migration.mjs';
 import { runUpgrade } from '../src/cli/migration/cutover.mjs';
 import { loadImportedHistory } from '../src/cli/history.mjs';
 import { UsageLedger } from '../src/cli/usage.mjs';
-import { createDashboard } from '../src/cli/ui.mjs';
 import { main } from '../src/cli/main.mjs';
 
 const at = '2026-10-25T00:00:00Z';
@@ -84,11 +83,8 @@ test('partial historical estimates stay separate from v2 spend and reading histo
   loadImportedHistory(h.root);
   assert.equal(readFileSync(h.journal.file, 'utf8'), before);
   assert.equal(ledger.snapshot().usd, 0);
-  const rendered = createDashboard({ reports: history.reports, history, config: h.options.config, usage: ledger.snapshot() });
-  rendered.input('\x1b[C');
-  rendered.input('\r');
-  assert.equal(rendered.state().focus, 'detail');
-  assert.ok(rendered.render(120, 40).join('').replace(/\s/g, '').includes(history.reports[0].path));
+  // An imported report still points at the local file it came from.
+  assert.ok(history.origins.some(origin => origin.path === history.reports[0].path));
 });
 
 test('the finite history command returns local paths and estimates without starting a provider', async t => {

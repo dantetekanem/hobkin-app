@@ -22,7 +22,7 @@ const MINIMUM_NODE = engines.node.replace('>=', '');
 
 const INSTALL_PI = `Run \`npm install -g --ignore-scripts ${PI_PACKAGE}@${PI_VERSION}\`.`;
 const MATCH_PI = `${INSTALL_PI} \`pi update\` moves Pi past that version, so skip it. To run a patched Pi, point \`launcher\` in config.json at it: docs/guide.md explains how, under "Start Pi through a launcher".`;
-const SIGN_IN = 'Run `hobkin login` and pick a provider. It is the same sign-in as /login in `pi`.';
+const SIGN_IN = 'Sign in to a provider. While Pi has no model it can use, hobkin\'s window shows Connect a model, with every way in. /login in `pi` is the same sign-in.';
 const GH_USE = 'Work mode uses it for GitHub PRs. A repository on another host works without it, through that host\'s own CLI, with less to read.';
 const INSTALL_QMD = 'Run `npm install -g @tobilu/qmd`. Hobkin finds it the next time it opens, and qmd downloads a 330 MB model the first time it indexes.';
 const PI_CODER_ADDS = 'With it, d on a local PR opens the branch\'s diff.';

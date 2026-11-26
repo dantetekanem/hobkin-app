@@ -6,7 +6,6 @@
 !/LICENSE
 !/src/
 !/test/
-!/assets/
 !/scripts/
 /src/*
 !/src/*.ts

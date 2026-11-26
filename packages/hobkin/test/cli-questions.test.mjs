@@ -10,7 +10,6 @@ import { openDecisions } from '../src/cli/decisions.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
 import { fakePi, isolatePiHome } from './helpers/pi-session.mjs';
 import { createAgentSession, ModelRuntime, SettingsManager } from '@earendil-works/pi-coding-agent';
-import { createDashboard } from '../src/cli/ui.mjs';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 
 const question = {
@@ -126,20 +125,6 @@ test('a question the user stops, or one with nowhere to keep it, is no item; ask
   assert.deepEqual(openDecisions(root), [], 'answered on the sheet, it does not wait in Action Items as well');
 });
 
-test('quitting with a question open is no answer and no putting it off, while Esc puts it off', async t => {
-  const root = home(t);
-  const config = initialize(root, { cwd: root });
-  const ui = createDashboard({ config, connection: 'connected' });
-  t.after(() => ui.stop());
-
-  const escaped = ui.askQuestion(question);
-  ui.input('\x1b');
-  assert.equal(await escaped, null);
-  const quit = ui.askQuestion(question);
-  ui.stop();
-  assert.equal(await quit, undefined, 'whoever asked can ask again on the next start');
-});
-
 test('a question put off is answered in Action Items, and the main agent hears the answer in Chat with the question', async t => {
   const root = home(t);
   const asked = [];
@@ -176,11 +161,41 @@ test('a question put off is answered in Action Items, and the main agent hears t
   }
 });
 
+/**
+ * The application's askQuestion, answered the way a front end answers it: the test picks the answer once the question is up, an abort
+ * takes it down with no answer, and a quit answers undefined, which is no answer at all.
+ */
+function questionSheet() {
+  const sheet = { asked: [], finish: null, opened: Promise.withResolvers() };
+  sheet.ask = (request, signal) => {
+    if (signal?.aborted) return Promise.resolve(null);
+    return new Promise(resolve => {
+      const finish = value => {
+        signal?.removeEventListener('abort', takeDown);
+        sheet.finish = null;
+        resolve(value);
+      };
+      const takeDown = () => finish(null);
+      signal?.addEventListener('abort', takeDown, { once: true });
+      sheet.asked.push(request);
+      sheet.finish = finish;
+      sheet.opened.resolve();
+    });
+  };
+  /** Waits until the next question is up. */
+  sheet.shown = async () => {
+    await sheet.opened.promise;
+    sheet.opened = Promise.withResolvers();
+  };
+  sheet.answer = value => sheet.finish(value);
+  return sheet;
+}
+
 test('real SDK registers the main question tool and application delivers selection and cancellation to it', async t => {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-questions-'));
   isolatePiHome(t, join(root, 'agent'));
-  const config = initialize(root, { cwd: root });
-  const ui = createDashboard({ config, connection: 'connected' });
+  initialize(root, { cwd: root });
+  const sheet = questionSheet();
   const model = {
     id: 'local',
     name: 'Synthetic',
@@ -202,13 +217,8 @@ test('real SDK registers the main question tool and application delivers selecti
   });
   models.getModel = () => model;
   models.streamSimple = () => { throw Error('No provider call allowed'); };
-  let questionShown;
   const app = await HobkinApplication.open(root, {
-    askQuestion: (request, signal) => {
-      const pending = ui.askQuestion(request, signal);
-      questionShown?.resolve();
-      return pending;
-    },
+    askQuestion: sheet.ask,
     createMain: options => openPiSession(options, {
       agentDir: join(root, 'agent'),
       createSession: options => createAgentSession({
@@ -216,27 +226,25 @@ test('real SDK registers the main question tool and application delivers selecti
         modelRuntime: models,
         model,
         agentDir: join(root, 'agent'),
-        tools: ['ask_question'],
         settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }),
       }),
     }),
   });
   t.after(async () => {
-    ui.stop();
     await app.close();
     rmSync(root, { recursive: true, force: true });
   });
   const tool = app.runtime.main.agent.state.tools.find(tool => tool.name === 'ask_question');
   assert.ok(tool, 'registered as a real SDK agent tool');
-  ui.input('saved draft');
   const answered = tool.execute('choice-one', question);
-  ui.input('\x1b[B');
-  ui.input('\r');
+  await sheet.shown();
+  assert.deepEqual([sheet.asked[0].question, sheet.asked[0].choices], [question.question, question.choices], 'the front end gets the question and its choices');
+  sheet.answer('enable');
   assert.deepEqual((await answered).details, { status: 'answered', answer: question.choices[1] });
   assert.deepEqual(readAnswers(root).map(({ question: asked, chose }) => [asked, chose]), [['What should happen?', 'Enable this schedule']]);
-  assert.equal(ui.state().draft, 'saved draft');
   const abort = new AbortController();
   const cancelled = tool.execute('choice-two', question, abort.signal);
+  await sheet.shown();
   abort.abort();
   assert.equal((await cancelled).details.status, 'cancelled');
   models.hasConfiguredAuth = () => false;
@@ -271,23 +279,22 @@ test('real SDK registers the main question tool and application delivers selecti
     });
     return stream;
   };
-  questionShown = Promise.withResolvers();
   await app.send('Ask a question using the synthetic provider.');
-  await questionShown.promise;
-  ui.input('\r');
+  await sheet.shown();
+  sheet.answer('keep');
   await app.runtime.idle();
   const result = app.runtime.messages().find(message => message.role === 'toolResult');
   assert.deepEqual(JSON.parse(result.content[0].text), { status: 'answered', answer: question.choices[0] });
-  questionShown = Promise.withResolvers();
   await app.runtime.send('Ask again, then cancel.', 'cancel-question');
-  await questionShown.promise;
+  await sheet.shown();
   await app.runtime.cancel('cancel-question');
   assert.equal((await app.runtime.state()).runs['cancel-question'].status, 'interrupted');
-  assert.equal(ui.state().focus, 'composer');
+  assert.equal(sheet.finish, null, 'the stop took the question down');
   const nextTurn = requests.at(-1).slice(requests.at(-1).indexOf('## What the user decided lately'));
   for (const label of ['Keep paused', 'Enable this schedule']) assert.ok(nextTurn.includes(label), `the next turn carries ${label}`);
   const closed = tool.execute('choice-three', question);
-  ui.stop();
+  await sheet.shown();
+  sheet.answer(undefined);
   assert.equal((await closed).details.status, 'unavailable', 'a quit is no answer, and the question was not put off');
   assert.equal(readAnswers(root).length, 2, 'a cancelled question keeps nothing');
   assert.deepEqual(openDecisions(root), [], 'a stopped turn or a quit leaves nothing in Action Items');

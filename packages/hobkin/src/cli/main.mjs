@@ -3,15 +3,12 @@ import { resolve } from 'node:path';
 import { defaultRoot, initialize, legacySources, loadConfig } from './config.mjs';
 import { loadImportedHistory } from './history.mjs';
 import { indexStatus } from './memory-index.mjs';
-import { recordEvent } from './events.mjs';
-import { captureCrashes } from './feedback/crash.mjs';
-import { draftFromChat, runFeedbackCommand, sendApproved } from './feedback/outbox.mjs';
+import { runFeedbackCommand } from './feedback/outbox.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
-import { readLocalView, savePresentationState } from './view.mjs';
+import { readLocalView } from './view.mjs';
 import { deleteReports } from './reports.mjs';
 import { reportReadStates } from './telemetry.mjs';
 import { inRoutineWords, whenItRuns } from './schedules.mjs';
-import { stayAwake } from './stay-awake.mjs';
 import { HOBKIN_VERSION } from './version.mjs';
 
 const DAY_MS = 86400000;
@@ -81,98 +78,10 @@ export function parseArguments(args) {
   return options;
 }
 
-const looksNew = ({ schedules, messages, userName }) => !schedules.length && !messages.length && !userName;
-
 /** What another process hands over goes only to a real workspace, so a wrong folder fails instead of starting one that no hobkin reads. */
 function workspaceRoot(requested) {
   loadConfig(requested);
   return resolveDataRoot(requested);
-}
-
-async function connected(options, snapshot, dependencies) {
-  const signals = dependencies.signals ?? process;
-  const dataRoot = resolveDataRoot(options.root);
-  const done = Promise.withResolvers();
-  const cancellation = new AbortController();
-  // Work agents are Pi jobs of this process, so a quit stops them, and their items carry on from their branches on the next start.
-  const stop = () => {
-    cancellation.abort();
-    done.resolve();
-  };
-  let dashboard;
-  let app;
-  signals.on('SIGINT', stop);
-  signals.on('SIGTERM', stop);
-  // A crash leaves a local draft for the next start to offer, and sends nothing.
-  const stopCrashCapture = captureCrashes(dataRoot, signals);
-  stayAwake();
-  try {
-    // An injected application brings its own model.
-    const signIn = dependencies.signIn ?? (dependencies.openApplication ? null : (await import('./signin.mjs')).signIn);
-    if (signIn) await signIn({ launcher: snapshot.config.launcher });
-
-    const start = dependencies.startDashboard ?? (await import('./ui.mjs')).startDashboard;
-    dashboard = start({ ...snapshot, connection: 'connecting' }, {
-      onQuit: stop,
-      send: (text, report, images) => {
-        if (!app) throw Error('Main conversation is still connecting.');
-        return app.send(text, report, images);
-      },
-      pasteImage: () => {
-        if (!app) throw Error('hobkin is still connecting.');
-        return app.pasteImage();
-      },
-      dropImages: images => app?.dropImages(images),
-      clear: messageIds => savePresentationState(options.root, messageIds),
-      reset: () => {
-        if (!app) throw Error('Main conversation is still connecting.');
-        return app.reset();
-      },
-      kill: runId => {
-        if (!app) throw Error('hobkin is still connecting.');
-        return app.kill(runId);
-      },
-      // Before the application opens, no turn can be running.
-      interrupt: () => app?.interrupt(),
-      reportRead: read => app?.recordReportRead(read),
-      event: (type, facts) => recordEvent(dataRoot, type, facts),
-      moment: moment => app?.moods.react(moment),
-      workAction: (...request) => {
-        if (!app) throw Error('hobkin is still connecting.');
-        return app.workAction(...request);
-      },
-      toggleLearning: () => {
-        if (!app) throw Error('hobkin is still connecting.');
-        return app.toggleLearning();
-      },
-      draftFeedback: words => draftFromChat(dataRoot, words),
-      sendFeedback: draft => sendApproved(dataRoot, draft, { fetch: dependencies.fetch }),
-    }, { theme: { cwd: snapshot.config.main.cwd } });
-    const open = dependencies.openApplication ?? (await import('./application.mjs')).HobkinApplication.open;
-    const opening = open(options.root, {
-      signal: cancellation.signal,
-      memoryIndex: {},
-      onChange: view => dashboard.update(view),
-      askQuestion: (request, signal) => dashboard.askQuestion(request, signal),
-      showDone: row => dashboard.showDone?.(row),
-      showRow: target => dashboard.showRow?.(target),
-      presence: () => dashboard.presence?.(),
-    }).then(opened => {
-      app = opened;
-      if (cancellation.signal.aborted) return opened.close();
-      if (looksNew(snapshot)) dashboard.startSetup?.();
-    });
-    // A quit never waits for startup. Exit hooks release the lock and stop MCP servers.
-    await Promise.race([opening, done.promise]);
-    await done.promise;
-    return 0;
-  } finally {
-    signals.removeListener('SIGINT', stop);
-    signals.removeListener('SIGTERM', stop);
-    stopCrashCapture();
-    dashboard?.stop();
-    await app?.close();
-  }
 }
 
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
@@ -186,7 +95,7 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   }
   if (options.command === 'help') {
     output.write(`hobkin ${HOBKIN_VERSION}\n`);
-    output.write('Usage: hobkin [command] [options]\n  version  print the version hobkin runs\n  init | routines | status | history  [--home directory] [--plain]\n  routines templates  list the routine templates setup offers, hobkin\'s and yours from routines/templates, as JSON\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID... | catch-up]  list the Reports inventory as JSON, each with whether it was read, delete reports by ID, or ask the running hobkin for one short catch-up report over the unread ones\n  telemetry [--days n]  print what happened in hobkin as JSON, from this machine only, 30 days by default\n  telemetry <view> [--days n]  print one view of those events as JSON, such as questions, interruptions or presence; telemetry help lists them all\n  telemetry upload [on | off | status]  turn the upload of usage events to hobkin\'s server on or off, on by default once this machine is enrolled, or say what goes and where\n  feedback [list | on | off | delete <id>]  list what /feedback sent, turn sending on or off, or delete a report here and on the server\n  wins [--days n]  print what got done each day as JSON: work merged, decisions made and the days in a row, 7 days by default\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill [install [--to folder]]  print a skill that teaches other agents to work with hobkin, or install it where agents load skills, ~/.pi/agent/skills by default\n  remind <text> --on YYYY-MM-DD [--from name]  save a reminder that hobkin brings up on that day\n  remember <text> [--from name]  hand hobkin\'s main agent a fact or preference to keep\n  decide [routine <id> | work <project> <item> | --from name]  file the question on stdin as JSON in Decisions\n  pending  print what is waiting on the user, across every routine and work mode, as JSON\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  proof check <spec.tla> [--cfg file] [--project slug] [--item id] [--head sha] [--workers n] [--minutes n]  parse a TLA+ spec with SANY, check its model with TLC and prove it with TLAPS when it has a proof, and record the run in proofs/\n  proof stop <id> | proof setup  stop a proof run, or download the pinned TLC into tools/tla\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  learning [on | off | clear <id> | clear all | answer <id> yes|later|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  canvas show <url> | draw <file|-> | read | save [path] | close  [--title text] [--hobkin id]  show a page or a drawing on a canvas, the main one or a durable hobkin, by writing the files the running app follows\n  tell [main | <id>] [<words> | -]  inside a durable hobkin\'s turn only: message the main hobkin or another durable hobkin, or with nothing after it, list who you can reach\n  schedule [list | make | cancel <id> | pause <id> | resume <id> | run <id>]  inside a run hobkin started on Claude Code only: keep schedules for yourself, as the hobkin_schedule tool does, with make reading the schedule as JSON on stdin\n  memory [list [kind] | get <name> | search <words> [--kind kind] | add | change | forget <name> | restore <name> | suggest]  read what hobkin remembers about the user, as the hobkin_recall tool does, never a private memory outside a durable hobkin\'s turn; inside one, save too, with add and change reading the memory as JSON on stdin; suggest hands one to the main hobkin from a run\n  session --tier fast|mid|high|max [--title name] [--cwd directory] [--keep | --wake] [--approved]  hand the brief on stdin to a full Pi session that the running hobkin starts as a job in its agents list, on the model of the tier its work needs, with --keep starts it as a durable hobkin that stays and waits for the user, and with --wake gives the main agent a turn when it ends\n');
+    output.write('Usage: hobkin [command] [options]\n  version  print the version hobkin runs\n  init | routines | status | history  [--home directory]\n  routines templates  list the routine templates setup offers, hobkin\'s and yours from routines/templates, as JSON\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID... | catch-up]  list the Reports inventory as JSON, each with whether it was read, delete reports by ID, or ask the running hobkin for one short catch-up report over the unread ones\n  telemetry [--days n]  print what happened in hobkin as JSON, from this machine only, 30 days by default\n  telemetry <view> [--days n]  print one view of those events as JSON, such as questions, interruptions or presence; telemetry help lists them all\n  telemetry upload [on | off | status]  turn the upload of usage events to hobkin\'s server on or off, on by default once this machine is enrolled, or say what goes and where\n  feedback [list | on | off | delete <id>]  list what /feedback sent, turn sending on or off, or delete a report here and on the server\n  wins [--days n]  print what got done each day as JSON: work merged, decisions made and the days in a row, 7 days by default\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill [install [--to folder]]  print a skill that teaches other agents to work with hobkin, or install it where agents load skills, ~/.pi/agent/skills by default\n  remind <text> --on YYYY-MM-DD [--from name]  save a reminder that hobkin brings up on that day\n  remember <text> [--from name]  hand hobkin\'s main agent a fact or preference to keep\n  decide [routine <id> | work <project> <item> | --from name]  file the question on stdin as JSON in Decisions\n  pending  print what is waiting on the user, across every routine and work mode, as JSON\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  proof check <spec.tla> [--cfg file] [--project slug] [--item id] [--head sha] [--workers n] [--minutes n]  parse a TLA+ spec with SANY, check its model with TLC and prove it with TLAPS when it has a proof, and record the run in proofs/\n  proof stop <id> | proof setup  stop a proof run, or download the pinned TLC into tools/tla\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  learning [on | off | clear <id> | clear all | answer <id> yes|later|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  canvas show <url> | draw <file|-> | read | save [path] | close  [--title text] [--hobkin id]  show a page or a drawing on a canvas, the main one or a durable hobkin, by writing the files the running app follows\n  tell [main | <id>] [<words> | -]  inside a durable hobkin\'s turn only: message the main hobkin or another durable hobkin, or with nothing after it, list who you can reach\n  schedule [list | make | cancel <id> | pause <id> | resume <id> | run <id>]  inside a run hobkin started on Claude Code only: keep schedules for yourself, as the hobkin_schedule tool does, with make reading the schedule as JSON on stdin\n  memory [list [kind] | get <name> | search <words> [--kind kind] | add | change | forget <name> | restore <name> | suggest]  read what hobkin remembers about the user, as the hobkin_recall tool does, never a private memory outside a durable hobkin\'s turn; inside one, save too, with add and change reading the memory as JSON on stdin; suggest hands one to the main hobkin from a run\n  session --tier fast|mid|high|max [--title name] [--cwd directory] [--keep | --wake] [--approved]  hand the brief on stdin to a full Pi session that the running hobkin starts as a job in its agents list, on the model of the tier its work needs, with --keep starts it as a durable hobkin that stays and waits for the user, and with --wake gives the main agent a turn when it ends\n');
     return 0;
   }
   if (options.command === 'setup') {
@@ -213,12 +122,6 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   if (options.command === 'import') {
     const { importHome } = await import('./import.mjs');
     output.write(`${JSON.stringify(await importHome(options.root, options.args[0]), null, 2)}\n`);
-    return 0;
-  }
-  if (options.command === 'login') {
-    if (!output.isTTY) throw Error('hobkin login needs a terminal.');
-    const signIn = dependencies.signIn ?? (await import('./signin.mjs')).signIn;
-    await signIn({ always: true });
     return 0;
   }
   if (options.command === 'learning') {
@@ -457,18 +360,9 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     return 0;
   }
   if (!['init', 'routines', 'schedules', 'status'].includes(options.command)) throw Error(`Unknown command: ${options.command}`);
-  const tty = output.isTTY && (dependencies.input ?? process.stdin).isTTY;
-  const connect = !options.plain && options.command === 'status' && tty;
   if (options.command === 'init') initialize(options.root, { legacySources: options.explicitRoot ? [] : legacySources() });
-  else if (connect) initialize(options.root);
   const snapshot = readLocalView(options.root);
   const { config, schedules, counts, errors, usage } = snapshot;
-  if (connect) {
-    const code = await connected(options, snapshot, dependencies);
-    // Extension handles can outlive close(); Pi's own quit exits the same way.
-    dependencies.exit?.(code);
-    return code;
-  }
   output.write(`Hobkin · ${options.root}\nDaily ${counts.daily} · Weekly ${counts.weekly} · Monthly ${counts.monthly} · Once ${counts.once} · Migrated ${counts.compatibility ?? 0}\n`);
   output.write(`Main ${config.main.effort} · ${config.main.model ?? 'configured default'} · ${config.main.cwd}\n`);
   output.write(`Background ${config.background.harness} · ${config.background.effort} · ${config.background.model ?? 'configured default'}\n`);
@@ -497,7 +391,7 @@ export function failureLine({ message, code, path }) {
 }
 
 if (import.meta.main) {
-  main(undefined, undefined, { exit: process.exit }).then(code => { process.exitCode = code; }).catch(error => {
+  main().then(code => { process.exitCode = code; }).catch(error => {
     process.stderr.write(failureLine(error));
     if (error.diagnostics) process.stderr.write(`${JSON.stringify(error.diagnostics, null, 2)}\n`);
     process.exitCode = 1;

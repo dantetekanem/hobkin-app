@@ -33,7 +33,8 @@ const cleanTurn = reading => turnEnded(moment => moment.status === 'completed' &
 
 /**
  * From a moment to a mood, with no network, no model and nothing kept. First match wins, so what a message or a reply says is read here and goes
- * no further. Moods that only describe what is going on are in `shownMood`, and a moment that matches nothing leaves the face alone.
+ * no further. Moods that only describe what is going on are the window's own (`shownMood` in ui/src/features/chat/mood.ts), and a moment
+ * that matches nothing leaves the face alone.
  */
 const CHANGED_UNDER = /moved since|already|so there is no|no longer|is (?:merged|done|declined|dropped)\b/i;
 const failedWith = pattern => ({ event, text }) => event === 'answer failed' && pattern.test(String(text ?? ''));
@@ -79,26 +80,6 @@ export function moodFor(moment) {
   const rule = RULES.find(([, , matches]) => matches(moment));
   return rule ? { mood: rule[0], cause: rule[1] } : null;
 }
-
-/**
- * What the face shows on a frame and why: a reaction while it lasts, and otherwise whatever is going on. In a turn the face follows what the
- * agent does: searching while it reads, working while it runs any other tool, and thinking, or focused after five minutes, while it writes.
- * A sleep lasts through a draft left sitting, because the dashboard wakes the face when a key reaches the composer.
- */
-export function shownMood({ reaction, busy, running, typing, now, asked, waiting, searching, tooling, busyMs = 0 }) {
-  if (asked) return { mood: 'listening', cause: 'a question is on screen' };
-  const stepsAside = reaction?.yields && (busy || running);
-  if (reaction && now < reaction.until && !stepsAside) return reaction;
-  if (busy && searching) return { mood: 'searching', cause: 'turn is searching or reading' };
-  if (busy && tooling) return { mood: 'working', cause: 'turn is running a tool' };
-  if (busy && busyMs >= LONG_TURN_MS) return { mood: 'focused', cause: 'turn over five minutes' };
-  if (busy) return { mood: 'thinking', cause: 'turn under way' };
-  if (typing) return { mood: 'listening', cause: 'user is typing' };
-  if (running) return { mood: 'working', cause: 'a run is going' };
-  return waiting ? { mood: 'listening', cause: 'a decision is waiting' } : { mood: 'idle', cause: 'nothing going on' };
-}
-
-export const currentMood = state => shownMood(state).mood;
 
 const stateOf = view => {
   const messages = view.messages ?? [];

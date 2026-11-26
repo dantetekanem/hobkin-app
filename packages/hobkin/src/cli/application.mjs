@@ -117,7 +117,7 @@ const turnFailure = ({ stopReason, errorMessage }) => {
 
   const words = providerWords(errorMessage);
   const reason = (words.match(/"message":"([^"]+)"/)?.[1] ?? words).split('\n', 1)[0];
-  const fix = SIGN_IN_TROUBLE.test(errorMessage) ? ' Run `hobkin login` in a terminal, then reopen hobkin.' : '';
+  const fix = SIGN_IN_TROUBLE.test(errorMessage) ? ' Sign in to that provider again with /login in `pi`, then reopen hobkin.' : '';
   return `The model did not answer: ${reason.slice(0, 300)}${fix}`;
 };
 const imagesIn = message => (Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'image').length;

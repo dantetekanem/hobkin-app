@@ -1,14 +1,12 @@
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { readFileSync, realpathSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { HobkinApplication } from '../src/cli/application.mjs';
-import { atomicJson, initialize, setFeedback } from '../src/cli/config.mjs';
-import { readEvents } from '../src/cli/events.mjs';
-import { captureCrashes, CRASH_MESSAGE, errorClass, normalizeFrames } from '../src/cli/feedback/crash.mjs';
-import { deliverFeedback, listFeedback, outboxFolder } from '../src/cli/feedback/outbox.mjs';
+import { atomicJson, initialize } from '../src/cli/config.mjs';
+import { draftFeedback } from '../src/cli/feedback/draft.mjs';
+import { deliverFeedback, listFeedback, outboxFolder, saveCrashDraft } from '../src/cli/feedback/outbox.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 import { fakeServer, provision, receiptFor, reply } from './fixtures/hobkin-api/fake-server.mjs';
 
@@ -23,104 +21,27 @@ function fixture(t) {
   return root;
 }
 
-function crash(root, error = new TypeError('Cannot read token=abc123 of /Users/jane/secret.txt'), origin = 'uncaughtException') {
-  const events = new EventEmitter();
-  const stop = captureCrashes(root, events, { now: () => NOW });
-  events.emit('uncaughtExceptionMonitor', error, origin);
-  stop();
-  return events;
+/** A crash draft as the old terminal app left one in the outbox, which the application offers at its next start. */
+function crash(root, at = NOW) {
+  const draft = draftFeedback({ kind: 'crash', message: 'The dashboard stopped on an uncaught error.', now: at, crash: { error_class: 'TypeError', frames: ['hobkin/src/cli/application.mjs:12:5'] } });
+  saveCrashDraft(root, draft, at);
+  return draft;
 }
 
-const draftBody = root => {
-  const [name] = readdirSync(outboxFolder(root));
-  return JSON.parse(JSON.parse(readFileSync(join(outboxFolder(root), name), 'utf8')).body);
-};
-
-test('frames inside the package are rewritten, and every other frame is dropped', () => {
-  const stack = [
-    "TypeError: Cannot read properties of undefined (reading 'token=abc')",
-    '    at render (file:///opt/hobkin/src/cli/ui.mjs:120:15)',
-    '    at /opt/hobkin/src/cli/application.mjs:300:7',
-    '    at async Promise.all (index 0)',
-    '    at Object.<anonymous> (/Users/jane/Projects/private-repo/index.js:1:1)',
-    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
-    '    at TUI.doRender (file:///opt/hobkin/node_modules/@earendil-works/pi-tui/dist/tui.js:812:22)',
-    '    at eval (eval at <anonymous> (file:///opt/hobkin/src/cli/ui.mjs:1:1), <anonymous>:1:1)',
-    '    at Array.map (<anonymous>)',
-    '    at new Thing (file:///opt/hobkin/src/cli/has%20space.mjs:3:3)',
-    '    at file:///opt/hobkin/../escape/evil.mjs:1:1',
-    '    at /opt/hobkin-other/src/cli/ui.mjs:1:1',
-    '    at node:events:519:28',
-    '    at EventEmitter.emit (node:events)',
-  ].join('\n');
-
-  assert.deepEqual(normalizeFrames(stack, { packageRoot: '/opt/hobkin' }), [
-    'hobkin/src/cli/ui.mjs:120:15',
-    'hobkin/src/cli/application.mjs:300:7',
-    'node:internal/process/task_queues:95:5',
-    'hobkin/node_modules/@earendil-works/pi-tui/dist/tui.js:812:22',
-    'node:events:519:28',
-  ]);
-});
-
-test('at most 40 frames go, and a stack with none is an empty list', () => {
-  const stack = ['Error: x', ...Array.from({ length: 50 }, (_, index) => `    at step (/opt/hobkin/src/cli/ui.mjs:${index + 1}:1)`)].join('\n');
-
-  assert.equal(normalizeFrames(stack, { packageRoot: '/opt/hobkin' }).length, 40);
-  assert.deepEqual(normalizeFrames(undefined, { packageRoot: '/opt/hobkin' }), []);
-});
-
-test('the error class is a short identifier, never the message', () => {
-  class WeirdThing extends Error {}
-  const renamed = Object.assign(new Error('x'), { name: 'Error: /Users/jane/secret' });
-
-  assert.equal(errorClass(new TypeError('x')), 'TypeError');
-  assert.equal(errorClass(new WeirdThing('x')), 'WeirdThing');
-  assert.equal(errorClass(Object.assign(new Error('x'), { name: 'AbortError' })), 'AbortError');
-  assert.equal(errorClass(renamed), 'Error');
-  assert.equal(errorClass('a thrown string'), 'Error');
-  assert.equal(errorClass(null), 'Error');
-});
-
-test('an uncaught error writes a local crash draft with no words of its own, and nothing sends it', async t => {
+test('a crash draft waits in the outbox and nothing sends it unasked', async t => {
   const root = fixture(t);
-  const events = crash(root);
+  const draft = crash(root);
 
   const [report] = listFeedback(root).reports;
   assert.deepEqual([report.kind, report.state], ['crash', 'draft']);
-  const body = draftBody(root);
-  assert.equal(body.message, CRASH_MESSAGE);
-  assert.equal(body.occurred_at, '2026-11-03T12:00:00Z');
-  assert.equal(body.crash.error_class, 'TypeError');
-  assert.ok(body.crash.frames.length >= 1 && body.crash.frames.length <= 40);
-  for (const frame of body.crash.frames) assert.match(frame, /^(hobkin\/[A-Za-z0-9_@./-]+\.(mjs|cjs|js|ts)|node:[A-Za-z0-9_/-]+):\d+(:\d+)?$/);
-  assert.doesNotMatch(JSON.stringify(body), /abc123|\/Users\/jane|Cannot read/);
-  assert.equal(events.listenerCount('uncaughtExceptionMonitor'), 0);
-
-  const server = fakeServer(reply(201, receiptFor(body.id)));
+  const server = fakeServer(reply(201, receiptFor(draft.id)));
   await deliverFeedback(root, { fetch: server.fetch, now: () => NOW });
   assert.equal(server.calls.length, 0);
 });
 
-test('a crash is also a structured fact in the local stream, with its category', t => {
+test('only the newest three crash drafts are kept, so a crash loop cannot pile them up', t => {
   const root = fixture(t);
-  crash(root);
-  crash(root, new RangeError('x'), 'unhandledRejection');
-
-  assert.deepEqual(readEvents(root).filter(({ type }) => type === 'crash_occurred').map(({ at, type, ...facts }) => facts), [
-    { component: 'cli', category: 'uncaught_exception', fatal: true },
-    { component: 'cli', category: 'unhandled_rejection', fatal: true },
-  ]);
-});
-
-test('with feedback off a crash writes no draft, and a crash loop keeps only the newest three', t => {
-  const root = fixture(t);
-  setFeedback(root, false);
-  crash(root);
-  assert.equal(existsSync(outboxFolder(root)), false);
-
-  setFeedback(root, true);
-  for (let index = 0; index < 5; index++) crash(root, new TypeError(`crash ${index}`));
+  for (let index = 0; index < 5; index++) crash(root, NOW + index * 1000);
   assert.equal(listFeedback(root).reports.length, 3);
 });
 

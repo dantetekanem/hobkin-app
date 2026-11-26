@@ -8,7 +8,7 @@
   "description": "A chat-first CLI agent with recurring Pi checks, work mode and a persistent Pi conversation.",
   "bin": { "hobkin": "./src/cli/main.mjs" },
   "repository": "https://github.com/dantetekanem/hobkin",
-  "files": ["src", "assets", "README.md", "docs/guide.md", "docs/upgrade.md", "docs/legacy.md"],
+  "files": ["src", "README.md", "docs/guide.md", "docs/upgrade.md", "docs/legacy.md"],
   "peerDependencies": {
     "@earendil-works/pi-ai": "^1.5.0",
     "@earendil-works/pi-coding-agent": "1.5.0",

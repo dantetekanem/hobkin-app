@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { moods as allMoods } from '../src/cli/face.mjs';
-import { currentMood, moodFor, Moods, searchingTool } from '../src/cli/mood.mjs';
-import { createDashboard } from '../src/cli/ui.mjs';
+import { moodFor, Moods, searchingTool } from '../src/cli/mood.mjs';
 
 const MINUTE = 60000;
 
@@ -28,46 +26,20 @@ const turnThen = (content, patch) => {
   return h;
 };
 
-test('a sleep lasts, and a passing reaction plays out over typing', () => {
-  const asleep = { mood: 'sleepy', lasting: true, until: Number.MAX_SAFE_INTEGER };
-  const pleased = { mood: 'happy', until: 2000 };
+test('waking a sleeping face ends the sleep, and it sleeps again only once the room has been quiet fifteen minutes more', () => {
+  const h = started();
+  h.clock += 15 * MINUTE;
+  h.moods.notice();
+  assert.equal(h.mood(), 'sleepy');
 
-  assert.equal(currentMood({ reaction: asleep, now: 1000 }), 'sleepy');
-  assert.equal(currentMood({ reaction: pleased, typing: true, now: 1000 }), 'happy');
-});
-
-test('typing to a sleeping face wakes it slowly, and erasing the draft leaves it awake until the room is quiet again', () => {
-  let clock = 100000;
-  const moods = new Moods({ now: () => clock });
-  const room = {
-    config: { main: {}, background: { harness: 'pi', model: null, effort: 'medium' } },
-    counts: { daily: 0, weekly: 0, monthly: 0 },
-    schedules: [],
-    reports: [],
-    messages: [],
-    connection: 'connected',
-    runs: [],
-    usage: null,
-  };
-  const ui = createDashboard(room, { moment: moment => moods.react(moment) }, { now: () => clock });
-  // What the app does on its clock and on every refresh.
-  const moodAfter = ms => {
-    clock += ms;
-    moods.notice();
-    ui.update({ ...room, mood: moods.reaction });
-    return ui.state().mood;
-  };
-  assert.equal(moodAfter(15 * MINUTE), 'sleepy');
-
-  ui.input('h');
-  const waking = [0, 1000, 900, 1100].map(moodAfter);
-  assert.deepEqual(waking, ['focused', 'happy', 'hello', 'listening']);
-
-  ui.input('\x7f');
-  assert.equal(moodAfter(0), 'idle');
-  assert.equal(moodAfter(14 * MINUTE), 'idle');
-  assert.equal(moodAfter(MINUTE), 'sleepy');
-  ui.stop();
+  h.moods.react({ event: 'woken' });
+  assert.equal(h.moods.reaction, null);
+  h.clock += 14 * MINUTE;
+  h.moods.notice();
+  assert.equal(h.mood(), undefined);
+  h.clock += MINUTE;
+  h.moods.notice();
+  assert.equal(h.mood(), 'sleepy');
 });
 
 test('the same moment always gives the same mood, and says why', () => {
@@ -373,33 +345,6 @@ test('once stopped, it reacts to nothing', () => {
   assert.equal(h.moods.reaction, null);
 });
 
-test('with no reaction the face follows what is going on', () => {
-  const now = 1000;
-  const states = [
-    [{}, 'idle'],
-    [{ waiting: true }, 'listening'],
-    [{ running: true }, 'working'],
-    [{ running: true, waiting: true }, 'working'],
-    [{ busy: true }, 'thinking'],
-    [{ busy: true, running: true }, 'thinking'],
-    [{ busy: true, busyMs: 4 * MINUTE }, 'thinking'],
-    [{ busy: true, busyMs: 5 * MINUTE }, 'focused'],
-    [{ busy: true, searching: true }, 'searching'],
-    [{ busy: true, searching: true, busyMs: 9 * MINUTE }, 'searching'],
-    [{ searching: true }, 'idle'],
-    [{ busy: true, asked: true }, 'listening'],
-    [{ asked: true, reaction: { mood: 'happy', until: 2000 } }, 'listening'],
-    [{ busy: true, tooling: true }, 'working'],
-    [{ busy: true, tooling: true, busyMs: 9 * MINUTE }, 'working'],
-    [{ busy: true, tooling: true, searching: true }, 'searching'],
-    [{ typing: true }, 'listening'],
-    [{ typing: true, running: true }, 'listening'],
-    [{ typing: true, busy: true }, 'thinking'],
-  ];
-
-  for (const [state, mood] of states) assert.equal(currentMood({ ...state, now }), mood, JSON.stringify(state));
-});
-
 test('what the user does from a card shows on the face: a no is sad, a merge celebrates', () => {
   const said = started();
   said.moods.react({ event: 'card', did: 'said no' });
@@ -445,48 +390,4 @@ test('answering at once is a wink, and clearing everything waiting is love', () 
 test('a search or a read counts as searching, and other tools do not', () => {
   for (const name of ['read', 'grep', 'find', 'ls', 'agentic_search', 'web_search', 'fetch_content']) assert.equal(searchingTool(name), true, name);
   for (const name of ['bash', 'edit', 'write', 'ask_question', undefined, null]) assert.equal(searchingTool(name), false, String(name));
-});
-
-test('every mood the face can draw can be reached', () => {
-  const reached = new Set();
-  const seen = (...views) => {
-    const h = started(views[0]);
-    for (const next of views.slice(1)) h.moods.observe(next);
-    reached.add(h.mood());
-  };
-  const shown = state => reached.add(currentMood({ now: 1000, ...state }));
-  const earlier = ended('zero', 'failed', { stalled: true });
-
-  const opening = new Moods({ now: () => 0 });
-  opening.observe(view());
-  reached.add(opening.reaction.mood);
-
-  seen(view(), view(said('thanks')));
-  seen(view(), view(said('haha')));
-  seen(view(), view(said('fix it')));
-  seen(view(), view(report('useful')));
-  seen(view(), view(report('critical')));
-  seen(view(), view(report('blocked')));
-  seen(view({ work: { projects: [{ merged: 0 }] } }), view({ work: { projects: [{ merged: 1 }] } }));
-  seen(view({ runs: [job('one'), earlier] }), view({ runs: [ended('one', 'failed', { stalled: true }), earlier] }));
-  seen(view({ runs: [job('one')] }), view({ runs: [ended('one', 'failed', { stalled: true })] }));
-  seen(view({ context: { percent: 1 } }), view({ context: { percent: 99 } }));
-
-  const clarifies = turnThen('Could you clarify?');
-  clarifies.finish();
-  reached.add(clarifies.mood());
-
-  const quiet = started();
-  quiet.clock += 15 * MINUTE;
-  quiet.moods.notice();
-  reached.add(quiet.mood());
-
-  shown({});
-  shown({ busy: true });
-  shown({ busy: true, searching: true });
-  shown({ busy: true, busyMs: 5 * MINUTE });
-  shown({ running: true });
-
-  assert.equal(allMoods.length, 18);
-  assert.deepEqual(allMoods.filter(mood => !reached.has(mood)), []);
 });

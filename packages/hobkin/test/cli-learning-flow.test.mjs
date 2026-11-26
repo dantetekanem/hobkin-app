@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { exec, execFileSync } from 'node:child_process';
-import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { stripTerminalSequences } from '@earendil-works/pi-tui';
 import { HobkinApplication } from '../src/cli/application.mjs';
 import { atomicJson, initialize, setLearning } from '../src/cli/config.mjs';
 import { buildContext } from '../src/cli/context.mjs';
@@ -16,40 +14,16 @@ import { conclude, MAX_TOKENS, requestTokens, tokensIn } from '../src/cli/learni
 import { runLearningCommand } from '../src/cli/learning/commands.mjs';
 import { Learner } from '../src/cli/learning/learner.mjs';
 import { appendAction, injectedLessons, learningState, saveState } from '../src/cli/learning/store.mjs';
-import { main } from '../src/cli/main.mjs';
 import { startSession } from '../src/cli/session.mjs';
-import { startDashboard } from '../src/cli/ui.mjs';
+import { sessionsToTell } from '../src/cli/session-log.mjs';
 import { chooseProject, writeMode } from '../src/cli/work/store.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
 const DAY = 86400000;
-const ENTER = '\r';
-const TAB = '\t';
 const shell = promisify(exec);
 const request = run => JSON.parse(run.prompt);
 const learningFile = root => join(root, 'runtime/learning.json');
 const noteOf = text => text.match(/^(?:<hobkin-work>\n.*\n<\/hobkin-work>\n\n)?<hobkin-learning>\n(.*)\n<\/hobkin-learning>\n\n/)?.[1];
-
-class FakeTerminal {
-  columns = 100;
-  rows = 40;
-  start(input, resize) {
-    this.input = input;
-    this.resize = resize;
-  }
-  stop() {}
-  drainInput() { return Promise.resolve(); }
-  write() {}
-  moveBy() {}
-  hideCursor() {}
-  showCursor() {}
-  clearLine() {}
-  clearFromCursor() {}
-  clearScreen() {}
-  setTitle() {}
-  setProgress() {}
-  get kittyProtocolActive() { return false; }
-}
 
 function fixture(t) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-learning-flow-')));
@@ -83,80 +57,62 @@ const pastRuns = (scheduleId, title, text, days = 6) => Array.from({ length: day
   result: { status: 'completed', text },
 }));
 
-/** The real `main()` on a fake terminal. `agent` plays every background agent and `chat` the main agent. */
+const chatText = view => (view?.messages ?? []).map(message => message.content).join('\n');
+const count = (text, pattern) => text.match(pattern)?.length ?? 0;
+
+/** HobkinApplication opened as the window's host opens it. `agent` plays every background agent and `chat` the main agent. */
 async function openHobkin(h, { agent = async () => 'Useful: Done.', chat = async () => 'OK.' } = {}) {
-  const signals = new EventEmitter();
-  const terminal = new FakeTerminal();
   const fake = fakePi(h.root);
-  let ui;
-  let app;
-  const finished = main(['--home', h.root], { isTTY: true, write() {} }, {
-    signals,
-    input: { isTTY: true },
-    startDashboard: (view, handlers, options) => {
-      ui = startDashboard(view, handlers, { ...options, terminal, agentDir: h.root, theme: undefined });
-      return ui;
+  const views = [];
+  const seenAt = Date.now();
+  const app = await HobkinApplication.open(h.root, {
+    memoryIndex: null,
+    intervalMs: 100,
+    sessionDependencies: fake.dependencies,
+    createMain: async parameters => {
+      const session = await fake.createMain(parameters);
+      const prompt = session.prompt.bind(session);
+      session.prompt = async (text, settings) => {
+        fake.controls.get(session.sessionId).reply = await chat(text);
+        return prompt(text, settings);
+      };
+      return session;
     },
-    openApplication: async (home, options) => {
-      app = await HobkinApplication.open(home, {
-        ...options,
-        memoryIndex: null,
-        intervalMs: 100,
-        sessionDependencies: fake.dependencies,
-        createMain: async parameters => {
-          const session = await fake.createMain(parameters);
-          const prompt = session.prompt.bind(session);
-          session.prompt = async (text, settings) => {
-            fake.controls.get(session.sessionId).reply = await chat(text);
-            return prompt(text, settings);
-          };
-          return session;
-        },
-        // Only the agent is scripted here. An editor that cannot run leaves its report as written.
-        runHarness: async (run, settings) => (run.purpose === 'humanizer'
-          ? { status: 'failed', text: '' }
-          : { status: 'completed', text: await agent(run, settings) }),
-      });
-      return app;
-    },
+    // Only the agent is scripted here. An editor that cannot run leaves its report as written.
+    runHarness: async (run, settings) => (run.purpose === 'humanizer'
+      ? { status: 'failed', text: '' }
+      : { status: 'completed', text: await agent(run, settings) }),
+    onChange: view => views.push(view),
+    // Nothing in these flows asks the user a question.
+    askQuestion: async () => undefined,
+    presence: () => ({ seenAt, away: false, occupied: false }),
   });
-  const screen = (width = 200, height = 50) => stripTerminalSequences(ui.render(width, height).join('\n'));
+  const view = () => views.at(-1) ?? app.snapshot;
   const hobkin = {
-    screen,
-    get app() { return app; },
+    app,
+    view,
+    chat: () => chatText(view()),
     /** The command the main agent's system prompt gives it for recording an answer. */
     answerCommand() {
       const prompts = [...fake.sessions.values()].at(-1).resourceLoader.getAppendSystemPrompt().join('\n');
       return JSON.parse(prompts.match(/"learningAnswer": ("(?:[^"\\]|\\.)*")/)[1]);
     },
-    async until(expected, { timeout = 8000 } = {}) {
-      const deadline = Date.now() + timeout;
-      while (!expected.test(screen())) {
-        if (Date.now() > deadline) assert.fail(`Never saw ${expected} on this screen:\n${screen()}`);
-        await new Promise(resolve => setTimeout(resolve, 20));
-      }
-    },
     async settled(check, { timeout = 8000 } = {}) {
       const deadline = Date.now() + timeout;
       while (!check()) {
-        if (Date.now() > deadline) assert.fail(`Never settled. The screen:\n${screen()}`);
+        if (Date.now() > deadline) assert.fail(`Never settled. Chat says:\n${hobkin.chat()}`);
         await new Promise(resolve => setTimeout(resolve, 20));
       }
     },
-    press: data => terminal.input(data),
-    type(text) {
-      for (const character of text) terminal.input(character);
-    },
+    until: (expected, options) => hobkin.settled(() => expected.test(hobkin.chat()), options),
+    // As Enter in Chat did: the message goes, and the test does not wait for its turn.
     send(text) {
-      hobkin.type(text);
-      terminal.input(ENTER);
+      const sent = app.send(text);
+      sent.catch(() => {});
+      return sent;
     },
-    async close() {
-      signals.emit('SIGTERM');
-      await finished;
-    },
+    close: () => app.close(),
   };
-  await hobkin.until(/connected/);
   return hobkin;
 }
 
@@ -202,18 +158,16 @@ test('from /learning to lessons in every session: a proposal in Chat, an answer 
   await hobkin.settled(() => told.length === 1);
   assert.equal(told[0], 'before learning');
 
-  // Turned on from the composer, with Tab finishing the word: the marker shows and history starts to count.
-  hobkin.type('/lea');
-  hobkin.press(TAB);
-  hobkin.press(ENTER);
-  await hobkin.until(/Learning on\./);
+  // Turned on, as /learning does: the marker shows and history starts to count.
+  assert.deepEqual(await app.toggleLearning(), { enabled: true });
+  assert.equal(hobkin.view().learning, true);
   assert.deepEqual(JSON.parse(readFileSync(join(h.root, 'config.json'), 'utf8')).learning, { enabled: true });
 
   // Told in Chat, once, with the evidence. Nothing has changed anywhere.
   await hobkin.until(/News digest: nothing new 9 of the last 9, over 9 days, about \$0\.40 a run\. Refactor it\?/);
   assert.equal(statSync(learningFile(h.root)).mode & 0o777, 0o600);
-  assert.equal(hobkin.screen().match(/Refactor it\?/g).length, 1);
-  assert.doesNotMatch(hobkin.screen(), /Rethink it\?/, 'six blocked runs in a row are a hold, and a hold brings its own plan');
+  assert.equal(count(hobkin.chat(), /Refactor it\?/g), 1);
+  assert.doesNotMatch(hobkin.chat(), /Rethink it\?/, 'six blocked runs in a row are a hold, and a hold brings its own plan');
   assert.equal(asked.length, 0, 'it ran no model to learn this');
   const lines = injectedLessons(h.root);
   assert.deepEqual(lines.slice(1), [
@@ -233,8 +187,8 @@ test('from /learning to lessons in every session: a proposal in Chat, an answer 
   await hobkin.until(/Left it alone/);
   const note = noteOf(told.at(-1));
   assert.deepEqual(JSON.parse(note).learning, lines);
-  assert.doesNotMatch(hobkin.screen(), /hobkin-learning/);
-  assert.match(hobkin.screen(), /no, leave it as it is/);
+  assert.doesNotMatch(JSON.stringify(hobkin.view().messages), /hobkin-learning/);
+  assert.match(hobkin.chat(), /no, leave it as it is/);
   assert.deepEqual(learningState(h.root).proposals, []);
   t.diagnostic(`main chat note: ${Buffer.byteLength(note)} bytes, about ${tokensIn(note)} tokens: ${note}`);
 
@@ -267,10 +221,12 @@ test('from /learning to lessons in every session: a proposal in Chat, an answer 
   const { name } = await startSession({ root: h.root, cwd: h.base, brief: 'Rebuild it.' });
   const brief = readFileSync(join(h.root, 'runtime', 'handoffs', `${name}.md`), 'utf8');
   assert.ok(brief.startsWith(`Rebuild it.\n\n## Learned\n\n${lines.join('\n')}\n`), brief);
+  // It ends here, so the next message tells the main agent so, and the one after it carries nothing.
+  await hobkin.settled(() => sessionsToTell(h.root).some(session => session.name === name));
 
   // Off: the marker goes, what the main agent still holds is taken back once, and everything else is as before.
-  hobkin.send('/learning');
-  await hobkin.until(/Learning off\./);
+  assert.deepEqual(await app.toggleLearning(), { enabled: false });
+  assert.equal(hobkin.view().learning, false);
   hobkin.send('after learning');
   await hobkin.settled(() => told.at(-1).endsWith('after learning'));
   assert.deepEqual(JSON.parse(noteOf(told.at(-1))), { learning: [] });
@@ -303,7 +259,7 @@ test('an answered proposal stays answered after Hobkin closes and opens again', 
   t.after(() => hobkin.close());
   await new Promise(resolve => setTimeout(resolve, 400));
 
-  assert.equal(hobkin.screen().match(/Refactor it\?/g)?.length, 1, 'the old post is still there, once');
+  assert.equal(count(hobkin.chat(), /Refactor it\?/g), 1, 'the old post is still there, once');
   assert.deepEqual(learningState(h.root).proposals, []);
 });
 
@@ -320,7 +276,7 @@ test('a proposal waiting for an answer is told once, however many times Hobkin o
   t.after(() => hobkin.close());
   await new Promise(resolve => setTimeout(resolve, 400));
 
-  assert.equal(hobkin.screen().match(/Refactor it\?/g)?.length, 1);
+  assert.equal(count(hobkin.chat(), /Refactor it\?/g), 1);
   assert.equal(learningState(h.root).proposals.length, 1, 'it is still waiting');
 });
 
@@ -401,8 +357,7 @@ test('a fresh conversation has heard nothing, so it gets the lessons again', asy
   await hobkin.settled(() => told.length === 2);
   assert.equal(told[1], 'second');
 
-  hobkin.send('/reset');
-  await hobkin.until(/Main context reset/);
+  await hobkin.app.reset();
   hobkin.send('third');
   await hobkin.settled(() => told.length === 3);
 
@@ -429,7 +384,7 @@ test('a message about a report keeps its reference after the note, and a reply t
 
   assert.match(told[0], /^<hobkin-learning>\n.*\n<\/hobkin-learning>\n\n<hobkin-report>\n/);
   await hobkin.until(/This is wrong, nothing fell/);
-  assert.doesNotMatch(hobkin.screen(), /hobkin-learning|hobkin-report/);
+  assert.doesNotMatch(JSON.stringify(hobkin.view().messages), /hobkin-learning|hobkin-report/);
   assert.doesNotMatch(readFileSync(learningFile(h.root), 'utf8'), /nothing fell/);
 });
 
@@ -451,7 +406,7 @@ test('clearing every lesson takes them back from the main agent on its next mess
   await hobkin.settled(() => told.length === 2);
 
   assert.deepEqual(JSON.parse(noteOf(told[1])), { learning: [] });
-  assert.match(hobkin.screen(), /second/);
+  assert.match(hobkin.chat(), /second/);
 });
 
 test('a held check gets one plan from the main agent, and learning asks nothing about it on top', async t => {
@@ -469,7 +424,7 @@ test('a held check gets one plan from the main agent, and learning asks nothing 
   await hobkin.until(/News digest: nothing new 9 of the last 9/);
 
   assert.equal(told.filter(isHoldBrief).length, 1);
-  assert.doesNotMatch(hobkin.screen(), /Site audit: blocked 6|Rethink it\?/);
+  assert.doesNotMatch(hobkin.chat(), /Site audit: blocked 6|Rethink it\?/);
   assert.deepEqual(learningState(h.root).proposals.map(({ scope }) => scope), ['news-digest']);
   assert.ok(injectedLessons(h.root).includes('-site-audit blocked x5: do the rest, name what stopped it'), 'agents still get what it taught');
 });
