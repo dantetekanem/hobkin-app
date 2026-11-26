@@ -41,7 +41,7 @@ hobkin decide --from "Claude Code" <<'JSON'
 JSON
 ```
 
-Add what you know about the choice. `sure` is how sure you are of `recommended`: `high`, `medium` or `low`. `reversible` is `true` when it can be undone later, and `false` when it cannot. A reversible question can have a `deadline`, an ISO time such as `2026-11-26T17:00:00Z`: when the user has not answered by then, it takes `recommended`. `kind` is a short class in lowercase words joined by hyphens, such as `merge-small-fix`, the same each time this sort of question comes up. With `"learn": true` and a `rule` that says it back, such as "From now on, small fixes on the site merge without asking.", the user's yes to `recommended` becomes a standing rule.
+Add what you know about the choice. `sure` is how sure you are of `recommended`: `high`, `medium` or `low`. `reversible` is `true` when it can be undone later, and `false` when it cannot. A reversible question can have a `deadline`, an ISO time such as `2026-11-26T17:00:00Z`, the time by which an answer matters. `kind` is a short class in lowercase words joined by hyphens, such as `merge-small-fix`, the same each time this sort of question comes up. With `"learn": true` and a `rule` that says it back, such as "From now on, small fixes on the site merge without asking.", the user's pick of the added "Always: <rule>" choice becomes a standing rule for your session's name.
 
 This session never hears the answer. hobkin's main agent does, and acts on it there, so carry on with what you have and never wait for it.
 
