@@ -1,6 +1,6 @@
 [package]
 name = "hobkin"
-version = "0.2.1"
+version = "0.2.2"
 description = "Your next level Harness."
 authors = ["Leonardo Pereira"]
 edition = "2021"
