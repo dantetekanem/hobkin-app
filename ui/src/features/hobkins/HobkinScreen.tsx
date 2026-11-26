@@ -1,6 +1,7 @@
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { Activity, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { HOBKIN_MESSAGE_MAX, HOBKIN_TITLE_MAX, hobkinAgentId, hobkinOfAgent, type HobkinConversation, type HobkinSummary, type HobkinTurn } from '#shared/protocol/hobkins.ts'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { holdStill, useStill } from '@/app/still.ts'
@@ -22,12 +23,12 @@ import { earlierRow, NEWEST_STEPS, useNewest, withEarlier } from '@/features/age
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
 import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
-import { useAgentActivity, useStepsMood } from '@/features/agent-activity/use-agent-activity.ts'
+import { useAgentActivity, useStepsMood, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import type { FollowStart } from '@/features/agent-activity/follow.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { useWindowedList, WindowedRows } from '@/features/agent-activity/windowed-list.tsx'
 import { windowedSteps } from '@/features/agent-activity/windowed-place.ts'
-import { nearRows } from '@/features/agent-activity/windowed-rows.ts'
+import { olderPlace, useOlderNearView } from '@/features/agent-activity/older-near.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import type { Attachment } from '@/features/chat/draft.ts'
 import { MessageText } from '@/features/chat/markdown.ts'
@@ -61,6 +62,7 @@ import {
   type SendingNote,
   type SentNote,
   type ShownTurn,
+  type TurnActivity,
 } from './conversation.ts'
 import { AgentPromptEditor } from '@/features/chat/PromptEditor.tsx'
 import { ContinueButton, imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
@@ -380,6 +382,18 @@ function PrepareRun({ agent, onReady }: PrepareProps) {
   return null
 }
 
+const NO_ENTRIES: readonly ActivityEntry[] = []
+
+/**
+ * The live turn's steps as its page draws them, made ready or shown: the older ones read from its run's saved session,
+ * then its feed's, with when this window first saw each.
+ */
+function liveTurnSteps(activity: AgentActivity | null, cwd: string | undefined, older: readonly ActivityEntry[] = NO_ENTRIES): TurnActivity | null {
+  if (!activity) return null
+  const entries = older.length ? [...older, ...activity.entries] : activity.entries
+  return { entries, cwd: activity.cwd ?? cwd, seenAt: (entry) => activity.timeOf(entry)?.seen }
+}
+
 /**
  * A durable hobkin's page can show once its conversation is read and the turns it draws first, newest first, have their
  * steps, as the page will draw them (`ConversationRows`), and its lines' jobs are whole.
@@ -395,8 +409,7 @@ function PrepareHobkin({ agent, id, sent, sending, onReady }: PrepareProps & { i
   const runs = useMemo(() => (run && !drawn.includes(run) ? [...drawn, run] : drawn), [drawn, run])
   const { finished, known } = useDrawnSteps(id, runs, { live: run, cwd })
   const rows = useMemo(() => {
-    const liveSteps = activity ? { entries: activity.entries, cwd: activity.cwd ?? cwd, seenAt: (entry: string) => activity.timeOf(entry)?.seen } : null
-    return pageRows(turns, { sending: shownSending, activity: liveSteps, finished })
+    return pageRows(turns, { sending: shownSending, activity: liveTurnSteps(activity, cwd), finished })
   }, [turns, shownSending, activity, cwd, finished])
   const settled = useNewestFirst(id, runs, setDrawn, { turns, rows, known, shown: null, window: NEWEST_STEPS })
   const lines = useWholeJobs(useAgentJobs(agent))
@@ -495,9 +508,11 @@ function ConversationRows({ id, prepared, turns, cwd, sending, problem, loading 
   const scroll = useFollow({ start: () => left.current })
   const pinned = useRef(scroll.pinned)
   pinned.current = scroll.pinned
-  useLayoutEffect(() => () => {
-    const top = scroll.scroller.current?.scrollTop
-    if (top !== undefined) left.current = { following: pinned.current, top }
+  useLayoutEffect(() => {
+    const element = scroll.scroller.current
+    return () => {
+      if (element) left.current = { following: pinned.current, top: element.scrollTop }
+    }
   }, [scroll.scroller])
   // The live turn's feed keeps its newest steps. The ones it let go are read from its run's saved session, a page at a
   // time, and come after the turn's message, where the row that reads them stands.
@@ -517,9 +532,7 @@ function ConversationRows({ id, prepared, turns, cwd, sending, problem, loading 
   // Each run of the hobkin's schedules stands where it happened, from hobkin's record of them (056).
   const runs = useScheduleRuns({ kind: 'hobkin', id })
   const rows = useMemo(() => {
-    const entries = activity && older.steps.length ? [...older.steps, ...activity.entries] : activity?.entries
-    const liveSteps = activity && entries ? { entries, cwd: activity.cwd ?? cwd, seenAt: (id: string) => activity.timeOf(id)?.seen } : null
-    const said = pageRows(turns, { sending, activity: liveSteps, finished })
+    const said = pageRows(turns, { sending, activity: liveTurnSteps(activity, cwd, older.steps), finished })
     const page: readonly ShownRow[] = withRuns(said, runs, rowTime)
     return offersOlder && job ? withEarlier(page, (row) => row.kind === 'step' && row.key.startsWith(`${job}:`), OLDER_ROW) : page
   }, [turns, sending, activity, older.steps, cwd, offersOlder, job, runs, finished])
@@ -612,8 +625,6 @@ function rowHeight(row: ShownRow): number {
 const canStand = (row: ShownRow) => row.kind !== 'thinking'
 /** The list's own gap and padding: `gap-3 pt-2 pb-3`. */
 const SPACING = { gap: 12, top: 8, bottom: 12 }
-/** How near the view, in rows, the place the live turn's older steps go is when the next page of them is read. */
-const NEAR_OLDER = 4
 
 /**
  * The conversation drawn windowed, with the switch `hobkin:windowed-steps` on (windowed-list.tsx): only the rows in
@@ -636,9 +647,7 @@ function WindowedConversation({ id, prepared, turns, cwd, sending, problem, load
   const { finished, known } = useDrawnSteps(id, turnsWithSteps, { live: run, cwd })
   const schedules = useScheduleRuns({ kind: 'hobkin', id })
   const rows = useMemo(() => {
-    const entries = activity && older.steps.length ? [...older.steps, ...activity.entries] : activity?.entries
-    const liveSteps = activity && entries ? { entries, cwd: activity.cwd ?? cwd, seenAt: (id: string) => activity.timeOf(id)?.seen } : null
-    const said = pageRows(turns, { sending, activity: liveSteps, finished })
+    const said = pageRows(turns, { sending, activity: liveTurnSteps(activity, cwd, older.steps), finished })
     return withRuns(said, schedules, rowTime) as readonly ShownRow[]
   }, [turns, sending, activity, older.steps, cwd, schedules, finished])
   const list = useWindowedList({ name: hobkinAgentId(id), rows, keyOf: rowKey, estimate: rowHeight, walkable: canStand, spacing: SPACING })
@@ -646,26 +655,19 @@ function WindowedConversation({ id, prepared, turns, cwd, sending, problem, load
   useNewestFirst(id, turnsWithSteps, setDrawn, { turns, rows, known, shown: list.shown, window: NEWEST_STEPS })
 
   // The live turn's older steps go before its first step: the pages read so far, then the feed.
-  const { first, last } = useMemo(() => {
+  const place = useMemo(() => {
     const first = job ? rows.findIndex((row) => row.kind === 'step' && row.key.startsWith(`${job}:`)) : -1
     const read = new Set(older.steps.map((step) => `${job}:${step.id}`))
-    let last = first
-    while (last >= 0 && last + 1 < rows.length && read.has(rows[last + 1]!.key)) last += 1
-    return { first, last }
+    return olderPlace(rows, first, (key) => read.has(key))
   }, [rows, job, older.steps])
-  const nearFirst = first >= 0 && nearRows(list.inView, first, first, NEAR_OLDER)
-  const nearPages = first >= 0 && nearRows(list.inView, first, last + 1, NEAR_OLDER)
-  useEffect(() => setOlderNear(nearPages), [nearPages])
-  // Read once for each oldest step: a read that could not be answered is not asked again until the steps move.
-  const askedBefore = useRef<string | null>(null)
-  const oldest = older.steps[0]?.id ?? activity?.entries[0]?.id ?? null
-  const loadMore = older.loadMore
-  const readsOlder = saved?.kind === 'saved' && !saved.loading
-  useEffect(() => {
-    if (!nearFirst || !readsOlder || oldest === askedBefore.current) return
-    askedBefore.current = oldest
-    loadMore()
-  }, [nearFirst, readsOlder, oldest, loadMore])
+  useOlderNearView({
+    inView: list.inView,
+    place,
+    reads: saved?.kind === 'saved' && !saved.loading,
+    oldest: older.steps[0]?.id ?? activity?.entries[0]?.id ?? null,
+    loadMore: older.loadMore,
+    setNear: setOlderNear,
+  })
 
   const timeOf = activity?.timeOf
   const draw = useCallback(

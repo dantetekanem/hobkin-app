@@ -16,25 +16,36 @@ function laidOut(heights: readonly number[], { first = 8, gap = 12 } = {}): (ind
 
 const rows = (count: number, height = 100) => Array.from({ length: count }, () => height)
 
+/** The rows drawn for `count` rows laid out by `spanOf`: by default no view, no margin, nothing kept and not following. */
+const drawnOf = (input: Pick<Parameters<typeof mountedIndexes>[0], 'count' | 'spanOf'> & Partial<Parameters<typeof mountedIndexes>[0]>) =>
+  mountedIndexes({ visible: null, margin: 0, most: 0, keep: [], endFrom: null, ...input })
+
 test('the rows in view are drawn with a margin of rows around them, never more than a few each way', () => {
-  const spanOf = laidOut(rows(100))
-  const drawn = mountedIndexes({ count: 100, visible: { startIndex: 50, endIndex: 55 }, spanOf, margin: 250, most: 8, keep: [], endFrom: null })
+  const visible = { startIndex: 50, endIndex: 55 }
+
+  const drawn = drawnOf({ count: 100, spanOf: laidOut(rows(100)), visible, margin: 250, most: 8 })
+  const capped = drawnOf({ count: 100, spanOf: laidOut(rows(100, 4)), visible, margin: 10_000, most: 5 })
+
   // 250 px of 112 px rows: three each way, then the newest.
   assert.deepEqual(drawn, [47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 99])
-  const capped = mountedIndexes({ count: 100, visible: { startIndex: 50, endIndex: 55 }, spanOf: laidOut(rows(100, 4)), margin: 10_000, most: 5, keep: [], endFrom: null })
+  // Rows 16 px apart fill the margin long before it ends: five each way.
   assert.deepEqual(capped, [45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 99])
 })
 
 test('the newest row, the focused row and the rows the user opened stay drawn wherever the view is', () => {
-  const spanOf = laidOut(rows(100))
-  const drawn = mountedIndexes({ count: 100, visible: { startIndex: 10, endIndex: 12 }, spanOf, margin: 0, most: 0, keep: [70, 3, 11, 70], endFrom: null })
+  const drawn = drawnOf({ count: 100, spanOf: laidOut(rows(100)), visible: { startIndex: 10, endIndex: 12 }, keep: [70, 3, 11, 70] })
+
   assert.deepEqual(drawn, [3, 10, 11, 12, 70, 99])
 })
 
 test('rows that are not in the list are never asked for', () => {
   const spanOf = laidOut(rows(5))
-  assert.deepEqual(mountedIndexes({ count: 5, visible: { startIndex: 0, endIndex: 4 }, spanOf, margin: 1000, most: 10, keep: [9, -1], endFrom: null }), [0, 1, 2, 3, 4])
-  assert.deepEqual(mountedIndexes({ count: 0, visible: null, spanOf, margin: 0, most: 0, keep: [], endFrom: null }), [])
+
+  const all = drawnOf({ count: 5, spanOf, visible: { startIndex: 0, endIndex: 4 }, margin: 1000, most: 10, keep: [9, -1] })
+  const none = drawnOf({ count: 0, spanOf })
+
+  assert.deepEqual(all, [0, 1, 2, 3, 4])
+  assert.deepEqual(none, [])
 })
 
 test('while the list follows its newest row, the rows its end shows are drawn even before the view has moved there', () => {
@@ -42,8 +53,9 @@ test('while the list follows its newest row, the rows its end shows are drawn ev
   const spanOf = laidOut(heights)
   // A 500 px view at the end shows the last three rows and the one above them.
   const from = endFrom(heights.length, spanOf, 500)
+  const drawn = drawnOf({ count: heights.length, spanOf, visible: { startIndex: 0, endIndex: 4 }, endFrom: from })
+
   assert.equal(from, 49)
-  const drawn = mountedIndexes({ count: heights.length, visible: { startIndex: 0, endIndex: 4 }, spanOf, margin: 0, most: 0, keep: [], endFrom: from })
   assert.deepEqual(drawn, [0, 1, 2, 3, 4, 49, 50, 51, 52])
   assert.equal(endFrom(3, laidOut([10, 10, 10]), 500), 0)
 })

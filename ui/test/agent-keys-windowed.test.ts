@@ -18,11 +18,21 @@ const { walkHere } = await import('../src/features/agent-activity/windowed-rows.
  * A windowed list of 100 rows of which 50 to 59 are drawn; row 30 is the thinking row, which the keyboard does not
  * stand on. Its walk draws a row before moving the keyboard onto it, as `windowed-list.tsx` does.
  */
-const talk = { focused: 0, focus: () => void (talk.focused += 1), closest: (selector: string) => (selector === '[data-canvas-screen]' ? screen : null) }
-const screen = { querySelector: (selector: string) => (selector === '[data-agent-exchange]' ? list : selector === '[data-agent-input]' ? talk : null) }
-const list = { closest: (selector: string) => (selector === '[data-canvas-screen]' ? screen : null) }
+const ROWS = 100
+const THINKING = 30
+const screenOf = (selector: string) => (selector === '[data-canvas-screen]' ? screen : null)
+const talk = { focused: 0, focus: () => void (talk.focused += 1), closest: screenOf }
+const list = { closest: screenOf }
+const screen = {
+  querySelector: (selector: string) => {
+    if (selector === '[data-agent-exchange]') return list
+    if (selector === '[data-agent-input]') return talk
+    return null
+  },
+}
 const focused: number[] = []
 const drawn = new Set(Array.from({ length: 10 }, (_, index) => 50 + index))
+
 interface Row {
   index: number
   parentElement: typeof list
@@ -30,30 +40,47 @@ interface Row {
   querySelector: () => null
 }
 const rows = new Map<number, Row>()
-/** A row of the list, the same element each time it is asked for, its own step and on the screen. */
+/** A row of the list, the same element each time it is asked for: its own step, on the screen. */
 function row(index: number): Row {
-  let element = rows.get(index)
-  if (!element) {
-    const made: Row = { index, parentElement: list, closest: (selector) => (selector === '[data-step]' ? made : selector === '[data-canvas-screen]' ? screen : null), querySelector: () => null }
-    rows.set(index, (element = made))
+  const held = rows.get(index)
+  if (held) return held
+  const made: Row = {
+    index,
+    parentElement: list,
+    closest: (selector) => (selector === '[data-step]' ? made : screenOf(selector)),
+    querySelector: () => null,
   }
-  return element
+  rows.set(index, made)
+  return made
 }
+
 walkHere(list as never, {
-  indexOf: (element) => ((element as unknown as { parentElement: unknown }).parentElement === list ? (element as unknown as { index: number }).index : -1),
+  indexOf: (element) => {
+    const drawnRow = element as unknown as Row
+    return drawnRow.parentElement === list ? drawnRow.index : -1
+  },
   next: (from, by) => {
-    for (let index = from + by; index >= 0 && index < 100; index += by) if (index !== 30) return index
+    for (let index = from + by; index >= 0 && index < ROWS; index += by) {
+      if (index !== THINKING) return index
+    }
     return -1
   },
-  count: () => 100,
+  count: () => ROWS,
   focus: (index) => {
     drawn.add(index)
     focused.push(index)
   },
 })
-const press = (key: string, at: number) => {
-  const target = row(at)
-  const event = { key, target, currentTarget: list, defaultPrevented: false, preventDefault: () => void (event.defaultPrevented = true) }
+
+/** Presses `key` with the keyboard on row `at`; true when the walk took the key. */
+function press(key: string, at: number): boolean {
+  const event = {
+    key,
+    target: row(at),
+    currentTarget: list,
+    defaultPrevented: false,
+    preventDefault: () => void (event.defaultPrevented = true),
+  }
   walkSteps(event as never)
   return event.defaultPrevented
 }

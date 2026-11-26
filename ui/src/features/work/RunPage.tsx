@@ -24,7 +24,7 @@ import type { FollowStart } from '@/features/agent-activity/follow.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { useWindowedList, WindowedRows } from '@/features/agent-activity/windowed-list.tsx'
 import { windowedSteps } from '@/features/agent-activity/windowed-place.ts'
-import { nearRows } from '@/features/agent-activity/windowed-rows.ts'
+import { olderPlace, useOlderNearView } from '@/features/agent-activity/older-near.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import { changeLine } from '@/features/chat/change-line.ts'
 import { releaseImages } from '@/features/chat/image-uploads.ts'
@@ -281,8 +281,6 @@ function runRowHeight(row: RunRow): number {
 }
 /** The list's own gap and padding: `gap-3 pt-2 pb-3`. */
 const RUN_SPACING = { gap: 12, top: 8, bottom: 12 }
-/** How near the view, in rows, the run's first step is when the next page of its older steps is read. */
-const NEAR_OLDER = 4
 
 /**
  * The run's steps drawn windowed, with the switch `hobkin:windowed-steps` on (windowed-list.tsx): only the rows in view
@@ -324,27 +322,20 @@ function WindowedExchange({ agentId, hue, question, waiting, idle }: ExchangePro
   const { scroll } = list
 
   // The run's older steps go before its first step: the pages read so far, then the feed.
-  const { first, last } = useMemo(() => {
+  const place = useMemo(() => {
     const first = job ? rows.findIndex((row) => row.kind !== 'question') : -1
     const read = new Set(older.steps.map((step) => step.id))
-    let last = first
-    while (last >= 0 && last + 1 < rows.length && read.has(rows[last + 1]!.key)) last += 1
-    return { first, last }
+    return olderPlace(rows, first, (key) => read.has(key))
   }, [rows, job, older.steps])
-  const nearFirst = first >= 0 && nearRows(list.inView, first, first, NEAR_OLDER)
-  const nearPages = first >= 0 && nearRows(list.inView, first, last + 1, NEAR_OLDER)
-  useEffect(() => setOlderNear(nearPages), [nearPages])
   const saved = earlierRow(0, { more: older.more, loading: older.loading, mayHaveOlder: job !== null && mayHaveOlder(activity?.entries) })
-  // Read once for each oldest step: a read that could not be answered is not asked again until the steps move.
-  const askedBefore = useRef<string | null>(null)
-  const oldest = older.steps[0]?.id ?? activity?.entries[0]?.id ?? null
-  const loadMore = older.loadMore
-  const readsOlder = saved?.kind === 'saved' && !saved.loading
-  useEffect(() => {
-    if (!nearFirst || !readsOlder || oldest === askedBefore.current) return
-    askedBefore.current = oldest
-    loadMore()
-  }, [nearFirst, readsOlder, oldest, loadMore])
+  useOlderNearView({
+    inView: list.inView,
+    place,
+    reads: saved?.kind === 'saved' && !saved.loading,
+    oldest: older.steps[0]?.id ?? activity?.entries[0]?.id ?? null,
+    loadMore: older.loadMore,
+    setNear: setOlderNear,
+  })
 
   const timeOf = activity?.timeOf
   const ended = activity?.ended ?? false

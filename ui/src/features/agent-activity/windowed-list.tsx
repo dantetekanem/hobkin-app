@@ -1,10 +1,10 @@
 import { useVirtualizer, type Range, type VirtualItem, type Virtualizer } from '@tanstack/react-virtual'
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { flushSync } from 'react-dom'
 import { ArriveAs } from './arrive.ts'
 import { UNFOLD, type FollowStart } from './follow.ts'
 import { useFollow, type Follow } from './use-follow.ts'
-import { keepList, keepRect, keptList, keptRect, openingOf, placeAt, type Opening, type Place } from './windowed-place.ts'
+import { keepList, keepRect, keptList, keptRect, openingOf, placeAt, type Box, type Kept, type Opening, type Place } from './windowed-place.ts'
 import { endFrom, FreshKeys, mountedIndexes, nextWalkable, piecesOf, rowsAt, walkHere, type InView, type Piece, type Span } from './windowed-rows.ts'
 
 /**
@@ -24,6 +24,8 @@ import { endFrom, FreshKeys, mountedIndexes, nextWalkable, piecesOf, rowsAt, wal
 const MARGIN_VIEWS = 1
 /** At most this many rows each way for that margin. */
 const MOST_EACH_WAY = 12
+/** The view's height before the list has read its own or kept one. */
+const FIRST_HEIGHT = 800
 
 export interface WindowedOptions<Row> {
   /** Whose rows these are: where the list was left and how tall its rows were are kept by it. */
@@ -55,8 +57,35 @@ export interface WindowedList<Row> {
 }
 
 type Rows = Virtualizer<HTMLDivElement, HTMLElement>
+type ListRef = RefObject<HTMLOListElement | null>
 const NONE: readonly VirtualItem[] = []
 const NO_KEYS: ReadonlySet<string> = new Set()
+
+/** A ref that holds what it was last drawn with, for listeners set up once to read. */
+function useCurrent<Value>(value: Value): { readonly current: Value } {
+  const held = useRef(value)
+  held.current = value
+  return held
+}
+
+/** The heights kept from the last time a list was drawn, as TanStack takes them: only when they were drawn at the width the list opens at. */
+function seededSizes(kept: Kept | undefined, box: Box | null): VirtualItem[] {
+  if (!kept || !box || kept.width !== box.width) return []
+  return [...kept.sizes].map(([key, size]) => ({ key, size, index: 0, start: 0, end: size, lane: 0 }))
+}
+
+/** What a list starts from: where it opens, and the row heights kept from the last time it was drawn. */
+function startOf(name: string, indexOf: (key: string) => number): { opening: Opening; seeded: VirtualItem[] } {
+  const kept = keptList(name)
+  return { opening: openingOf(kept?.place, indexOf), seeded: seededSizes(kept, keptRect()) }
+}
+
+/** Where a list opens, in pixels: the row it was left reading and as far into it as it was, or its end in a view `height` tall. */
+function openingTop(rows: Rows, opening: Opening, height: number): number {
+  const row = opening.pinned ? undefined : rows.measurementsCache[opening.index]
+  if (row && !opening.pinned) return row.start + opening.offset
+  return Math.max(0, rows.getTotalSize() - height)
+}
 
 /**
  * Where a list shown again starts: at the row it was left reading, as far into it as it was, wherever its rows' heights
@@ -67,51 +96,23 @@ function shownAgain(rows: Rows | null, place: Place | undefined, indexes: Readon
   const index = place && !place.pinned ? indexes.get(place.key) : undefined
   const row = index === undefined ? undefined : rows?.measurementsCache[index]
   if (!rows || !row || !place || place.pinned) return { following: true, top: 0 }
+
   const top = row.start + place.offset
   rows.scrollOffset = top
   return { following: false, top }
 }
 
-/** What a list starts from: where it opens, and the row heights kept from the last time it was drawn, at its width. */
-function startOf(name: string, indexOf: (key: string) => number): { opening: Opening; seeded: VirtualItem[] } {
-  const kept = keptList(name)
-  const box = keptRect()
-  const opening = openingOf(kept?.place, indexOf)
-  const seeded = kept && box && kept.width === box.width ? [...kept.sizes].map(([key, size]) => ({ key, size, index: 0, start: 0, end: size, lane: 0 })) : []
-  return { opening, seeded }
-}
-
-export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, spacing }: WindowedOptions<Row>): WindowedList<Row> {
-  const keys = useMemo(() => rows.map(keyOf), [rows, keyOf])
-  const indexes = useMemo(() => new Map(keys.map((key, index) => [key, index])), [keys])
-  const [{ opening, seeded }] = useState(() => startOf(name, (key) => indexes.get(key) ?? -1))
-  const self = useRef<Rows | null>(null)
-  // Where follow.ts starts: where the list opens, its top worked out below as the rows are first laid out, and each time
-  // it is shown again, as a kept page is, at the row it was left reading, wherever that row is now (`shownAgain`).
-  const openTop = useRef(0)
-  const shows = useRef(0)
-  const indexesNow = useRef(indexes)
-  indexesNow.current = indexes
-  const scroll = useFollow({
-    start: () => (shows.current++ === 0 ? { following: opening.pinned, top: openTop.current } : shownAgain(self.current, keptList(name)?.place, indexesNow.current)),
-  })
-  const following = useRef(scroll.pinned)
-  following.current = scroll.pinned
-
-  // The rows kept drawn wherever the view is: those the user opened or pressed in, the one the keyboard is on, and the
-  // one it was just walked onto.
-  const [opened, setOpened] = useState(NO_KEYS)
-  const [focused, setFocused] = useState<string | null>(null)
-  const [walkedTo, setWalkedTo] = useState<string | null>(null)
-  const lastWalkable = useMemo(() => {
-    for (let index = rows.length - 1; index >= 0; index--) if (!walkable || walkable(rows[index]!)) return index
-    return -1
-  }, [rows, walkable])
-
-  // A row's height as measured, and the width it was measured at: one measured at another width, or kept from the
-  // last time the list was drawn, is not known yet, so its first measure keeps the view as a new row's does.
+/**
+ * The rows' heights as measured, with the width each was measured at, and when a change of height moves the view. A
+ * row measured at another width, or kept from the last time the list was drawn, is not known yet, so its first measure
+ * keeps the view as a new row's does: if it starts above the view. One measured before moves the view only if it is all
+ * above it and the user is not scrolling up. Nothing moves the view while the list follows its newest row: follow.ts
+ * takes it to the end.
+ */
+function useRowHeights(following: { readonly current: boolean }) {
   const measuredAt = useRef(new Map<string, number>())
   const lastMeasure = useRef<{ key: string; known: boolean } | null>(null)
+
   const measureElement = useCallback((element: HTMLElement, entry: ResizeObserverEntry | undefined, rows: Rows) => {
     const key = String(rows.options.getItemKey(rows.indexFromElement(element)))
     const width = rows.scrollRect?.width ?? 0
@@ -119,20 +120,191 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
     const box = entry?.borderBoxSize?.[0]
     const held = rows.itemSizeCache.get(key)
     if (!box && known && held !== undefined) return held
+
     lastMeasure.current = { key, known }
     measuredAt.current.set(key, width)
     return box ? Math.round(box.blockSize) : element.offsetHeight
   }, [])
-  // A row that changed height above the view moves the view by as much, so what the user reads stays: a row measured
-  // for the first time if it starts above the view, one measured before only if it is all above it and the user is not
-  // scrolling up. Never while the list follows its newest row: follow.ts takes it to the end.
-  const keepsView = useCallback((item: VirtualItem, _delta: number, rows: Rows) => {
-    if (following.current) return false
-    const top = rows.scrollOffset ?? 0
-    const first = !(lastMeasure.current?.key === item.key && lastMeasure.current.known)
-    return first ? item.start < top : item.end <= top && rows.scrollDirection !== 'backward'
-  }, [])
 
+  const keepsView = useCallback(
+    (item: VirtualItem, _delta: number, rows: Rows) => {
+      if (following.current) return false
+      const top = rows.scrollOffset ?? 0
+      const known = lastMeasure.current?.key === item.key && lastMeasure.current.known
+      if (!known) return item.start < top
+      return item.end <= top && rows.scrollDirection !== 'backward'
+    },
+    [following],
+  )
+
+  return { measuredAt, measureElement, keepsView }
+}
+
+/** The key of the row of `list` that `target` is in, by the place the list told it (`data-index`). */
+function keyOfRowAt(list: Element, target: EventTarget | null, keys: readonly string[]): string | null {
+  let row = target instanceof Element ? target : null
+  while (row && row.parentElement !== list) row = row.parentElement
+  const index = row?.getAttribute('data-index')
+  return index ? (keys[Number(index)] ?? null) : null
+}
+
+/** The rows the user opened or pressed in, and the one the keyboard is on: they stay drawn, so they keep what they show. */
+function useHeldRows(content: ListRef, keys: { readonly current: readonly string[] }): { opened: ReadonlySet<string>; focused: string | null } {
+  const [opened, setOpened] = useState(NO_KEYS)
+  const [focused, setFocused] = useState<string | null>(null)
+
+  useLayoutEffect(() => {
+    const list = content.current
+    if (!list) return
+
+    const open = (event: Event) => {
+      const key = keyOfRowAt(list, event.target, keys.current)
+      if (key) setOpened((now) => (now.has(key) ? now : new Set(now).add(key)))
+    }
+    const focusIn = (event: FocusEvent) => setFocused(keyOfRowAt(list, event.target, keys.current))
+    const focusOut = (event: FocusEvent) => {
+      const stays = event.relatedTarget instanceof Node && list.contains(event.relatedTarget)
+      if (!stays) setFocused(null)
+    }
+
+    list.addEventListener('click', open)
+    list.addEventListener(UNFOLD, open)
+    list.addEventListener('focusin', focusIn)
+    list.addEventListener('focusout', focusOut)
+    return () => {
+      list.removeEventListener('click', open)
+      list.removeEventListener(UNFOLD, open)
+      list.removeEventListener('focusin', focusIn)
+      list.removeEventListener('focusout', focusOut)
+    }
+  }, [content, keys])
+
+  return { opened, focused }
+}
+
+interface Walking<Row> {
+  rows: { readonly current: readonly Row[] }
+  keys: { readonly current: readonly string[] }
+  walkable: { readonly current: ((row: Row) => boolean) | undefined }
+  list: { readonly current: Rows | null }
+}
+
+/**
+ * The keyboard's way through the whole list (`agent-keys.ts`): a row not drawn is drawn first, then it takes the
+ * keyboard and comes into view. Gives the row it was last walked onto, which stays drawn until it is walked off.
+ */
+function useStepWalk<Row>(content: ListRef, { rows, keys, walkable, list }: Walking<Row>): string | null {
+  const [walkedTo, setWalkedTo] = useState<string | null>(null)
+
+  useLayoutEffect(() => {
+    const element = content.current
+    if (!element) return
+
+    const canStand = (index: number) => walkable.current?.(rows.current[index]!) ?? true
+    return walkHere(element, {
+      indexOf: (row) => (row.parentElement === element && row.hasAttribute('data-index') ? Number(row.getAttribute('data-index')) : -1),
+      next: (from, by) => nextWalkable(from, by, rows.current.length, canStand),
+      count: () => rows.current.length,
+      focus: (index) => {
+        const key = keys.current[index]
+        if (key === undefined) return
+        let row = list.current?.elementsCache.get(key)
+        if (!row?.isConnected) {
+          flushSync(() => setWalkedTo(key))
+          row = list.current?.elementsCache.get(key)
+        }
+        row?.focus()
+      },
+    })
+  }, [content, rows, keys, walkable, list])
+
+  return walkedTo
+}
+
+/**
+ * Each drawn row is told its place in the list and measured, after every draw: TanStack watches it for changes in
+ * height from then on, and lets go of the rows no longer drawn.
+ */
+function useMeasuredRows(list: Rows, content: ListRef, pieces: readonly Piece[]) {
+  useLayoutEffect(() => {
+    const element = content.current
+    if (!element) return
+
+    const children = element.children
+    let at = 0
+    for (const piece of pieces) {
+      const child = children[at++] as HTMLElement | undefined
+      // The list is not as drawn: nothing is measured rather than a row as another.
+      if (!child || (piece.kind === 'gap') !== child.hasAttribute('data-gap')) return
+      if (piece.kind === 'gap') continue
+
+      const index = String(piece.index)
+      if (child.getAttribute('data-index') !== index) child.setAttribute('data-index', index)
+      list.measureElement(child)
+    }
+    list.measureElement(null)
+  })
+}
+
+interface Leaving {
+  list: { readonly current: Rows | null }
+  /** The width each row's height was measured at. */
+  measuredAt: { readonly current: ReadonlyMap<string, number> }
+  following: { readonly current: boolean }
+}
+
+/** Where the list was left and how tall its rows were, kept as it goes or is hidden, for the next time it is drawn or shown. */
+function useKeptPlace(name: string, { list, measuredAt, following }: Leaving) {
+  useLayoutEffect(
+    () => () => {
+      const rows = list.current
+      if (!rows) return
+
+      const top = rows.scrollOffset ?? 0
+      const row = rows.getVirtualItemForOffset(top)
+      const place = placeAt(row ? { key: String(row.key), start: row.start } : undefined, top, following.current)
+      const width = rows.scrollRect?.width ?? 0
+      const sizes = new Map<string, number>()
+      for (const [key, at] of measuredAt.current) {
+        const size = rows.itemSizeCache.get(key)
+        if (at === width && size !== undefined) sizes.set(key, size)
+      }
+      keepList(name, { place, sizes, width })
+      if (rows.scrollRect && rows.scrollRect.height > 0) keepRect(rows.scrollRect)
+    },
+    [name, list, measuredAt, following],
+  )
+}
+
+export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, spacing }: WindowedOptions<Row>): WindowedList<Row> {
+  const keys = useMemo(() => rows.map(keyOf), [rows, keyOf])
+  const indexes = useMemo(() => new Map(keys.map((key, index) => [key, index])), [keys])
+  const [{ opening, seeded }] = useState(() => startOf(name, (key) => indexes.get(key) ?? -1))
+  const self = useRef<Rows | null>(null)
+  const keysNow = useCurrent(keys)
+  const indexesNow = useCurrent(indexes)
+
+  // Where follow.ts starts: where the list opens, its top worked out below as the rows are first laid out, and each time
+  // it is shown again, as a kept page is, at the row it was left reading, wherever that row is now (`shownAgain`).
+  const openTop = useRef(0)
+  const shows = useRef(0)
+  const startFrom = () => {
+    const firstShow = shows.current++ === 0
+    if (firstShow) return { following: opening.pinned, top: openTop.current }
+    return shownAgain(self.current, keptList(name)?.place, indexesNow.current)
+  }
+  const scroll = useFollow({ start: startFrom })
+  const following = useCurrent(scroll.pinned)
+
+  // The rows kept drawn wherever the view is.
+  const { opened, focused } = useHeldRows(scroll.content, keysNow)
+  const walkedTo = useStepWalk(scroll.content, { rows: useCurrent(rows), keys: keysNow, walkable: useCurrent(walkable), list: self })
+  const lastWalkable = useMemo(() => {
+    for (let index = rows.length - 1; index >= 0; index--) if (!walkable || walkable(rows[index]!)) return index
+    return -1
+  }, [rows, walkable])
+
+  const { measuredAt, measureElement, keepsView } = useRowHeights(following)
   const rangeExtractor = useCallback(
     (range: Range) => {
       const list = self.current
@@ -158,7 +330,7 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
   )
   const getItemKey = useCallback((index: number) => keys[index]!, [keys])
   const box = keptRect()
-  const first = useRef(true)
+  const firstDraw = useRef(true)
 
   const list = useVirtualizer<HTMLDivElement, HTMLElement>({
     count: keys.length,
@@ -173,24 +345,23 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
     // TanStack keeps the row the user reads in place when rows come or go above it. It never follows the end itself.
     anchorTo: 'end',
     scrollEndThreshold: -1,
-    initialRect: box ?? { width: 0, height: globalThis.innerHeight ?? 800 },
+    initialRect: box ?? { width: 0, height: globalThis.innerHeight ?? FIRST_HEIGHT },
     // Where it opens, worked out from the rows' kept or guessed heights the first time the list asks.
     initialOffset: () => {
       const rows = self.current!
-      const height = rows.scrollRect?.height ?? box?.height ?? globalThis.innerHeight ?? 800
-      const row = opening.pinned ? undefined : rows.measurementsCache[opening.index]
-      const top = row && !opening.pinned ? row.start + opening.offset : Math.max(0, rows.getTotalSize() - height)
-      openTop.current = top
-      return top
+      const height = rows.scrollRect?.height ?? box?.height ?? globalThis.innerHeight ?? FIRST_HEIGHT
+      openTop.current = openingTop(rows, opening, height)
+      return openTop.current
     },
     // The heights kept from the last time, given only once: TanStack takes them again whenever it has no rows.
-    initialMeasurementsCache: first.current ? seeded : [],
+    initialMeasurementsCache: firstDraw.current ? seeded : [],
     rangeExtractor,
     measureElement,
   })
   self.current = list
   list.shouldAdjustScrollPositionOnItemSizeChange = keepsView
-  first.current = false
+  firstDraw.current = false
+
   // A list drawn before it had rows, as a page waiting for its conversation, opens at its newest once they come, as it
   // would have with them: TanStack works out its opening place again rather than read them from the top.
   const hadRows = useRef(keys.length > 0)
@@ -206,9 +377,11 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
   const pieces = useMemo(() => {
     const at = new Map(drawn.map((item) => [item.index, item]))
     const spanOf = (index: number): Span => at.get(index) ?? list.measurementsCache[index]!
-    const indexesDrawn = drawn.length
-      ? drawn.map((item) => item.index)
-      : mountedIndexes({ count: keys.length, visible: null, spanOf, margin: 0, most: 0, keep: drawnKeys.current.flatMap((key) => indexes.get(key) ?? []), endFrom: null })
+    const drawnBefore = () => {
+      const keep = drawnKeys.current.flatMap((key) => indexes.get(key) ?? [])
+      return mountedIndexes({ count: keys.length, visible: null, spanOf, margin: 0, most: 0, keep, endFrom: null })
+    }
+    const indexesDrawn = drawn.length ? drawn.map((item) => item.index) : drawnBefore()
     return piecesOf(indexesDrawn, keys.length, spanOf, spacing.gap)
   }, [drawn, keys.length, indexes, list, spacing.gap])
   const shown = useMemo(() => rowsAt(pieces, rows), [pieces, rows])
@@ -219,102 +392,11 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
   const fresh = useCallback((key: string) => arrivals.fresh(key), [arrivals])
   useLayoutEffect(() => arrivals.drawn(keys), [arrivals, keys])
 
-  // Each drawn row is told its place in the list and measured: TanStack watches it for changes in height from then on.
   useLayoutEffect(() => {
     drawnKeys.current = shown.map(keyOf)
-    const element = scroll.content.current
-    if (!element) return
-    const children = element.children
-    let at = 0
-    for (const piece of pieces) {
-      const child = children[at++] as HTMLElement | undefined
-      // The list is not as drawn: nothing is measured rather than a row as another.
-      if (!child || (piece.kind === 'gap') !== child.hasAttribute('data-gap')) return
-      if (piece.kind === 'gap') continue
-      const index = String(piece.index)
-      if (child.getAttribute('data-index') !== index) child.setAttribute('data-index', index)
-      list.measureElement(child)
-    }
-    // Rows no longer drawn are let go.
-    list.measureElement(null)
   })
-
-  // The rows the user opens or presses in, and the one the keyboard is on, stay drawn, so they keep what they show.
-  const keysNow = useRef(keys)
-  keysNow.current = keys
-  useLayoutEffect(() => {
-    const element = scroll.content.current
-    if (!element) return
-    const keyIn = (target: EventTarget | null) => {
-      let row = target instanceof Element ? target : null
-      while (row && row.parentElement !== element) row = row.parentElement
-      const index = row?.getAttribute('data-index')
-      return index ? (keysNow.current[Number(index)] ?? null) : null
-    }
-    const open = (event: Event) => {
-      const key = keyIn(event.target)
-      if (key) setOpened((now) => (now.has(key) ? now : new Set(now).add(key)))
-    }
-    const focusIn = (event: FocusEvent) => setFocused(keyIn(event.target))
-    const focusOut = (event: FocusEvent) => {
-      if (!(event.relatedTarget instanceof Node && element.contains(event.relatedTarget))) setFocused(null)
-    }
-    element.addEventListener('click', open)
-    element.addEventListener(UNFOLD, open)
-    element.addEventListener('focusin', focusIn)
-    element.addEventListener('focusout', focusOut)
-    return () => {
-      element.removeEventListener('click', open)
-      element.removeEventListener(UNFOLD, open)
-      element.removeEventListener('focusin', focusIn)
-      element.removeEventListener('focusout', focusOut)
-    }
-  }, [scroll.content])
-
-  // The keyboard walks the whole list: a row not drawn is drawn first, then it takes the keyboard and comes into view.
-  const walkableNow = useRef(walkable)
-  walkableNow.current = walkable
-  const rowsNow = useRef(rows)
-  rowsNow.current = rows
-  useLayoutEffect(() => {
-    const element = scroll.content.current
-    if (!element) return
-    return walkHere(element, {
-      indexOf: (row) => (row.parentElement === element && row.hasAttribute('data-index') ? Number(row.getAttribute('data-index')) : -1),
-      next: (from, by) => nextWalkable(from, by, rowsNow.current.length, (index) => walkableNow.current?.(rowsNow.current[index]!) ?? true),
-      count: () => rowsNow.current.length,
-      focus: (index) => {
-        const key = keysNow.current[index]
-        if (key === undefined) return
-        let row = self.current?.elementsCache.get(key)
-        if (!row?.isConnected) {
-          flushSync(() => setWalkedTo(key))
-          row = self.current?.elementsCache.get(key)
-        }
-        row?.focus()
-      },
-    })
-  }, [scroll.content])
-
-  // Where the list was left and how tall its rows were, kept for the next time it is drawn, or shown again.
-  useLayoutEffect(
-    () => () => {
-      const rows = self.current
-      if (!rows) return
-      const top = rows.scrollOffset ?? 0
-      const row = rows.getVirtualItemForOffset(top)
-      const place = placeAt(row ? { key: String(row.key), start: row.start } : undefined, top, following.current)
-      const width = rows.scrollRect?.width ?? 0
-      const sizes = new Map<string, number>()
-      for (const [key, at] of measuredAt.current) {
-        const size = rows.itemSizeCache.get(key)
-        if (at === width && size !== undefined) sizes.set(key, size)
-      }
-      keepList(name, { place, sizes, width })
-      if (rows.scrollRect && rows.scrollRect.height > 0) keepRect(rows.scrollRect)
-    },
-    [name],
-  )
+  useMeasuredRows(list, scroll.content, pieces)
+  useKeptPlace(name, { list: self, measuredAt, following })
 
   return { scroll, pieces, rows, keyAt, shown, inView: list.range, fresh }
 }
@@ -331,7 +413,14 @@ export function WindowedRows<Row>({ list, draw }: { list: WindowedList<Row>; dra
   })
 }
 
-const Slot = memo(function Slot({ rowKey, row, draw, fresh }: { rowKey: string; row: unknown; draw: (row: unknown) => ReactNode; fresh: (key: string) => boolean }) {
+interface SlotProps {
+  rowKey: string
+  row: unknown
+  draw: (row: unknown) => ReactNode
+  fresh: (key: string) => boolean
+}
+
+const Slot = memo(function Slot({ rowKey, row, draw, fresh }: SlotProps) {
   // Whether it arrives is decided once, as it is first drawn: drawn again as it scrolls back into view, it does not.
   const [arrives] = useState(() => fresh(rowKey))
   return <ArriveAs arrives={arrives}>{draw(row)}</ArriveAs>

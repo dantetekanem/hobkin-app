@@ -41,17 +41,26 @@ interface Drawn {
 export function mountedIndexes({ count, visible, spanOf, margin, most, keep, endFrom }: Drawn): number[] {
   if (count === 0) return []
   const drawn = new Set<number>([count - 1])
+  const drawFrom = (first: number, last: number) => {
+    for (let index = first; index <= last; index++) drawn.add(index)
+  }
+
   if (visible) {
     const top = spanOf(visible.startIndex).start
     const bottom = spanOf(visible.endIndex).end
+    // Each way, rows go on being drawn while they are within the margin, and no more of them than `most`.
+    const drawsAbove = (index: number) => index >= 0 && visible.startIndex - index <= most && top - spanOf(index).end < margin
+    const drawsBelow = (index: number) => index < count && index - visible.endIndex <= most && spanOf(index).start - bottom < margin
     let first = visible.startIndex
-    while (first > 0 && visible.startIndex - first < most && top - spanOf(first - 1).end < margin) first -= 1
+    while (drawsAbove(first - 1)) first -= 1
     let last = visible.endIndex
-    while (last < count - 1 && last - visible.endIndex < most && spanOf(last + 1).start - bottom < margin) last += 1
-    for (let index = first; index <= last; index++) drawn.add(index)
+    while (drawsBelow(last + 1)) last += 1
+    drawFrom(first, last)
   }
-  if (endFrom !== null) for (let index = Math.max(0, endFrom); index < count; index++) drawn.add(index)
-  for (const index of keep) if (index >= 0 && index < count) drawn.add(index)
+  if (endFrom !== null) drawFrom(Math.max(0, endFrom), count - 1)
+  for (const index of keep) {
+    if (index >= 0 && index < count) drawn.add(index)
+  }
   return [...drawn].sort((left, right) => left - right)
 }
 
