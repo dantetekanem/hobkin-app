@@ -304,8 +304,9 @@ export class Desk {
   }
 
   /**
-   * A look for the user, as each look for their return makes one: a digest when one is due, at a learned moment or on a return after a gap
-   * (`returned` is the presence the look recorded, if any), and each held item whose pause came. Answers whether Chat has something new.
+   * A look for the user, as each look for their return makes one: a digest when one is due, at a learned moment, on a return after a gap
+   * (`returned` is the presence the look recorded, if any) or at a pause once what is held can wait no longer, and each held item whose
+   * pause came. Answers whether Chat has something new.
    */
   look({ presence, returned = null, busy = false } = {}) {
     try {
@@ -317,7 +318,7 @@ export class Desk {
       let changed = this.release(queue, context, events);
       if (queue.held.length) {
         const lastDigest = Date.parse(queue.lastDigestAt ?? '');
-        const due = digestDue({ ...context, lastDigest: Number.isFinite(lastDigest) ? lastDigest : -Infinity, awayMs: returned?.awayMs });
+        const due = digestDue({ ...context, lastDigest: Number.isFinite(lastDigest) ? lastDigest : -Infinity, awayMs: returned?.awayMs, held: queue.held });
         if (due.due) {
           const held = queue.held;
           const landed = held.filter(({ level }) => RANK[level] <= RANK.P1).length;
@@ -325,7 +326,7 @@ export class Desk {
           queue.posting.push(digest);
           queue.held = [];
           queue.lastDigestAt = iso(now);
-          events.push(['digest_posted', { items: held.length, ...digest.digest.levels, why: context.moments.length ? 'moment' : 'return' }]);
+          events.push(['digest_posted', { items: held.length, ...digest.digest.levels, why: due.why }]);
           changed = true;
         }
       }

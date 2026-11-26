@@ -21,6 +21,13 @@ const STOP_LEAD_MINUTES = 30;
 const DIGEST_HORIZON_MS = 4 * HOUR_MS;
 // A P0 waits for a break this close instead of interrupting.
 const NEAR_MS = 15 * MINUTE_MS;
+// Quiet hours need this many days on to mean anything, and they always leave a working day's 8 hours open.
+const QUIET_DAYS = 5;
+const MOST_QUIET_HOURS = 16;
+// Whatever holds digests back, nothing waits for one much more than a day.
+const MOST_WAIT_MS = DAY_MS;
+// P1 is for today. With no digest time learned yet, it waits this long for a return at most.
+const P1_MOST_WAIT_MS = DIGEST_HORIZON_MS;
 const TOO_LITTLE = 'Less than a week of presence data, so a digest comes when the user returns after a gap.';
 
 const machineZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -138,7 +145,8 @@ export function learnMoments(presenceEvents, { now, days = 14, timeZone = machin
 /**
  * The hours of the day, in `timeZone`, that the user is usually away: those they were on in fewer than half the days they were on at all.
  * The user is on from each time they are seen until they next leave. Today is still under way, so it does not count.
- * With less than a week of data no hour is quiet yet.
+ * With less than a week of data, or fewer than five days on, no hour is quiet yet. Hours that would cover most of the day say the user keeps
+ * no regular hours, so none is quiet then either.
  */
 export function learnQuietHours(presenceEvents, { now, days = 14, timeZone = machineZone() }) {
   const { kept, enough } = presenceWithin(presenceEvents, { now, days });
@@ -160,12 +168,13 @@ export function learnQuietHours(presenceEvents, { now, days = 14, timeZone = mac
     for (let time = start; time < end; time += HOUR_MS / 2) mark(time);
     mark(end > start ? end - 1 : start);
   });
-  return {
-    hours: hoursOn.flatMap((dates, hour) => (dates.size * 2 < daysOn.size ? [hour] : [])),
-    enough: true,
-    days: daysOn.size,
-    reason: `Learned from ${daysOn.size} days of presence.`,
-  };
+  const seen = daysOn.size;
+  if (seen < QUIET_DAYS) return { hours: [], enough: false, days: seen, reason: `Only ${seen} days of presence, so no hour is quiet yet.` };
+  const hours = hoursOn.flatMap((dates, hour) => (dates.size * 2 < seen ? [hour] : []));
+  if (hours.length > MOST_QUIET_HOURS) {
+    return { hours: [], enough: false, days: seen, reason: `${hours.length} quiet hours would cover most of the day, so no hour is quiet until the user's hours settle.` };
+  }
+  return { hours, enough: true, days: seen, reason: `Learned from ${seen} days of presence.` };
 }
 
 /**
@@ -178,6 +187,12 @@ export function nextDigestAt(moments, now, timeZone = machineZone()) {
   // Counted in wall minutes, so a day the clocks change can be off by that hour.
   const minutesUntil = ({ at }) => ((clockMinute(at) - minute - 1 + DAY_MINUTES) % DAY_MINUTES) + 1;
   return startOfMinute(now) + Math.min(...moments.map(minutesUntil)) * MINUTE_MS;
+}
+
+/** Whether a learned digest moment is still to come in the user's day at `now`. */
+function digestLeftToday(moments, now, timeZone) {
+  const { minute } = wallClock(now, timeZone);
+  return moments.some(({ at }) => toUserMinute(clockMinute(at)) > toUserMinute(minute));
 }
 
 /** When the latest learned digest moment came, at or before `now`. */
@@ -212,12 +227,12 @@ export function itemLevel(item, { now, nextDigest } = {}) {
   return forToday ? 'P1' : 'P2';
 }
 
-/** What holds deliveries back at `now`: an event in the day file or quiet hours, and when that hold ends. */
-function holdAt(now, { day, quiet = [], timeZone }) {
+/** What holds deliveries back at `now`: an event in the day file or quiet hours, and when that hold ends. Quiet hours never hold back a user who is on. */
+function holdAt(now, { day, quiet = [], present = false, timeZone }) {
   const event = day?.events?.find(({ start, end }) => Date.parse(start) <= now && now < Date.parse(end));
   const { hour, minute } = wallClock(now, timeZone);
   let quietEnd = null;
-  if (quiet.includes(hour)) {
+  if (!present && quiet.includes(hour)) {
     let quietHours = 1;
     while (quietHours < 24 && quiet.includes((hour + quietHours) % 24)) quietHours += 1;
     quietEnd = quietHours === 24 ? Infinity : now + (quietHours * 60 - minute % 60) * MINUTE_MS;
@@ -231,8 +246,8 @@ function holdAt(now, { day, quiet = [], timeZone }) {
  * How an item reaches the user: `now`, at the next `breakpoint` (a pause in their work, or the end of the event or quiet hours that holds
  * it), in the next `digest`, or only in the `log`. `level` defaults to itemLevel's, against the next learned digest.
  * `moments` and `quiet` are what learnMoments and learnQuietHours learned. `day` is the day file, `{ events: [{ start, end }] }` with ISO
- * times, and `present` says whether the user is on now. Nothing but P0 is delivered during an event or quiet hours, and P0 waits for
- * their end when it is near and comes before its deadline.
+ * times, and `present` says whether the user is on now. Nothing but P0 is delivered during an event, or in quiet hours while the user is
+ * away, and P0 waits for their end when it is near and comes before its deadline.
  */
 export function deliveryFor(item, { now, level, moments = [], quiet = [], day, present = false, timeZone = machineZone() }) {
   const chosen = level ?? itemLevel(item, { now, nextDigest: nextDigestAt(moments, now, timeZone) });
@@ -240,13 +255,13 @@ export function deliveryFor(item, { now, level, moments = [], quiet = [], day, p
   if (chosen === 'P3') return answer('log', 'P3 is logged only.');
   if (chosen === 'P2') return answer('digest', 'P2 waits for the next digest.');
 
-  const hold = holdAt(now, { day, quiet, timeZone });
+  const hold = holdAt(now, { day, quiet, present, timeZone });
   if (chosen === 'P1') {
     if (hold) return answer('digest', `P1 waits for the digest during ${hold.what}.`);
     if (!moments.length) return answer('digest', 'P1 waits for the digest when the user is back from a break.');
-    const { minute } = wallClock(now, timeZone);
-    const leftToday = moments.some(({ at }) => toUserMinute(clockMinute(at)) > toUserMinute(minute));
-    return leftToday ? answer('digest', 'P1 lands in the next digest today.') : answer('breakpoint', 'No digest is left today, so P1 goes at the next pause.');
+    return digestLeftToday(moments, now, timeZone)
+      ? answer('digest', 'P1 lands in the next digest today.')
+      : answer('breakpoint', 'No digest is left today, so P1 goes at the next pause.');
   }
 
   const due = instant(item.deadline);
@@ -264,21 +279,45 @@ export function deliveryFor(item, { now, level, moments = [], quiet = [], day, p
 }
 
 /**
- * Whether a digest should post now. The user must be on, with no event or quiet hours holding deliveries, and the last digest at least
- * two hours back. Then a learned moment must have come since the last digest, or, with none learned yet, the user has just come back
- * after a gap (`awayMs`, from the presence event that saw them return).
+ * Why what is `held` (`[{ level, heldAt }]`) can wait for no digest time any more, or null. Nothing waits much more than a day. P1 is for
+ * today, so it waits no longer than its day: past the day's last digest time, past the day itself, or, with none learned yet, four hours.
  */
-export function digestDue({ now, moments = [], lastDigest = -Infinity, present = false, awayMs, day, quiet = [], timeZone = machineZone() }) {
+function waitedTooLong(held, { now, moments, timeZone }) {
+  const waited = ({ heldAt }) => now - instant(heldAt);
+  if (held.some(entry => waited(entry) >= MOST_WAIT_MS)) return 'Something has waited a day for a digest';
+  const forToday = held.filter(({ level }) => level === 'P1');
+  if (!forToday.length) return null;
+  const today = userDay(now, timeZone).date;
+  if (forToday.some(({ heldAt }) => userDay(instant(heldAt), timeZone).date < today)) return 'P1 from a day that is over is waiting';
+  if (moments.length) return digestLeftToday(moments, now, timeZone) ? null : 'No digest time is left today, and P1 is for today';
+  return forToday.some(entry => waited(entry) >= P1_MOST_WAIT_MS) ? 'P1 has waited four hours with no digest time learned' : null;
+}
+
+/**
+ * Whether a digest should post now, and `why`. The user must be on, with no event holding deliveries. What is `held` that can wait no
+ * longer (waitedTooLong) brings it at the user's pause (`atPause`). Otherwise the last digest must be at least two hours back, and a
+ * learned moment must have come since, or, with none learned yet, the user has just come back after a gap (`awayMs`, from the presence
+ * event that saw them return).
+ */
+export function digestDue({
+  now, moments = [], lastDigest = -Infinity, present = false, atPause = present, held = [], awayMs, day, quiet = [], timeZone = machineZone(),
+}) {
   if (!present) return { due: false, reason: 'The user is not on.' };
-  const hold = holdAt(now, { day, quiet, timeZone });
+  const hold = holdAt(now, { day, quiet, present, timeZone });
   if (hold) return { due: false, reason: `No digest during ${hold.what}.` };
+  const late = waitedTooLong(held, { now, moments, timeZone });
+  if (late) {
+    return atPause
+      ? { due: true, why: 'late', reason: `${late}, so the digest comes at this pause.` }
+      : { due: false, reason: `${late}, so the digest comes at the user's next pause.` };
+  }
   if (now - lastDigest < DIGEST_GAP_MS) return { due: false, reason: 'The last digest was less than two hours ago.' };
   if (!moments.length) {
     return awayMs >= BREAK_MS
-      ? { due: true, reason: 'The user is back after a gap, and no digest time is learned yet.' }
+      ? { due: true, why: 'return', reason: 'The user is back after a gap, and no digest time is learned yet.' }
       : { due: false, reason: 'No digest time is learned yet, so the digest waits for the user to return after a gap.' };
   }
   return lastMomentAt(moments, now, timeZone) > lastDigest
-    ? { due: true, reason: 'A digest time has come since the last digest.' }
+    ? { due: true, why: 'moment', reason: 'A digest time has come since the last digest.' }
     : { due: false, reason: 'No digest time has come since the last digest.' };
 }

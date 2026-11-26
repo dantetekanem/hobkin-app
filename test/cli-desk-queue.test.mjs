@@ -185,32 +185,92 @@ test('a P0 waits while the user types, and posts at their next pause', async t =
   }
 });
 
-test('in quiet hours only a P0 reaches Chat, and a return brings no digest', async t => {
+test('in quiet hours only a P0 reaches Chat while the user is away, and their return brings the rest in a digest', async t => {
   const h = fixture(t);
   // Nine days on from 08:00 to 18:00, so the hours from 18:00 to 08:00 are quiet.
   for (let day = 10; day <= 18; day += 1) recordEvent(h.root, 'presence', { kind: 'first', awayMs: 14 * HOUR_MS }, local(day, 8));
   h.clock.at = local(19, 22, 30);
-  h.seen();
   writeBriefState(h.root, { lastSeenAt: iso(h.clock.at - HOUR_MS) });
+  h.presence.value = { seenAt: h.clock.at - HOUR_MS, away: true, occupied: false };
   const app = await h.openApp();
   try {
-    app.lookForReturn();
     await app.runtime.change(state => {
       state.runs.mail = finished('mail', 'Useful: The bank wrote back.', h.clock.at);
       state.runs.lease = finished('lease', 'Blocked: The lease needs a signature.', h.clock.at);
       state.runs.fix = workRun('fix', 'Critical: The tests broke on main.', h.clock.at);
     });
-    await app.refresh();
+    const away = await app.refresh();
+
+    assert.deepEqual(linesIn(away, 'The tests broke').map(({ level }) => level), ['P0']);
+    assert.deepEqual(linesIn(away, 'bank'), []);
+    assert.deepEqual(linesIn(away, 'lease'), []);
+    assert.deepEqual(heldLines(h.root).filter(([, content]) => /bank|lease/.test(content)).toSorted(), [['P1', 'Routine lease: The lease needs a signature.'], ['P2', 'Routine mail: The bank wrote back.']]);
+
     h.clock.at += 40 * MINUTE_MS;
     h.seen();
     app.lookForReturn();
-    const view = await app.refresh();
+    const [digest] = digestsIn(await app.refresh());
 
-    assert.deepEqual(linesIn(view, 'The tests broke').map(({ level }) => level), ['P0']);
-    assert.deepEqual(linesIn(view, 'bank'), []);
-    assert.deepEqual(linesIn(view, 'lease'), []);
-    assert.deepEqual(digestsIn(view), []);
-    assert.deepEqual(heldLines(h.root).filter(([, content]) => /bank|lease/.test(content)).toSorted(), [['P1', 'Routine lease: The lease needs a signature.'], ['P2', 'Routine mail: The bank wrote back.']]);
+    assert.ok(digest, 'quiet hours never hold back a user who is on');
+    assert.ok(digest.content.includes('lease') && digest.content.includes('bank'));
+    assert.deepEqual(readHeld(h.root), []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a light, irregular user still gets a digest: three scattered days make no quiet hours', async t => {
+  const h = fixture(t);
+  // On three days in two weeks, two hours at a time, at 07:00, 13:00 and 20:00.
+  const days = [[14, 7], [18, 13], [22, 20]];
+  days.forEach(([day, hour], index) => {
+    const previous = days[index - 1];
+    recordEvent(h.root, 'presence', { kind: 'first', ...(previous ? { awayMs: local(day, hour) - local(previous[0], previous[1] + 2) } : {}) }, local(day, hour));
+  });
+  h.clock.at = local(26, 15);
+  writeBriefState(h.root, { lastSeenAt: iso(local(22, 22)) });
+  h.seen();
+  const app = await h.openApp();
+  try {
+    await app.runtime.change(state => { state.runs.mail = finished('mail', 'Useful: The bank wrote back.', h.clock.at); });
+    await app.refresh();
+    h.clock.at += MINUTE_MS;
+    h.seen();
+    app.lookForReturn();
+    const [digest] = digestsIn(await app.refresh());
+
+    assert.ok(digest?.content.includes('The bank wrote back'));
+    assert.deepEqual(readHeld(h.root), []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('before any digest time is learned, P1 waits four hours for a return at most, then comes in a digest at the next pause', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    app.lookForReturn();
+    await app.runtime.change(state => { state.runs.lease = finished('lease', 'Blocked: The lease needs a signature.', h.clock.at); });
+    await app.refresh();
+    const heldAt = h.clock.at;
+    // The user stays on all along, never away long enough to count as a return.
+    const stayOn = async until => {
+      while (h.clock.at < until) {
+        h.clock.at += 10 * MINUTE_MS;
+        h.seen();
+        app.lookForReturn();
+        await app.refresh();
+      }
+    };
+
+    await stayOn(heldAt + 4 * HOUR_MS - 10 * MINUTE_MS);
+    assert.deepEqual(heldLines(h.root), [['P1', 'Routine lease: The lease needs a signature.']]);
+    await stayOn(heldAt + 4 * HOUR_MS);
+    const [digest] = digestsIn(await app.refresh());
+
+    assert.ok(digest?.content.includes('The lease needs a signature'));
+    assert.deepEqual(h.ofType('digest_posted').map(({ why }) => why), ['late']);
   } finally {
     await app.close();
   }
