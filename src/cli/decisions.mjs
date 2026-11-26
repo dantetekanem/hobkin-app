@@ -318,9 +318,12 @@ export function answerPutOff(root, question, { value, typed }, now = Date.now())
   if (waiting) answerDecision(root, waiting.id, typed ? 'typed' : value, now, { typed });
 }
 
-/** The same question twice is the worst call hobkin can make, so what was answered lately is answered. */
+/**
+ * The same question twice is the worst call hobkin can make, so what was answered lately is answered. A pick taken at its deadline is nobody's
+ * answer, so it is never recalled as the user's.
+ */
 function recentAnswer(root, key, now) {
-  const isRemembered = ({ answeredAt }) => answeredAt && now - Date.parse(answeredAt) < REMEMBERED_MS;
+  const isRemembered = ({ answeredAt, byDefault }) => answeredAt && !byDefault && now - Date.parse(answeredAt) < REMEMBERED_MS;
   const answered = readAll(root).filter(decision => decision.key === key && isRemembered(decision));
   return answered.toSorted((first, second) => first.answeredAt.localeCompare(second.answeredAt)).at(-1) ?? null;
 }

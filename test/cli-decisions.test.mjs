@@ -349,6 +349,19 @@ test('a reversible card past its deadline takes its pick, the asker hears nobody
   assert.deepEqual(await tickDecisionDefaults(root, deadline + 60000), [], 'once');
 });
 
+test('a pick taken at its deadline is no answer to recall: the same question asked again is filed', async t => {
+  const root = home(t);
+  await runDecideCommand(root, ['routine', 'site'], card({ key: 'fix', reversible: true, deadline: LATER }), FILED);
+  await tickDecisionDefaults(root, Date.parse(LATER));
+
+  const again = await runDecideCommand(root, ['routine', 'site'], card({ key: 'fix' }), Date.parse(LATER) + DAY_MS);
+
+  assert.ok(again.id, 'filed');
+  assert.equal(again.answer, undefined);
+  assert.equal(openDecisions(root).length, 1);
+  assert.equal(readEvents(root).some(({ type }) => type === 'decision_recalled'), false);
+});
+
 test('a default reaches another session\'s card through hobkin\'s main agent, and a learn card that defaults keeps no rule', async t => {
   const root = home(t);
   await runDecideCommand(root, [], learnCard({ reversible: true, deadline: LATER }), FILED, 'Claude Code');
