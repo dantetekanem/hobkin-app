@@ -1,8 +1,8 @@
 import { X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useRef, useState, type ReactNode } from 'react'
-import { claudeTierName, claudeTiersOf } from '#shared/tiers/claude-code.ts'
-import { TIER_IDS, TIER_INFO, resolveTier } from '#shared/tiers/tiers.ts'
+import { claudeTiersOf } from '#shared/tiers/claude-code.ts'
+import { TIER_IDS, TIER_INFO } from '#shared/tiers/tiers.ts'
 import { TILE_KEYS } from '@/app/key-list.ts'
 import { Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
@@ -14,6 +14,7 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
+import { effectiveTier, followsWords } from '@/features/tiers/host-tiers.ts'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { useTiers } from '@/features/tiers/store.ts'
 import { BackupTile } from './BackupTile.tsx'
@@ -402,20 +403,15 @@ function AgentsAtOnce() {
 
 function Models() {
   const config = useTiers((state) => state.config)
+  const follows = useTiers((state) => state.follows)
+  const checks = useTiers((state) => state.checks)
   const models = useModelChoices()
   const openTiers = useTiers((state) => state.openTiers)
   // The tiers that run on Claude Code, once the host has said (033-claude-code-agents).
   const claude = claudeTiersOf(useReadClaudeCode()?.settings) ?? {}
-  const nameOf = (id: string) => models.find((model) => model.id === id)?.name ?? id
   const rows = [
-    { label: 'hobkin', ...config.lead, followsLead: false, onClaude: null },
-    ...TIER_IDS.map((tier) => {
-      const label = TIER_INFO[tier].label
-      const onClaude = claude[tier]
-      if (!onClaude) return { label, ...resolveTier(config, tier), onClaude: null }
-
-      return { label, ...resolveTier(config, tier), effort: onClaude.effort, followsLead: false, onClaude: claudeTierName(onClaude) }
-    }),
+    { label: 'hobkin', model: models.find(({ id }) => id === config.lead.model)?.name ?? config.lead.model, effort: config.lead.effort, follows: null },
+    ...TIER_IDS.map((tier) => ({ label: TIER_INFO[tier].label, ...effectiveTier({ config, follows, checks }, tier, claude, models) })),
   ]
 
   return (
@@ -424,7 +420,7 @@ function Models() {
         {rows.map((row) => (
           <li key={row.label} className="flex items-center gap-2">
             <span className="w-11 shrink-0 font-semibold">{row.label}</span>
-            <span className={cn('min-w-0 flex-1 truncate', row.followsLead && 'text-muted-foreground')}>{row.onClaude ?? (row.followsLead ? 'follows hobkin' : nameOf(row.model))}</span>
+            <span className={cn('min-w-0 flex-1 truncate', row.follows && 'text-muted-foreground')}>{row.follows ? followsWords(row.follows).follows : row.model}</span>
             <span className="shrink-0 text-muted-foreground">{row.effort}</span>
           </li>
         ))}

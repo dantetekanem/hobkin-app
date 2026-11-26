@@ -21,7 +21,7 @@ export const useClaudeCode = create<ClaudeCodeStore>(() => ({ state: null, readP
 let reading: Promise<void> | null = null
 let changes = 0
 
-function read(): Promise<void> {
+export function readClaudeCode(): Promise<void> {
   const before = changes
   reading ??= runCommand('claude-code.read')
     .then(
@@ -43,7 +43,7 @@ export function useReadClaudeCode(): ClaudeCodeState | null {
   const hasHost = useHasHost()
   const state = useClaudeCode((store) => store.state)
   useEffect(() => {
-    if (hasHost) void read()
+    if (hasHost) void readClaudeCode()
   }, [hasHost])
   return hasHost ? state : null
 }

@@ -2,7 +2,8 @@ import type { CommandArgs } from '#shared/commands/registry.ts'
 import { CLAUDE_MODELS, type ClaudeCodeSettings, type ClaudeModel } from '#shared/protocol/claude-code.ts'
 import { HOBKIN_CLAUDE_EFFORTS, type HobkinClaudeEffort, type HobkinEngine } from '#shared/protocol/hobkins.ts'
 import { TIER_IDS, TIER_INFO, clampEffort, type Effort, type ModelChoice, type TierId } from '#shared/tiers/tiers.ts'
-import { modelName, shownTier, type TiersView } from '../tiers/host-tiers.ts'
+import type { ClaudeTier, ClaudeTiers } from '#shared/tiers/claude-code.ts'
+import { effectiveTier, type TiersView } from '../tiers/host-tiers.ts'
 
 /**
  * What the New hobkin sheet offers and when it may start one, and how a durable hobkin's page names what it runs on.
@@ -13,6 +14,7 @@ import { modelName, shownTier, type TiersView } from '../tiers/host-tiers.ts'
 export interface TierOffer {
   kind: 'tier'
   tier: TierId
+  claude: ClaudeTier | null
   label: string
   model: string
   effort: Effort | null
@@ -82,32 +84,31 @@ interface OfferSources {
   tiers: Pick<TiersView, 'config' | 'follows' | 'checks'>
   models: readonly ModelChoice[]
   claudeInstalled: boolean
+  claudeTiers?: ClaudeTiers
 }
 
 /**
  * What the form offers to run on: the four tiers, each with what it runs on now, Claude Code while it is installed, and
  * a model of the user's choosing while Pi can reach any.
  */
-export function engineOffers({ tiers, models, claudeInstalled }: OfferSources): EngineOffer[] {
-  const offers: EngineOffer[] = TIER_IDS.map((tier) => {
-    const shown = shownTier(tiers, tier)
-    return {
-      kind: 'tier',
-      tier,
-      label: TIER_INFO[tier].label,
-      model: modelName(shown, models),
-      effort: shown.effort,
-    }
-  })
+export function engineOffers({ tiers, models, claudeInstalled, claudeTiers = {} }: OfferSources): EngineOffer[] {
+  const offers: EngineOffer[] = TIER_IDS.map((tier) => ({
+    kind: 'tier', tier, label: TIER_INFO[tier].label,
+    ...effectiveTier(tiers, tier, claudeTiers, models),
+  }))
   if (claudeInstalled) offers.push({ kind: 'claude', label: 'Claude Code' })
   if (models.length) offers.push({ kind: 'pi', label: 'Custom', models })
   return offers
 }
 
 /** What `hobkin.start` takes for the choice, or null when it cannot run: Custom with no model, or one Pi does not reach now. */
-export function engineOf(choice: EngineChoice | null, models: readonly ModelChoice[]): HobkinEngine | null {
+export function engineOf(choice: EngineChoice | null, models: readonly ModelChoice[], offers: readonly EngineOffer[] = []): HobkinEngine | null {
   if (!choice) return null
-  if (choice.kind === 'tier') return { kind: 'tier', tier: choice.tier }
+  if (choice.kind === 'tier') {
+    const offer = offers.find((row): row is TierOffer => row.kind === 'tier' && row.tier === choice.tier)
+    if (offer?.claude) return { kind: 'claude', ...offer.claude }
+    return { kind: 'tier', tier: choice.tier }
+  }
   if (choice.kind === 'claude') return { kind: 'claude', ...claudeStart(choice, CLAUDE_DEFAULTS) }
 
   const model = models.find(({ id }) => id === choice.model)

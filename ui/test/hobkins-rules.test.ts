@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { checkArguments } from '#shared/commands/registry.ts'
 import type { ModelChoice } from '#shared/tiers/tiers.ts'
 import { CLAUDE_MODELS } from '#shared/protocol/claude-code.ts'
 import { HOBKIN_CLAUDE_EFFORTS } from '#shared/protocol/hobkins.ts'
@@ -37,6 +38,22 @@ const tiers: Pick<TiersView, 'config' | 'follows' | 'checks'> = {
   follows: LEAD_FOLLOWS,
   checks: null,
 }
+
+test('the selected tier follows a saved override changed while the form is open', () => {
+  const choice = { kind: 'tier', tier: 'max' } as const
+  const opus = { model: 'opus', effort: 'max' } as const
+  const sources = { tiers, models, claudeInstalled: true }
+  const before = engineOffers(sources)
+  const after = engineOffers({ ...sources, claudeTiers: { max: opus } })
+  const max = after.find((offer) => offer.kind === 'tier' && offer.tier === 'max')
+  assert.ok(max?.kind === 'tier')
+  assert.deepEqual([max.model, max.effort, max.claude], ['Claude Code · opus', 'max', opus])
+  assert.deepEqual(engineOf(choice, models, before), choice)
+  assert.deepEqual(after.slice(0, 3), before.slice(0, 3))
+  const args = startArgs({ cwd: '~', engine: engineOf(choice, models, after) })
+  assert.deepEqual(checkArguments('hobkin.start', args), { ok: true })
+  assert.deepEqual(args, { cwd: '~', engine: { kind: 'claude', ...opus } })
+})
 
 test('the form offers what can run and starts with a folder alone', () => {
   // The four tiers, each with what it runs on now; Custom with Pi's models; Claude Code only while it is installed.

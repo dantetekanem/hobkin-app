@@ -1,3 +1,4 @@
+import { claudeTierName, type ClaudeTiers } from '#shared/tiers/claude-code.ts'
 import {
   DEFAULT_REVIEW_TIERS,
   REVIEW_ROLES,
@@ -111,6 +112,14 @@ export function ownSetting(shown: ShownTier, lead: TierSetting): TierSetting {
 export function modelName(shown: ShownTier, models: readonly ModelChoice[]): string {
   if (shown.model) return models.find((model) => model.id === shown.model)?.name ?? shown.model
   return shown.effort ? "Pi's default" : 'The checks model'
+}
+
+/** Settings and the launch sheet must describe the same harness, not just its Pi fallback. */
+export function effectiveTier(view: Pick<TiersView, 'config' | 'follows' | 'checks'>, tier: TierId, overrides: ClaudeTiers, models: readonly ModelChoice[]) {
+  const claude = overrides[tier] ?? null
+  if (claude) return { model: claudeTierName(claude), effort: claude.effort, follows: null, claude }
+  const shown = shownTier(view, tier)
+  return { model: modelName(shown, models), effort: shown.effort, follows: shown.follows, claude }
 }
 
 const FOLLOWED: Record<Follows, string> = { main: 'hobkin', background: 'checks' }

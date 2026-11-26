@@ -1,7 +1,8 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { AnimatePresence, motion } from 'motion/react'
-import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { hobkinAgentId } from '#shared/protocol/hobkins.ts'
+import { claudeTiersOf } from '#shared/tiers/claude-code.ts'
 import type { ModelChoice } from '#shared/tiers/tiers.ts'
 import { focusInput, requestCanvasFocus } from '@/app/focus.ts'
 import { holdStill, useStill } from '@/app/still.ts'
@@ -11,9 +12,10 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.tsx'
-import { useReadClaudeCode } from '@/features/settings/claude-code-store.ts'
+import { readClaudeCode, useClaudeCode } from '@/features/settings/claude-code-store.ts'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { useTiers } from '@/features/tiers/store.ts'
+import { readTiers } from '@/lib/host/client.ts'
 import { hasHost } from '@/lib/host/frame.ts'
 import { runCommand, useHost } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
@@ -194,9 +196,28 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
   const follows = useTiers((state) => state.follows)
   const checks = useTiers((state) => state.checks)
   const models = useModelChoices()
-  const claude = useReadClaudeCode()
+  const claude = useClaudeCode((state) => state.state)
   const projects = useHost((state) => (state.snapshot.work as { projects?: unknown[] } | undefined)?.projects)
   const connected = useHost((state) => hasHost(state) && state.link === 'open')
+  const source = useHost((state) => `${state.home}:${state.epoch}`)
+  const [loaded, setLoaded] = useState<string | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  useEffect(() => {
+    let current = true
+    setLoaded(null)
+    if (!connected) return
+    const before = useTiers.getState().config
+    Promise.all([readTiers(), readClaudeCode()]).then(([tiers]) => {
+      if (!current) return
+      const error = useClaudeCode.getState().readProblem
+      if (error) return setProblem(error)
+      const store = useTiers.getState()
+      if (before === store.config) store.receiveHostTiers(tiers)
+      setProblem(null)
+      setLoaded(source)
+    }, (error) => { if (current) setProblem(message(error)) })
+    return () => { current = false }
+  }, [connected, source])
   const last = useNewHobkin((state) => state.last)
   const remember = useNewHobkin((state) => state.remember)
   const prompt = useNewHobkin((state) => state.prompt)
@@ -207,6 +228,7 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
         tiers: { config, follows, checks },
         models,
         claudeInstalled: claude?.status.installed === true,
+        claudeTiers: claudeTiersOf(claude?.settings) ?? {},
       }),
     [config, follows, checks, models, claude],
   )
@@ -216,13 +238,14 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
   const [wantedFolder, setCwd] = useState(last.cwd)
   const [wanted, setChosen] = useState<EngineChoice | null>(last.engine)
   const cwd = chosenFolder(folders, wantedFolder)
-  const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const choice = shownChoice(wanted, offers, claudeStart(last.claude, claude?.settings))
-  const engine = engineOf(choice, models)
+  const engine = engineOf(choice, models, offers)
   const args = startArgs({ cwd, engine, text: prompt?.text })
-  const canStart = connected && !busy && args !== null
+  const claudeMissing = engine?.kind === 'claude' && !claude?.status.installed
+  const chooseAgain = wanted !== null && wanted.kind !== choice.kind
+  const canStart = connected && loaded === source && !busy && !claudeMissing && !chooseAgain && args !== null
   const customModels = offers.find((offer) => offer.kind === 'pi')?.models ?? []
 
   const start = async () => {
@@ -240,7 +263,12 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
     }
   }
 
-  const status = problem ?? (connected ? null : 'hobkin is not connected, so nothing can start.')
+  const status = problem ?? (
+    !connected ? 'hobkin is not connected, so nothing can start.' :
+    loaded !== source ? 'Reading model settings…' :
+    claudeMissing ? 'Claude Code is not installed.' :
+    chooseAgain ? 'The last engine is unavailable. Choose what to run on.' : null
+  )
 
   return (
     <form
@@ -304,11 +332,11 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
 
       <footer className="flex items-center gap-3 border-t border-border px-7 py-4">
         <p role={problem ? 'alert' : undefined} className={cn('min-w-0 flex-1 text-[12px] leading-snug', problem || !connected ? 'text-bad-fg' : 'text-muted-foreground')}>
-          {status ?? (
+          {status ?? (engine?.kind === 'claude' ? CLAUDE_LINE : (
             <span className="flex items-center gap-1.5">
               <Kbd>↵</Kbd> starts it
             </span>
-          )}
+          ))}
         </p>
         <Dialog.Close render={<Button type="button" variant="ghost" />}>Cancel</Dialog.Close>
         <Button
@@ -318,7 +346,7 @@ function Form({ first, onExplain, onStarted }: { first: RefObject<HTMLElement | 
           type="submit"
           disabled={!canStart}
         >
-          {busy ? 'Starting' : 'Start'}
+          {busy ? 'Starting' : engine?.kind === 'claude' ? 'Start with Claude Code' : 'Start'}
         </Button>
       </footer>
     </form>

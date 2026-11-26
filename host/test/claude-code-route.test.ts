@@ -246,6 +246,31 @@ function schedulingRouter(settings: ClaudeCodeSettings, scheduling: HarnessRoute
 const SCHEDULING = { HOBKIN_SCHEDULE_TOKEN: 'c'.repeat(32), HOBKIN_HOME: '/home/data' }
 const durableTurn = { id: 'd1', harness: 'claude', purpose: 'durable', cwd: '/tmp/project', prompt: 'Go.', directions: 'You are a durable hobkin.', env: { HOBKIN_TURN: 'a'.repeat(32), HOBKIN_HOME: '/home/data' }, sessionFile: '/tmp/d1.jsonl' }
 
+test('durable turns use the authorized harness and explicit Claude model and effort across settings changes', async () => {
+  const piTurn = { ...durableTurn, harness: 'pi', tier: 'high' }
+  const chosenClaude = { ...durableTurn, claude: { model: 'opus', effort: 'xhigh' } }
+  const first = router({ ...CLAUDE_CODE_DEFAULTS, tiers: { high: { model: 'opus', effort: 'xhigh' } } })
+  const reloaded = router(changeClaudeCode(CLAUDE_CODE_DEFAULTS, { enabled: true, model: 'haiku', effort: 'low' }))
+  for (const [host, resume] of [[first, undefined], [reloaded, 'saved-session']] as const) {
+    await host.run(piTurn, {})
+    await host.run({ ...chosenClaude, ...(resume ? { resume } : {}) }, {})
+    const [pi, claude] = host.calls
+    assert.equal(pi!.harness, 'pi')
+    assert.equal(pi!.request, piTurn)
+    assert.equal(claude!.harness, 'claude')
+    assert.equal(claude!.request.resume, resume)
+    assert.equal(claude!.launch?.settings.model, 'opus')
+    assert.equal(claude!.launch?.settings.effort, 'xhigh')
+  }
+
+  const missing = router(CLAUDE_CODE_DEFAULTS, {}, null)
+  const result = (await missing.run(chosenClaude, {})) as { status: string; harness: string; error: string }
+  assert.equal(result.status, 'failed')
+  assert.equal(result.harness, 'claude')
+  assert.match(result.error, /Claude Code is not installed/)
+  assert.deepEqual(missing.calls, [])
+})
+
 test('a session run on Claude Code gets its schedule token and home, and directions that say how to schedule', async () => {
   const asked: unknown[][] = []
   const scheduling = async (harnessId: string, options: { commands: boolean }) => (asked.push([harnessId, options]), SCHEDULING)
