@@ -24,4 +24,4 @@ BRIEF
 
 `--tier` names the model the work needs: `fast` for collecting and searching, `mid` for ordinary features and fixes, `high` for work that spans a system or needs careful analysis, and `max` only when the user asks for it. It returns straight away, so say what you started and carry on. hobkin runs it as a background job: tell the user it is in hobkin's agents list, where they can watch it work and message it.
 
-A check or a work run is that agent: it does its own work and spawns no subagents.
+The session the main chat starts, a check and a work run each own the job they were given and see it through. When the job splits, they may hand parts to subagents of their own, and they never start another `hobkin session`.
