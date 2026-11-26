@@ -18,7 +18,12 @@
  * the agents list and the chat's stand-ins. Nothing is laid out or painted, so these are floors under the window's
  * own times. Run from the repository root:
  *
- *   NODE_ENV=production node scripts/perf/agent-switch.ts [--hobkins 2] [--turns 300] [--runs 2] [--calls 2400] [--rounds 5] [--open] [--feeds read|held] [--profile] [--trace]
+ *   NODE_ENV=production node scripts/perf/agent-switch.ts [--hobkins 2] [--turns 300] [--runs 2] [--calls 2400] [--rounds 5] [--open] [--feeds read|held] [--windowed] [--profile] [--trace]
+ *
+ * `--windowed` turns on the switch `hobkin:windowed-steps` in the page's storage, so the transcript draws only the rows
+ * in view and a view's height around them (`windowed-list.tsx`). A windowed list draws nothing in a view of no height,
+ * so with it every element of the page reads as laid out at made-up sizes: each row 80 px tall, the transcript's box
+ * 600 px tall and 800 px wide. Nothing else is laid out, and no scroll moves.
  *
  * `--open` opens every tool block, as Control+O does (they arrive closed by default); Shiki stays off the main thread,
  * as in the window, so it is not timed. `--feeds held` has the host hold each finished turn's feed, sent as watch
@@ -47,6 +52,7 @@ const OPEN = flags.includes('--open')
 const TRACE = flags.includes('--trace')
 const PROFILE = process.env.NODE_ENV !== 'production' || flags.includes('--profile')
 const FEEDS = flag('feeds', 'read')
+const WINDOWED = flags.includes('--windowed')
 if (FEEDS !== 'read' && FEEDS !== 'held') throw new Error('--feeds is read or held.')
 const LEAVE_MS = 1000
 const FRAME_MS = 1000 / 60
@@ -54,6 +60,15 @@ const FRAME_MS = 1000 / 60
 // The page first: the window's modules read it as they load.
 const { installPage } = await import('./window/dom.ts')
 const page = installPage()
+/** The made-up sizes a windowed transcript reads: each row's height, and its box. */
+const LAID_OUT = { row: 80, height: 600, width: 800 }
+if (WINDOWED) {
+  localStorage.setItem('hobkin:windowed-steps', 'on')
+  const made = { html: page.document.createElement.bind(page.document), ns: page.document.createElementNS.bind(page.document) }
+  const sized = <Element extends object>(element: Element) => Object.assign(element, { offsetHeight: LAID_OUT.row, clientHeight: LAID_OUT.height, clientWidth: LAID_OUT.width })
+  page.document.createElement = (tag: string) => sized(made.html(tag))
+  page.document.createElementNS = (space: string, tag: string) => sized(made.ns(space, tag))
+}
 
 // Self time by part. A part timed inside another is taken out of the other's time.
 const realNow = performance.now.bind(performance)
@@ -465,6 +480,7 @@ const median = (values: number[]) => {
 const ms = (values: number[]) => (values.length === 1 ? `${values[0]!.toFixed(1)}` : `${median(values).toFixed(1)} [${Math.min(...values).toFixed(1)}–${Math.max(...values).toFixed(1)}]`)
 const react = process.env.NODE_ENV === 'production' ? 'production' : 'development'
 console.log(`${HOBKINS} durable hobkins of ${TURNS} turns (5–30 calls each, answers of 200–2000 words), ${RUNS} work runs of ${CALLS} calls (feed: newest 200), ${react} React, blocks ${OPEN ? 'all open' : 'closed'}, finished turns ${FEEDS === 'read' ? 'read from the saved session' : 'held by the host'}`)
+if (WINDOWED) console.log(`windowed transcript (hobkin:windowed-steps on): rows read as ${LAID_OUT.row} px, the box as ${LAID_OUT.height} px tall and ${LAID_OUT.width} px wide`)
 console.log(`${ROUNDS} rounds; ms are median [min–max] over the switches in each row; parts are self time. Not laid out or painted: floors.`)
 if (unknown.size) console.log(`commands the made-up host refused: ${[...unknown].join(', ')}`)
 for (const kind of ['durable', 'run'] as const) {
