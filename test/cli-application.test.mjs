@@ -2814,3 +2814,20 @@ test("a check whose Pi crashed in its code tool is restarted once on its own ses
   assert.equal(run.result.restarted.error, crashed);
   assert.match(readReport(h.root, id), /^Useful: checked\.\n\n---\n\nPi crashed in its code tool, and hobkin restarted it\.\n\n<details><summary>Error details<\/summary>\n\n```text\nHarness exited before completion \(1\)/);
 });
+
+test('a session job hears its own tier in its request, so it knows whether it may fix what it found', async t => {
+  const h = fixture(t);
+  const ready = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const app = await h.openApp({ intervalMs: 60000, runHarness: async request => {
+    ready.resolve(request);
+    return finish.promise;
+  } });
+  t.after(() => { finish.resolve({ status: 'interrupted', text: '' }); return app.close(); });
+  await startSession({ root: h.root, title: 'Look into the crash', brief: 'Find why it crashes.', wake: true, cwd: h.root, env: {}, tier: 'mid' });
+
+  void app.tickSessions();
+  const request = await ready.promise;
+
+  assert.equal(JSON.parse(request.prompt).tier, 'mid');
+});

@@ -143,7 +143,8 @@ export function startSessionJob({ root, runner, model, effort, tier }, session) 
       // A list that cannot be read costs the run that list, never its start.
     }
     const memories = runIndex(root, 'hobkin_recall');
-    return JSON.stringify({ task: `Read ${brief} and follow it.`, directions: readDirections(root),
+    // The tier says whether it may fix what it found before it reports (session-job.md, 075 S18).
+    return JSON.stringify({ task: `Read ${brief} and follow it.`, ...(tier ? { tier } : {}), directions: readDirections(root),
       ...(memory.length ? { memory } : {}), ...(memories ? { memories } : {}) });
   };
   return runSessionJob({ root, runner }, request, session, { prompt });
