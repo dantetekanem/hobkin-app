@@ -74,12 +74,15 @@ function assertDecision({ question, choices, recommended, ...card }, now = Date.
   assertCard({ ...card, recommended }, now);
 }
 
-/** The card fields that were given, as kept: a deadline as one ISO time and a rule trimmed. */
+/**
+ * Every card field as kept: a deadline as one ISO time, a rule trimmed, and null for one not given. A filing writes them all, so one filed
+ * again under its key says only what it says now and keeps no deadline from before.
+ */
 function cardFields(decision) {
-  const given = Object.fromEntries(CARD_FIELDS.filter(name => decision[name] !== undefined).map(name => [name, decision[name]]));
-  if (given.deadline) given.deadline = new Date(given.deadline).toISOString();
-  if (given.rule) given.rule = given.rule.trim();
-  return given;
+  const fields = Object.fromEntries(CARD_FIELDS.map(name => [name, decision[name] ?? null]));
+  if (fields.deadline) fields.deadline = new Date(fields.deadline).toISOString();
+  if (fields.rule) fields.rule = fields.rule.trim();
+  return fields;
 }
 
 // A filed question names what it is about only as a hash, so the questions view can count one asked again after its answer without any words.
@@ -271,10 +274,10 @@ export function findDecision(root, id, value) {
   return { decision, choice };
 }
 
-// A row's `kind` says who asked, so the card's own class goes by `class` there.
+// A row's `kind` says who asked, so the card's own class goes by `class` there. A field the card does not have is left out.
 function rowCard(card) {
   const { kind, ...fields } = cardFields(card);
-  return kind ? { ...fields, class: kind } : fields;
+  return Object.fromEntries(Object.entries({ ...fields, class: kind }).filter(([, value]) => value !== null));
 }
 
 /** A decision as the main agent reads it, to tell the user about and to answer: who asked, what, each choice by its value, and its card fields. */

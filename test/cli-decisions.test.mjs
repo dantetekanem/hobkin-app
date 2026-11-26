@@ -244,8 +244,20 @@ test('a card without those fields is filed as before, and the row leaves them ou
   await runDecideCommand(root, ['routine', 'site'], card(), FILED);
 
   const [filed] = openDecisions(root);
-  for (const name of ['sure', 'reversible', 'deadline', 'kind', 'learn', 'rule']) assert.equal(Object.hasOwn(filed, name), false, name);
+  for (const name of ['sure', 'reversible', 'deadline', 'kind', 'learn', 'rule']) assert.equal(filed[name], null, name);
   assert.deepEqual(Object.keys(decisionRow(filed)), ['id', 'from', 'kind', 'at', 'question', 'choices', 'recommended', 'why']);
+});
+
+test('a card filed again under its key says only what it says now, so one that drops its deadline does not take its pick', async t => {
+  const root = home(t);
+  await runDecideCommand(root, ['routine', 'site'], card({ key: 'fix', sure: 'high', reversible: true, deadline: LATER, kind: 'merge-small-fix' }), FILED);
+
+  await runDecideCommand(root, ['routine', 'site'], card({ key: 'fix', question: 'Merge the fix? It now drops a table.' }), FILED + 1000);
+
+  const [filed] = openDecisions(root);
+  assert.deepEqual([filed.sure, filed.reversible, filed.deadline, filed.kind], [null, null, null, null]);
+  assert.deepEqual(await tickDecisionDefaults(root, Date.parse(LATER) + 1000), []);
+  assert.equal(openDecisions(root).length, 1);
 });
 
 test('card fields are checked, and a card that fails is not filed', async t => {
