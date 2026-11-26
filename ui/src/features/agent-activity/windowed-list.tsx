@@ -2,6 +2,7 @@ import { useVirtualizer, type Range, type VirtualItem, type Virtualizer } from '
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { flushSync } from 'react-dom'
 import { ArriveAs } from './arrive.ts'
+import { BlockPlace, blockMemoryOf, type Remembered } from './blocks.ts'
 import { UNFOLD, type FollowStart } from './follow.ts'
 import { useFollow, type Follow } from './use-follow.ts'
 import { keepList, keepRect, keptList, keptRect, openingOf, placeAt, type Box, type Kept, type Opening, type Place } from './windowed-place.ts'
@@ -54,6 +55,8 @@ export interface WindowedList<Row> {
   inView: InView | null
   /** Whether a row drawn now with this key arrives (`FreshKeys`). */
   fresh: (key: string) => boolean
+  /** What the blocks of its rows were at, so a row drawn again shows them as they were (`BlockPlace`). */
+  blocks: Map<string, Remembered>
 }
 
 type Rows = Virtualizer<HTMLDivElement, HTMLElement>
@@ -387,7 +390,8 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
   const shown = useMemo(() => rowsAt(pieces, rows), [pieces, rows])
   const keyAt = useCallback((index: number) => keys[index]!, [keys])
 
-  // Arrivals go by key: what the list was last drawn with is not new.
+  // Arrivals go by key: what the list was last drawn with is not new. Blocks are remembered by row, for the agent.
+  const [blocks] = useState(() => blockMemoryOf(name))
   const [arrivals] = useState(() => new FreshKeys())
   const fresh = useCallback((key: string) => arrivals.fresh(key), [arrivals])
   useLayoutEffect(() => arrivals.drawn(keys), [arrivals, keys])
@@ -398,7 +402,7 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
   useMeasuredRows(list, scroll.content, pieces)
   useKeptPlace(name, { list: self, measuredAt, following })
 
-  return { scroll, pieces, rows, keyAt, shown, inView: list.range, fresh }
+  return { scroll, pieces, rows, keyAt, shown, inView: list.range, fresh, blocks }
 }
 
 /**
@@ -409,7 +413,7 @@ export function WindowedRows<Row>({ list, draw }: { list: WindowedList<Row>; dra
   return list.pieces.map((piece) => {
     if (piece.kind === 'gap') return <li key={piece.key} aria-hidden="true" data-gap="" style={{ height: piece.height }} />
     const key = list.keyAt(piece.index)
-    return <Slot key={key} rowKey={key} row={list.rows[piece.index]} draw={draw as (row: unknown) => ReactNode} fresh={list.fresh} />
+    return <Slot key={key} rowKey={key} row={list.rows[piece.index]} draw={draw as (row: unknown) => ReactNode} fresh={list.fresh} blocks={list.blocks} />
   })
 }
 
@@ -418,10 +422,17 @@ interface SlotProps {
   row: unknown
   draw: (row: unknown) => ReactNode
   fresh: (key: string) => boolean
+  blocks: Map<string, Remembered>
 }
 
-const Slot = memo(function Slot({ rowKey, row, draw, fresh }: SlotProps) {
+const Slot = memo(function Slot({ rowKey, row, draw, fresh, blocks }: SlotProps) {
   // Whether it arrives is decided once, as it is first drawn: drawn again as it scrolls back into view, it does not.
   const [arrives] = useState(() => fresh(rowKey))
-  return <ArriveAs arrives={arrives}>{draw(row)}</ArriveAs>
+  // Its blocks show what they showed when it was last drawn.
+  const place = useMemo(() => ({ blocks, row: rowKey }), [blocks, rowKey])
+  return (
+    <BlockPlace.Provider value={place}>
+      <ArriveAs arrives={arrives}>{draw(row)}</ArriveAs>
+    </BlockPlace.Provider>
+  )
 })

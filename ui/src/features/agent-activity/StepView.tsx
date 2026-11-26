@@ -111,11 +111,11 @@ function StepBody({ step, timeOf, ended }: { step: Step; timeOf: TimeOf; ended: 
     case 'says':
       return <Says text={step.text} ended={ended} />
     case 'shell':
-      return <ShellGroup commands={step.commands} timeOf={timeOf} />
+      return <ShellGroup id={step.key} commands={step.commands} timeOf={timeOf} />
     case 'change':
-      return <ChangeBlock change={step.change} />
+      return <ChangeBlock id={step.key} change={step.change} />
     case 'looks':
-      return <Looks looks={step.looks} />
+      return <Looks id={step.key} looks={step.looks} />
     case 'tool':
       return <OtherTool id={step.key} name={step.name} summary={step.summary} state={step.state} output={step.output} failure={step.failure} />
   }
@@ -227,8 +227,8 @@ function Opened({ children }: { children: ReactNode[] }) {
  * ones that passed before it fold into one row that opens to the list. When a new command starts, the one before it
  * goes into that row at once and the count goes up, and the new one arrives as a step does.
  */
-function ShellGroup({ commands, timeOf }: { commands: Command[]; timeOf: TimeOf }) {
-  const { open, toggle } = useBlock('shell')
+function ShellGroup({ id, commands, timeOf }: { id: string; commands: Command[]; timeOf: TimeOf }) {
+  const { open, toggle } = useBlock('shell', id)
   const { folded, open: shown } = foldOf(commands)
   return (
     <div className="flex flex-col gap-1.5">
@@ -351,7 +351,8 @@ function CutNote({ whole }: { whole: Whole }) {
 
 /** One command: its line, its state and time, and, once opened by its line, the last of its output, all of which opens on request. */
 function CommandCard({ command, time }: { command: Command; time?: EntryTime }) {
-  const { open: shown, toggle: toggleShown } = useBlock('shell')
+  // Its own, apart from the group's fold, whose step is keyed by the group's first command.
+  const { open: shown, toggle: toggleShown } = useBlock('shell', `command:${command.id}`)
   const { open: all, toggle, box } = useUnfold<HTMLDivElement>()
   const whole = useWhole(command.id)
   const tail = tailOf(command.output, all ? Number.MAX_SAFE_INTEGER : command.state === 'done' ? DONE_LINES : TAIL_LINES)
@@ -416,8 +417,8 @@ function CommandCard({ command, time }: { command: Command; time?: EntryTime }) 
  * long one shows its first lines across its parts and opens in place to all of them. Closed, it is its one row, and
  * nothing of its diff is worked out or drawn.
  */
-function ChangeBlock({ change }: { change: Change }) {
-  const block = useBlock('change')
+function ChangeBlock({ id, change }: { id: string; change: Change }) {
+  const block = useBlock('change', id)
   const unfold = useUnfold<HTMLDivElement>()
   // The change grows in place: a new edit counts only the place it added or changed, and the rest are the places read.
   const read = useRef<readonly Place[]>([])
@@ -543,7 +544,8 @@ function ReadText({ look, className }: { look: Look; className: string }) {
 
 /** One read or search in an opened list: its line, which opens to what a read gave back. */
 function LookItem({ look }: { look: Look }) {
-  const { open, toggle } = useBlock('looks')
+  // Its own, apart from the row of reads it is listed under, whose step is keyed by the first read.
+  const { open, toggle } = useBlock('looks', `look:${look.id}`)
   if (!look.text) {
     return (
       <div className="relative py-0.5 text-[13px]">
@@ -570,8 +572,8 @@ function LookItem({ look }: { look: Look }) {
 }
 
 /** Reads and searches in a row (021 A7): one row that says how many, and opens to the list of what was read. */
-function Looks({ looks }: { looks: Look[] }) {
-  const { open, toggle } = useBlock('looks')
+function Looks({ id, looks }: { id: string; looks: Look[] }) {
+  const { open, toggle } = useBlock('looks', id)
   const failed = looks.filter((look) => look.state === 'failed').length
   const latest = looks.at(-1)!
   if (looks.length === 1) {
@@ -623,7 +625,7 @@ function RunningLook({ look }: { look: Look }) {
 /** A tool the canvas has no words of its own for: its name, what it was given, and its output on request. */
 function OtherTool({ id, name, summary, state, output, failure }: { id: string; name: string; summary: string; state: CallState; output: string; failure?: string }) {
   const whole = useWhole(id)
-  const block = useBlock('other')
+  const block = useBlock('other', id)
   const opens = Boolean(output.trim()) && !failure
   const open = opens && block.open
   return (
@@ -657,7 +659,7 @@ const CODEMODE_COLOR = { '--aa-glow': 'var(--hb-code)' } as CSSProperties
  * while it is closed.
  */
 function CodemodeStep({ step, timeOf }: { step: Extract<Step, { kind: 'codemode' }>; timeOf: TimeOf }) {
-  const { open, toggle } = useBlock('other')
+  const { open, toggle } = useBlock('other', step.key)
   const { entries, state, calls } = step
   const entry = entries[0]!
   const { words, warning } = useMemo(() => {
