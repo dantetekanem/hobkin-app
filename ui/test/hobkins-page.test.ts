@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import type { HobkinConversation, HobkinSummary, HobkinTurn } from '#shared/protocol/hobkins.ts'
-import { firstMessageNext, latestWins, pageRows, pageState, pageTurns, reloadKey, seenToSend, talkOpen, type SentNote } from '../src/features/hobkins/conversation.ts'
+import {
+  firstMessageNext,
+  latestWins,
+  pageRows,
+  pageState,
+  pageTurns,
+  reloadKey,
+  seenToSend,
+  talkOpen,
+  withDrawnTurns,
+  type PageRow,
+  type SentNote,
+} from '../src/features/hobkins/conversation.ts'
 
 const summary: HobkinSummary = {
   id: '0a1b2c3d',
@@ -74,6 +87,44 @@ test('the page orders the turns and keeps the talk box until the hobkin is ended
   assert.equal(pageState(undefined, { known: true, started: true, ready: true }), 'ended', 'gone from the snapshot once it was there')
   assert.equal(pageState(undefined, { known: false, started: false, ready: true }), 'ended', 'never there')
   assert.deepEqual((['live', 'starting', 'ended'] as const).map(talkOpen), [true, true, false])
+})
+
+test("each finished turn's steps show between its message and its answer, less the words the answer is", () => {
+  const says = (id: string, text: string, at: number): ActivityEntry => ({ id, kind: 'assistant', text, at })
+  const bash = (id: string, command: string, at: number): ActivityEntry => ({ id: `tool:${id}`, kind: 'tool', name: 'bash', state: 'completed', input: JSON.stringify({ command }), output: 'ok', at })
+  const steps = (entries: ActivityEntry[]) => ({ entries, seenAt: () => undefined })
+  const conversation: HobkinConversation = { hobkin: summary, turns: [turn(1, 'completed', 'Done.'), turn(2, 'failed', null, 'The model refused.'), turn(3, 'running')] }
+  const steer: SentNote = { text: 'also the README', at: 2.5, run: 'hobkin:0a1b2c3d:1', started: false }
+  const turns = pageTurns(conversation, summary, [steer])
+  const finished = {
+    'hobkin:0a1b2c3d:1': steps([says('message:3:0', 'Looking.', 1), bash('a', 'npm test', 2), says('message:7:0', 'Done.', 3)]),
+    'hobkin:0a1b2c3d:2': steps([bash('b', 'npm run lint', 4), says('message:5:0', 'I could not finish.', 5)]),
+  }
+  const activity = steps([bash('c', 'npm run build', 6)])
+  const rows = pageRows(turns, { sending: null, activity, finished })
+  const read = (row: PageRow) => {
+    if (row.kind === 'said') return `said ${row.text}`
+    if (row.kind === 'step') return `${row.run.slice(-1)} ${row.step.kind}`
+    return row.kind === 'answer' ? `answer ${row.turn.n}` : row.kind
+  }
+  assert.deepEqual(rows.map(read), [
+    // What the user added while it worked stands where it was sent, and the words it ended on are its answer.
+    'said message 1', '1 says', '1 shell', 'said also the README', 'answer 1',
+    // A turn with no answer keeps the last words it said.
+    'said message 2', '2 shell', '2 says', 'answer 2',
+    'said message 3', '3 shell', 'thinking',
+  ])
+  assert.ok(rows.every((row) => row.kind !== 'step' || row.ended === (row.run !== 'hobkin:0a1b2c3d:3')), 'only the turn in flight still runs')
+  const runs = (shown: readonly PageRow[]) => shown.flatMap((row) => (row.kind === 'step' ? [row.run] : []))
+  assert.deepEqual(runs(pageRows(turns, { sending: null, activity })), ['hobkin:0a1b2c3d:3'], 'a finished turn whose steps the page has not read shows its message and answer')
+
+  // The page watches the steps of each turn it draws, the one in flight too, so they are there the moment it ends, and
+  // keeps a turn once drawn, so a turn whose steps push it out of sight is not let go.
+  const drawn = withDrawnTurns([], rows.slice(-4))
+  assert.deepEqual(drawn, ['hobkin:0a1b2c3d:2', 'hobkin:0a1b2c3d:3'])
+  assert.equal(withDrawnTurns(drawn, rows.slice(-4)), drawn, 'the same list when no turn is new')
+  assert.deepEqual(withDrawnTurns(drawn, rows), ['hobkin:0a1b2c3d:2', 'hobkin:0a1b2c3d:3', 'hobkin:0a1b2c3d:1'])
+  assert.equal(withDrawnTurns(drawn, []), drawn)
 })
 
 test('a hobkin started with no message shows no conversation and waits for its first', () => {

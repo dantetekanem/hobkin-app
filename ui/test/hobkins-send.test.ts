@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import type { HobkinConversation, HobkinSummary, HobkinTurn, KeptNote } from '#shared/protocol/hobkins.ts'
 import { atOf } from '../src/features/agent-activity/steps.ts'
-import { pageRows, pageTurns, waitsForTurn, withKept, withReceipts, type LiveActivity, type PageRow, type SendingNote, type SentNote } from '../src/features/hobkins/conversation.ts'
+import { pageRows, pageTurns, waitsForTurn, withKept, withReceipts, type PageRow, type SendingNote, type SentNote, type TurnActivity } from '../src/features/hobkins/conversation.ts'
 
 // Every state a durable hobkin's page passes through from Enter until the host has caught up, in the order the host
 // sends them: the say's answer comes before the snapshot that shows the new turn, and the read comes after both.
@@ -202,7 +202,7 @@ test('a message added while a turn works shows two checks once hobkin has its re
   /** The newest message on the page, with its mark. While turn 3 works, unless the scenario says otherwise. */
   const newest = (
     sent: readonly SentNote[],
-    { sending = null, conversation = read, hobkin = working, activity = null }: { sending?: SendingNote | null; conversation?: HobkinConversation; hobkin?: HobkinSummary; activity?: LiveActivity | null } = {},
+    { sending = null, conversation = read, hobkin = working, activity = null }: { sending?: SendingNote | null; conversation?: HobkinConversation; hobkin?: HobkinSummary; activity?: TurnActivity | null } = {},
   ) => marks(pageRows(pageTurns(conversation, hobkin, sent), { sending, activity })).at(-1)
 
   assert.deepEqual(newest([opened], { sending: { text: 'also the README', at: 1200 } }), ['also the README', 'sending'])

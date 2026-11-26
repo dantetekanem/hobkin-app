@@ -39,7 +39,23 @@ import { hostStore, runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
 import { sentAtArg } from '@/lib/host/state.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, waitsForTurn, withKept, withReceipts, type Delivery, type PageRow, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
+import {
+  firstMessageNext,
+  pageRows,
+  pageState,
+  pageTurns,
+  talkOpen,
+  waitsForTurn,
+  withDrawnTurns,
+  withKept,
+  withReceipts,
+  type Delivery,
+  type PageRow,
+  type PageState,
+  type SendingNote,
+  type SentNote,
+  type ShownTurn,
+} from './conversation.ts'
 import { AgentPromptEditor } from '@/features/chat/PromptEditor.tsx'
 import { ContinueButton, imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
 import { CONTINUE_WORDS, waitingRows, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
@@ -47,6 +63,7 @@ import { useTalkControls } from '@/features/work/use-talk-controls.ts'
 import { PageHeader, pageGutter, PartFrame, splitSpring } from './PageHeader.tsx'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
+import { timeOfTurn, useTurnSteps } from './turn-steps.ts'
 import { useConversation, useMarkSeen, usePageShown } from './use-conversation.ts'
 import { useOnClaudeCode } from './use-pal.ts'
 import { usePageSlash } from '@/features/work/use-agent-slash.ts'
@@ -307,11 +324,12 @@ interface ConversationProps {
 }
 
 /**
- * Each turn's message and answer, oldest at the top, and the turn in flight last with its steps. It opens at the newest
+ * Each turn's message, its steps and its answer, oldest at the top, and the turn in flight last. It opens at the newest
  * and stays there as steps arrive, unless the user scrolled up to read. Up and Down walk it, as an agent's steps. A hobkin
  * with no turn yet has nothing here until its first message is sent. Each row keeps its key while the host catches up
  * with a message sent (`pageRows`), so none is drawn twice. Every row says when it happened, in a column at its left. It
- * reads the live turn's steps itself, so a step draws the conversation alone.
+ * reads the turns' steps itself, so a step draws the conversation alone: the live turn's, and those of each turn that is
+ * over from the time it is drawn (`turn-steps.ts`).
  */
 const Conversation = memo(ConversationRows)
 
@@ -327,17 +345,23 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
   const older = useOlderSteps(job)
   const saved = earlierRow(0, { more: older.more, loading: older.loading, mayHaveOlder: job !== null && mayHaveOlder(activity?.entries) })
   const offersOlder = saved !== null
+  // The steps of each turn drawn so far, the one in flight among them, so they stay when it ends (`withDrawnTurns`).
+  const [drawn, setDrawn] = useState<readonly string[]>([])
+  const stepsOf = useMemo(() => (run && !drawn.includes(run) ? [...drawn, run] : drawn), [drawn, run])
+  const finished = useTurnSteps(stepsOf, { live: run, cwd })
   // Each run of the hobkin's schedules stands where it happened, from hobkin's record of them (056).
   const runs = useScheduleRuns({ kind: 'hobkin', id })
   const rows = useMemo(() => {
     const entries = activity && older.steps.length ? [...older.steps, ...activity.entries] : activity?.entries
-    const said = pageRows(turns, { sending, activity: activity && entries ? { entries, cwd: activity.cwd ?? cwd, seenAt: (id) => activity.timeOf(id)?.seen } : null })
+    const liveSteps = activity && entries ? { entries, cwd: activity.cwd ?? cwd, seenAt: (id: string) => activity.timeOf(id)?.seen } : null
+    const said = pageRows(turns, { sending, activity: liveSteps, finished })
     const page: readonly ShownRow[] = withRuns(said, runs, rowTime)
     return offersOlder && job ? withEarlier(page, (row) => row.kind === 'step' && row.key.startsWith(`${job}:`), OLDER_ROW) : page
-  }, [turns, sending, activity, older.steps, cwd, offersOlder, job, runs])
+  }, [turns, sending, activity, older.steps, cwd, offersOlder, job, runs, finished])
   // A long conversation draws only its newest rows, with a row above them for the ones before (newest.ts). The step
   // being read stays where it was when older steps come.
   const newest = useNewest(id, rows)
+  useEffect(() => setDrawn((held) => withDrawnTurns(held, newest.shown)), [newest.shown])
   const holdPlace = useReadingPlace(scroll.scroller, older.steps)
   const readOlder = () => {
     holdPlace()
@@ -354,26 +378,27 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
       <ol ref={scroll.content} data-agent-exchange onKeyDown={walkSteps} aria-label="The conversation" className="mt-auto flex flex-col gap-3 pt-2 pb-3">
         {newest.earlier ? <EarlierSteps row={{ kind: 'held', count: newest.earlier }} onMore={newest.more} /> : null}
         <ShowStamps>
-          <StepJob.Provider value={job}>
-            {/* The rows drawn with the page are simply there. Later ones arrive, and nothing leaves with a motion. */}
-            <Arrivals>
-              {newest.shown.map((row) =>
-                row.kind === 'older' ? (
-                  saved ? <EarlierSteps key={row.key} row={saved} onMore={readOlder} /> : null
-                ) : row.kind === 'said' ? (
-                  <Said key={row.key} text={row.text} images={row.images} at={row.at} delivery={row.delivery} from={row.from} />
-                ) : row.kind === 'step' ? (
-                  <StepItem key={row.key} step={row.step} timeOf={activity!.timeOf} ended={row.ended} />
-                ) : row.kind === 'answer' ? (
-                  <Answer key={row.key} turn={row.turn} at={row.at} />
-                ) : row.kind === 'schedule' ? (
-                  <ScheduleRunsItem key={row.key} row={row} />
-                ) : (
-                  <Working key={row.key} run={run} />
-                ),
-              )}
-            </Arrivals>
-          </StepJob.Provider>
+          {/* The rows drawn with the page are simply there. Later ones arrive, and nothing leaves with a motion. */}
+          <Arrivals>
+            {newest.shown.map((row) =>
+              row.kind === 'older' ? (
+                saved ? <EarlierSteps key={row.key} row={saved} onMore={readOlder} /> : null
+              ) : row.kind === 'said' ? (
+                <Said key={row.key} text={row.text} images={row.images} at={row.at} delivery={row.delivery} from={row.from} />
+              ) : row.kind === 'step' ? (
+                // Each step reads a whole output from its own turn's run, and keeps its place as its turn ends.
+                <StepJob.Provider key={row.key} value={row.run === run ? job : live ? row.run : null}>
+                  <StepItem step={row.step} timeOf={row.run === run && activity ? activity.timeOf : timeOfTurn(row.run)} ended={row.ended} />
+                </StepJob.Provider>
+              ) : row.kind === 'answer' ? (
+                <Answer key={row.key} turn={row.turn} at={row.at} />
+              ) : row.kind === 'schedule' ? (
+                <ScheduleRunsItem key={row.key} row={row} />
+              ) : (
+                <Working key={row.key} run={run} />
+              ),
+            )}
+          </Arrivals>
         </ShowStamps>
         {loading ? <li className="self-center text-[13px] text-muted-foreground">Reading the conversation.</li> : null}
         {problem ? (
