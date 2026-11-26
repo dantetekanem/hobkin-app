@@ -125,12 +125,12 @@ These commands write files on your machine and send nothing anywhere.
 
 ## What leaves your machine
 
-Your model provider, and the tools you connect, see what agents work on. Beyond that, hobkin sends two things to its own server, and only from a machine enrolled with it. While usage upload is on, a machine enrolls by itself on its first send: hobkin's server gives it its own key, which hobkin keeps private in `runtime/remote.json`. With upload off, nothing is sent and it never enrolls.
+Your chats, reports, memory and event log stay on your machine. Your model provider and the tools you connect see what your agents work on. hobkin's own server gets only two things:
 
-- **Usage events, on by default.** Which parts of hobkin were used, and how runs, questions, decisions and crashes ended, as fixed words, counts and durations with fresh random ids. Never a message, a report, a name, a path or a local id. Chat says so the first time. `hobkin telemetry upload off` stops it, and `hobkin telemetry upload status` says what goes and where.
-- **Feedback, only when you send it.** `/feedback` in Chat drafts a report, shows its exact JSON and SHA-256, and sends it only on your yes. Emails, tokens, keys, credentials in URLs and home paths come out first. That is best effort, so read it before you say yes. After a crash, the next start offers a crash report the same way. `hobkin feedback list` shows what you sent, `hobkin feedback delete <id>` deletes one here and on the server, and `hobkin feedback off` stops sending, even what waits.
+- **Usage counts, on by default.** Which parts of hobkin you used, and how runs, questions, decisions and crashes ended. They are fixed labels, counts and durations with new random ids, never a message, report, name, path or local id. Chat tells you the first time. `hobkin telemetry upload off` turns it off, and `hobkin telemetry upload status` shows what is sent and where.
+- **Feedback, only when you send it.** `/feedback` in Chat drafts a report and shows you its exact JSON and SHA-256 before anything is sent. hobkin removes emails, tokens, keys, credentials in URLs and home paths first, but it can miss some, so read the draft before you say yes. After a crash, the next start offers a crash report the same way. `hobkin feedback list` shows what you sent, `hobkin feedback delete <id>` deletes a report here and on the server, and `hobkin feedback off` stops sending, including anything still waiting.
 
-The local event stream, your chats, reports and memory stay on your machine.
+To send either one, your machine needs its own key from hobkin's server. It gets one with its first usage upload and keeps it in `runtime/remote.json`. If you turn usage upload off before that, hobkin never gets a key and sends nothing.
 
 ## Development checks
 
