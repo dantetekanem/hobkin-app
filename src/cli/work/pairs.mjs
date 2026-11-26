@@ -161,7 +161,8 @@ async function movePair(root, rows, now) {
   }
   const line = said.join(' ') || 'Both had already moved, so nothing changed.';
   const remembered = [...readMode(root).ship?.tried ?? [], ...rows.map(triedKey)];
-  writeShip(root, { last: { rows }, tried: remembered.slice(-MOST_REMEMBERED), notice: { at: timeAt(now), line } });
+  // The answer to the user's own yes, so the desk posts it at once (075).
+  writeShip(root, { last: { rows }, tried: remembered.slice(-MOST_REMEMBERED), notice: { at: timeAt(now), line, asked: true } });
   return reply(line);
 }
 

@@ -379,6 +379,7 @@ test('a merge that fails leaves that one in place, says why, and the other still
   assert.equal(stateOf(h, ungraded).state, 'merged');
   assert.match(message, /uncommitted/);
   assert.match(readMode(h.root).ship.notice.line, /uncommitted/);
+  assert.equal(readMode(h.root).ship.notice.asked, true, 'the answer to the user\'s yes posts at once, never held for a digest');
 });
 
 test('a branch that moved after the pair was filed does not merge', async t => {
