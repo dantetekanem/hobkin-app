@@ -52,15 +52,24 @@ test('uses add up in one line a day and a memory, and the reader gives recalls, 
     lastRecall: iso(NOW + 300),
     by: { main: { recalls: 0, indexed: 101 }, run: { recalls: 0, indexed: 1 }, hobkin: { recalls: 1, indexed: 0 } },
   });
-  assert.deepEqual(byName(uses)['tram-pass'], { name: 'tram-pass', recalls: 0, indexed: 100, last: iso(NOW + 99), lastRecall: null, by: { main: { recalls: 0, indexed: 100 } } });
+  assert.deepEqual(byName(uses)['tram-pass'], {
+    name: 'tram-pass',
+    recalls: 0,
+    indexed: 100,
+    last: iso(NOW + 99),
+    lastRecall: null,
+    by: { main: { recalls: 0, indexed: 100 } },
+  });
 });
 
 test('the reader counts only the days asked for, 30 unless said, and a home that never recorded reads as none', t => {
   const root = home(t);
   assert.deepEqual(readMemoryUse(root, { now: NOW }), []);
+
   recordMemoryUse(root, { kind: 'recall', names: ['tram-pass'], by: 'main' }, { now: NOW - 40 * DAY });
   recordMemoryUse(root, { kind: 'recall', names: ['tram-pass'], by: 'main' }, { now: NOW - 3 * DAY });
   recordMemoryUse(root, { kind: 'recall', names: ['tram-pass'], by: 'main' }, { now: NOW });
+
   assert.equal(readMemoryUse(root, { now: NOW })[0].recalls, 2);
   assert.equal(readMemoryUse(root, { days: 1, now: NOW })[0].recalls, 1);
   assert.equal(readMemoryUse(root, { days: 4, now: NOW })[0].recalls, 2);
@@ -72,9 +81,11 @@ test('a use names a recall or an index and who, keeps only memory names, and wit
   const root = home(t);
   assert.throws(() => recordMemoryUse(root, { kind: 'read', names: ['tram-pass'], by: 'main' }), /recall or an index/);
   assert.throws(() => recordMemoryUse(root, { kind: 'recall', names: ['tram-pass'], by: 'someone' }), /main, hobkin, run or helper/);
+
   recordMemoryUse(root, { kind: 'recall', names: [], by: 'main' }, { now: NOW });
   recordMemoryUse(root, { kind: 'recall', names: ['Not A Name', '../x'], by: 'main' }, { now: NOW });
   assert.equal(existsSync(join(root, 'runtime')), false);
+
   recordMemoryUse(root, { kind: 'recall', names: ['tram-pass', 'tram-pass', 'Not A Name'], by: 'helper' }, { now: NOW });
   assert.deepEqual(readMemoryUse(root, { now: NOW }).map(({ name, recalls }) => [name, recalls]), [['tram-pass', 1]]);
 });

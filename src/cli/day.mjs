@@ -49,7 +49,8 @@ function span(value) {
   if (!record(value)) return null;
   const start = Date.parse(value.start ?? '');
   const end = Date.parse(value.end ?? '');
-  return Number.isFinite(start) && Number.isFinite(end) && start < end ? { start: value.start, end: value.end } : null;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return null;
+  return { start: value.start, end: value.end };
 }
 
 const spans = (values, shape) => (Array.isArray(values) ? values : []).flatMap(value => {
@@ -112,5 +113,11 @@ export function dayLoad(day, { committedMinutes = 0, waitingMinutes = 0 } = {}) 
   const meetingMinutes = day ? eventMinutes(day.events ?? [], day.hours ?? null) : 0;
   const loadMinutes = meetingMinutes + minutes(committedMinutes) + minutes(waitingMinutes);
   const ratio = loadMinutes / capacityMinutes;
-  return { capacityMinutes, meetingMinutes, loadMinutes, ratio, tooFull: ratio >= TOO_FULL };
+  return {
+    capacityMinutes,
+    meetingMinutes,
+    loadMinutes,
+    ratio,
+    tooFull: ratio >= TOO_FULL,
+  };
 }

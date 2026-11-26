@@ -35,7 +35,13 @@ function daysBefore(at, count) {
 }
 
 const validTime = value => typeof value === 'string' && Number.isFinite(Date.parse(value));
-const later = (a, b) => (!validTime(b) ? a : !a || Date.parse(b) > Date.parse(a) ? b : a);
+
+/** The later of two times: `b` only when it is a time and comes after `a`, or there is no `a`. */
+function later(a, b) {
+  if (!validTime(b)) return a;
+  if (!a) return b;
+  return Date.parse(b) > Date.parse(a) ? b : a;
+}
 
 /** Each reader's count in one line, as whole numbers above zero; anything else in it is no count. */
 function countsOf(value) {
@@ -55,7 +61,12 @@ function parsed(line) {
 
 // The day comes first in every line, so a line of another day is told by its start and left unparsed.
 const lineOf = ({ day, name, recall, index, last, lastRecall }) => JSON.stringify({
-  day, name, ...(recall ? { recall } : {}), ...(index ? { index } : {}), last, ...(lastRecall ? { lastRecall } : {}),
+  day,
+  name,
+  ...(recall ? { recall } : {}),
+  ...(index ? { index } : {}),
+  last,
+  ...(lastRecall ? { lastRecall } : {}),
 });
 
 /** The file's lines, or none when it is not there or is not a file of a size hobkin wrote. */
@@ -122,7 +133,12 @@ export function recordMemoryUse(root, { kind, names, by } = {}, { now = Date.now
   for (const name of used) {
     const entry = today.get(name) ?? { day, name };
     const counts = countsOf(entry[kind]);
-    today.set(name, { ...entry, [kind]: { ...counts, [by]: (counts[by] ?? 0) + 1 }, last: at, ...(kind === 'recall' ? { lastRecall: at } : {}) });
+    today.set(name, {
+      ...entry,
+      [kind]: { ...counts, [by]: (counts[by] ?? 0) + 1 },
+      last: at,
+      ...(kind === 'recall' ? { lastRecall: at } : {}),
+    });
   }
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   replace(file, `${newestOf([...earlier, ...[...today.values()].map(lineOf)]).join('\n')}\n`);

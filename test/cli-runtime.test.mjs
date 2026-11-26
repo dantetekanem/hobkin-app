@@ -373,13 +373,27 @@ test('a main turn hands helpers the index of shared memories, and that counts as
   const { root, config } = home(t);
   addMemory(root, { name: 'lives-in-lisbon', kind: 'user', description: 'Lives in Lisbon' }, { by: { kind: 'main' }, source: { kind: 'chat' } });
   const bindings = [];
-  const scope = { request: () => [], async join() { return undefined; }, async cancel() { return { confirmed: true }; }, finish() {} };
-  const ownedLifecycle = { register: ({ binding }) => { bindings.push(binding); return scope; }, snapshot: () => [], rows: () => [], async close() {} };
+  const scope = {
+    request: () => [],
+    async join() { return undefined; },
+    async cancel() { return { confirmed: true }; },
+    finish() {},
+  };
+  const ownedLifecycle = {
+    register: ({ binding }) => {
+      bindings.push(binding);
+      return scope;
+    },
+    snapshot: () => [],
+    rows: () => [],
+    async close() {},
+  };
   const runtime = await HobkinRuntime.open(root, config, { createMain: mainFactory(), ownedLifecycle });
   try {
     await runtime.connect();
     await runtime.send('look it up');
     await runtime.idle();
+
     assert.match(JSON.parse(bindings[0].prompt).memories, /lives-in-lisbon/);
     assert.deepEqual(readMemoryUse(root).filter(({ by }) => by.helper), []);
   } finally {

@@ -102,7 +102,8 @@ const lookedAt = new Map();
  * costs this look and nothing else.
  */
 export function tickRoutineCare(root, { loaded, attention, now = Date.now() }) {
-  if (now - (lookedAt.get(root) ?? -Infinity) < HOUR_MS || !Array.isArray(loaded?.schedules) || !Array.isArray(attention)) return null;
+  if (now - (lookedAt.get(root) ?? -Infinity) < HOUR_MS) return null;
+  if (!Array.isArray(loaded?.schedules) || !Array.isArray(attention)) return null;
   lookedAt.set(root, now);
   try {
     const { schedules, errors = [] } = loaded;

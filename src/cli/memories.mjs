@@ -1022,7 +1022,12 @@ export function keepsMemories(root) {
  * a run has it, and a helper or a teams agent, which has no tool for one, does not. Each memory it lists counts as a
  * use by `by`, as `memorySnapshot` takes it: a run's or a helper's unless said, and none for `null`.
  */
-export const runIndex = (root, recall, { by = recall ? 'run' : 'helper' } = {}) => memoryIndex(root, { private: false, maxBytes: RUN_INDEX_BYTES, recall: recall ? 'run' : undefined, by });
+export const runIndex = (root, recall, { by = recall ? 'run' : 'helper' } = {}) => memoryIndex(root, {
+  private: false,
+  maxBytes: RUN_INDEX_BYTES,
+  recall: recall ? 'run' : undefined,
+  by,
+});
 
 /**
  * The index (`memoryIndex`) and what it was built from, one entry a memory not past, `{ name, description, version }`,
@@ -1030,7 +1035,13 @@ export const runIndex = (root, recall, { by = recall ? 'run' : 'helper' } = {}) 
  * index lists counts as a use by `by` (`memory-use.mjs`): `main`, `hobkin`, `run` or `helper`, the main chat unless
  * said for a reader of private ones and a run for any other, and none for `null`.
  */
-export function memorySnapshot(root, { private: includePrivate = false, maxBytes = RUN_INDEX_BYTES, now = Date.now(), recall, by = includePrivate ? 'main' : 'run' } = {}) {
+export function memorySnapshot(root, {
+  private: includePrivate = false,
+  maxBytes = RUN_INDEX_BYTES,
+  now = Date.now(),
+  recall,
+  by = includePrivate ? 'main' : 'run',
+} = {}) {
   let shown;
   try {
     shown = scan(root, { includePrivate, now }).memories.filter(memory => !memory.past).sort(inIndexOrder);
@@ -1070,7 +1081,8 @@ function indexOf(shown, { maxBytes, recall }) {
     count += 1;
     kind = memory.kind;
   }
-  return { text: count < shown.length ? `${text}\n\n${MORE(shown.length - count, recall)}` : text, count };
+  const more = count < shown.length ? `\n\n${MORE(shown.length - count, recall)}` : '';
+  return { text: `${text}${more}`, count };
 }
 
 function score(memory, terms) {

@@ -17,7 +17,7 @@ const hours = () => Array.from({ length: 24 }, () => 0);
 const pad = number => String(number).padStart(2, '0');
 const clock = time => `${pad(new Date(time).getHours())}:${pad(new Date(time).getMinutes())}`;
 // Presence counts by the user's day, which turns at 04:00 as the desk's does, so a night past midnight belongs to the day it started.
-const presenceDay = time => userDay(typeof time === 'number' ? time : Date.parse(time)).date;
+const presenceDay = time => userDay(time).date;
 
 function tally(values) {
   const counts = new Map();
@@ -38,7 +38,7 @@ const byDay = (rows, summary) => Object.fromEntries([...Map.groupBy(rows, ({ day
 function sightings(events) {
   const daysWithFirst = new Set();
   return ofType(events, 'presence').filter(event => {
-    const day = presenceDay(event.at);
+    const day = presenceDay(timeOf(event));
     const daysFirst = event.kind === 'first' && !daysWithFirst.has(day);
     if (daysFirst) daysWithFirst.add(day);
     return daysFirst || event.awayMs >= AWAY_GAP_MS;
@@ -134,7 +134,7 @@ function presence(events) {
   const days = {};
   const dayOf = day => (days[day] ??= { firstOn: null, returns: [], onMs: 0 });
   for (const event of seen) {
-    const day = dayOf(presenceDay(event.at));
+    const day = dayOf(presenceDay(timeOf(event)));
     const moment = { at: event.at, local: clock(timeOf(event)), ...(Number.isFinite(event.awayMs) ? { awayMs: event.awayMs } : {}) };
     if (event.kind === 'first' && !day.firstOn) day.firstOn = moment;
     else day.returns.push(moment);
@@ -150,10 +150,6 @@ function presence(events) {
 }
 
 /**
- * The views `hobkin telemetry <view>` prints, each with its line for `hobkin telemetry help`. A view gets the events since `since`, oldest
- * first, with `{ root, since, now }`, and returns facts only. A new view is one more entry here.
- */
-/**
  * Which shared memories agents recalled or had in their index, from the local memory-use file, and the shared ones nobody
  * used in that time, leaving out one past its day. A private memory is left out, as everywhere outside the main chat and
  * durable hobkins (057).
@@ -161,11 +157,20 @@ function presence(events) {
 function memory(events, { root, since, now }) {
   const { memories: shared } = readMemories(root, { private: false, now });
   const names = new Set(shared.map(({ name }) => name));
-  const used = readMemoryUse(root, { days: Math.max(1, Math.round((now - since) / DAY_MS)), now }).filter(({ name }) => names.has(name));
+  const days = Math.max(1, Math.round((now - since) / DAY_MS));
+  const used = readMemoryUse(root, { days, now }).filter(({ name }) => names.has(name));
+
   const usedNames = new Set(used.map(({ name }) => name));
-  return { used, unused: shared.filter(({ name, past }) => !past && !usedNames.has(name)).map(({ name, kind }) => ({ name, kind })) };
+  const unused = shared
+    .filter(({ name, past }) => !past && !usedNames.has(name))
+    .map(({ name, kind }) => ({ name, kind }));
+  return { used, unused };
 }
 
+/**
+ * The views `hobkin telemetry <view>` prints, each with its line for `hobkin telemetry help`. A view gets the events since `since`, oldest
+ * first, with `{ root, since, now }`, and returns facts only. A new view is one more entry here.
+ */
 export const TELEMETRY_VIEWS = {
   questions: { line: 'questions filed per day by source, how each ended, the median time to answer, and whether the user was away when each came', view: questions },
   interruptions: { line: 'Chat notices per day by source and tone, and how many came in each local hour', view: interruptions },
@@ -179,11 +184,13 @@ export const VIEW_USAGE = `Usage: hobkin telemetry [--days n] | hobkin telemetry
 export function telemetryHelp(defaultDays) {
   const width = Math.max(...NAMES.map(name => name.length)) + 2;
   const lines = [...Object.entries(TELEMETRY_VIEWS).map(([name, { line }]) => [name, line]), ['help', 'this list']];
-  return `Usage: hobkin telemetry <view> [--days n]. Each view prints JSON from this machine's events, ${defaultDays} days by default. Facts and memory names only, never their text.\n${lines.map(([name, line]) => `  ${name.padEnd(width)}${line}`).join('\n')}\n`;
+  const usage = `Usage: hobkin telemetry <view> [--days n]. Each view prints JSON from this machine's events, ${defaultDays} days by default. Facts and memory names only, never their text.`;
+  return `${usage}\n${lines.map(([name, line]) => `  ${name.padEnd(width)}${line}`).join('\n')}\n`;
 }
 
 export function telemetryView(root, name, { days, now = Date.now() }) {
   if (!Object.hasOwn(TELEMETRY_VIEWS, name)) throw Error(VIEW_USAGE);
   const since = now - days * DAY_MS;
-  return { view: name, days, since: new Date(since).toISOString(), ...TELEMETRY_VIEWS[name].view(readEvents(root, { since }), { root, since, now }) };
+  const facts = TELEMETRY_VIEWS[name].view(readEvents(root, { since }), { root, since, now });
+  return { view: name, days, since: new Date(since).toISOString(), ...facts };
 }

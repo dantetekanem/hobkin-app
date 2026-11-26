@@ -62,6 +62,7 @@ const clockMinute = text => {
   return hour * 60 + minute;
 };
 const instant = value => (typeof value === 'number' ? value : Date.parse(value));
+const startOfMinute = time => time - (time % MINUTE_MS);
 const median = values => {
   const sorted = values.toSorted((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
@@ -100,9 +101,11 @@ export function learnMoments(presenceEvents, { now, days = 14, timeZone = machin
     const left = leftAt(event);
     if (left === null) continue;
     const gone = userDay(left, timeZone);
-    dayOf(gone.date).stop = Math.max(dayOf(gone.date).stop, gone.minute);
+    const dayLeft = dayOf(gone.date);
+    dayLeft.stop = Math.max(dayLeft.stop, gone.minute);
     // A break starts and ends on the same day, and the longest one is the day's main break.
-    if (gone.date === seen.date && event.awayMs >= BREAK_MS && event.awayMs > day.longest) Object.assign(day, { back: seen.minute, longest: event.awayMs });
+    const longestBreak = gone.date === seen.date && event.awayMs >= BREAK_MS && event.awayMs > day.longest;
+    if (longestBreak) Object.assign(day, { back: seen.minute, longest: event.awayMs });
   }
   const learned = [...byDay].filter(([date, { first }]) => date < today && Number.isFinite(first)).map(([, day]) => day);
   if (!learned.length) return { moments: [], enough: false, days: 0, reason: TOO_LITTLE };
@@ -118,10 +121,14 @@ export function learnMoments(presenceEvents, { now, days = 14, timeZone = machin
   ];
   const chosen = [];
   for (const candidate of candidates) {
-    if (chosen.length < MOST_DIGESTS && chosen.every(({ minute }) => Math.abs(minute - candidate.minute) >= DIGEST_GAP_MINUTES)) chosen.push(candidate);
+    const apart = chosen.every(({ minute }) => Math.abs(minute - candidate.minute) >= DIGEST_GAP_MINUTES);
+    if (chosen.length < MOST_DIGESTS && apart) chosen.push(candidate);
   }
+  const moments = chosen
+    .toSorted((left, right) => left.minute - right.minute)
+    .map(({ minute, why }) => ({ at: clockText(fromUserMinute(minute)), why }));
   return {
-    moments: chosen.toSorted((left, right) => left.minute - right.minute).map(({ minute, why }) => ({ at: clockText(fromUserMinute(minute)), why })),
+    moments,
     enough: true,
     days: learned.length,
     reason: `Learned from ${learned.length} days of presence.`,
@@ -168,15 +175,16 @@ export function learnQuietHours(presenceEvents, { now, days = 14, timeZone = mac
 export function nextDigestAt(moments, now, timeZone = machineZone()) {
   if (!moments?.length) return null;
   const { minute } = wallClock(now, timeZone);
-  const minuteStart = now - (now % MINUTE_MS);
   // Counted in wall minutes, so a day the clocks change can be off by that hour.
-  return minuteStart + Math.min(...moments.map(({ at }) => ((clockMinute(at) - minute - 1 + DAY_MINUTES) % DAY_MINUTES) + 1)) * MINUTE_MS;
+  const minutesUntil = ({ at }) => ((clockMinute(at) - minute - 1 + DAY_MINUTES) % DAY_MINUTES) + 1;
+  return startOfMinute(now) + Math.min(...moments.map(minutesUntil)) * MINUTE_MS;
 }
 
 /** When the latest learned digest moment came, at or before `now`. */
 function lastMomentAt(moments, now, timeZone) {
   const { minute } = wallClock(now, timeZone);
-  return now - (now % MINUTE_MS) - Math.min(...moments.map(({ at }) => (minute - clockMinute(at) + DAY_MINUTES) % DAY_MINUTES)) * MINUTE_MS;
+  const minutesSince = ({ at }) => (minute - clockMinute(at) + DAY_MINUTES) % DAY_MINUTES;
+  return startOfMinute(now) - Math.min(...moments.map(minutesSince)) * MINUTE_MS;
 }
 
 /**
@@ -193,9 +201,15 @@ export function itemLevel(item, { now, nextDigest } = {}) {
   const due = instant(item.deadline);
   if (Number.isFinite(due) && !Number.isFinite(now)) throw TypeError('itemLevel needs now to judge a deadline.');
   const digest = nextDigest ?? now + DIGEST_HORIZON_MS;
-  if ((due > now && due <= digest) || (triage === 'critical' && item.blocksWork)) return 'P0';
-  if (triage === 'critical' || triage === 'blocked' || item.blocksWork || due - now <= DAY_MS || item.source === 'reminder') return 'P1';
-  return 'P2';
+  const dueBeforeDigest = due > now && due <= digest;
+  if (dueBeforeDigest || (triage === 'critical' && item.blocksWork)) return 'P0';
+
+  const forToday = triage === 'critical'
+    || triage === 'blocked'
+    || item.blocksWork
+    || due - now <= DAY_MS
+    || item.source === 'reminder';
+  return forToday ? 'P1' : 'P2';
 }
 
 /** What holds deliveries back at `now`: an event in the day file or quiet hours, and when that hold ends. */
@@ -209,7 +223,8 @@ function holdAt(now, { day, quiet = [], timeZone }) {
     quietEnd = quietHours === 24 ? Infinity : now + (quietHours * 60 - minute % 60) * MINUTE_MS;
   }
   if (!event && quietEnd === null) return null;
-  return { what: event ? 'an event' : 'quiet hours', until: Math.max(event ? Date.parse(event.end) : -Infinity, quietEnd ?? -Infinity) };
+  const eventEnd = event ? Date.parse(event.end) : -Infinity;
+  return { what: event ? 'an event' : 'quiet hours', until: Math.max(eventEnd, quietEnd ?? -Infinity) };
 }
 
 /**
