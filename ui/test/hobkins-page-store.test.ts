@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { registerHooks } from 'node:module'
 import { after, mock, test } from 'node:test'
-import { Activity, createElement, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { Activity, createElement, useEffect, useMemo, useState } from 'react'
 import type { ActivityEntry } from '../../shared/protocol/activity.ts'
 import type { HobkinConversation, HobkinSummary, HobkinTurn } from '../../shared/protocol/hobkins.ts'
 import type { HostMessage } from '../../shared/protocol/messages.ts'
@@ -86,7 +86,7 @@ function usePage(id: string, hobkin: HobkinSummary): Page {
   const [drawn, setDrawn] = useState(NONE)
   const { finished, known } = useDrawnSteps(id, drawn, { live: null })
   const rows = useMemo(() => pageRows(turns, { sending: null, activity: null, finished }), [turns, finished])
-  const settled = useNewestFirst(id, drawn, setDrawn as Dispatch<SetStateAction<readonly string[]>>, { turns, rows, known, shown: null, window: 40 })
+  const settled = useNewestFirst(id, drawn, setDrawn, { turns, rows, known, shown: null, window: 40 })
   return { drawn, settled, read: conversation !== null }
 }
 
@@ -114,6 +114,7 @@ test('a page draws its turns newest first: it reads only the turns whose rows re
 })
 
 test('a page opened again reads nothing it holds, and has its turns drawn before any answer', async () => {
+  // The page the test before opened is kept.
   const before = asked.length
   const seen: { first: Page | null; page: Page | null } = { first: null, page: null }
   const Shown = () => {
@@ -158,8 +159,8 @@ test('a page kept hidden keeps its turns watched from outside, and reads nothing
   const mounted = await mountCounting(() => createElement(Kept))
   await mounted.change(() => {})
   const before = asked.length
-  const held = (jobs: readonly string[] | undefined) => Boolean(jobs?.includes(run(TURNS)) && jobs.includes(run(TURNS - 1)))
-  assert.ok(held(watched.at(-1)), 'its turns are watched')
+  const watchesItsTurns = (jobs: readonly string[] | undefined) => Boolean(jobs?.includes(run(TURNS)) && jobs.includes(run(TURNS - 1)))
+  assert.ok(watchesItsTurns(watched.at(-1)), 'its turns are watched')
   const changes = watched.length
 
   await mounted.change(() => show.set!('hidden'))
@@ -177,7 +178,10 @@ test('a page kept hidden keeps its turns watched from outside, and reads nothing
 test('the page being left stays until the next one is ready, or for HOLD_MS at most, and a page kept shows at once', async () => {
   mock.timers.enable({ apis: ['setTimeout'] })
   try {
-    const seen: { pages: ReturnType<typeof useShownPage> | null; ask: ((agent: string | null) => void) | null } = { pages: null, ask: null }
+    const seen: {
+      pages: ReturnType<typeof useShownPage> | null
+      ask: ((agent: string | null) => void) | null
+    } = { pages: null, ask: null }
     const Frame = ({ keep }: { keep: number }) => {
       const [asked, setAsked] = useState<string | null>('a')
       seen.ask = setAsked
@@ -225,13 +229,16 @@ test('a turn the host holds is known once its whole steps come after the window 
   send({ type: 'state', rev: rev++, reset: true, set: { runs: [], reports: [] }, activity: [{ op: 'reset', job, entries: tail }] })
   const seen: { known: boolean | null } = { known: null }
   const Turn = () => {
-    seen.known = useDrawnSteps(`${ID}-other`, [job], { live: null }).known(job)
+    seen.known = useDrawnSteps('another-page', [job], { live: null }).known(job)
     return null
   }
   const mounted = await mountCounting(() => createElement(Turn))
   await mounted.change(() => {})
   assert.equal(seen.known, false, 'its tail is not its steps')
-  await mounted.change(() => send({ type: 'state', rev: rev++, activity: [{ op: 'reset', job, entries: [...steps(7, 3), ...tail] }] }))
+
+  // The host's answer to the watch: the turn's whole steps.
+  const whole = [...steps(7, 3), ...tail]
+  await mounted.change(() => send({ type: 'state', rev: rev++, activity: [{ op: 'reset', job, entries: whole }] }))
   assert.equal(seen.known, true)
   await mounted.unmount()
 })

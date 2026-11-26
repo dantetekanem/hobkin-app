@@ -56,23 +56,32 @@ export function keptPage(id: string | null): KeptPage {
   return (id && keeper.pages.get(id)) || NO_PAGE
 }
 
-/** Only the newest `most` of a turn's record, the newest kept last. The same record when it fits. */
-function newestOf<Value>(record: Readonly<Record<string, Value>>, most: number): Readonly<Record<string, Value>> {
+/** The newest TURNS_KEPT turns of a record by run, the newest kept last. The same record when it fits. */
+function newestTurns<Value>(record: Readonly<Record<string, Value>>): Readonly<Record<string, Value>> {
   const runs = Object.keys(record)
-  return runs.length <= most ? record : Object.fromEntries(runs.slice(-most).map((run) => [run, record[run]!]))
+  if (runs.length <= TURNS_KEPT) return record
+  return Object.fromEntries(runs.slice(-TURNS_KEPT).map((run) => [run, record[run]!]))
 }
 
-/** Changes a hobkin's page, keeps it as the newest, and lets go of the oldest ones nothing reads beyond PAGES_KEPT. */
+/** Lets go of the pages kept longest beyond PAGES_KEPT, leaving every one something reads. */
+function letGoOfOldPages(): void {
+  for (const id of keeper.pages.keys()) {
+    if (keeper.pages.size <= PAGES_KEPT) return
+    if (!keeper.readers.get(id)?.size) keeper.pages.delete(id)
+  }
+}
+
+/** Changes a hobkin's page and keeps it as the newest. What reads it hears of a change. */
 export function keepPage(id: string, change: (page: KeptPage) => KeptPage): void {
   const before = keptPage(id)
   const next = change(before)
+  const changed = next !== before
   keeper.pages.delete(id)
-  keeper.pages.set(id, next === before ? before : { ...next, reads: newestOf(next.reads, TURNS_KEPT), steps: newestOf(next.steps, TURNS_KEPT) })
-  for (const old of keeper.pages.keys()) {
-    if (keeper.pages.size <= PAGES_KEPT) break
-    if (!keeper.readers.get(old)?.size) keeper.pages.delete(old)
-  }
-  if (next !== before) for (const reader of keeper.readers.get(id) ?? []) reader()
+  keeper.pages.set(id, changed ? { ...next, reads: newestTurns(next.reads), steps: newestTurns(next.steps) } : before)
+  letGoOfOldPages()
+  if (!changed) return
+
+  for (const reader of keeper.readers.get(id) ?? []) reader()
 }
 
 function readPage(id: string, reader: () => void): () => void {
@@ -100,8 +109,9 @@ export function pageTickets(id: string): ReturnType<typeof latestWins> {
 
 /** The read named `key` on its way, or a new one `start` begins: one at a time, whoever asks. */
 export function askOnce<Answer>(key: string, start: () => Promise<Answer>): Promise<Answer> {
-  const out = keeper.asking.get(key) as Promise<Answer> | undefined
-  if (out) return out
+  const pending = keeper.asking.get(key) as Promise<Answer> | undefined
+  if (pending) return pending
+
   const read = start().finally(() => {
     if (keeper.asking.get(key) === read) keeper.asking.delete(key)
   })
@@ -157,9 +167,10 @@ const show = ({ shown, kept }: Showing, next: string | null, keep: number): Show
 export function useShownPage(asked: string | null, { keep, frozen }: { keep: number; frozen: boolean }): ShownPages {
   const [showing, setShowing] = useState<Showing>(() => ({ shown: asked, kept: [] }))
   const waiting = !frozen && asked !== showing.shown
-  // Nothing to wait for: shown in this same draw.
-  if (waiting && (asked === null || showing.kept.includes(asked))) setShowing(show(showing, asked, keep))
-  if (!waiting && keep === 0 && showing.kept.length) setShowing({ ...showing, kept: [] })
+  const nothingToWaitFor = asked === null || showing.kept.includes(asked)
+  // Shown in this same draw. And pages kept while the window kept them go once it no longer does.
+  if (waiting && nothingToWaitFor) setShowing(show(showing, asked, keep))
+  else if (!waiting && keep === 0 && showing.kept.length) setShowing({ ...showing, kept: [] })
 
   useEffect(() => {
     if (!waiting) return
@@ -168,9 +179,19 @@ export function useShownPage(asked: string | null, { keep, frozen }: { keep: num
   }, [waiting, asked, keep])
 
   const ready = useCallback(
-    (agent: string) => setShowing((now) => (agent === asked && agent !== now.shown ? show(now, agent, keep) : now)),
+    (agent: string) => {
+      setShowing((now) => {
+        const stillAsked = agent === asked && agent !== now.shown
+        return stillAsked ? show(now, agent, keep) : now
+      })
+    },
     [asked, keep],
   )
-  const mounted = showing.shown ? [...showing.kept, showing.shown] : showing.kept
-  return { shown: showing.shown, mounted, preparing: waiting ? asked : null, ready }
+
+  return {
+    shown: showing.shown,
+    mounted: showing.shown ? [...showing.kept, showing.shown] : showing.kept,
+    preparing: waiting ? asked : null,
+    ready,
+  }
 }

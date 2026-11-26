@@ -315,11 +315,14 @@ export function drawNext(drawn: readonly string[], { turns, rows, known, window 
   if (!held.every(known)) return { next: null, settled: false }
 
   const oldest = Math.min(...held.map((run) => order.get(run)!))
-  const first = rows.findIndex((row) => {
+  const firstDrawnRow = rows.findIndex((row) => {
     const run = runOfRow(row)
     return run !== null && (order.get(run) ?? -1) >= oldest
   })
-  if ((first >= 0 && rows.length - first >= window) || oldest === 0) return { next: null, settled: true }
+  const filled = firstDrawnRow >= 0 && rows.length - firstDrawnRow >= window
+  const everyTurnDrawn = oldest === 0
+  if (filled || everyTurnDrawn) return { next: null, settled: true }
+
   return { next: turns[oldest - 1]!.run, settled: false }
 }
 
@@ -328,9 +331,22 @@ export function drawNext(drawn: readonly string[], { turns, rows, known, window 
  * so nothing drawn is thrown away when they come (`drawNext`). At once when there is nothing to wait for: no host, a
  * hobkin with no turn yet or one that is not there, or a read that failed, which the page says.
  */
-export function pageReady({ connected, state, fresh, problem, read, settled }: { connected: boolean; state: PageState; fresh: boolean; problem: string | null; read: boolean; settled: boolean }): boolean {
-  if (!connected || state !== 'live' || fresh || problem !== null) return true
-  return read && settled
+export function pageReady({ connected, state, fresh, problem, read, settled }: PageReadiness): boolean {
+  const nothingToWaitFor = !connected || state !== 'live' || fresh || problem !== null
+  return nothingToWaitFor || (read && settled)
+}
+
+interface PageReadiness {
+  connected: boolean
+  state: PageState
+  /** The hobkin has had no turn yet (`firstMessageNext`). */
+  fresh: boolean
+  /** Why the conversation could not be read. */
+  problem: string | null
+  /** The conversation is read. */
+  read: boolean
+  /** The turns it draws first have their steps (`drawNext`). */
+  settled: boolean
 }
 
 /**

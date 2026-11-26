@@ -22,7 +22,10 @@ function readConversation(id: string, key: string): Promise<Answered> {
         keepPage(id, (page) => ({ ...page, conversation: answer, readAt: key }))
         return 'read'
       },
-      (error: unknown): Answered => (tickets.accept(ticket) ? { problem: error instanceof Error ? error.message : String(error) } : 'stale'),
+      (error: unknown): Answered => {
+        if (!tickets.accept(ticket)) return 'stale'
+        return { problem: error instanceof Error ? error.message : String(error) }
+      },
     )
   })
 }
@@ -45,7 +48,8 @@ export function useConversation(
   useEffect(() => {
     if (!id || !connected || !key || readAt === key) return
     void readConversation(id, key).then((answered) => {
-      if (answered !== 'stale') setProblem(answered === 'read' ? null : answered.problem)
+      if (answered === 'stale') return
+      setProblem(answered === 'read' ? null : answered.problem)
     })
   }, [id, connected, key, readAt])
 

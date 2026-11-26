@@ -231,16 +231,24 @@ test("a turn a schedule began is one row named by its schedule, where its messag
 })
 
 test('a page draws its turns newest first, and the next older one only while the drawn ones are known and their rows do not fill the window', () => {
+  const run = (n: number) => `hobkin:0a1b2c3d:${n}`
   const resting: HobkinSummary = { ...summary, state: 'waiting', run: null, turns: 5 }
-  const bash = (id: string, at: number): ActivityEntry => ({ id: `tool:${id}`, kind: 'tool', name: 'bash', state: 'completed', input: JSON.stringify({ command: `npm test -- ${id}` }), output: 'ok', at })
   const conversation: HobkinConversation = { hobkin: resting, turns: [1, 2, 3, 4, 5].map((n) => turn(n, 'completed', `Done ${n}.`)) }
   const turns = pageTurns(conversation, resting, [])
-  const run = (n: number) => `hobkin:0a1b2c3d:${n}`
-  // Each turn the page has drawn has three steps: a command, words, a command. The others have none the page has.
+
+  // Turns 5 and 4 have three steps each, a command, words and a command: a row each. The page has none of the others.
+  const bash = (id: string, at: number): ActivityEntry => ({ id: `tool:${id}`, kind: 'tool', name: 'bash', state: 'completed', input: JSON.stringify({ command: `npm test -- ${id}` }), output: 'ok', at })
   const says = (id: string, at: number): ActivityEntry => ({ id: `message:${id}`, kind: 'assistant', text: `Looking at ${id}.`, at })
-  const steps = (n: number, count: number) => ({ entries: Array.from({ length: count }, (_, index) => (index % 2 ? says : bash)(`${n}-${index}`, n * 10 + index)), seenAt: () => undefined })
+  const steps = (n: number, count: number) => {
+    const entries = Array.from({ length: count }, (_, index) => (index % 2 ? says : bash)(`${n}-${index}`, n * 10 + index))
+    return { entries, seenAt: () => undefined }
+  }
   const finished = { [run(5)]: steps(5, 3), [run(4)]: steps(4, 3) }
-  const rows = (drawn: readonly string[]) => pageRows(turns, { sending: null, activity: null, finished: Object.fromEntries(drawn.flatMap((each) => (finished[each] ? [[each, finished[each]]] : []))) })
+  /** The page's rows with the steps of the turns drawn that it has. */
+  const rows = (drawn: readonly string[]) => {
+    const drawnSteps = Object.fromEntries(drawn.filter((each) => finished[each]).map((each) => [each, finished[each]!]))
+    return pageRows(turns, { sending: null, activity: null, finished: drawnSteps })
+  }
   const known = (...runs: string[]) => (each: string) => runs.includes(each)
   const window = 8
 

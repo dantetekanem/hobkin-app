@@ -57,9 +57,12 @@ export function followWatching(
   send: (message: WatchMessage) => void,
   later: (run: () => void) => void = queueMicrotask,
 ): () => void {
+  /** The jobs the host was told last, one a line. */
   let told: string | null = null
+  /** A batch of changes is under way: the host is told once it is over. */
   let due = false
   let stopped = false
+
   const tell = () => {
     const jobs = watched.jobs()
     told = jobs.join('\n')
@@ -67,8 +70,10 @@ export function followWatching(
   }
   const tellChanges = () => {
     due = false
-    if (!stopped && store.getState().watching && watched.jobs().join('\n') !== told) tell()
+    if (stopped || !store.getState().watching) return
+    if (watched.jobs().join('\n') !== told) tell()
   }
+
   const stopHello = store.subscribe((state, previous) => {
     if (state.watching && !previous.watching) tell()
   })

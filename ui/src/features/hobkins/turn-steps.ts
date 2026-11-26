@@ -84,23 +84,30 @@ interface WholeFeeds {
 
 function followFeeds(): WholeFeeds {
   const feeds: WholeFeeds = { jobs: new Map(), next: null }
+
   // Once the batch is over, when the host is told (`followWatching`): the jobs that came wait for their steps from here.
   const settle = () => {
     const watched = new Set(feeds.next)
     feeds.next = null
-    for (const job of feeds.jobs.keys()) if (!watched.has(job)) feeds.jobs.delete(job)
+    for (const job of feeds.jobs.keys()) {
+      if (!watched.has(job)) feeds.jobs.delete(job)
+    }
     const state = hostStore.getState()
-    for (const job of watched) if (!feeds.jobs.has(job)) feeds.jobs.set(job, heldFeed(state, job))
+    for (const job of watched) {
+      if (!feeds.jobs.has(job)) feeds.jobs.set(job, heldFeed(state, job))
+    }
   }
   onWatchedChange((jobs) => {
     if (feeds.next === null) queueMicrotask(settle)
     feeds.next = jobs
   })
+
   hostStore.subscribe((state, before) => {
     if (!state.snapshotReady) return
     // A host that connected said all it holds: what it sends of each job after this is its answer to being told.
     const connected = !before.snapshotReady
     if (!connected && state.snapshot.jobActivity === before.snapshot.jobActivity) return
+
     for (const [job, since] of feeds.jobs) {
       if (connected) feeds.jobs.set(job, heldFeed(state, job))
       else if (since !== true && heldFeed(state, job) !== since) feeds.jobs.set(job, true)
@@ -135,6 +142,54 @@ export function useWholeJobs(jobs: readonly string[]): boolean {
 
 const sameFlags = (held: readonly boolean[], next: readonly boolean[]) => keepEachEqual(held, next, Object.is)
 
+/** What the window has of one turn: the host's steps, whether they are whole, what was read of it, and the steps kept with its page. */
+interface TurnHeld {
+  feed: Feed
+  whole: boolean
+  read: TurnRead | undefined
+  kept: readonly ActivityEntry[] | undefined
+}
+
+/** What a page draws of one turn, whether that is all it will draw, and whether it is all there now to keep with the page. */
+interface TurnDrawn {
+  entries: readonly ActivityEntry[]
+  known: boolean
+  complete: boolean
+}
+
+/**
+ * What a page draws of one turn. A finished turn is complete with the host's whole steps, and with what was read before
+ * them when the host holds as many as a feed keeps, or with what was read when the host holds none; until then the steps
+ * kept with its page stand in, and make it known. The turn in flight is known once the host sends its whole steps, or
+ * holds none. With no connection, what there is is all there will be.
+ */
+function drawnTurn({ feed, whole, read, kept }: TurnHeld, { live, connected }: { live: boolean; connected: boolean }): TurnDrawn {
+  const held = turnEntries(feed, read)
+  if (live) {
+    return { entries: held, known: !connected || !feed?.length || whole, complete: false }
+  }
+
+  const allThere = feed?.length ? whole && (feed.length < FEED_STEPS || read?.joins === feed[0]!.id) : read?.joins === null
+  if (connected && allThere) {
+    // The same steps as those kept stay the very ones kept, so nothing is built again.
+    return { entries: keepEachEqual(kept, held, sameEntry), known: true, complete: true }
+  }
+  return { entries: kept ?? held, known: !connected || kept !== undefined, complete: false }
+}
+
+/** Keeps what was read of a turn with its page, unless a read that joins the same steps is kept already. */
+function keepRead(id: string, run: string, read: TurnRead): void {
+  keepPage(id, (page) => {
+    if (page.reads[run]?.joins === read.joins) return page
+    return { ...page, reads: { ...page.reads, [run]: read } }
+  })
+}
+
+/** Keeps each turn's steps the page has all of with its page. */
+function keepSteps(id: string, steps: Readonly<Record<string, readonly ActivityEntry[]>>): void {
+  keepPage(id, (page) => ({ ...page, steps: { ...page.steps, ...steps } }))
+}
+
 export interface DrawnSteps {
   /** The steps the page has of each turn, by run. The turn in flight's page reads its own. */
   finished: Readonly<Record<string, TurnActivity>>
@@ -153,7 +208,7 @@ export interface DrawnSteps {
  * whole ones, with what was read before them when the host holds as many as a feed keeps, or what was read when the
  * host holds none, or the steps kept. The one in flight once the host sends its whole steps, or holds none.
  */
-export function useDrawnSteps(id: string, runs: readonly string[], { live, cwd }: { live: string | null; cwd?: string }): DrawnSteps {
+export function useDrawnSteps(id: string, runs: readonly string[], { live: liveRun, cwd }: { live: string | null; cwd?: string }): DrawnSteps {
   const hosted = useHasHost()
   const open = useHost((state) => state.link === 'open')
   useHeldJobs(runs)
@@ -167,42 +222,38 @@ export function useDrawnSteps(id: string, runs: readonly string[], { live, cwd }
     runs.forEach((run, index) => {
       const feed = feeds[index]
       const joins = joinsOf(feed)
-      if (run === live || joins === undefined || reads[run]?.joins === joins) return
+      if (run === liveRun || joins === undefined || reads[run]?.joins === joins) return
 
-      void askOnce(`turn\n${run}\n${joins}`, () => readTurn(run, joins === null ? undefined : feed?.[0])).then((steps) => {
-        if (steps) keepPage(id, (held) => (held.reads[run]?.joins === joins ? held : { ...held, reads: { ...held.reads, [run]: { joins, steps } } }))
+      const oldest = joins === null ? undefined : feed?.[0]
+      void askOnce(`turn\n${run}\n${joins}`, () => readTurn(run, oldest)).then((steps) => {
+        if (steps) keepRead(id, run, { joins, steps })
       })
     })
-  }, [id, hosted, open, runs, feeds, reads, live])
+  }, [id, hosted, open, runs, feeds, reads, liveRun])
 
   const drawn = useMemo(() => {
     const connected = hosted && open
     const finished: Record<string, TurnActivity> = {}
     const known = new Set<string>()
-    /** Turns whose steps are all here now, from the host and the reads, to keep with the page. */
-    const complete = new Set<string>()
+    /** Each turn whose steps are all here now, and newer than those kept with the page. */
+    const fresh: Record<string, readonly ActivityEntry[]> = {}
     runs.forEach((run, index) => {
-      const feed = feeds[index]
-      const read = reads[run]
-      const all = feed?.length ? whole[index]! && (feed.length < FEED_STEPS || read?.joins === feed[0]!.id) : read?.joins === null
-      const turnKept = run === live ? undefined : kept[run]
-      const entries = connected && all ? keepEachEqual(turnKept, turnEntries(feed, read), sameEntry) : (turnKept ?? turnEntries(feed, read))
-      if (run === live ? !connected || !feed?.length || whole[index] : !connected || all || turnKept) known.add(run)
-      if (connected && all && run !== live && entries.length) complete.add(run)
-      if (!entries.length) return
+      const live = run === liveRun
+      const held = { feed: feeds[index], whole: whole[index]!, read: reads[run], kept: live ? undefined : kept[run] }
+      const turn = drawnTurn(held, { live, connected })
+      if (turn.known) known.add(run)
+      if (!turn.entries.length) return
 
+      if (turn.complete && turn.entries !== kept[run]) fresh[run] = turn.entries
       const timeOf = timeOfTurn(run)
-      finished[run] = { entries, ...(cwd ? { cwd } : {}), seenAt: (id) => timeOf(id)?.seen }
+      finished[run] = { entries: turn.entries, ...(cwd ? { cwd } : {}), seenAt: (id) => timeOf(id)?.seen }
     })
-    return { finished, known, complete }
-  }, [hosted, open, runs, feeds, whole, reads, kept, live, cwd])
+    return { finished, known, fresh }
+  }, [hosted, open, runs, feeds, whole, reads, kept, liveRun, cwd])
 
-  // What the page has all of a finished turn's steps is kept with it.
   useEffect(() => {
-    const fresh = [...drawn.complete].filter((run) => kept[run] !== drawn.finished[run]!.entries)
-    if (!fresh.length) return
-    keepPage(id, (held) => ({ ...held, steps: { ...held.steps, ...Object.fromEntries(fresh.map((run) => [run, drawn.finished[run]!.entries])) } }))
-  }, [id, drawn, kept])
+    if (Object.keys(drawn.fresh).length) keepSteps(id, drawn.fresh)
+  }, [id, drawn])
 
   return useMemo(() => ({ finished: drawn.finished, known: (run: string) => drawn.known.has(run) }), [drawn])
 }
@@ -227,12 +278,16 @@ interface NewestFirst {
  */
 export function useNewestFirst(id: string, runs: readonly string[], draw: Dispatch<SetStateAction<readonly string[]>>, { turns, rows, known, shown, window }: NewestFirst): boolean {
   const { next, settled } = drawNext(runs, { turns, rows, known, window })
+
   useEffect(() => {
     if (next) draw((held) => (held.includes(next) ? held : [...held, next]))
   }, [next, draw])
   useEffect(() => {
     if (settled && shown) draw((held) => withDrawnTurns(held, shown))
   }, [settled, shown, draw])
-  useEffect(() => keepPage(id, (page) => (sameRuns(page.drawn, runs) ? page : { ...page, drawn: runs })), [id, runs])
+  useEffect(() => {
+    keepPage(id, (page) => (sameRuns(page.drawn, runs) ? page : { ...page, drawn: runs }))
+  }, [id, runs])
+
   return settled
 }
