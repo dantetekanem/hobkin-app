@@ -1,6 +1,6 @@
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { MAIN_ACTIVITY, type ActivityEntry } from '#shared/protocol/activity.ts'
 import { handOffCanvasFocus } from '@/app/focus.ts'
 import { Rise } from '@/app/Reveal.tsx'
@@ -8,13 +8,15 @@ import { holdStill, useStill } from '@/app/still.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { sampleLength } from '@/features/agent-activity/sample.ts'
-import { stepsOf } from '@/features/agent-activity/steps.ts'
+import { stepsOf, type Step } from '@/features/agent-activity/steps.ts'
 import { Arrivals } from '@/features/agent-activity/arrive.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
 import { AgentLines } from '@/features/agent-activity/AgentLines.tsx'
 import { lastStepTime, mainTimeOf, type EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
+import { useWindowedList, WindowedRows } from '@/features/agent-activity/windowed-list.tsx'
+import { windowedSteps } from '@/features/agent-activity/windowed-place.ts'
 import { turnStartedAt, doingNow as turnWord } from '@/features/chat/doing.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { useHasHost, useHost, useWatchJob } from '@/lib/host/index.ts'
@@ -117,12 +119,27 @@ function Blank({ children }: { children: string }) {
 
 const NO_ENTRIES: readonly ActivityEntry[] = []
 
+interface ExchangeProps {
+  timeOf: (id: string) => EntryTime | undefined
+  turnStart: number | null
+  ended: boolean
+  cwd?: string
+  word: string | null
+  sample: boolean
+}
+
 /**
  * The main agent's steps, top to bottom, drawn as an agent's canvas draws them, each with when it happened in a column
  * at its left. It opens at the newest and stays there as steps arrive, unless the user scrolled up to read, and then
  * offers the way back down. A keyboard handed to the mind lands here, so the arrows, Page keys, Home and End read it.
+ * With the switch `hobkin:windowed-steps` on, only the steps in view and a view's height around them are drawn, and it
+ * opens where it was left (windowed-list.tsx); otherwise every step it holds.
  */
-function Exchange({ timeOf, turnStart, ended, cwd, word, sample }: { timeOf: (id: string) => EntryTime | undefined; turnStart: number | null; ended: boolean; cwd?: string; word: string | null; sample: boolean }) {
+function Exchange(props: ExchangeProps) {
+  return windowedSteps() ? <WindowedExchange {...props} /> : <WholeExchange {...props} />
+}
+
+function WholeExchange({ timeOf, turnStart, ended, cwd, word, sample }: ExchangeProps) {
   const still = useStill()
   const scroll = useFollow()
   const entries = useMainSteps() ?? NO_ENTRIES
@@ -151,24 +168,71 @@ function Exchange({ timeOf, turnStart, ended, cwd, word, sample }: { timeOf: (id
         </ShowStamps>
         {sample ? <li className="self-center text-[12px] text-muted-foreground">Sample activity. With a host this is hobkin's own main agent, as it works.</li> : null}
       </ol>
-      <div className="pointer-events-none sticky bottom-4 z-10 flex h-0 justify-center">
-        <AnimatePresence>
-          {scroll.pinned ? null : (
-            <motion.button
-              type="button"
-              onClick={scroll.jumpToLatest}
-              initial={holdStill({ opacity: 0, transform: 'translateY(10px) scale(0.96)' }, still)}
-              animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: spring.alive }, still)}
-              exit={holdStill({ opacity: 0, transform: 'translateY(10px) scale(0.96)', transition: tween.exit }, still)}
-              className="pointer-events-auto absolute bottom-0 flex h-8 items-center gap-1.5 rounded-full border border-border bg-card pr-1.5 pl-3 text-[12px] font-medium shadow-panel transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2"
-            >
-              <ArrowDown className="size-3.5" aria-hidden="true" />
-              Newest
-              <Kbd>End</Kbd>
-            </motion.button>
-          )}
-        </AnimatePresence>
-      </div>
+      <ToNewest pinned={scroll.pinned} onJump={scroll.jumpToLatest} still={still} />
+    </motion.div>
+  )
+}
+
+/** The way back down to the newest step, while the user reads further up. */
+function ToNewest({ pinned, onJump, still }: { pinned: boolean; onJump: () => void; still: boolean }) {
+  return (
+    <div className="pointer-events-none sticky bottom-4 z-10 flex h-0 justify-center">
+      <AnimatePresence>
+        {pinned ? null : (
+          <motion.button
+            type="button"
+            onClick={onJump}
+            initial={holdStill({ opacity: 0, transform: 'translateY(10px) scale(0.96)' }, still)}
+            animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: spring.alive }, still)}
+            exit={holdStill({ opacity: 0, transform: 'translateY(10px) scale(0.96)', transition: tween.exit }, still)}
+            className="pointer-events-auto absolute bottom-0 flex h-8 items-center gap-1.5 rounded-full border border-border bg-card pr-1.5 pl-3 text-[12px] font-medium shadow-panel transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2"
+          >
+            <ArrowDown className="size-3.5" aria-hidden="true" />
+            Newest
+            <Kbd>End</Kbd>
+          </motion.button>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+const stepKey = (step: Step) => step.key
+/** A step not drawn yet is guessed at one folded row: a guess too short draws a step too many, never a blank. */
+const stepHeight = () => 32
+/** The list's own gap and padding: `gap-3 pt-2 pb-10`. */
+const SPACING = { gap: 12, top: 8, bottom: 40 }
+
+/** The main agent's steps drawn windowed: only those in view and a view's height around them, each where it would be. */
+function WindowedExchange({ timeOf, turnStart, ended, cwd, word, sample }: ExchangeProps) {
+  const still = useStill()
+  const entries = useMainSteps() ?? NO_ENTRIES
+  // The tasks line above the steps is where task calls show.
+  const steps = useMemo(() => stepsOf(entries, { ended, cwd, tasksOnLine: true }), [entries, ended, cwd])
+  const list = useWindowedList({ name: MAIN_ACTIVITY, rows: steps, keyOf: stepKey, estimate: stepHeight, spacing: SPACING })
+  const { scroll } = list
+  useEffect(() => (scroll.scroller.current ? handOffCanvasFocus(scroll.scroller.current) : undefined), [scroll.scroller])
+  const draw = useCallback((step: Step) => <StepItem step={step} timeOf={timeOf} ended={ended} />, [timeOf, ended])
+
+  return (
+    <motion.div
+      ref={scroll.scroller}
+      onScroll={scroll.onScroll}
+      tabIndex={-1}
+      // WebKit anchors no scroll here today; one that will must not move the view a second time (windowed-list.tsx).
+      className="scroll-quiet relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-[10%] outline-none [overflow-anchor:none] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
+      initial={holdStill({ opacity: 0, transform: 'translateY(24px)' }, still)}
+      animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: { duration: 0.24, delay: 0.06 } } }, still)}
+    >
+      <ol ref={scroll.content} aria-label="What hobkin has done" className="mt-auto flex flex-col gap-3 pt-2 pb-10">
+        <ShowStamps>
+          {/* The steps drawn with the mind are simply there. A step new to it arrives, and one scrolled back to does not. */}
+          <WindowedRows list={list} draw={draw} />
+          {word ? <Quiet word={word} entries={entries} timeOf={timeOf} turnStart={turnStart} /> : null}
+        </ShowStamps>
+        {sample ? <li className="self-center text-[12px] text-muted-foreground">Sample activity. With a host this is hobkin's own main agent, as it works.</li> : null}
+      </ol>
+      <ToNewest pinned={scroll.pinned} onJump={scroll.jumpToLatest} still={still} />
     </motion.div>
   )
 }
