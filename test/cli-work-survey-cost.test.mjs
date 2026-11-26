@@ -193,6 +193,24 @@ test('hobkin work sync with a project surveys only that project, and the others 
   assert.equal(unit(h, 'hobkin/api-work').title, 'kept');
 });
 
+test('a survey of one project goes into the record as it stands when it ends, so what was written meanwhile stays', async t => {
+  const h = workspace(t);
+  const web = repository(h.base, 'web');
+  chooseProject(h.root, web, 'important', NOW);
+  branched(h.checkout, 'hobkin/api-work');
+  branched(web, 'hobkin/web-work');
+  await survey(h);
+  const writesMeanwhile = async () => {
+    rewriteSaved(h, saved => (saved.branch === 'hobkin/api-work' ? { ...saved, title: 'written meanwhile' } : saved));
+    return '[]';
+  };
+
+  await surveyUnmerged(h.root, { now: NOW, gh: writesMeanwhile, reviews: join(h.base, 'auto-review'), only: 'web' });
+
+  assert.equal(unit(h, 'hobkin/api-work').title, 'written meanwhile');
+  assert.equal(unit(h, 'hobkin/web-work', 'web').title, 'hobkin/web-work');
+});
+
 test('hobkin work sync with a project it does not know says so', async t => {
   const h = workspace(t);
 

@@ -749,17 +749,27 @@ export async function surveyUnmerged(root, options = {}) {
   }
 }
 
+/**
+ * A survey of one project, written into the record as it stands now, so what another survey wrote while this one ran stays. Only projects still
+ * surveyed keep theirs, as in a survey of every project, and `at` stays: it is when every project was last surveyed, which the owner's half-hour survey goes by.
+ */
+function intoLatest(root, surveyed, projects) {
+  const { at, projects: latest } = readUnmerged(root);
+  const kept = Object.fromEntries(surveyed.filter(({ slug }) => latest[slug]).map(({ slug }) => [slug, latest[slug]]));
+  return { at, projects: { ...kept, ...projects } };
+}
+
 async function surveyHeld(root, { now = Date.now(), gh = defaultGh, reviews = reviewsFolder(), only = null }) {
-  const last = readUnmerged(root);
-  const previous = last.projects;
+  const previous = readUnmerged(root).projects;
   const grades = readReviewGrades({ folder: reviews, now });
-  const projects = only ? { ...previous } : {};
+  const projects = {};
   const settled = [];
   const filed = [];
   const adopted = [];
   const retired = [];
   // A goal has no branches, and git would read the repository around its folder.
-  for (const { slug, path } of chosenProjects(root).filter(project => !isGoal(project) && (!only || project.slug === only))) {
+  const surveyed = chosenProjects(root).filter(project => !isGoal(project));
+  for (const { slug, path } of surveyed.filter(project => !only || project.slug === only)) {
     const { clone, trees } = paths(root, slug);
     // A name alone says a branch is a backup, so this reads nothing from the repository. It goes first, so no item for a backup counts as finished work below.
     retired.push(...retireBackupWork(root, slug, now));
@@ -780,8 +790,7 @@ async function surveyHeld(root, { now = Date.now(), gh = defaultGh, reviews = re
       if (previous[slug]) projects[slug] = previous[slug];
     }
   }
-  // `at` is when every project was last surveyed, which the owner's half-hour survey goes by, so one project's survey leaves it.
-  const survey = { at: only ? last.at : new Date(now).toISOString(), projects };
+  const survey = only ? intoLatest(root, surveyed, projects) : { at: new Date(now).toISOString(), projects };
   atomicJson(surveyPath(root), survey);
   return { ...survey, settled, filed, adopted, retired };
 }
