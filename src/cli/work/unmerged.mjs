@@ -52,6 +52,9 @@ const SURVEY_KEY = /^(?:branch|ship):/;
 const BACKUP_REASON = 'Its branch is only a backup of another branch, so there is no work of its own here.';
 
 const PATCH_CHECK_TIMEOUT_MS = 60000;
+// How many branches or PRs a survey reads at a time. On 2026-11-25 one project's 105 branches all at once took 22 s and 306 CPU seconds, most
+// of it the system juggling up to 88 git processes, and two at a time 28 s and 48 CPU seconds.
+const AT_ONCE = 2;
 
 const run = promisify(execFile);
 export const ghWithin = timeout => async (args, cwd) => (await run('gh', args, { cwd, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
@@ -223,6 +226,20 @@ async function conflictsWith(repo, tip, name) {
 
 const lines = text => text.split('\n').filter(Boolean);
 
+/** `work` for each of `list`, AT_ONCE at a time, with the answers in the order of `list`. */
+async function inTurns(list, work) {
+  const answers = new Array(list.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < list.length) {
+      const index = next++;
+      answers[index] = await work(list[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(AT_ONCE, list.length) }, worker));
+  return answers;
+}
+
 /** The copies of the default branch a change can have left: this machine's, and origin's when origin has one. Asked once a project. */
 async function defaultCopies(repo, base) {
   const onOrigin = `refs/remotes/origin/${base}`;
@@ -292,7 +309,7 @@ async function placesOf({ repo, name, sha, others }) {
   const merged = others.find(other => holders.some(([holder]) => holder === other));
   if (merged) return { heldBy, landedOn: merged };
 
-  // One at a time, because a survey already runs one of these for every branch of a project together.
+  // One at a time, because a survey already runs one of these for other branches of the project.
   for (const other of others) {
     if (await holdsAllOf(repo, other, name)) return { heldBy, landedOn: other };
   }
@@ -377,7 +394,7 @@ async function pullHead({ repo, start, pr, grades, previous }) {
 async function mergedHere({ repo, base, units, previous }) {
   const stillOpen = new Set(units.map(unit => unit.branch));
   const gone = (previous.open ?? []).filter(unit => unit.kind === 'branch' && !stillOpen.has(unit.branch));
-  const landed = await Promise.all(gone.map(unit => isMerged(repo, unit.sha, base)));
+  const landed = await inTurns(gone, unit => isMerged(repo, unit.sha, base));
   return gone.filter((_unit, index) => landed[index]).map(unit => unit.branch);
 }
 
@@ -407,7 +424,7 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   const bare = branches.filter(branch => !branch.merged && !withPull.has(branch.name) && !BACKUP_BRANCH.test(branch.name));
   const others = await usersBranches(repo, base, finished);
   const copies = await defaultCopies(repo, base);
-  const units = await Promise.all(bare.map(branch => branchUnit({ repo, copies, tip, branch, grades, others, previous })));
+  const units = await inTurns(bare, branch => branchUnit({ repo, copies, tip, branch, grades, others, previous }));
   const landed = await mergedHere({ repo, base, units, previous });
   // Git keeps no date for a local merge, so one seen now is dated now.
   const merges = [previous.lastMergeAt, landed.length ? new Date(now).toISOString() : null, ...ownPulls.map(pr => pr.mergedAt)];
@@ -426,7 +443,7 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
       ...await pullHead({ repo, start, pr, grades, previous }),
     };
   };
-  const openPulls = await Promise.all(ownPulls.filter(pr => pr.state === 'OPEN').map(surveyPull));
+  const openPulls = await inTurns(ownPulls.filter(pr => pr.state === 'OPEN'), surveyPull);
   // The TLA+ models on the default branch with the files each models, which its readiness and the weekly recheck read.
   const specs = (await specsAt(repo, tip)).map(({ spec, sha256, models }) => ({ spec, sha256, models }));
   return {
