@@ -49,7 +49,9 @@ const StepEntries = createContext<readonly ActivityEntry[]>([])
  * a file it changed as a diff, and what it read in one row. Each kind of tool block arrives open or closed to its
  * one-line header as Settings says, and opens or closes by that header, or with every other block by Control+O
  * (blocks.ts). A step that comes after the canvas was drawn fades in as it moves up from just below (arrive.ts), and
- * nothing of it changes size. A step that did not change is not drawn again, and one out of view is not drawn at all.
+ * nothing of it changes size. A step that did not change is not drawn again. One out of view is still painted: WebKit
+ * left a step that skipped its painting there (content-visibility) blank for a few frames as it scrolled into view,
+ * and a new step blank at a guessed height, so the page flickered while steps came in.
  */
 export const StepItem = memo(
   function StepItem({ step, timeOf, ended }: { step: Step; timeOf: TimeOf; ended: boolean }) {
@@ -60,10 +62,9 @@ export const StepItem = memo(
         data-step-key={step.key}
         tabIndex={-1}
         // Every step shares one inset, so text, rows and boxes start on one line. The step paints only inside itself
-        // (content-visibility), and the inset leaves room for a glyph's edge and for a row's hover to bleed into.
+        // (contain), and the inset leaves room for a glyph's edge and for a row's hover to bleed into.
         className={cn(
-          'w-full min-w-0 rounded-[18px] px-2.5 text-left outline-none [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
-          step.kind === 'says' ? '[contain-intrinsic-size:auto_56px]' : '[contain-intrinsic-size:auto_44px]',
+          'w-full min-w-0 rounded-[18px] px-2.5 text-left outline-none [contain:content] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
           arrival,
         )}
       >

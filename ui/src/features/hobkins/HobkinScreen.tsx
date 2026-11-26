@@ -434,7 +434,7 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
   )
 }
 
-const STEP = 'rounded-[18px] outline-none [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]'
+const STEP = 'rounded-[18px] outline-none [contain:content] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]'
 
 /**
  * What began a turn, or what the user added while it worked. The user's own words sit on their side, marked as on an
@@ -445,7 +445,7 @@ const STEP = 'rounded-[18px] outline-none [content-visibility:auto] focus-visibl
 function Said({ text, images, at, delivery, from = null }: { text: string; images?: readonly Attachment[]; at: number | null; delivery: Delivery | null; from?: string | null }) {
   const arrival = useArrival()
   return (
-    <li data-step="note" tabIndex={-1} className={cn('group w-full min-w-0 px-2.5 outline-none [contain-intrinsic-size:auto_48px] [content-visibility:auto]', arrival)}>
+    <li data-step="note" tabIndex={-1} className={cn('group w-full min-w-0 px-2.5 outline-none [contain:content]', arrival)}>
       <Stamped at={at} line={from ? 'from' : 'bubble'}>
         <div
           className={cn(
@@ -481,7 +481,7 @@ function Answer({ turn, at }: { turn: ShownTurn; at: number | null }) {
   const why = whyOf(turn)
   const wentWrong = turn.status === 'failed' || turn.status === 'interrupted'
   return (
-    <li data-step="says" tabIndex={-1} className={cn('w-full min-w-0 px-2.5 text-left [contain-intrinsic-size:auto_56px]', STEP, arrival)}>
+    <li data-step="says" tabIndex={-1} className={cn('w-full min-w-0 px-2.5 text-left', STEP, arrival)}>
       <Stamped at={at} line={turn.reply ? 'text' : 'note'}>
         {turn.reply ? (
           <div className="max-w-[92%] text-[15px] leading-relaxed break-words">

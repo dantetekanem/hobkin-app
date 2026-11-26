@@ -28,7 +28,7 @@ export function ScheduleRunsItem({ row }: { row: RunsRow }) {
     <li
       data-step="schedule"
       tabIndex={-1}
-      className={cn('w-full min-w-0 rounded-[18px] px-2.5 text-left outline-none [contain-intrinsic-size:auto_36px] [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]', arrival)}
+      className={cn('w-full min-w-0 rounded-[18px] px-2.5 text-left outline-none [contain:content] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]', arrival)}
     >
       <Stamped at={row.at} line="row">
         <ScheduleRuns row={row} />

@@ -30,7 +30,7 @@ const scrolls = (element: Element) => ['auto', 'scroll', 'overlay'].includes(get
 
 /**
  * True once the box has come in or near the view of the transcript that scrolls around it, and from then on. The step
- * that holds it is watched rather than the box, as a step far from view is not laid out (content-visibility).
+ * that holds it is watched rather than the box.
  */
 export function useNear(box: RefObject<HTMLElement | null>): boolean {
   const [near, setNear] = useState(false)

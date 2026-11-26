@@ -189,7 +189,7 @@ function ExchangeSteps({ agentId, hue, question, waiting, idle }: { agentId: str
     >
       <ol ref={scroll.content} data-agent-exchange onKeyDown={walkSteps} aria-label="What the agent has done" className="mt-auto flex flex-col gap-3 pt-2 pb-3">
         {question ? (
-          <li data-step="question" tabIndex={-1} className="flex flex-col gap-2 rounded-[18px] outline-none [contain-intrinsic-size:auto_64px] [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
+          <li data-step="question" tabIndex={-1} className="flex flex-col gap-2 rounded-[18px] outline-none [contain:content] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
             <QuestionBubble hue={hue} question={question} waiting={waiting} />
             <p className="flex h-6 items-center self-start pl-8 text-[12px] text-muted-foreground">{waiting ? 'Your answer goes in the box below.' : 'Answered.'}</p>
           </li>
@@ -277,7 +277,7 @@ function Thinking({ activity, run }: { activity: AgentActivity | null; run: stri
 function Said({ note }: { note: AgentNote }) {
   const arrival = useArrival()
   return (
-    <li data-step="note" tabIndex={-1} className={cn('group w-full min-w-0 px-2.5 outline-none [contain-intrinsic-size:auto_48px] [content-visibility:auto]', arrival)}>
+    <li data-step="note" tabIndex={-1} className={cn('group w-full min-w-0 px-2.5 outline-none [contain:content]', arrival)}>
       <Stamped at={note.at} line="bubble">
         <div className="ml-auto w-fit max-w-[72%] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-left text-[15px] leading-relaxed whitespace-pre-wrap group-focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
           {note.images ? <SentImages attachments={note.images} /> : null}
