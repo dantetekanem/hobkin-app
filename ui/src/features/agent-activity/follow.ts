@@ -28,6 +28,15 @@ interface Sizes {
   disconnect(): void
 }
 
+/**
+ * Where a transcript starts: following its newest step, as one with no start does, or held `top` pixels down where the
+ * user left it reading, not following until they scroll back down to the end.
+ */
+export interface FollowStart {
+  following: boolean
+  top: number
+}
+
 export interface FollowOptions {
   /** Where a pointer or touch is let go: the window. */
   page: EventTarget
@@ -35,6 +44,8 @@ export interface FollowOptions {
   Observer: new (callback: () => void) => Sizes
   /** Told whenever the view starts or stops following, so the way back down can be offered. */
   onPinned: (pinned: boolean) => void
+  /** Where it starts. Without one, at the newest step, following it. */
+  start?: FollowStart
 }
 
 export interface FollowControl {
@@ -49,8 +60,8 @@ export interface FollowControl {
 }
 
 /** Starts following the end of `element`, the box that scrolls, as `list`, the steps inside it, grows. */
-export function followEnd(element: HTMLElement, list: HTMLElement, { page, Observer, onPinned }: FollowOptions): FollowControl {
-  let following = true
+export function followEnd(element: HTMLElement, list: HTMLElement, { page, Observer, onPinned, start }: FollowOptions): FollowControl {
+  let following = start?.following ?? true
   let lastTop = 0
   let dragging = false
   let held: ReturnType<typeof setTimeout> | undefined
@@ -112,8 +123,15 @@ export function followEnd(element: HTMLElement, list: HTMLElement, { page, Obser
   // Heard on the way down, before anything on the page can keep the release to itself.
   for (const name of RELEASES) page.addEventListener(name, release, true)
   list.addEventListener(UNFOLD, unfold)
-  // It opens at the newest step: no scrolling to watch.
-  toEnd()
+  // It opens at the newest step: no scrolling to watch. One left where the user read opens there. Given a start, it
+  // says which, as a page shown again may have been following or not when it was hidden.
+  if (following) toEnd()
+  else if (start) {
+    unscrollSideways()
+    element.scrollTo({ top: start.top, behavior: 'auto' })
+    lastTop = element.scrollTop
+  }
+  if (start) onPinned(following)
 
   return {
     get following() {

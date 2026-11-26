@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { followEnd, UNFOLD, type FollowControl } from '../src/features/agent-activity/follow.ts'
+import { followEnd, UNFOLD, type FollowControl, type FollowStart } from '../src/features/agent-activity/follow.ts'
 import { tellUnfold } from '../src/features/agent-activity/unfold.ts'
 
 /** A ResizeObserver that calls back only for what it watches, when the test says a box changed size. */
@@ -22,7 +22,7 @@ class Sizes {
 const resized = (target: object) => Sizes.all.forEach((sizes) => sizes.watched.has(target) && sizes.callback())
 
 /** A transcript: the element that scrolls, the list of steps inside it, and how far down it is. Its scrolls are recorded with how they were asked for. */
-function transcript(height: number, client: number) {
+function transcript(height: number, client: number, start?: FollowStart) {
   const asked: string[] = []
   const box = Object.assign(new EventTarget(), {
     scrollTop: 0,
@@ -45,6 +45,7 @@ function transcript(height: number, client: number) {
     page: new EventTarget(),
     Observer: Sizes,
     onPinned: (pinned) => pins.push(pinned),
+    ...(start ? { start } : {}),
   })
   const end = () => box.scrollHeight - box.clientHeight
   return { box, list, follow, pins, end, asked }
@@ -163,5 +164,31 @@ test('a row the user opens tells the transcript as a box does, so the view holds
   resized(list)
   assert.notEqual(box.scrollTop, end(), 'the row opens below itself, and the view stays on it')
   assert.equal(follow.following, false)
+  follow.dispose()
+})
+
+test('a transcript left read up opens where it was, not following, and what grows below it does not move it', () => {
+  const { box, list, follow, pins, end } = transcript(3000, 600, { following: false, top: 700 })
+  assert.equal(box.scrollTop, 700, 'it opens where it was read')
+  assert.equal(follow.following, false)
+  assert.deepEqual(pins, [false], 'the way back down is offered at once')
+  box.scrollHeight = 3400
+  resized(list)
+  resized(box)
+  assert.equal(box.scrollTop, 700, 'a step that arrives does not take it to the end')
+  // Scrolling down to the end follows again, as from any place the user reads.
+  box.scrollTop = end()
+  follow.onScroll()
+  assert.equal(follow.following, true)
+  follow.dispose()
+})
+
+test('a start that follows opens at the newest step, as a transcript with no start does', () => {
+  const { box, list, follow, end } = transcript(3000, 600, { following: true, top: 120 })
+  assert.equal(box.scrollTop, end())
+  assert.equal(follow.following, true)
+  box.scrollHeight = 3200
+  resized(list)
+  assert.equal(box.scrollTop, end())
   follow.dispose()
 })
