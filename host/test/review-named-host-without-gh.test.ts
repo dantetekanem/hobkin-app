@@ -14,12 +14,8 @@ const id = 'pr:corp:acme/shop/7'
 const gitAt = (repo: string) => (...args: string[]) =>
   execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim()
 
-/**
- * A named code host on this Mac: its repositories are bare ones in a folder, its pull request heads under
- * `refs/pull/<n>/head`, and its API command a stand-in that answers by path and writes down every call.
- */
-function namedHost(t: TestContext) {
-  const folder = temporaryDirectory(t)
+/** The code host's repository acme/shop, bare in `folder`: main at the start, and pull request 7's head one commit over it. */
+function hostRepository(folder: string) {
   const work = join(folder, 'work')
   mkdirSync(join(work, 'app'), { recursive: true })
   const git = gitAt(work)
@@ -28,40 +24,78 @@ function namedHost(t: TestContext) {
   git('add', '.')
   git('commit', '--quiet', '-m', 'Start')
   const base = git('rev-parse', 'HEAD')
+
   writeFileSync(join(work, 'app/cart.rb'), 'class Cart\n  def total = 1.round\nend\n')
   git('commit', '--quiet', '-am', 'Round')
   const head = git('rev-parse', 'HEAD')
+
   const bare = join(folder, 'repos', 'acme', 'shop.git')
   mkdirSync(join(folder, 'repos', 'acme'), { recursive: true })
   execFileSync('git', ['init', '--quiet', '--bare', bare])
   git('push', '--quiet', bare, `${base}:refs/heads/main`, `${head}:refs/pull/7/head`)
+  return { base, head }
+}
 
-  const answers = {
-    'repos/acme/shop/pulls/7': { state: 'open', title: 'Round the total', body: 'Rounds it.', base: { ref: 'main', sha: base }, head: { ref: 'round', sha: head }, user: { login: 'someone' } },
-    'repos/acme/shop/pulls/7/reviews': { html_url: 'https://git.example.invalid/acme/shop/pull/7#review-1' },
-    user: { login: 'me' },
-  }
-  writeFileSync(join(folder, 'answers.json'), JSON.stringify(answers))
-  const calls = join(folder, 'calls.jsonl')
+/** A stand-in for the code host's API command: it answers each path from `answers`, and writes down every call. */
+function standInApi(folder: string, answers: Record<string, unknown>) {
+  const answersFile = join(folder, 'answers.json')
+  const callsFile = join(folder, 'calls.jsonl')
   const program = join(folder, 'corp-api')
+  writeFileSync(answersFile, JSON.stringify(answers))
   writeFileSync(
     program,
     `#!${process.execPath}
 const fs = require('node:fs')
 const args = process.argv.slice(2)
+const method = args[0] === '--method' ? args[1] : 'GET'
+const path = args[0] === '--method' ? args[2] : args[0]
 const input = fs.readFileSync(0, 'utf8')
-const method = args.includes('--method') ? args[args.indexOf('--method') + 1] : 'GET'
-const path = args.find((word) => !word.startsWith('-') && word !== method && word !== 'acme/shop')
-fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ method, path, input }) + '\\n')
-const answer = JSON.parse(fs.readFileSync(${JSON.stringify(join(folder, 'answers.json'))}, 'utf8'))[path]
-if (!answer) { process.stderr.write('HTTP 404: ' + path + '\\n'); process.exit(1) }
+fs.appendFileSync(${JSON.stringify(callsFile)}, JSON.stringify({ method, path, input }) + '\\n')
+const answer = JSON.parse(fs.readFileSync(${JSON.stringify(answersFile)}, 'utf8'))[path]
+if (!answer) {
+  process.stderr.write('HTTP 404: ' + path + '\\n')
+  process.exit(1)
+}
 process.stdout.write(JSON.stringify(answer))
 `,
   )
   chmodSync(program, 0o755)
-  const host = { name: 'corp', web: 'https://git.example.invalid', api: [program, '--repo', '{owner}/{repo}'], git: join(folder, 'repos', '{owner}', '{repo}.git'), checkout: false }
-  const asked = () => (existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { method: string; path: string; input: string }) : [])
-  return { host, base, head, asked }
+
+  const calls = () => {
+    if (!existsSync(callsFile)) return []
+    return readFileSync(callsFile, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { method: string; path: string; input: string })
+  }
+  return { program, calls }
+}
+
+/** A named code host on this Mac, as the code host file names it: its repository on disk and its API command a stand-in. */
+function namedHost(t: TestContext) {
+  const folder = temporaryDirectory(t)
+  const { base, head } = hostRepository(folder)
+  const api = standInApi(folder, {
+    'repos/acme/shop/pulls/7': {
+      state: 'open',
+      title: 'Round the total',
+      body: 'Rounds it.',
+      base: { ref: 'main', sha: base },
+      head: { ref: 'round', sha: head },
+      user: { login: 'someone' },
+    },
+    'repos/acme/shop/pulls/7/reviews': { html_url: 'https://git.example.invalid/acme/shop/pull/7#review-1' },
+    user: { login: 'me' },
+  })
+  const host = {
+    name: 'corp',
+    web: 'https://git.example.invalid',
+    api: [api.program],
+    git: join(folder, 'repos', '{owner}', '{repo}.git'),
+    // A host that allows no checkout gets no AI review and no call-graph scan, so the live seat starts neither.
+    checkout: false,
+  }
+  return { host, base, head, apiCalls: api.calls }
 }
 
 /** A live host's review seat on a Mac with no gh, whose home names the code host in its code host file. */
@@ -85,7 +119,7 @@ function liveSeatWithoutGh(t: TestContext, host: object) {
 }
 
 test("a live host on a Mac with no gh still checks out a named host's pull request, reads it, and posts its verdict through that host", async (t) => {
-  const { host, base, head, asked } = namedHost(t)
+  const { host, base, head, apiCalls } = namedHost(t)
   const { root, reviews } = liveSeatWithoutGh(t, host)
 
   reviews.prepare(id, { asked: true })
@@ -98,7 +132,7 @@ test("a live host on a Mac with no gh still checks out a named host's pull reque
 
   const preview = await reviews.preview(id, 'comment', 'Reads well.', head)
   await reviews.verdict(id, 'comment', 'Reads well.', preview.confirm, head)
-  const posted = asked().filter((call) => call.method !== 'GET')
+  const posted = apiCalls().filter((call) => call.method !== 'GET')
   assert.deepEqual(posted.map((call) => [call.method, call.path]), [['POST', 'repos/acme/shop/pulls/7/reviews']], 'the verdict went through the named host')
 })
 
