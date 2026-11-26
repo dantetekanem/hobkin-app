@@ -148,7 +148,7 @@ function foldLog(root) {
  */
 export const openDecisions = root => readAll(root)
   .filter(({ answer }) => answer === undefined)
-  .map(decision => ({ ...decision, defaultsAt: isDueAt(Infinity)(decision) ? decision.deadline : null }));
+  .map(decision => ({ ...decision, defaultsAt: !decision.handedAt && isDueAt(Infinity)(decision) ? decision.deadline : null }));
 
 /** What waits on the user: open, less what they handed to the main agent, which closes it once it is done. */
 export const waitingDecisions = root => openDecisions(root).filter(({ handedAt }) => !handedAt);

@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { openCheck } from '../src/cli/checks.mjs';
 import { buildContext } from '../src/cli/context.mjs';
 import {
-  answerDecision, answeredByUser, decisionRow, fileDecision, findDecision, markShown, openDecisions, runDecideCommand, tickDecisionDefaults,
+  answerDecision, answeredByUser, decisionRow, fileDecision, findDecision, handDecision, markShown, openDecisions, runDecideCommand, tickDecisionDefaults,
 } from '../src/cli/decisions.mjs';
 import { readEvents } from '../src/cli/events.mjs';
 import { inboxToTell } from '../src/cli/inbox.mjs';
@@ -444,6 +444,15 @@ test('an open card says when it takes its pick by itself, and one that waits for
   await runDecideCommand(root, ['routine', 'docs'], card({ reversible: false, deadline: LATER }), FILED);
 
   assert.deepEqual(openDecisions(root).map(({ defaultsAt }) => defaultsAt), [LATER, null, null, null]);
+});
+
+test('a card handed to the main agent waits for it, so it promises no pick at its deadline', async t => {
+  const root = home(t);
+  const { id } = await runDecideCommand(root, ['routine', 'site'], card({ reversible: true, deadline: LATER }), FILED);
+  handDecision(root, id, FILED + 1000);
+
+  assert.deepEqual(openDecisions(root).map(({ defaultsAt }) => defaultsAt), [null]);
+  assert.deepEqual(await tickDecisionDefaults(root, Date.parse(LATER) + 60000), []);
 });
 
 test('a card that cannot be undone, has no pick, says nothing of undoing or whose deadline is ahead keeps waiting', async t => {
