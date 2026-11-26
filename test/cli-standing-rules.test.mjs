@@ -143,7 +143,29 @@ test('hobkin decisions always answers with the pick and keeps it as a rule, said
   assert.match(openCheck(root, 'site').memory.text, /They answered: Merge it/);
   const [rule] = readStandingRules(root);
   assert.deepEqual([rule.kind, rule.match, rule.then], ['answer', { kind: 'merge-small-fix', asker: 'routine:site' }, { answer: 'merge', label: 'Merge it' }]);
-  assert.equal(rule.said, 'From now on, questions of the kind merge-small-fix take "Merge it" without asking.');
+  assert.equal(rule.said, 'From now on, questions of the kind merge-small-fix from Routine site take "Merge it" without asking.');
+});
+
+test('always on a learn card says back its rule for the pick, and the chosen label for any other choice', async t => {
+  const root = workspace(t);
+  const learn = key => Readable.from([JSON.stringify({
+    key, question: 'Small fix ready. Merge?', kind: 'merge-small-fix', learn: true, rule: 'From now on, small fixes merge without asking.',
+    choices: [{ value: 'merge', label: 'Merge it' }, { value: 'skip', label: 'Skip it' }], recommended: 'merge',
+  })]);
+  const pick = await runDecideCommand(root, ['routine', 'site'], learn('pick'), NOW);
+  const other = await runDecideCommand(root, ['routine', 'docs'], learn('other'), NOW);
+  const onCard = await runDecideCommand(root, ['routine', 'news'], learn('card'), NOW);
+
+  await run(['decisions', 'always', pick.id, '--home', root]);
+  await run(['decisions', 'always', other.id, 'skip', '--home', root]);
+  await run(['decisions', 'answer', onCard.id, 'always', '--home', root]);
+
+  assert.deepEqual(readStandingRules(root).map(({ match, then, said }) => [match.asker, then.answer, said]), [
+    ['routine:site', 'merge', 'From now on, small fixes merge without asking.'],
+    ['routine:docs', 'skip', 'From now on, questions of the kind merge-small-fix from Routine docs take "Skip it" without asking.'],
+    ['routine:news', 'merge', 'From now on, small fixes merge without asking.'],
+  ]);
+  assert.match(openCheck(root, 'news').memory.text, /They answered: Always: From now on, small fixes merge without asking\./);
 });
 
 test('always needs a card a rule could answer again: with a kind, from a routine or a session, undoable and not guarded', async t => {

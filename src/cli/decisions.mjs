@@ -73,7 +73,17 @@ function assertDecision({ question, choices, recommended, ...card }, now = Date.
   if (!complete || !fits || values.size !== choices.length) throw Error(`A decision needs ${FEWEST_CHOICES} to ${MOST_CHOICES} distinct choices, each with a value and a label.`);
   if (recommended && !values.has(recommended)) throw Error('`recommended` has to be the value of one of its choices.');
   assertCard({ ...card, recommended }, now);
+  if (card.learn && (choices.length > MOST_CHOICES - 1 || values.has(ALWAYS))) {
+    throw Error(`A learn card gives up to ${MOST_CHOICES - 1} choices, none of them \`${ALWAYS}\`, because hobkin adds the one that keeps the rule.`);
+  }
 }
+
+/**
+ * The choice hobkin adds to a learn card, last, so the user sees the rule before keeping it: the card's pick, and that rule from now on. The
+ * label is the whole rule, never cut.
+ */
+const ALWAYS = 'always';
+const alwaysChoice = rule => ({ value: ALWAYS, label: `Always: ${rule.trim()}` });
 
 /**
  * Every card field as kept: a deadline as one ISO time, a rule trimmed, and null for one not given. A filing writes them all, so one filed
@@ -133,6 +143,9 @@ export function answeredByUser(root, since = 0) {
 
 function fileRecord(root, { key = null, from, question, tldr, choices, answerTo = null, recommended = null, why = null, changed = null, links = [], reports = [], shown = false, ...card }, now) {
   assertDecision({ question, choices, recommended, ...card }, now);
+  if (card.learn && !ruleCouldAnswer({ ...card, answerTo, from })) {
+    throw Error('`learn` needs a question a rule could answer again: from a routine or another session, one that can be undone, and not about sending, spending, deleting, the user\'s time, health, money or law.');
+  }
   const known = key && openDecisions(root).find(decision => decision.key === key);
   const id = known?.id ?? randomUUID();
   append(root, {
@@ -141,7 +154,7 @@ function fileRecord(root, { key = null, from, question, tldr, choices, answerTo 
     from,
     question: question.trim().slice(0, LONGEST_QUESTION),
     tldr: tldrFrom({ tldr, question }),
-    choices: choices.map(shortChoice),
+    choices: [...choices.map(shortChoice), ...(card.learn ? [alwaysChoice(card.rule)] : [])],
     answerTo,
     recommended,
     why: shortReason(why),
@@ -166,7 +179,10 @@ export const fileDecision = (root, { links, shown, ...decision }, now = Date.now
 /** It has had its moment on screen, so from here it only waits in the tab. */
 export const markShown = (root, id) => append(root, { id, shown: true });
 
-const ruleSaid = ({ kind, rule }, label) => rule ?? `From now on, questions of the kind ${kind} take "${label}" without asking.`;
+// The card's own rule says what its pick would do from now on, so any other choice is said back from its label.
+const ruleSaid = ({ kind, rule, recommended, from }, answer, label) => (rule && answer === recommended
+  ? rule
+  : `From now on, questions of the kind ${kind} from ${from} take "${label}" without asking.`);
 
 /** Whose questions a standing rule answers, as its match names them: one routine's, or one other session's by its name. A work run has none. */
 function ruleAsker({ answerTo, from }) {
@@ -178,28 +194,29 @@ function ruleAsker({ answerTo, from }) {
 /** A rule could answer this card when it comes again: it has a kind and an asker, it can be undone, and its kind is not guarded (`outward.mjs`). */
 const ruleCouldAnswer = decision => Boolean(decision.kind && ruleAsker(decision)) && decision.reversible !== false && !isGuardedKind(decision.kind);
 
-/**
- * The user's answer that settles later cases of its kind from the same asker: a learn card answered with its pick, or any card answered with
- * the choice they said always to take. The card was the read-back, so nothing more is asked. A default is never the user's yes, so it keeps no rule.
- */
-function keepAsRule(root, id, answer, now) {
-  const decision = readAll(root).find(entry => entry.id === id);
-  const kept = decision && ruleCouldAnswer(decision) && (decision.always === answer || (decision.learn && answer === decision.recommended));
-  if (!kept) return;
+/** Keeps the user's answer as a standing rule for later cases of the card's kind from the same asker. */
+function keepAsRule(root, decision, answer, now) {
   const label = decision.choices.find(choice => choice.value === answer)?.label ?? answer;
   const match = { kind: decision.kind, asker: ruleAsker(decision) };
-  saveStandingRule(root, { kind: 'answer', match, then: { answer, label }, said: ruleSaid(decision, label) }, now);
+  saveStandingRule(root, { kind: 'answer', match, then: { answer, label }, said: ruleSaid(decision, answer, label) }, now);
 }
 
-/** An answer in the user's own words is `typed`, and `typed` keeps the words. One the card took at its deadline is `byDefault`. */
+/**
+ * An answer in the user's own words is `typed`, and `typed` keeps the words. One the card took at its deadline is `byDefault`. Only a choice
+ * the user saw as a rule keeps one: a learn card's `always`, which answers with its pick, or the choice `hobkin decisions always` marked.
+ * Taking the pick alone keeps none, and a default is never the user's yes.
+ */
 export function answerDecision(root, id, answer, now = Date.now(), { typed, byDefault = false } = {}) {
-  append(root, { id, answer, ...(typed ? { typed } : {}), ...(byDefault ? { byDefault } : {}), answeredAt: new Date(now).toISOString() });
-  if (!typed && !byDefault) keepAsRule(root, id, answer, now);
+  const decision = typed || byDefault ? null : readAll(root).find(entry => entry.id === id);
+  const learned = Boolean(decision?.learn) && answer === ALWAYS;
+  const kept = learned ? decision.recommended : answer;
+  append(root, { id, answer: kept, ...(typed ? { typed } : {}), ...(byDefault ? { byDefault } : {}), answeredAt: new Date(now).toISOString() });
+  if ((learned || decision?.always === answer) && ruleCouldAnswer(decision)) keepAsRule(root, decision, kept, now);
 }
 
 /**
  * `hobkin decisions always <id> [value]`: the user said to always do this, their pick or the card's. It marks the card, and the answer that
- * follows with that choice keeps the rule. A card with no kind has nothing a rule could match again. Gives the arguments that answer it.
+ * follows with that choice keeps the rule. A card no rule could answer again is refused. Gives the arguments that answer it.
  */
 export function markAlways(root, [id, value] = []) {
   if (!id) throw Error('Say `hobkin decisions always <id>`, with a value after it to always take another choice than its pick.');

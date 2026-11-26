@@ -292,11 +292,17 @@ test('the filed event names the topic as a hash, never its words, so a question 
 
 const learnCard = (fields = {}) => card({ kind: 'merge-small-fix', learn: true, rule: 'From now on, small fixes merge without asking.', ...fields });
 
-test('a learn card answered with its pick becomes a standing rule, and the next question of that kind from that routine is answered by it', async t => {
+test('a learn card shows its rule as one more choice, and that choice takes the pick and keeps the rule', async t => {
   const root = home(t);
-  const { id } = await runDecideCommand(root, ['routine', 'site'], learnCard(), FILED);
-  answerDecision(root, id, 'merge', FILED + 60000);
+  const { id } = await runDecideCommand(root, ['routine', 'site'], learnCard({ key: 'typo' }), FILED);
 
+  const [filed] = openDecisions(root);
+  assert.deepEqual(filed.choices, [...laterOrMerge, { value: 'always', label: 'Always: From now on, small fixes merge without asking.' }]);
+  assert.equal(filed.recommended, 'merge', 'the pick stays the asker\'s own');
+  answerDecision(root, id, 'always', FILED + 60000);
+
+  const asked = await runDecideCommand(root, ['routine', 'site'], learnCard({ key: 'typo' }), FILED + DAY_MS);
+  assert.deepEqual([asked.answer, asked.label], ['merge', 'Merge it'], 'the asker hears the pick');
   const [rule] = readStandingRules(root);
   assert.deepEqual([rule.kind, rule.match, rule.then, rule.said, rule.by], ['answer', { kind: 'merge-small-fix', asker: 'routine:site' }, { answer: 'merge', label: 'Merge it' }, 'From now on, small fixes merge without asking.', 'user']);
 
@@ -306,13 +312,30 @@ test('a learn card answered with its pick becomes a standing rule, and the next 
   assert.deepEqual([again.ok, again.answer, again.label, again.rule.id, again.rule.said], [true, 'merge', 'Merge it', rule.id, rule.said]);
   assert.match(again.message, /2026-11-26.*From now on, small fixes merge without asking\./);
   const recalled = readEvents(root).filter(({ type }) => type === 'decision_recalled');
-  assert.deepEqual(recalled.map(({ routine, by }) => [routine, by]), [['site', 'rule']]);
+  assert.deepEqual(recalled.map(({ routine, by }) => [routine, by]), [['site', undefined], ['site', 'rule']]);
+});
+
+test('a learn card gives up to five choices of its own, none of them always, and only where a rule could answer it again', async t => {
+  const root = home(t);
+  const five = ['a', 'b', 'c', 'd', 'merge'].map(value => ({ value, label: value }));
+  const refused = [
+    [['routine', 'site'], learnCard({ choices: [...five, { value: 'f', label: 'f' }] }), /up to 5 choices/],
+    [['routine', 'site'], learnCard({ choices: [{ value: 'always', label: 'Always' }, laterOrMerge[1]] }), /none of them `always`/],
+    [['work', 'api', 'abc'], learnCard(), /a rule could answer again/],
+    [['routine', 'site'], learnCard({ reversible: false }), /a rule could answer again/],
+    [['routine', 'site'], learnCard({ kind: 'email-reply' }), /a rule could answer again/],
+  ];
+
+  for (const [args, input, why] of refused) await assert.rejects(runDecideCommand(root, args, input, FILED), why);
+  assert.deepEqual(openDecisions(root), []);
+  await runDecideCommand(root, ['routine', 'site'], learnCard({ choices: five }), FILED);
+  assert.equal(openDecisions(root)[0].choices.length, 6);
 });
 
 test('a rule answers only its own routine, and never a card that cannot be undone or whose kind is guarded', async t => {
   const root = home(t);
   const { id } = await runDecideCommand(root, ['routine', 'site'], learnCard(), FILED);
-  answerDecision(root, id, 'merge', FILED);
+  answerDecision(root, id, 'always', FILED);
   saveStandingRule(root, { kind: 'answer', match: { kind: 'email-reply', asker: 'routine:site' }, then: { answer: 'merge', label: 'Merge it' }, said: 'From now on, replies go.' }, FILED);
 
   await runDecideCommand(root, ['routine', 'backup'], card({ kind: 'merge-small-fix', question: 'Skip the backup?' }), FILED);
@@ -323,11 +346,15 @@ test('a rule answers only its own routine, and never a card that cannot be undon
   assert.equal(readEvents(root).some(({ type }) => type === 'decision_recalled'), false);
 });
 
-test('a learn card answered another way, or in the user\'s own words, keeps no rule', async t => {
+test('a learn card answered with its pick, another way, or in the user\'s own words keeps no rule, nor a card whose own choice is always', async t => {
   const root = home(t);
+  const pick = await runDecideCommand(root, ['routine', 'news'], learnCard(), FILED);
   const first = await runDecideCommand(root, ['routine', 'site'], learnCard(), FILED);
   const second = await runDecideCommand(root, ['routine', 'docs'], learnCard(), FILED);
+  const own = await runDecideCommand(root, ['routine', 'mail'], card({ kind: 'mail-sort', choices: [{ value: 'once', label: 'Once' }, { value: 'always', label: 'Every time' }], recommended: 'once' }), FILED);
 
+  answerDecision(root, own.id, 'always', FILED);
+  answerDecision(root, pick.id, 'merge', FILED);
   answerDecision(root, first.id, 'later', FILED);
   answerDecision(root, second.id, 'typed', FILED, { typed: 'merge this one only' });
 
