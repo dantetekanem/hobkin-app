@@ -5,10 +5,10 @@ import { isGuardedKind } from './outward.mjs';
 import { readJson } from './work/store.mjs';
 
 /**
- * What the user said once that settles later cases of its kind (075). An `answer` rule answers a card of its kind from the same asker, such as
- * `routine:<id>`, the way the user did, and an `outward` rule lets an action leave this machine. Each was said back to the user in `said` before it was kept, and only the user makes one.
- * `runtime/standing-rules.json` is read by more than this file, so its shape stays `{ version: 1, rules: [{ id, kind, match, then, said, savedAt,
- * by }] }`.
+ * What the user said once that settles later cases of its kind (075). An `answer` rule answers a card of its kind from the same asker, such
+ * as `routine:<id>`, the way the user did, and an `outward` rule lets an action leave this machine. Each was said back to the user in `said`
+ * before it was kept, and only the user makes one. `runtime/standing-rules.json` is read by more than this file, so its shape stays
+ * `{ version: 1, rules: [{ id, kind, match, then, said, savedAt, by }] }`.
  */
 const RULE_KINDS = ['answer', 'outward'];
 const LONGEST_SAID = 300;
@@ -29,7 +29,9 @@ function assertRule({ kind, match, then, said }) {
   if (kind === 'answer' && (!isWord(match?.kind) || !isWord(match?.asker) || !isWord(then?.answer))) {
     throw Error('An answer rule matches a card `kind` and its `asker`, and `then` gives its `answer`.');
   }
-  if (typeof said !== 'string' || !said.trim() || said.length > LONGEST_SAID) throw Error(`A standing rule needs \`said\`, the sentence the user heard, up to ${LONGEST_SAID} characters.`);
+  if (typeof said !== 'string' || !said.trim() || said.length > LONGEST_SAID) {
+    throw Error(`A standing rule needs \`said\`, the sentence the user heard, up to ${LONGEST_SAID} characters.`);
+  }
 }
 
 const isWhole = rule => {
@@ -53,7 +55,9 @@ const writeRules = (root, rules) => atomicJson(rulesPath(root), { version: 1, ru
 
 function newId(rules) {
   let id;
-  do id = randomUUID().slice(0, 8); while (rules.some(rule => rule.id === id));
+  do {
+    id = randomUUID().slice(0, 8);
+  } while (rules.some(rule => rule.id === id));
   return id;
 }
 
@@ -63,8 +67,17 @@ function newId(rules) {
  */
 export function saveStandingRule(root, { kind, match, then, said }, now = Date.now()) {
   assertRule({ kind, match, then, said });
-  const kept = savedRules(root).filter(rule => !isWhole(rule) || rule.kind !== kind || !sameMatch(rule.match, match));
-  const rule = { id: newId(kept), kind, match, then, said: said.trim(), savedAt: new Date(now).toISOString(), by: 'user' };
+  const replaced = rule => isWhole(rule) && rule.kind === kind && sameMatch(rule.match, match);
+  const kept = savedRules(root).filter(rule => !replaced(rule));
+  const rule = {
+    id: newId(kept),
+    kind,
+    match,
+    then,
+    said: said.trim(),
+    savedAt: new Date(now).toISOString(),
+    by: 'user',
+  };
   writeRules(root, [...kept, rule]);
   return rule;
 }
@@ -83,10 +96,10 @@ export function forgetStandingRule(root, id) {
  */
 export function findAnswerRule(root, card) {
   if (card.reversible === false || isGuardedKind(card.kind)) return null;
+
   const values = new Set((card.choices ?? []).map(({ value }) => value));
-  const settles = ({ kind, match, then }) => kind === 'answer'
-    && Object.entries(match).every(([field, value]) => card[field] !== undefined && card[field] === value)
-    && values.has(then.answer);
+  const matchesCard = match => Object.entries(match).every(([field, value]) => card[field] !== undefined && card[field] === value);
+  const settles = ({ kind, match, then }) => kind === 'answer' && matchesCard(match) && values.has(then.answer);
   return readStandingRules(root).findLast(settles) ?? null;
 }
 

@@ -26,6 +26,9 @@ const LONGEST_RULE = 300;
 // What a card says about itself besides its question (075): how sure the asker is, whether it can be undone, when it takes its pick, which
 // class it belongs to so precedents can match it, and whether its answer should become a standing rule, said back in `rule`.
 const CARD_FIELDS = ['sure', 'reversible', 'deadline', 'kind', 'learn', 'rule'];
+// hobkin adds one choice to a learn card, the one that keeps its rule, so the asker gives one fewer than any other card may.
+const ALWAYS = 'always';
+const MOST_LEARN_CHOICES = MOST_CHOICES - 1;
 
 const logPath = root => join(root, 'decisions.jsonl');
 
@@ -73,8 +76,8 @@ function assertDecision({ question, choices, recommended, ...card }, now = Date.
   if (!complete || !fits || values.size !== choices.length) throw Error(`A decision needs ${FEWEST_CHOICES} to ${MOST_CHOICES} distinct choices, each with a value and a label.`);
   if (recommended && !values.has(recommended)) throw Error('`recommended` has to be the value of one of its choices.');
   assertCard({ ...card, recommended }, now);
-  if (card.learn && (choices.length > MOST_CHOICES - 1 || values.has(ALWAYS))) {
-    throw Error(`A learn card gives up to ${MOST_CHOICES - 1} choices, none of them \`${ALWAYS}\`, because hobkin adds the one that keeps the rule.`);
+  if (card.learn && (choices.length > MOST_LEARN_CHOICES || values.has(ALWAYS))) {
+    throw Error(`A learn card gives up to ${MOST_LEARN_CHOICES} choices, none of them \`${ALWAYS}\`, because hobkin adds the one that keeps the rule.`);
   }
 }
 
@@ -82,8 +85,20 @@ function assertDecision({ question, choices, recommended, ...card }, now = Date.
  * The choice hobkin adds to a learn card, last, so the user sees the rule before keeping it: the card's pick, and that rule from now on. The
  * label is the whole rule, never cut.
  */
-const ALWAYS = 'always';
 const alwaysChoice = rule => ({ value: ALWAYS, label: `Always: ${rule.trim()}` });
+
+/** Whose questions a standing rule answers, as its match names them: one routine's, or one other session's by its name. A work run has none. */
+function ruleAsker({ answerTo, from }) {
+  if (answerTo?.kind === 'routine' && answerTo.id) return `routine:${answerTo.id}`;
+  if (answerTo?.kind === 'outside' && from) return `outside:${from}`;
+  return null;
+}
+
+/** A rule could answer this card when it comes again: it has a kind and an asker, it can be undone, and its kind is not guarded (`outward.mjs`). */
+function ruleCouldAnswer(decision) {
+  if (!decision.kind || !ruleAsker(decision)) return false;
+  return decision.reversible !== false && !isGuardedKind(decision.kind);
+}
 
 /**
  * Every card field as kept: a deadline as one ISO time, a rule trimmed, and null for one not given. A filing writes them all, so one filed
@@ -101,10 +116,13 @@ function cardFields(decision) {
  * its key as `topic`, and, when a standing rule could have settled it, its asker's kind as `kindTopic`.
  */
 const hashOf = text => createHash('sha256').update(text).digest('hex').slice(0, 12);
-const topicsOf = decision => ({
-  ...(decision.key ? { topic: hashOf(`key:${decision.key}`) } : {}),
-  ...(ruleCouldAnswer(decision) ? { kindTopic: hashOf(`kind:${ruleAsker(decision)}:${decision.kind}`) } : {}),
-});
+
+function topicsOf(decision) {
+  const topics = {};
+  if (decision.key) topics.topic = hashOf(`key:${decision.key}`);
+  if (ruleCouldAnswer(decision)) topics.kindTopic = hashOf(`kind:${ruleAsker(decision)}:${decision.kind}`);
+  return topics;
+}
 
 // Every tick asks for the log many times over, so it is folded once per version of the file (`file-version.mjs`).
 const folded = new Map();
@@ -155,13 +173,14 @@ function fileRecord(root, { key = null, from, question, tldr, choices, answerTo 
   }
   const known = key && openDecisions(root).find(decision => decision.key === key);
   const id = known?.id ?? randomUUID();
+  const askedChoices = choices.map(shortChoice);
   append(root, {
     id,
     key,
     from,
     question: question.trim().slice(0, LONGEST_QUESTION),
     tldr: tldrFrom({ tldr, question }),
-    choices: [...choices.map(shortChoice), ...(card.learn ? [alwaysChoice(card.rule)] : [])],
+    choices: card.learn ? [...askedChoices, alwaysChoice(card.rule)] : askedChoices,
     answerTo,
     recommended,
     why: shortReason(why),
@@ -186,25 +205,20 @@ export const fileDecision = (root, { links, shown, ...decision }, now = Date.now
 export const markShown = (root, id) => append(root, { id, shown: true });
 
 // The card's own rule says what its pick would do from now on, so any other choice is said back from its label.
-const ruleSaid = ({ kind, rule, recommended, from }, answer, label) => (rule && answer === recommended
-  ? rule
-  : `From now on, questions of the kind ${kind} from ${from} take "${label}" without asking.`);
-
-/** Whose questions a standing rule answers, as its match names them: one routine's, or one other session's by its name. A work run has none. */
-function ruleAsker({ answerTo, from }) {
-  if (answerTo?.kind === 'routine' && answerTo.id) return `routine:${answerTo.id}`;
-  if (answerTo?.kind === 'outside' && from) return `outside:${from}`;
-  return null;
+function ruleSaid({ kind, rule, recommended, from }, answer, label) {
+  if (rule && answer === recommended) return rule;
+  return `From now on, questions of the kind ${kind} from ${from} take "${label}" without asking.`;
 }
-
-/** A rule could answer this card when it comes again: it has a kind and an asker, it can be undone, and its kind is not guarded (`outward.mjs`). */
-const ruleCouldAnswer = decision => Boolean(decision.kind && ruleAsker(decision)) && decision.reversible !== false && !isGuardedKind(decision.kind);
 
 /** Keeps the user's answer as a standing rule for later cases of the card's kind from the same asker. */
 function keepAsRule(root, decision, answer, now) {
   const label = decision.choices.find(choice => choice.value === answer)?.label ?? answer;
-  const match = { kind: decision.kind, asker: ruleAsker(decision) };
-  saveStandingRule(root, { kind: 'answer', match, then: { answer, label }, said: ruleSaid(decision, answer, label) }, now);
+  saveStandingRule(root, {
+    kind: 'answer',
+    match: { kind: decision.kind, asker: ruleAsker(decision) },
+    then: { answer, label },
+    said: ruleSaid(decision, answer, label),
+  }, now);
 }
 
 /**
@@ -214,10 +228,17 @@ function keepAsRule(root, decision, answer, now) {
  */
 export function answerDecision(root, id, answer, now = Date.now(), { typed, byDefault = false } = {}) {
   const decision = typed || byDefault ? null : readAll(root).find(entry => entry.id === id);
-  const learned = Boolean(decision?.learn) && answer === ALWAYS;
-  const kept = learned ? decision.recommended : answer;
-  append(root, { id, answer: kept, ...(typed ? { typed } : {}), ...(byDefault ? { byDefault } : {}), answeredAt: new Date(now).toISOString() });
-  if ((learned || decision?.always === answer) && ruleCouldAnswer(decision)) keepAsRule(root, decision, kept, now);
+  const tookAlways = Boolean(decision?.learn) && answer === ALWAYS;
+  const chosen = tookAlways ? decision.recommended : answer;
+  const keepsRule = (tookAlways || decision?.always === answer) && ruleCouldAnswer(decision);
+  append(root, {
+    id,
+    answer: chosen,
+    ...(typed ? { typed } : {}),
+    ...(byDefault ? { byDefault } : {}),
+    answeredAt: new Date(now).toISOString(),
+  });
+  if (keepsRule) keepAsRule(root, decision, chosen, now);
 }
 
 /**
@@ -405,14 +426,15 @@ export async function runDecideCommand(root, args, input, now = Date.now(), from
   // Another session's key stays apart from hobkin's own, so it can never reach one of hobkin's questions.
   const scope = outside ? ['outside'] : args;
   const scopedKey = [...scope, key || keyOf(asked.question)].join(':');
-  const earlier = asker.answerTo.kind === 'routine' && !changed?.trim() ? recentAnswer(root, scopedKey, now) : null;
+  const recalls = asker.answerTo.kind === 'routine' && !changed?.trim();
+  const earlier = recalls ? recentAnswer(root, scopedKey, now) : null;
   if (earlier) {
     recordEvent(root, 'decision_recalled', { routine: asker.answerTo.id }, now);
     return earlierAnswer(earlier);
   }
   // Then what the user settled for good, for this routine's questions of this kind. Like the recall, it answers only a routine: a work run
   // deletes with it, and two sessions can mean different things by one kind, so they read `hobkin decisions rules` themselves.
-  const rule = asker.answerTo.kind === 'routine' && !changed?.trim() ? findAnswerRule(root, { ...asked, asker: ruleAsker(asker) }) : null;
+  const rule = recalls ? findAnswerRule(root, { ...asked, asker: ruleAsker(asker) }) : null;
   if (rule) {
     recordEvent(root, 'decision_recalled', { routine: asker.answerTo.id, by: 'rule' }, now);
     return ruleAnswer(rule);
@@ -429,8 +451,11 @@ export async function runDecideCommand(root, args, input, now = Date.now(), from
 const DEFAULT_ASKERS = ['routine', 'work'];
 
 // A card of a guarded kind (`outward.mjs`) waits for the user too, whatever its asker says of undoing it.
-const isDueAt = now => ({ reversible, recommended, deadline, answerTo, kind }) =>
-  reversible === true && Boolean(recommended) && Date.parse(deadline) <= now && DEFAULT_ASKERS.includes(answerTo?.kind) && !isGuardedKind(kind);
+const isDueAt = now => ({ reversible, recommended, deadline, answerTo, kind }) => {
+  if (reversible !== true || !recommended) return false;
+  if (!DEFAULT_ASKERS.includes(answerTo?.kind) || isGuardedKind(kind)) return false;
+  return Date.parse(deadline) <= now;
+};
 
 /**
  * The asker hears the pick the way it hears an answer (`carryOutAnswer` in answer.mjs), in words that say nobody gave it. The module that
@@ -457,7 +482,8 @@ export async function tickDecisionDefaults(root, now = Date.now()) {
   for (const decision of due) {
     try {
       const { id, recommended, choices, answerTo, at } = decision;
-      await tellDefault(root, decision, choices.find(choice => choice.value === recommended)?.label ?? recommended);
+      const label = choices.find(choice => choice.value === recommended)?.label ?? recommended;
+      await tellDefault(root, decision, label);
       answerDecision(root, id, recommended, now, { byDefault: true });
       recordEvent(root, 'decision_defaulted', { id, source: answerTo.kind, ms: now - Date.parse(at) }, now);
       settled.push(id);

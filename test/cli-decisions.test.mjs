@@ -312,7 +312,9 @@ test('a learn card shows its rule as one more choice, and that choice takes the 
   const asked = await runDecideCommand(root, ['routine', 'site'], learnCard({ key: 'typo' }), FILED + DAY_MS);
   assert.deepEqual([asked.answer, asked.label], ['merge', 'Merge it'], 'the asker hears the pick');
   const [rule] = readStandingRules(root);
-  assert.deepEqual([rule.kind, rule.match, rule.then, rule.said, rule.by], ['answer', { kind: 'merge-small-fix', asker: 'routine:site' }, { answer: 'merge', label: 'Merge it' }, 'From now on, small fixes merge without asking.', 'user']);
+  assert.deepEqual(rule.match, { kind: 'merge-small-fix', asker: 'routine:site' });
+  assert.deepEqual(rule.then, { answer: 'merge', label: 'Merge it' });
+  assert.deepEqual([rule.kind, rule.said, rule.by], ['answer', 'From now on, small fixes merge without asking.', 'user']);
 
   const again = await runDecideCommand(root, ['routine', 'site'], card({ kind: 'merge-small-fix', question: 'Merge the readme fix?' }), FILED + 40 * DAY_MS);
 
@@ -350,7 +352,11 @@ test('a rule answers only its own routine, and never a card that cannot be undon
   await runDecideCommand(root, ['routine', 'site'], card({ kind: 'merge-small-fix', question: 'Merge the schema fix?', reversible: false }), FILED);
   await runDecideCommand(root, ['routine', 'site'], card({ kind: 'email-reply', question: 'Reply to the landlord?' }), FILED);
 
-  assert.deepEqual(openDecisions(root).map(({ from, kind }) => [from, kind]), [['Routine backup', 'merge-small-fix'], ['Routine site', 'merge-small-fix'], ['Routine site', 'email-reply']]);
+  assert.deepEqual(openDecisions(root).map(({ from, kind }) => [from, kind]), [
+    ['Routine backup', 'merge-small-fix'],
+    ['Routine site', 'merge-small-fix'],
+    ['Routine site', 'email-reply'],
+  ]);
   assert.equal(readEvents(root).some(({ type }) => type === 'decision_recalled'), false);
 });
 

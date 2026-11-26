@@ -90,7 +90,10 @@ function firstAnswers(events) {
   const topicsById = new Map(ofType(events, 'decision_filed').map(event => [event.id, topicsOf(event)]));
   const first = new Map();
   for (const event of ofType(events, 'decision_answered', 'decision_defaulted')) {
-    for (const topic of topicsById.get(event.id) ?? []) first.set(topic, Math.min(first.get(topic) ?? Infinity, timeOf(event)));
+    const answeredAt = timeOf(event);
+    for (const topic of topicsById.get(event.id) ?? []) {
+      first.set(topic, Math.min(first.get(topic) ?? Infinity, answeredAt));
+    }
   }
   return first;
 }
@@ -127,11 +130,12 @@ function questions(events) {
   const sheetEnds = ofType(events, 'question_ended');
   // Answered with nothing filed: from an answer of the last 30 days, or by a standing rule (decisions.mjs).
   const recalled = ofType(events, 'decision_recalled');
+  const byRule = recalled.filter(({ by }) => by === 'rule').length;
 
   return {
     ...summary(asked),
     medianAnswerMs: median(asked.map(({ ms }) => ms)),
-    notAsked: { earlierAnswer: recalled.filter(({ by }) => by !== 'rule').length, standingRule: recalled.filter(({ by }) => by === 'rule').length },
+    notAsked: { earlierAnswer: recalled.length - byRule, standingRule: byRule },
     byDay: byDay(asked, summary),
     sheet: {
       shown: ofType(events, 'question_shown').length,
@@ -195,7 +199,10 @@ function memory(events, { root, since, now }) {
 /** Outward calls agents made (`outward-guard-extension.mjs`), per day by kind, verdict and run, and the kinds a guard would have blocked. */
 function outward(events) {
   const attempts = ofType(events, 'outward_attempt').map(event => ({
-    day: localDay(event.at), kind: event.kind ?? 'unknown', verdict: event.verdict ?? 'unknown', run: event.run ?? 'unknown',
+    day: localDay(event.at),
+    kind: event.kind ?? 'unknown',
+    verdict: event.verdict ?? 'unknown',
+    run: event.run ?? 'unknown',
   }));
   const summary = own => ({
     attempts: own.length,

@@ -5,6 +5,8 @@
 
 /** What an outward call does: sends in the user's name, commits their time on a calendar, spends, deletes, or posts. */
 export const OUTWARD_KINDS = Object.freeze(['send', 'calendar-write', 'spend', 'delete', 'post']);
+
+/** What a guard would do with an outward call. */
 export const OUTWARD_VERDICTS = Object.freeze(['allowed-by-rule', 'allowed-by-ask', 'would-block']);
 
 /**
@@ -18,17 +20,18 @@ export const GUARDED_KINDS = Object.freeze([
   'commit-time', 'irreversible', 'tax', 'law', 'legal', 'health', 'medical', 'money', 'bank',
 ]);
 
+// Whether `run` is in `words`, its words side by side and in order.
+const holdsRun = (words, run) => words.some((_, start) => run.every((word, offset) => words[start + offset] === word));
+
 /**
  * Whether a task class or a card's kind is guarded: one of its words, split on `:` and `-`, is a guarded kind, or a guarded kind of two
  * words is two of its words in a row. `send-email` and `code-branch:delete` are guarded, and `sender-check` and `calendar-read` are not.
  */
 export function isGuardedKind(kind) {
   if (typeof kind !== 'string') return false;
+
   const words = kind.split(/[:-]/);
-  return GUARDED_KINDS.some(guarded => {
-    const parts = guarded.split('-');
-    return words.some((_, start) => parts.every((part, offset) => words[start + offset] === part));
-  });
+  return GUARDED_KINDS.some(guarded => holdsRun(words, guarded.split('-')));
 }
 
 // A tool's name as words: `mcp__gmail__gmail_sendDraft` is mcp, gmail, gmail, send, draft.
@@ -65,10 +68,17 @@ const METHOD = /(?:^|\s)(?:-X|--request|--method)[=\s]*['"]?([A-Za-z]+)/;
 const CURL_BODY = /\s(?:-d|-F|-T|--data(?:-[a-z]+)?|--form(?:-string)?|--json|--upload-file)(?=[\s='"]|$)/;
 const WGET_BODY = /\s--(?:post|body)-(?:data|file)\b/;
 
+// The flags that give a body to send, for the HTTP program a command part runs, or null when it runs neither.
+function bodyFlagsOf(part) {
+  if (/\bcurl\b/.test(part)) return CURL_BODY;
+  if (/\bwget\b/.test(part)) return WGET_BODY;
+  return null;
+}
+
 function commandKind(command) {
   if (MAIL.test(command) || APPLESCRIPT_SEND.test(command)) return 'send';
   for (const part of command.split(/\|\||&&|[|;\n]/)) {
-    const body = /\bcurl\b/.test(part) ? CURL_BODY : /\bwget\b/.test(part) ? WGET_BODY : null;
+    const body = bodyFlagsOf(part);
     if (!body || LOCAL.test(part)) continue;
     const method = METHOD.exec(part)?.[1].toUpperCase();
     if (method === 'DELETE') return 'delete';
@@ -111,5 +121,9 @@ const SENTENCE_END = /[.!?;\n]+/;
  * Whether the user's own words in a message ask for this kind of action: a sentence that names it and holds no plain negation. "Continue" or
  * "yes" alone asks for none.
  */
-export const askCovers = (kind, text) => Object.hasOwn(ASKS, kind) && typeof text === 'string'
-  && text.replace(HOBKIN_BLOCK, '').split(SENTENCE_END).some(sentence => ASKS[kind].test(sentence) && !NEGATION.test(sentence));
+export function askCovers(kind, text) {
+  if (!Object.hasOwn(ASKS, kind) || typeof text !== 'string') return false;
+
+  const sentences = text.replace(HOBKIN_BLOCK, '').split(SENTENCE_END);
+  return sentences.some(sentence => ASKS[kind].test(sentence) && !NEGATION.test(sentence));
+}

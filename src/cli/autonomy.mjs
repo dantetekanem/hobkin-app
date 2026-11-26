@@ -78,16 +78,21 @@ export function needsStandingRule(taskClass) {
 }
 
 /** A level no further from draft than the class may go. */
-const capped = (taskClass, level) => (needsStandingRule(taskClass) && LEVELS.indexOf(level) > GUARD_CEILING ? LEVELS[GUARD_CEILING] : level);
+function capped(taskClass, level) {
+  const pastTheGuard = needsStandingRule(taskClass) && LEVELS.indexOf(level) > GUARD_CEILING;
+  return pastTheGuard ? LEVELS[GUARD_CEILING] : level;
+}
 
 const startingLevel = taskClass => capped(taskClass, SEEDED_LEVELS[kindOf(taskClass)] ?? STARTING_LEVEL);
 
 const count = value => (Number.isInteger(value) && value >= 0 ? value : 0);
+const isMinutes = value => Number.isFinite(value) && value >= 0;
 const record = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 /** A row as saved, with what a hand edit or an older file lacks filled in. A level hobkin does not know is the class's start. */
 function rowOf(taskClass, saved = {}) {
   const reviews = record(saved.reviewMinutes) ? saved.reviewMinutes : {};
+  const recentReviews = Array.isArray(reviews.recent) ? reviews.recent : [];
   return {
     level: capped(taskClass, LEVELS.includes(saved.level) ? saved.level : startingLevel(taskClass)),
     runs: count(saved.runs),
@@ -96,9 +101,9 @@ function rowOf(taskClass, saved = {}) {
     overrides: count(saved.overrides),
     undos: count(saved.undos),
     reviewMinutes: {
-      sum: Number.isFinite(reviews.sum) && reviews.sum >= 0 ? reviews.sum : 0,
+      sum: isMinutes(reviews.sum) ? reviews.sum : 0,
       count: count(reviews.count),
-      recent: (Array.isArray(reviews.recent) ? reviews.recent : []).filter(minutes => Number.isFinite(minutes) && minutes >= 0).slice(-RECENT_REVIEWS),
+      recent: recentReviews.filter(isMinutes).slice(-RECENT_REVIEWS),
     },
     changedAt: typeof saved.changedAt === 'string' ? saved.changedAt : null,
   };
@@ -137,6 +142,9 @@ function moveTo(row, level, now) {
   row.cleanStreak = 0;
 }
 
+/** The level one step back toward draft, or draft itself. */
+const levelBefore = level => LEVELS[Math.max(0, LEVELS.indexOf(level) - 1)];
+
 /** What a class may do alone now. A class with no row starts at its kind's standing level, or at recommend. */
 export function levelFor(root, taskClass) {
   assertTaskClass(taskClass);
@@ -152,7 +160,7 @@ export function levelFor(root, taskClass) {
  */
 export function recordOutcome(root, taskClass, { clean, checksPassed, override = false, undo = false, reviewMinutes } = {}, now = Date.now()) {
   assertTaskClass(taskClass);
-  if (reviewMinutes !== undefined && !(Number.isFinite(reviewMinutes) && reviewMinutes >= 0)) throw Error('`reviewMinutes` is a number of minutes, 0 or more.');
+  if (reviewMinutes !== undefined && !isMinutes(reviewMinutes)) throw Error('`reviewMinutes` is a number of minutes, 0 or more.');
   return change(root, taskClass, row => {
     if (typeof clean === 'boolean') row.runs += 1;
     if (checksPassed === true) row.checks.passed += 1;
@@ -164,7 +172,7 @@ export function recordOutcome(root, taskClass, { clean, checksPassed, override =
       row.reviewMinutes.count += 1;
       row.reviewMinutes.recent = [...row.reviewMinutes.recent, reviewMinutes].slice(-RECENT_REVIEWS);
     }
-    if (override || undo) moveTo(row, LEVELS[Math.max(0, LEVELS.indexOf(row.level) - 1)], now);
+    if (override || undo) moveTo(row, levelBefore(row.level), now);
     else if (clean === true && checksPassed !== false) row.cleanStreak += 1;
     else if (typeof clean === 'boolean') row.cleanStreak = 0;
   });
@@ -194,10 +202,9 @@ const plural = (number, word) => `${number} ${word}${number === 1 ? '' : 's'}`;
 function promotionCard(taskClass, row) {
   const next = nextLevel(taskClass, row.level);
   const reviewed = median(row.reviewMinutes.recent);
-  const why = [
-    `${row.cleanStreak} clean runs in a row since its last change, none overridden or undone.`,
-    ...(reviewed === null ? [] : [`Your review took a median of ${plural(Math.round(reviewed), 'minute')}.`]),
-  ].join(' ');
+  const reasons = [`${row.cleanStreak} clean runs in a row since its last change, none overridden or undone.`];
+  if (reviewed !== null) reasons.push(`Your review took a median of ${plural(Math.round(reviewed), 'minute')}.`);
+  const why = reasons.join(' ');
   return {
     key: `autonomy:${taskClass}:${next}`,
     taskClass,
@@ -239,15 +246,17 @@ export function declinePromotion(root, taskClass) {
   });
 }
 
+const classView = (taskClass, row) => ({
+  level: row.level,
+  cleanStreak: row.cleanStreak,
+  overrides: row.overrides,
+  undos: row.undos,
+  medianReviewMinutes: median(row.reviewMinutes.recent),
+  promotionDue: isDue(taskClass, row),
+});
+
 /** `hobkin telemetry autonomy`: each class's level, clean streak, overrides, undos, median review minutes and whether a promotion is due. */
 export function autonomyView(root) {
-  const classes = Object.entries(readAutonomy(root)).map(([taskClass, row]) => [taskClass, {
-    level: row.level,
-    cleanStreak: row.cleanStreak,
-    overrides: row.overrides,
-    undos: row.undos,
-    medianReviewMinutes: median(row.reviewMinutes.recent),
-    promotionDue: isDue(taskClass, row),
-  }]);
+  const classes = Object.entries(readAutonomy(root)).map(([taskClass, row]) => [taskClass, classView(taskClass, row)]);
   return { classes: Object.fromEntries(classes) };
 }

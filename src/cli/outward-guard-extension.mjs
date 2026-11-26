@@ -35,7 +35,12 @@ function runKindOf(pi, file, env) {
 
 // Each hobkin conversation is kept one folder below its home, so a run records into the home it belongs to.
 const KEPT_IN = new Set(['sessions', 'jobs', 'hobkins']);
-const homeOf = (file, env) => (KEPT_IN.has(basename(dirname(file))) ? dirname(dirname(file)) : env.HOBKIN_HOME || null);
+
+function homeOf(file, env) {
+  const folder = dirname(file);
+  if (KEPT_IN.has(basename(folder))) return dirname(folder);
+  return env.HOBKIN_HOME || null;
+}
 
 // The user's standing rules, version 1 of `runtime/standing-rules.json`. A missing or broken file holds none.
 function standingRules(root) {
@@ -62,7 +67,9 @@ export default function outwardGuard(pi, { root, env = process.env } = {}) {
       const askCovered = run === 'main' && askCovers(kind, said);
       const home = root ?? homeOf(file, env);
       if (!home) return;
-      recordEvent(home, 'outward_attempt', { kind, verdict: outwardVerdict({ kind, rules: standingRules(home), askCovered }), run });
+
+      const verdict = outwardVerdict({ kind, rules: standingRules(home), askCovered });
+      recordEvent(home, 'outward_attempt', { kind, verdict, run });
     } catch {
       // Watching never stops a call.
     }

@@ -124,7 +124,10 @@ test('without a home named, an attempt lands in the home that keeps the conversa
     const root = home(t);
     const pi = fakePi();
     outwardGuard(pi, { env: {} });
-    await pi.call('mcp__gmail__gmail_send', send, join(root, folder, folder === 'sessions' ? 'main.jsonl' : 'a.jsonl'));
+    const conversation = folder === 'sessions' ? 'main.jsonl' : 'a.jsonl';
+
+    await pi.call('mcp__gmail__gmail_send', send, join(root, folder, conversation));
+
     assert.equal(attempts(root).length, 1, folder);
   }
 });
@@ -257,7 +260,10 @@ test('the outward view counts attempts per day by kind, verdict and run, and whi
   });
 
   const empty = telemetryView(home(t), 'outward', { days: 7, now: at(26, 20) });
-  assert.deepEqual([empty.attempts, empty.byVerdict, empty.wouldBlock, empty.byDay], [0, { 'allowed-by-rule': 0, 'allowed-by-ask': 0, 'would-block': 0 }, {}, {}]);
+  assert.equal(empty.attempts, 0);
+  assert.deepEqual(empty.byVerdict, { 'allowed-by-rule': 0, 'allowed-by-ask': 0, 'would-block': 0 });
+  assert.deepEqual(empty.wouldBlock, {});
+  assert.deepEqual(empty.byDay, {});
 
   const chunks = [];
   assert.equal(await main(['telemetry', 'outward', '--days', '7', '--home', root], { write: text => chunks.push(text) }), 0);
