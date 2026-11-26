@@ -12,7 +12,7 @@
 
 ## Outcome
 
-Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fast as the Mac allows: "create the whole platform", not "add a feature". Before anything starts, the page says plainly what it costs. The user picks a project, new or one Work already has, writes what they want, picks a machine tier of 30, 50 or 100 agents, and presses Let's plan this. Five planning agents discuss the idea and write the plan and a spec for every area of the project. The page shows the plan. When the user approves it with Go Ludicrous, the tier fills with agents and stays full until the work is done. They commit to one branch, coordinate only through the specs and trail files, and check before each commit that nothing is overwritten. Each area has one leader, and only leaders run tests, linters, builds and model checkers. Workers never run them: they plan around how the checks will go and work hard to confirm by reasoning that their code is right. The page never shows what an agent is doing. It shows a simple drawn map of the project's areas with how many agents are in each, how many run now, how many were spawned this run, and the history of both. The page has two controls: one main button, which says Let's plan this and then Go Ludicrous, and Stop. Stop kills every agent at once, then hobkin compiles what they finished, pushes the branch and opens one pull request. When the subscription runs out, Ludicrous waits for the reset and starts again by itself.
+Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fast as the computer allows: "create the whole platform", not "add a feature". Before anything starts, the page says plainly what it costs. The user picks a project, new or one Work already has, writes what they want, picks a machine tier of 30, 50 or 100 agents, and presses Let's plan this. Five planning agents discuss the idea and write the plan and a spec for every area of the project. The page shows the plan. When the user approves it with Go Ludicrous, the tier fills with agents and stays full until the work is done. They commit to one branch, coordinate only through the specs and trail files, and check before each commit that nothing is overwritten. Each area has one leader, and only leaders run tests, linters, builds and model checkers. Workers never run them: they plan around how the checks will go and work hard to confirm by reasoning that their code is right. The page never shows what an agent is doing. It shows a simple drawn map of the project's areas with how many agents are in each, how many run now, how many were spawned this run, and the history of both. The page has two controls: one main button, which says Let's plan this and then Go Ludicrous, and Stop. Stop kills every agent at once, then hobkin compiles what they finished, pushes the branch and opens one pull request. When the subscription runs out, Ludicrous waits for the reset and starts again by itself.
 
 ## Decisions
 
@@ -27,18 +27,18 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
 
 ### Two words for tier
 
-- The machine tier is how many Ludicrous agents run at once: 30, 50 or 100. It is a compute setting: the plan and the quality are the same at every tier, and the tier only decides how long the run takes and how much of the Mac it uses. The model tiers are hobkin's `fast`, `mid`, `high` and `max` (`hobkin/src/cli/tiers.mjs`). The page and this spec always say which one they mean.
+- The machine tier is how many Ludicrous agents run at once: 30, 50 or 100. It is a compute setting: the plan and the quality are the same at every tier, and the tier only decides how long the run takes and how much of the computer it uses. The model tiers are hobkin's `fast`, `mid`, `high` and `max` (`hobkin/src/cli/tiers.mjs`). The page and this spec always say which one they mean.
 
 ### The page
 
 - Ludicrous is a page of Work mode beside YOLO, a view of its own next to `yolo` in `ui/src/app/Canvas.tsx`. One run exists at a time, on one project.
 - Before any run, the page opens with what Ludicrous does, as plain text on the page and not in a box: the first line large and bold, and the key phrases in bold, here in `**`:
 
-  > **Ludicrous builds a whole project at once, as fast as your Mac allows and at the best quality it can reach.**
+  > **Ludicrous builds a whole project at once, as fast as your computer allows and at the best quality it can reach.**
   >
   > Tell it what you want. **Five planning agents** pull your idea apart, challenge each other's drafts, and come back with **a plan and a spec for every part of the project**. When you approve it, **a swarm of agents** starts building and keeps going until it's done.
   >
-  > **It holds nothing back.** It spends **every token you have** and runs your Mac at **full power**, so expect the fan to spin like crazy. Your other work keeps going, only slower. If your subscription runs out, Ludicrous waits for the reset and carries on by itself.
+  > **It holds nothing back.** It spends **every token you have** and runs your computer at **full power**, so expect the fan to spin like crazy. Your other work keeps going, only slower. If your subscription runs out, Ludicrous waits for the reset and carries on by itself.
   >
   > **Nothing waits for your review.** Agents commit to one branch as they go, and you get **a single pull request** at the end, maybe a million lines long. You won't see what each agent is doing. You'll see how many are working in each part of the project, and how far each part has come.
   >
@@ -46,7 +46,7 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
   >
   > **Save it for your most ambitious work. Don't think "add a feature". Think "create the whole platform".**
 
-- Then the project (New project, as in 059, or one Work already has) and the machine tier, named "How hard to push your Mac", with one line for each tier on how long it takes and how much of the Mac it leaves free. The page names a number of agents only there and in the count of agents running.
+- Then the project (New project, as in 059, or one Work already has) and the machine tier, named "How hard to push your computer", with one line for each tier on how long it takes and how much of the computer it leaves free. The page names a number of agents only there and in the count of agents running.
 - Last comes the box, "Write what you want. Be as clear as possible.", with one line under it saying that five agents plan it first and nothing gets built until the user approves their plan, and the controls under that.
 - On a project Work already has, the page says before any planning: while Ludicrous runs here, nobody else should work on this project. That means the user, another agent and hobkin's own Work, because anything else that changes these files will conflict with the run's agents. hobkin pauses its own Work here until the run's pull request is merged or closed. Ludicrous works in this folder, on its own branch, so the folder must have no uncommitted changes. Let's plan this stays disabled with that reason until it is clean.
 - The page has two controls, the main button and Stop, always directly under the box or, once planning starts, under the phase line at the top. The main button says Let's plan this before a plan exists, and Go Ludicrous once the plan is ready or after a stop. Go Ludicrous is the user's approval of the plan, and after a stop it resumes the run. While planners or builders run, the main button is disabled and keeps its place. With a stopped run on the page, picking another project opens the box for a new run there, and Go Ludicrous still resumes the stopped one.
@@ -56,9 +56,9 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
 
 ### The machine tier
 
-- hobkin measures the Mac's cores, memory and free disk and picks the largest tier it fits. The user can pick any of the three, and the page says what a tier above the measure risks. The cost of one agent is measured in S1, not guessed.
+- hobkin measures the computer's cores, memory and free disk and picks the largest tier it fits. The user can pick any of the three, and the page says what a tier above the measure risks. The cost of one agent is measured in S1, not guessed.
 - Leaders count toward the tier.
-- While a run builds, hobkin holds the Mac awake (`caffeinate -i`) and lets go at Stop or done.
+- While a run builds, hobkin keeps the computer from sleeping (`caffeinate -i` on a Mac) and lets go at Stop or done.
 
 ### Who runs, and how
 
@@ -86,10 +86,10 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
 
 ### Checks
 
-- Running tests, linters, compilers, type checkers, builds and model checkers on every agent would stall the Mac, so only leaders run them. That covers TLA+ too: workers write models and the code that follows them, and leaders run TLC and TLAPS.
+- Running tests, linters, compilers, type checkers, builds and model checkers on every agent would stall the computer, so only leaders run them. That covers TLA+ too: workers write models and the code that follows them, and leaders run TLC and TLAPS.
 - Workers never run a check. Tests still come first in every packet: the worker writes the tests, then the code, then confirms by reasoning that both are right. It traces each test through the code by hand, against its area's spec and the contracts, and reads every call it makes into another area's code. For each test, its trail says why it expects the test to pass and what it assumed, so the leader can tell a wrong assumption from a wrong line.
 - hobkin enforces this in code. Worker processes start with stand-ins first on their `PATH` for the project's check commands, which the plan names: its package manager, test runner, compiler, linter, and `java` for TLC. A stand-in refuses with one line ("Workers don't run checks. Your leader does.") and the refusal is logged in the run.
-- Leaders check committed code only, never the shared folder. A check runs in a check worktree moved to the branch head, through the `check` script in `ludicrous-leader`: the area's tests, its lint, its build and its models. Check worktrees are the only worktrees in a run. There are as many as the Mac takes check runs at once (S1 measures both the number and their disk), and a leader waits for a free one. Each area has at most one check running.
+- Leaders check committed code only, never the shared folder. A check runs in a check worktree moved to the branch head, through the `check` script in `ludicrous-leader`: the area's tests, its lint, its build and its models. Check worktrees are the only worktrees in a run. There are as many as the computer takes check runs at once (S1 measures both the number and their disk), and a leader waits for a free one. Each area has at most one check running.
 - A leader checks whenever its area has commits since its last check, so under load one check covers many packets. A failure becomes a fix packet that names the failing check, the commit that brought it and the trail whose assumption was wrong. Between checks the branch can be red. That is expected, and the report says which commits are checked.
 - The planners' quality lens writes each area's check commands into its spec, so every leader knows what to run before the first packet lands.
 
@@ -142,14 +142,14 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
 - A10. Go Ludicrous after a stop resumes the same run without planning again, and each patch goes back to its packet.
 - A11. When the subscription runs out, Ludicrous starts nothing, the page shows when it starts again, and at that time it fills the tier by itself, with no compile and nothing from the user.
 - A12. When every area's acceptance is proven and the final check passes the whole suite and the run guide, the pull request is marked ready for review, the trails are folded into the area notes and removed in the last commit, and the run ends.
-- A13. The page offers 30, 50 and 100, picks the largest the Mac's measure fits, lets the user pick any, and says what a tier above the measure risks.
+- A13. The page offers 30, 50 and 100, picks the largest the computer's measure fits, lets the user pick any, and says what a tier above the measure risks.
 - A14. With 100 Ludicrous agents running, Work mode keeps starting runs on other projects, and the window's cost on 052's benchmarks stays within what it is with none.
 - A15. Only the window starts or stops Ludicrous. hobkin's `client` tool refuses its commands, and no `hobkin` command an agent can run starts or stops a run.
 - A16. After a hobkin restart during a run, none of the run's old agents is left running, and building starts again from the trails.
 - A17. On a project with no remote, the compile keeps the branch local and the page says there is no remote to open the pull request on.
-- A18. The Mac does not idle-sleep while a run builds, and hobkin stops holding it awake at Stop or done.
+- A18. The computer does not idle-sleep while a run builds, and hobkin stops holding it awake at Stop or done.
 - A19. A worker's call to any check command the plan names (a test runner, linter, compiler, build, package manager or TLC) is refused with one line and logged, and no worker process ever runs one. Each worker's trail says, for every test it wrote, why it expects it to pass and what it assumed.
-- A20. Only leaders run checks, always on a committed head in a check worktree. An area never has two checks running, the Mac never runs more than S1's number at once, and a failing check becomes a fix packet naming the check, the commit and the trail.
+- A20. Only leaders run checks, always on a committed head in a check worktree. An area never has two checks running, the computer never runs more than S1's number at once, and a failing check becomes a fix packet naming the check, the commit and the trail.
 
 ## Proof
 
@@ -165,12 +165,12 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
 - A10. `hobkin/test/cli-ludicrous-stop.test.mjs` › "Go Ludicrous after a stop resumes from the trails, with each patch back on its packet"
 - A11. `hobkin/test/cli-ludicrous-subscription.test.mjs` › "a used-up window starts nothing and fills the tier again at its reset"
 - A12. `hobkin/test/cli-ludicrous-done.test.mjs` › "done marks the pull request ready and folds the trails into the area notes"
-- A13. `hobkin/test/cli-ludicrous-run.test.mjs` › "the tier hobkin picks from the Mac's measure"; `ui/test/work-ludicrous-page.test.ts` › "a tier above the measure says what it risks"
+- A13. `hobkin/test/cli-ludicrous-run.test.mjs` › "the tier hobkin picks from the computer's measure"; `ui/test/work-ludicrous-page.test.ts` › "a tier above the measure says what it risks"
 - A14. check: 052's benchmarks (`scripts/perf`) with 100 fake Ludicrous agents against none, and a Work run started on another project during them.
 - A15. `host/test/work-ludicrous.test.ts` › "only the window starts or stops Ludicrous"
 - A16. `hobkin/test/cli-ludicrous-conductor.test.mjs` › "a restart kills the old process groups and builds again from the trails"
 - A17. `hobkin/test/cli-ludicrous-stop.test.mjs` › "with no remote the branch stays local and the report says so"
-- A18. `hobkin/test/cli-ludicrous-conductor.test.mjs` › "the Mac is held awake only while building"
+- A18. `hobkin/test/cli-ludicrous-conductor.test.mjs` › "the computer is held awake only while building"
 - A19. `hobkin/test/cli-ludicrous-harness.test.mjs` › "a worker's check command is refused and logged"; check: the trails of S10's run, read for the reasoning on each test.
 - A20. `hobkin/test/ludicrous-check.test.mjs` › "a leader checks only a committed head, one check an area, and waits for a free check worktree" and › "a failing check files a fix packet naming the check, the commit and the trail"
 
@@ -178,9 +178,9 @@ Every test runs on a throwaway home with a fake Pi and a fake `gh`. Nothing touc
 
 ## Steps
 
-- [ ] S1 (A5, A7, A13, A20). Measure before building: a bare Pi agent's memory and CPU, the start spacing the Mac takes without stalling the window, how Pi loads MCP servers with no other extension, and how many check runs at once the Mac takes beside the tier, with a check worktree's disk cost. Fix the tier picks and the number of check worktrees from that, in `notes.md`.
+- [ ] S1 (A5, A7, A13, A20). Measure before building: a bare Pi agent's memory and CPU, the start spacing the computer takes without stalling the window, how Pi loads MCP servers with no other extension, and how many check runs at once the computer takes beside the tier, with a check worktree's disk cost. Fix the tier picks and the number of check worktrees from that, in `notes.md`.
 - [ ] S2 (A2, A13, A15). Runtime: the run record, its phases, the tier pick, the project's pause in Work, and the `outside` commands. Files: new `hobkin/src/cli/ludicrous/run.mjs`, `hobkin/src/cli/ludicrous/commands.mjs`, `hobkin/src/cli/work/controls.mjs`; tests new `hobkin/test/cli-ludicrous-run.test.mjs`.
-- [ ] S3 (A4, A5, A7, A16, A18). Runtime: the conductor, with the process pool, start spacing, process groups, area shares, the counts history, restart recovery and holding the Mac awake. Files: new `hobkin/src/cli/ludicrous/conductor.mjs`, `hobkin/src/cli/harnesses.mjs`; tests new `hobkin/test/cli-ludicrous-conductor.test.mjs`, `hobkin/test/cli-ludicrous-harness.test.mjs`.
+- [ ] S3 (A4, A5, A7, A16, A18). Runtime: the conductor, with the process pool, start spacing, process groups, area shares, the counts history, restart recovery and holding the computer awake. Files: new `hobkin/src/cli/ludicrous/conductor.mjs`, `hobkin/src/cli/harnesses.mjs`; tests new `hobkin/test/cli-ludicrous-conductor.test.mjs`, `hobkin/test/cli-ludicrous-harness.test.mjs`.
 - [ ] S4 (A3). Planning: the five lenses, the four rounds, the plan, the area specs and the questions. Files: new `hobkin/src/cli/ludicrous/planning.mjs`, the `ludicrous-planner` skill, new `hobkin/src/prompts/ludicrous-planner.md`; tests new `hobkin/test/cli-ludicrous-planning.test.mjs`.
 - [ ] S5 (A5, A6, A7, A19, A20). Leaders and workers: the queue and trail formats, the `ludicrous-leader` and `ludicrous-worker` skills, the `land` script, the `check` script with its check worktrees, and the stand-ins on a worker's `PATH`. Files: the two skills, new `hobkin/src/prompts/ludicrous-{leader,worker}.md`, `hobkin/src/cli/ludicrous/conductor.mjs`; tests new `hobkin/test/ludicrous-land.test.mjs`, new `hobkin/test/ludicrous-check.test.mjs`.
 - [ ] S6 (A9, A10, A12, A17). Stop and compile: the kill, the patches, the compile agent, the report, the push and the pull request, resume, and done. Files: new `hobkin/src/cli/ludicrous/{stop,compile}.mjs`, the `ludicrous-compile` skill, new `hobkin/src/prompts/ludicrous-compile.md`; tests new `hobkin/test/cli-ludicrous-{stop,done}.test.mjs`.
