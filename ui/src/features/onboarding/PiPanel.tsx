@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { runCommand } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
+import { copyText, useCopied } from './copy.ts'
 import { piByHand, piHandWords, piNeeds, piSteps, type PiStep } from './story.ts'
 import './story.css'
 
@@ -20,23 +21,6 @@ function installStep(step: PiStep): Promise<PiSetup> {
     case 'package':
       return runCommand('setup.install-package', { name: step.id })
   }
-}
-
-/** Copies the words, then says so. A clipboard that refuses says nothing. */
-const copyText = (text: string, copied: () => void) => void navigator.clipboard?.writeText(text).then(copied, () => {})
-
-/** How long a copy button says Copied. */
-const COPIED_MS = 1600
-
-/** Says it copied for a moment after `copy` is called, then goes back. */
-function useCopied(): [boolean, () => void] {
-  const [copied, setCopied] = useState(false)
-  useEffect(() => {
-    if (!copied) return
-    const timer = setTimeout(() => setCopied(false), COPIED_MS)
-    return () => clearTimeout(timer)
-  }, [copied])
-  return [copied, () => setCopied(true)]
 }
 
 type Run =

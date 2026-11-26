@@ -246,6 +246,18 @@ test('putting the sign-in off skips the questions, which need a model to hand th
   assert.equal(beatAfter('connect', { ...none, account: 'connected' }, bare), 'connected')
 })
 
+test('with a host, the review of what hobkin needs comes just before the settings, however the story got there', () => {
+  const host: Facts = { ...bare, host: true }
+
+  assert.equal(beatAfter('no-account', { ...none, account: 'later' }, host), 'needs')
+  assert.equal(beatAfter('more', { ...none, more: false }, host), 'needs')
+  assert.equal(beatAfter('questions-thanks', none, host), 'needs')
+  assert.equal(beatAfter('needs', none, host), 'settings')
+  assert.equal(beatOf('needs', none, host).ask?.kind, 'needs')
+  // Without a host there is nothing to read, as in a browser tab on sample data.
+  assert.equal(beatAfter('more', { ...none, more: false }, bare), 'settings')
+})
+
 test('five more questions when asked for, and none when not', () => {
   const yes: Answers = { ...none, computer: 'work', more: true }
 
@@ -369,7 +381,7 @@ test('every beat has words, and only the last bubble of a beat asks', () => {
   const answers: Answers = { ...none, computer: 'work', name: 'Ada', more: true }
   const facts: Facts = { pi: pi({ installed: false, version: null, matches: false }), connected: ['OpenAI'], claude: true, smart: true, asked: null }
   const long = followUpOf(pending({ question: `${'Which of your projects should I watch first, and how often, '.repeat(3)}and why?` }))
-  const ids: BeatId[] = ['hello', 'sound', 'computer', 'computer-thanks', 'name', 'name-hi', 'email', 'subscription', 'launcher', 'pi', 'pi-ready', 'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'projects-said', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'settings', 'tour']
+  const ids: BeatId[] = ['hello', 'sound', 'computer', 'computer-thanks', 'name', 'name-hi', 'email', 'subscription', 'launcher', 'pi', 'pi-ready', 'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'projects-said', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'needs', 'settings', 'tour']
 
   for (const asked of [null, long]) {
     for (const id of ids) {
@@ -605,8 +617,8 @@ const picked: Answers = { ...none, computer: 'personal', more: true, replies: { 
 const hosted: Facts = { ...smart, smart: false, host: true }
 
 test('after the projects are picked, hobkin says what it did with them, only with a host and a pick', () => {
-  assert.deepEqual(walk(picked, hosted, 'more'), ['more', 'q1', 'q2', 'projects-said', 'q3', 'q4', 'q5', 'questions-thanks', 'settings', 'tour'])
-  assert.deepEqual(walk({ ...picked, computer: 'work' }, { ...hosted, smart: true }, 'q2'), ['q2', 'projects-said', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'settings', 'tour'])
+  assert.deepEqual(walk(picked, hosted, 'more'), ['more', 'q1', 'q2', 'projects-said', 'q3', 'q4', 'q5', 'questions-thanks', 'needs', 'settings', 'tour'])
+  assert.deepEqual(walk({ ...picked, computer: 'work' }, { ...hosted, smart: true }, 'q2'), ['q2', 'projects-said', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'needs', 'settings', 'tour'])
   assert.equal(beatAfter('q2', { ...picked, replies: { projects: '  ' } }, hosted), 'q3', 'nothing picked, nothing to say')
   assert.equal(beatAfter('q2', picked, { ...hosted, host: false }), 'q3', 'with no host nothing was done, as in a browser tab on sample data')
 })

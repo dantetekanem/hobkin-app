@@ -38,6 +38,7 @@ export type BeatId =
   | 'projects-said'
   | 'follow-ups'
   | 'questions-thanks'
+  | 'needs'
   | 'settings'
   | 'tour'
 
@@ -127,6 +128,8 @@ export type Ask =
   | { kind: 'pi' }
   /** Sign in to the subscription, or put it off. */
   | { kind: 'connect' }
+  /** The review of everything hobkin needs on this Mac, with a way to fix each thing missing. */
+  | { kind: 'needs' }
   /** Main hobkin's own question, by its id: bubbles to pick one from, and a field to type an answer when it takes one. */
   | { kind: 'follow-up'; question: string; options: readonly Option[]; typed: boolean }
   /** Main hobkin is thinking of what to ask. Nothing to answer yet, and only saying it is enough goes on. */
@@ -420,6 +423,8 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
     case 'questions-thanks':
       // True both ways: after the follow-ups hobkin is already at it in the chat, and without them the answers go there next.
       return { mood: 'love', lines: ["Thank you! I'll propose your first routines in our chat."] }
+    case 'needs':
+      return { mood: 'searching', lines: ["One last look. Here's everything I need on this Mac, and how to add what's missing."], ask: { kind: 'needs' } }
     case 'settings':
       return {
         mood: 'wink',
@@ -429,6 +434,9 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
       return { mood: 'happy', lines: ["Now come with me. I'll show you around."] }
   }
 }
+
+/** With a host, the review of what hobkin needs comes last before the settings. Without one there is nothing to read. */
+const beforeSettings = (facts: Facts): BeatId => (facts.host === true ? 'needs' : 'settings')
 
 /** An account Pi already reaches is found. With none, the setup offers its one sign-in. */
 const accounts = (facts: Facts): BeatId => (facts.connected.length > 0 ? 'found' : 'connect')
@@ -475,9 +483,9 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
       return answers.account === 'connected' ? 'connected' : 'no-account'
     // The questions are handed to hobkin in the chat, which needs a model, so without one they are not asked.
     case 'no-account':
-      return 'settings'
+      return beforeSettings(facts)
     case 'more':
-      return answers.more ? 'q1' : 'settings'
+      return answers.more ? 'q1' : beforeSettings(facts)
     case 'q1':
     case 'q2':
     case 'q3':
@@ -496,6 +504,8 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
     case 'follow-ups':
       return 'questions-thanks'
     case 'questions-thanks':
+      return beforeSettings(facts)
+    case 'needs':
       return 'settings'
     case 'settings':
       return 'tour'

@@ -23,6 +23,7 @@ import { Choices } from './Choices.tsx'
 import { ConnectPanel } from './ConnectPanel.tsx'
 import { FACE, footBelow, type Seat, type Viewport } from './face-size.ts'
 import { FollowUps } from './FollowUps.tsx'
+import { NeedsPanel } from './NeedsPanel.tsx'
 import { PickCloud } from './PickCloud.tsx'
 import { foldersPicked, pickedAnswer, picksOf } from './picks.ts'
 import { PiPanel } from './PiPanel.tsx'
@@ -831,6 +832,7 @@ export function Storyteller() {
             />
           ) : null}
           {asking?.kind === 'connect' ? <ConnectPanel key="connect" onDone={(outcome) => answer({ account: outcome }, facts)} still={still} /> : null}
+          {asking?.kind === 'needs' ? <NeedsPanel key="needs" top={stage.y + footBelow(stage.scale) + 28} onDone={() => tell('answered', facts)} onBusy={setBusy} still={still} /> : null}
         </AnimatePresence>
 
         <motion.div
