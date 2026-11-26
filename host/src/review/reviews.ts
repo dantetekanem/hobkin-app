@@ -54,19 +54,10 @@ export interface Watched {
   pushedAt?: string
 }
 
-/** How many reviews the background built by itself on a local day, and how many of them in the place for the longest wait. */
-export interface DayCount {
-  day: string
-  built: number
-  aged?: number
-}
-
 /** Why a change an agent works on again is not reviewed now. */
 const AT_WORK = 'An agent is working on it again, so its review waits until it finishes.'
 /** How often a read of a review is kept in the home, at most: cleaning up allows for that much. */
 const READ_KEPT_EVERY_MS = 60 * 60_000
-/** How many reviews the background builds by itself in a local day, across all repositories, unless the workload says otherwise. */
-export const REVIEWS_A_DAY = 20
 /** A file that is only prose to read: a change made of nothing else has nothing to rate. */
 const MARKDOWN = /\.(md|mdx|markdown)$/i
 
@@ -197,12 +188,8 @@ export interface ReviewsOptions {
    * instead of building it again. A host given none builds it again, as before.
    */
   carry?: (target: ChangeTarget, head: string) => Promise<Carried>
-  /** How many reviews the background builds by itself in a local day (spec 058, 063), as the YOLO rules say, or null for none. Twenty when it says nothing. */
-  reviewsADay?: () => number | null | undefined
   /** Whether hobkin closed a change without a merge, or no longer has it (spec 058): its review leaves the list. */
   closed?: (target: ChangeTarget) => boolean
-  /** Where the day's count of background builds is kept, so a host started again the same day keeps it. In memory without one. */
-  dayLedger?: { read(): DayCount | null; write(kept: DayCount): void }
 }
 
 /** A pull request, as a review target. */
@@ -502,7 +489,7 @@ export class Reviews {
   /** The finished changes the background was last handed: those hobkin lists on Work. */
   private finished = new Set<string>()
   /** Each repository's line, worked out again each time the background is handed the finished changes (spec 058). */
-  private line: Line = { current: new Set(), aged: new Set(), waits: new Map() }
+  private line: Line = { current: new Set(), waits: new Map() }
   /** The reviews the user asked for since this host started: the line never drops what waits for one. */
   private readonly userAsked = new Set<string>()
   /** The pull requests the background was last handed to review by themselves, as the user's setting names them. */
@@ -511,8 +498,6 @@ export class Reviews {
   private readonly carrying = new Set<string>()
   /** When Review again was last asked with nothing changed, by review: a second press soon after builds it. */
   private readonly againAt = new Map<string, number>()
-  /** How many reviews the background built by itself on the local day it names. */
-  private dayCount: DayCount | null = null
   /** When each review was last opened or had a file read, by this host's clock, and when that was last kept in the home. */
   private readonly readAt = new Map<string, number>()
   private readonly readKept = new Map<string, number>()
@@ -1044,11 +1029,10 @@ export class Reviews {
     const now = this.status(id)
     // Merged, or closed on its host: there is nothing left to review, and its status says so.
     if (this.closedOn(target)) return now
-    // hobkin's agent asks as the background does (spec 058): in the line, within the day's number, or it hears why.
+    // hobkin's agent asks as the background does (spec 058): in the line, or it hears why.
     if (byAgent) {
       const waits = this.agentWaits(id, target, now)
       if (waits) return { ...now, turn: waits }
-      if (!this.running.has(id) && !this.queue.some((job) => reviewIdOf(job.target) === id)) this.countBuilt()
     }
     // Review again with nothing changed costs a whole review: the first ask says so, a second one soon after builds it.
     if (refresh && asked && this.nothingChangedSince(target, now)) {
@@ -2293,13 +2277,11 @@ export class Reviews {
         const failedAt = this.failedBuild(target, entry.head ?? null)?.at
         return [{ id: entry.id, repo: target.slug, name: entry.project ?? target.slug, grade: entry.grade ?? null, conflict: entry.conflict ?? null, refreshing, reviewed, ...(at ? { at } : {}), ...(failedAt ? { failedAt } : {}) }]
       })
-      // The place for the longest wait spends at most half the day's number, so what finishes today is reviewed today.
-      const longest = this.builtToday().aged < Math.floor(this.dayLimit() / 2)
       const kept = this.options.keepCurrent?.()
-      return lineOf(weighed, { keep: kept === undefined ? KEPT_CURRENT : kept, now: this.now(), longest })
+      return lineOf(weighed, { keep: kept === undefined ? KEPT_CURRENT : kept, now: this.now() })
     } catch (error) {
       this.options.log?.(`Reviews: the line of each repository could not be worked out, so everything handed in is reviewed as before: ${messageOf(error)}`)
-      return { current: new Set(wanted.map((entry) => entry.id)), aged: new Set(), waits: new Map() }
+      return { current: new Set(wanted.map((entry) => entry.id)), waits: new Map() }
     }
   }
 
@@ -2398,13 +2380,7 @@ export class Reviews {
     this.carrying.add(id)
     this.say(id, `Checking whether its review still holds at ${head.slice(0, 7)}.`)
     const build = (why: string) => {
-      if (!this.dayHasRoom()) {
-        // Looked at again tomorrow, when the day has room.
-        this.watched.delete(id)
-        return
-      }
       this.options.log?.(`Review ${id} at ${head.slice(0, 7)} is built again: ${why}`)
-      this.countBuilt()
       this.prepare(id)
     }
     void this.options.carry!(target, head)
@@ -2434,60 +2410,12 @@ export class Reviews {
 
   /**
    * Why an ask from hobkin's agent is not built now, or undefined when it is: a change or a watched pull request out of
-   * its line waits its turn there, and past the day's number anything waits for midnight. One in no line takes a place
-   * of the day's number.
+   * its line waits its turn there. One in no line is built.
    */
   private agentWaits(id: string, target: ReviewTarget, now: ReviewStatus): ReviewTurn | undefined {
     const inSomeLine = this.line.current.has(id) || this.line.waits.has(id)
     if (inSomeLine && !this.line.current.has(id)) return this.turnOf(id, target, now.head) ?? this.line.waits.get(id)
-    if (!this.dayHasRoom()) return { ahead: 0, why: `Today's ${this.dayLimit()} background reviews are spent, so the next is built after midnight.` }
     return undefined
-  }
-
-  /** The local day a time is on, as `YYYY-MM-DD`. */
-  private dayOf(time: number): string {
-    return new Date(time).toLocaleDateString('en-CA')
-  }
-
-  /** How many reviews the background may build by itself today: the rule's whole number, Infinity for none, else twenty. */
-  private dayLimit(): number {
-    const set = this.options.reviewsADay?.()
-    if (set === null) return Number.POSITIVE_INFINITY
-    return Number.isInteger(set) && (set as number) >= 1 ? (set as number) : REVIEWS_A_DAY
-  }
-
-  /** How many the background built by itself today, as the ledger kept it when the day began here. */
-  private builtToday(): DayCount & { aged: number } {
-    const day = this.dayOf(this.now())
-    if (this.dayCount?.day === day) return this.dayCount as DayCount & { aged: number }
-    let kept: DayCount | null = null
-    try {
-      kept = this.options.dayLedger?.read() ?? null
-    } catch (error) {
-      this.options.log?.(`Reviews: the day's count of background reviews could not be read, so it starts at none: ${messageOf(error)}`)
-    }
-    const today = kept?.day === day
-    const whole = (value: unknown) => (Number.isInteger(value) && (value as number) >= 0 ? (value as number) : 0)
-    const counted = { day, built: today ? whole(kept!.built) : 0, aged: today ? whole(kept!.aged) : 0 }
-    this.dayCount = counted
-    return counted
-  }
-
-  /** Whether the background may build one more review by itself today. */
-  private dayHasRoom(): boolean {
-    return this.builtToday().built < this.dayLimit()
-  }
-
-  /** Counts one review the background builds by itself today, and whether it is in the place for the longest wait, and keeps the count. */
-  private countBuilt(aged = false) {
-    const today = this.builtToday()
-    today.built += 1
-    if (aged) today.aged += 1
-    try {
-      this.options.dayLedger?.write({ ...today })
-    } catch (error) {
-      this.options.log?.(`Reviews: the day's count of background reviews could not be kept: ${messageOf(error)}`)
-    }
   }
 
   /**
@@ -2537,7 +2465,7 @@ export class Reviews {
     // A pull request the workload does not name waits for the user's Start AI review.
     if (target.kind === 'pull' && !this.watchedPulls.has(id)) return { ahead: 0, why: PULL_ASKED }
     if (target.kind === 'change' && !this.finished.has(id)) return this.isBackAtWork(target) ? { ahead: 0, why: AT_WORK } : undefined
-    const waits = this.line.waits.get(id) ?? (this.line.current.has(id) && !this.dayHasRoom() ? { ahead: 0, why: `Today's ${this.dayLimit()} background reviews are spent, so the next is built after midnight.` } : undefined)
+    const waits = this.line.waits.get(id)
     if (!waits) return undefined
     // What waits gets no review, and so no agent goes back to it by itself: the row says so (spec 058).
     const unchecked = head != null && this.options.store.newest(target) ? ' Its review is of an older commit, so nothing checks this one by itself.' : ' Not reviewed yet, so nothing checks it by itself.'
@@ -2562,8 +2490,6 @@ export class Reviews {
       if (!target) return
       // A finished change, or a pull request the workload names, is built by itself only in its repository's line (spec 058).
       if (!this.line.current.has(id)) return
-      // At the day's number of background builds, nothing more is built by itself until midnight.
-      if (!this.dayHasRoom()) return
       const head = target.kind === 'change' ? this.headOf(id, card) : card
       const version = versionOf(head, updatedAt)
       // A build that failed here is tried again once a day has passed, in its turn, and not before.
@@ -2583,15 +2509,11 @@ export class Reviews {
       const moved = head ? !store.has(target, head) || newBase : updatedAt ? Date.parse(updatedAt) > (newest?.at ?? 0) : false
       if (newest && moved && !newBase && head && target.kind === 'change' && this.options.carry) this.carryOrBuild(id, target, head)
       else if (!newest || moved) {
-        this.countBuilt(this.line.aged.has(id))
         this.prepare(id)
       } else if (target.kind === 'change' && head && this.assessmentDue(target, head)) {
         // Never started at this commit, or cut short by a quit or a crash: it starts, once.
         const stored = store.read(target, head)
-        if (stored) {
-          this.countBuilt(this.line.aged.has(id))
-          this.assess(target, stored.review)
-        }
+        if (stored) this.assess(target, stored.review)
       }
     } catch (error) {
       this.options.log?.(`Review ${id} was not prepared in the background: ${messageOf(error)}`)

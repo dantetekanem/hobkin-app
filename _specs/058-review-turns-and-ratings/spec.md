@@ -39,8 +39,8 @@ The user, 2026-11-23: "outdate reviews are becoming a problem. we should not acc
 ### What a review costs
 
 - Each model call's tokens are kept beside its review, and the numbers add them by day.
-- The background builds at most twenty reviews a day across all repositories. At the limit, rows say so and when the next will be built. What the user asks for is still built.
-- Both numbers, reviews kept current for a repository and background reviews a day, are set in the workload sheet and kept with hobkin's workload.
+- The background has no daily limit on reviews. It had one of twenty, and the user removed it on 2026-11-25. What the user asks for is always built.
+- Reviews kept current for a repository is set in the workload sheet and kept with hobkin's workload.
 - Review tokens are shown beside hobkin's own. They are not counted in its daily allowance.
 
 ### Cleaning up
@@ -78,7 +78,7 @@ The user, 2026-11-23: "outdate reviews are becoming a problem. we should not acc
 - A5. A change rebased with the same commits onto a start that changed nothing the review read is carried: no model call, one run of its tests at the new commit, and the review says it was carried and from where. A changed file the review read, a new caller of a changed definition, or a failing test there builds it again in its turn. Commits of specs or Markdown alone carry it.
 - A6. Review again with nothing changed says so, and builds only on a second press.
 - A7. Each model call's tokens are kept beside its review, and the numbers add them by day.
-- A8. At the day's number of background reviews the rest wait for midnight and say so, and what the user asks for is still built. The two numbers are kept with the workload, 3 and 20 unless set.
+- A8. There is no daily limit: an ask from hobkin's agent that is in no line is built however many were built that day, and what the user asks for is always built. The number kept current is kept with the workload, 3 unless set.
 - A9. Older reviews of a change keep their summary and progress and lose the rest. A change hobkin closed leaves the list, and its heavy files go after thirty days with its notes kept. A broken review tree goes after seven days.
 - A10. The AI Reviews list has a line for each repository with its counts and its week's cost, folds waiting rows, says why each waits, offers Review now, and says of a carried review where it was carried from.
 - A11. The Reviewer's one answer carries the five ratings with their evidence, the kind and what is missing. A malformed one is dropped with why, and the review still finishes, not rated. The ratings are capped by the facts.
@@ -94,7 +94,7 @@ The user, 2026-11-23: "outdate reviews are becoming a problem. we should not acc
 - A5. `host/test/review-carry.test.ts`, every test in it. The carry is built and turned off: see S2.
 - A6. `host/test/review-carry.test.ts` › "Review again with nothing changed says so, and that it costs a whole review, and builds only on a second press"; `ui/test/work-ai-reviews-again.test.ts` › "Review again with nothing changed since the review says what it costs first, and builds it on the second press"
 - A7. `host/test/metrics.test.ts` › "each model call's tokens are kept beside its review and the numbers add them by day"
-- A8. `host/test/review-budget.test.ts` › "at the day's number of background reviews the rest wait for midnight and say so, and the user's own ask still runs". The workload's two settings are not carried yet: see S3.
+- A8. `host/test/review-budget.test.ts` › "an ask from hobkin's agent waits its turn in the line, one in no line is built, and one from the window goes outside the line"
 - A9. `host/test/review-cleanup.test.ts`, every test in it. The scheduled cleaning only looks: see S4.
 - A10. `ui/test/work-ai-reviews.test.ts` › "each repository's line counts its current, waiting and outdated reviews and what they cost this week", › "a row that waits says why and how many are ahead, and folds under Waiting for its repository, the nearest first" and › "an outdated row says for which commit it was built, and a carried one from which commit it was carried and why it holds"; check: still renders of the list with its fold closed and open, light and dark (2026-11-23), then the live window.
 - A11. `packages/change-review/test/needs.test.ts` › "the Reviewer's answer carries the five ratings with their evidence, the kind and what is missing; one that is malformed is dropped with why and the review still finishes", › "the ratings are capped by the facts" and › "a pull request is rated the same way, with monitoring unknown when none is given"
@@ -118,5 +118,5 @@ The user, 2026-11-23: "outdate reviews are becoming a problem. we should not acc
 - Carried reviews. They would need a way to know every file a change can reach, which a `require` with a built path or a config read by path defeats. One way that stays sound: a carried review can be read but not approved, and a yes on it builds it first.
 - A change out of the line has no review, so nothing checks it by itself. Its row says so.
 - Whether the review's ratings replace hobkin's scored run, so that YOLO mode reads them and one review is paid for. The audit's default is to run both for two weeks on ready projects, with YOLO mode merging only when both pass, then to replace.
-- Three reviews current for a repository, twenty background reviews a day, 48 hours before a waiting change is taken, two reviews kept whole, thirty and fourteen days: defaults the user has not confirmed.
+- Three reviews current for a repository, 48 hours before a waiting change is taken, two reviews kept whole, thirty and fourteen days: defaults the user has not confirmed.
 - A change that is not in the line gets no review, and so no agent is sent back to it when it would have been risky. It waits its turn instead.

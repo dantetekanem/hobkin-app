@@ -4,11 +4,10 @@
  * three unless the workload says otherwise, and never more. The line is Work's order with P0 work first; of its places,
  * at most one goes to the change that has waited longest past two days since it finished, has no finished review at
  * its commit and would not be taken anyway; once that review finished, ready or failed, the place passes to the next,
- * so each is reviewed once in time, one at a time, and a home full of old changes still builds only its few. The host
- * stops giving that place once it spent half the day's number on it, so what finishes today is still reviewed today. A change that conflicts, is being brought up to date to merge,
- * that an agent works on again, or whose build failed in the last day is not in the line, and says why; a failed one
- * comes back to its turn a day after it failed, so it is tried at most once a day. What the user asks for is not in here at all: it is
- * always built, and pushes nothing out. Pure, and worked out again from what is there on every look, so a host that
+ * so each is reviewed once in time, one at a time, and a home full of old changes still builds only its few. A change
+ * that conflicts, is being brought up to date to merge, that an agent works on again, or whose build failed in the last
+ * day is not in the line, and says why; a failed one comes back to its turn a day after it failed, so it is tried at
+ * most once a day. What the user asks for is not in here at all: it is always built, and pushes nothing out. Pure, and worked out again from what is there on every look, so a host that
  * reloads its code loses nothing.
  */
 import type { Grade } from '#shared/protocol/work.ts'
@@ -39,8 +38,6 @@ export interface LineChange {
 export interface Line {
   /** The changes whose reviews the background keeps current. */
   current: Set<string>
-  /** Of those, the ones in the place for the longest wait: each repository's one, when it has one. */
-  aged: Set<string>
   /** Every other change, with how many are ahead of it in its repository's line and why it waits. */
   waits: Map<string, ReviewTurn>
 }
@@ -76,14 +73,12 @@ function waitedTooLong(change: LineChange, now: number): boolean {
 }
 
 /**
- * The line of every repository the changes are in. `keep` is how many each keeps current, a whole number from 1 or null for none, and
- * `longest` whether the place for the longest wait is given at all.
+ * The line of every repository the changes are in. `keep` is how many each keeps current, a whole number from 1 or null for none.
  */
-export function lineOf(changes: readonly LineChange[], { keep = KEPT_CURRENT, now, longest: aging = true }: { keep?: number | null; now: number; longest?: boolean }): Line {
+export function lineOf(changes: readonly LineChange[], { keep = KEPT_CURRENT, now }: { keep?: number | null; now: number }): Line {
   // None, null, lifts the number: every change in the line is current.
   const kept = keep === null ? Number.POSITIVE_INFINITY : Number.isInteger(keep) && keep >= 1 ? keep : KEPT_CURRENT
   const current = new Set<string>()
-  const aged = new Set<string>()
   const waits = new Map<string, ReviewTurn>()
   const repos = new Map<string, LineChange[]>()
   for (const change of changes) repos.set(change.repo, [...(repos.get(change.repo) ?? []), change])
@@ -99,18 +94,15 @@ export function lineOf(changes: readonly LineChange[], { keep = KEPT_CURRENT, no
     // Work's order would take these anyway, so the place for the longest wait is not spent on one of them.
     const taken = new Set([...urgent, ...inLine.filter((change) => change.grade !== 'P0')].slice(0, kept))
     // The one that waited longest past two days with no finished review at its commit takes one place; the rest follow Work's order.
-    const longest = aging
-      ? inLine
-          .filter((change) => change.grade !== 'P0' && !taken.has(change) && !change.reviewed && waitedTooLong(change, now))
-          .reduce<LineChange | undefined>((oldest, change) => (!oldest || Date.parse(change.at!) < Date.parse(oldest.at!) ? change : oldest), undefined)
-      : undefined
+    const longest = inLine
+      .filter((change) => change.grade !== 'P0' && !taken.has(change) && !change.reviewed && waitedTooLong(change, now))
+      .reduce<LineChange | undefined>((oldest, change) => (!oldest || Date.parse(change.at!) < Date.parse(oldest.at!) ? change : oldest), undefined)
     const rest = inLine.filter((change) => !urgent.includes(change) && change !== longest)
     const ordered = [...urgent, ...(longest ? [longest] : []), ...rest]
     ordered.forEach((change, ahead) => {
       if (ahead < kept) current.add(change.id)
       else waits.set(change.id, { ahead, why: `Waits its turn: ${ahead} ahead in ${change.name}.` })
     })
-    if (longest && current.has(longest.id)) aged.add(longest.id)
   }
-  return { current, aged, waits }
+  return { current, waits }
 }

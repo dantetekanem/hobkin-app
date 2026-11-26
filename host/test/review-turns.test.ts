@@ -94,17 +94,13 @@ test('every change past two days is reviewed once in time, one at a time: the pl
   assert.equal(taken[1], 'change:shop:c19')
 })
 
-test("the longest-wait place goes to a change the line would not take anyway, and is not given once today's half for it is spent", () => {
+test('the longest-wait place goes to a change the line would not take anyway', () => {
   // c2 waited longest, but Work's first three take it anyway: the place goes to c6, the next longest waiting.
   const changes = finished(6, (index) => ({ at: new Date(NOW - (index === 1 ? 100 : index === 5 ? 60 : 1) * HOUR).toISOString() }))
 
   const line = lineOf(changes, { now: NOW })
-  const spent = lineOf(changes, { now: NOW, longest: false })
 
   assert.deepEqual([...line.current], ['change:shop:c6', 'change:shop:c1', 'change:shop:c2'])
-  assert.deepEqual([...line.aged], ['change:shop:c6'])
-  assert.deepEqual([...spent.current], ['change:shop:c1', 'change:shop:c2', 'change:shop:c3'])
-  assert.equal(spent.aged.size, 0)
 })
 
 test('a change whose build failed gives its place up for a day and says when it is tried again; then it waits in its turn', () => {
@@ -453,7 +449,7 @@ test('a build that fails is tried again at most once a day in its turn, even aft
   assert.deepEqual(started, ['change:shop:c1', 'change:shop:c1'])
 })
 
-test("an old change keeps the longest-wait place until its review finished, one at a time, and that place spends at most half the day's number", async (t) => {
+test("an old change keeps the longest-wait place until its review finished, one at a time, and then it passes to the next oldest", async (t) => {
   const root = temporaryDirectory(t)
   const store = reviewStore(root)
   const states = new Map<string, string>()
@@ -486,7 +482,6 @@ test("an old change keeps the longest-wait place until its review finished, one 
     work: () => ({ workAction: async () => ({}) }),
     card: () => null,
     assessments,
-    reviewsADay: () => 6,
     now: () => NOW,
   })
   t.after(() => reviews.close())
@@ -505,8 +500,8 @@ test("an old change keeps the longest-wait place until its review finished, one 
     await look()
   }
 
-  // Three of the day's six went to the longest waits: then the place goes back to Work's order.
-  assert.deepEqual(started, ['change:shop:c1', 'change:shop:c2', 'change:shop:c20', 'change:shop:c19', 'change:shop:c18', 'change:shop:c3'])
+  // Each finished review passes the place to the next oldest; Work's order keeps its own two.
+  assert.deepEqual(started, ['change:shop:c1', 'change:shop:c2', 'change:shop:c20', 'change:shop:c19', 'change:shop:c18', 'change:shop:c17'])
 })
 
 test("a pull request waits in the line at the commit GitHub says it is at, so the longest-wait place passes on once its review finished", async (t) => {

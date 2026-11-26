@@ -99,7 +99,6 @@ export const RULES: readonly RuleDef[] = [
     ],
   },
   { name: 'keptCurrent', group: 'ratings', label: 'Reviews kept current for a repository', line: 'More changes wait their turn. None lifts the cap.', held: 'Waits its turn', kind: 'number', min: 1, step: 1, none: true },
-  { name: 'backgroundADay', group: 'ratings', label: 'Background reviews a day', line: 'Each review is a model call. None lifts the cap.', held: 'Waits its turn', kind: 'number', min: 1, step: 1, none: true },
   { name: 'tries', group: 'ratings', label: 'Tries to get all five ratings', line: 'After the last try a change says it is not rated.', held: 'Not rated', kind: 'number', min: 1, max: 10, step: 1, none: false },
 ]
 
@@ -249,7 +248,6 @@ const SAMPLE_RULES: YoloRules = {
   askPaths: ['migrat', 'schema', 'auth', 'session', 'token', 'secret', 'payment', 'billing', 'deploy', 'dockerfile', '.github/'],
   mergesAPass: 1,
   keptCurrent: 3,
-  backgroundADay: 20,
   tries: 3,
   reviewPulls: 'none',
 }

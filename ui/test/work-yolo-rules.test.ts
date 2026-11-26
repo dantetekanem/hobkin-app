@@ -41,8 +41,8 @@ test('the sentence says the rules in force in one sentence built from the values
   assert.equal(rulesSentence({ lowestRate: 9 }), 'Merges changes rated 9 or more.')
 })
 
-test('each rule is named once and the three groups hold 7, 15 and 4', () => {
-  assert.deepEqual(GROUPS.map(({ group }) => RULES.filter((one) => one.group === group).length), [7, 15, 4])
+test('each rule is named once and the three groups hold 7, 15 and 3', () => {
+  assert.deepEqual(GROUPS.map(({ group }) => RULES.filter((one) => one.group === group).length), [7, 15, 3])
   assert.equal(new Set(RULES.map(({ name }) => name)).size, RULES.length)
 })
 
