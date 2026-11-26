@@ -45,7 +45,7 @@ Known bugs:
 
 - `lookAfterRoutines` runs only in tests (`cli/routine-care.mjs:75`).
 - `actionReportIds` is never called (`cli/decisions.mjs:143`).
-- `hobkin pending` returns no report calls (`cli/pending.mjs:94`), while `v2-runtime.md:46` and `docs/guide.md` promise them.
+- `hobkin pending` returns no report calls from `Next:` lines (`cli/pending.mjs:94`), while `v2-runtime.md:46` and `docs/guide.md` promise them. This is deliberate, not a bug: since 67abad4 a call is an explicit `hobkin action` carrying the report's id, and `test/cli-pending.test.mjs:74` keeps it that way. Only the leftovers and the stale prompt and doc lines are wrong.
 
 ## 2. Planning the day and the 80% question
 

@@ -104,7 +104,7 @@ Phase 1: the desk. This brings the fastest relief, and it needs no calendar.
 - [ ] S3 (A4). The four levels on every incoming item. Routines, agents, work mode, reminders and other sessions put items on the desk instead of posting straight to Chat.
 - [ ] S4 (A3, A4). About three digests a day, timed from the user's presence and use, built from the brief and the catch-up and posted in Chat, plus the "what's waiting" view. Before a week of presence data exists, a digest comes when the user returns after a gap.
 - [ ] S5 (A4). Quiet hours learned from when the user is usually away, and an awareness of meetings and focus blocks from the day file (S11). Sounds and notifications follow the levels.
-- [ ] S6. The known bugs. Routine care runs hourly. Report calls show in `hobkin pending` and the brief, and close when they are done. Recall finds accented words.
+- [ ] S6. The known bugs. Routine care runs hourly. Recall finds accented words. Report calls are already explicit Action Items that close on Done or Not doing it (67abad4, kept by tests), so only the leftovers go: `reports: []` in `pending.mjs`, the `calling` set in `brief.mjs`, and the prompt and doc lines that still promise calls from `Next:` alone.
 
 Phase 2: decisions.
 
