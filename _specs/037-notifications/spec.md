@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["012-reports-actions", "022-questions", "032-change-review", "034-durable-hobkins"],
-  "updated": "2026-11-13"
+  "updated": "2026-11-26"
 }
 ---
 # Notifications for what needs the user
@@ -24,7 +24,20 @@ When something needs the user and the window is not in front (it is hidden, mini
 | A durable hobkin waiting, not looked at yet | The hobkin's title | How its turn ended, and that it waits | That hobkin's page |
 | A review that just became ready | `Review ready` | hobkin's line about it | The review |
 
-- Nothing else notifies: reports, finished runs, notices and chat lines are things that happened.
+- Nothing else notifies: reports, finished runs, notices and chat lines are things that happened, except the lines hobkin's desk levels (below).
+
+### Lines by level (075-chief-of-staff S5)
+hobkin's desk puts a `level` on a line it lets through by itself and posts what it held as one digest. Within ten minutes of the line:
+
+| The line | How it reaches the user | Title | A click opens |
+| --- | --- | --- | --- |
+| A `P0` line | A notification with the chime | `Needs you now` (`Review ready` for a review) | Chat (the review) |
+| A `P1` line, which comes alone only at a pause | The nudge alone, a softer bell, with no notification | none | nothing |
+| A digest | One notification with the nudge | `Digest`, then its counts | Chat |
+| A `P2` or `P3` line | Nothing | | |
+| A line with no level, from a hobkin before the desk | As above: only a review that is ready | | |
+
+- Every rule above holds for these too: told once, nothing while the window is in front, the sound only with what is told. A cue shows nothing, so it never asks the Mac and still plays after a refusal.
 - A review is "just ready" for ten minutes after hobkin's line about it. An older line in the chat is history.
 - A durable hobkin notifies once for each time it starts to wait (`waiting.since`), and not once the user has looked (`waiting.seen`).
 - The words come from hobkin's own facts, cut to one line. The notification carries no address and no command.
@@ -69,6 +82,7 @@ When something needs the user and the window is not in front (it is hidden, mini
 - A8. With the window hidden or another app in front, a question from a routine shows a Mac notification from hobkin; a click brings the window up with the question on the sheet. (Native patch needed.)
 - A9. The first notification of a built hobkin.app shows the Mac's own permission prompt first; after "Don't Allow", Settings shows the line. (Native patch and a built app needed.)
 - A10. With the window in front, the same question shows no notification. (Native patch needed.)
+- A11. A fresh `P0` line notifies with the chime, a fresh lone `P1` line plays the nudge alone, a fresh digest is one notification with the nudge, and `P2`, `P3` and old lines tell nothing. A line without a level is as before. A cue asks the Mac nothing and plays after a refusal, and nothing sounds with the window in front.
 
 ## Proof
 - A1. `ui/test/notification-rules.test.ts` › "a question, a new action item, a durable hobkin waiting unseen and a fresh review ready each need the user once" and "what merely happened, or was already seen, needs nobody"
@@ -81,6 +95,7 @@ When something needs the user and the window is not in front (it is hidden, mini
 - A8. check: after the native patch, hide the window and run a routine that files a question. One notification shows; click it.
 - A9. check: in a built hobkin.app never allowed before, cause a first question with the window hidden; answer the prompt "Don't Allow" and open Settings.
 - A10. check: after the native patch, with the window in front, cause a question. No notification shows.
+- A11. `ui/test/notification-rules.test.ts` › "levels set how a line reaches the user: P0 with the chime, a lone P1 as a soft cue alone, a digest as one soft notification", "a review that is ready keeps its notification without a level, and follows its level with one" and "a leveled line or a digest is news only while it is fresh, and needs nobody once it is history"; `ui/test/request-notifications.test.ts` › "a cue alone asks the Mac nothing and plays after a refusal; a digest is one soft notification that opens the chat"; `ui/test/sound.test.ts` › "what cannot wait chimes, and what can wait a little nudges: one bell, softer and shorter than the chime"; check: with the window hidden, a desk digest shows one notification and nudges. Not yet heard or seen.
 
 ## Steps
 - [x] S1 (A1, A2, A5). The rules: needs, words, destinations, the Settings line.
@@ -88,6 +103,7 @@ When something needs the user and the window is not in front (it is hidden, mini
 - [x] S3 (A8, A9, A10). The window's wiring and the shell boundary, and the native patch (`notices.rs`, the plugin, the capability).
 - [ ] S4 (A8, A10). The frame loads `ui/src/features/notifications/live.ts` once; apply the native patch.
 - [ ] S5 (A9). Settings shows `<NotificationsLine />`.
+- [x] S6 (A11). Lines by level, 2026-11-26: the rules, the cue without a notification, the nudge. Tested with fakes; not heard or seen in the app.
 
 ## Open questions
 - An earlier request of the user's asked for notifications for requests needing input "even while active". This spec follows the later word: nothing while the window is in front. If "active" meant the window in front, the rule in A4 is one line to change.

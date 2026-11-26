@@ -1,5 +1,6 @@
 import type { Mood } from '../../avatar/moods.tsx'
 import type { Bubble } from '../chat/bubble.ts'
+import type { Reach } from '../notifications/rules.ts'
 import type { SoundName } from './sounds.ts'
 
 /**
@@ -21,6 +22,14 @@ export function bubbleCue(before: Bubble | null, now: Bubble | null): Cue | null
   if (!now || !SAID.has(now.kind)) return null
   if (before && before.kind === now.kind && before.text === now.text) return null
   return { name: 'talk', detail: { word: now.text.trim().split(/\s+/)[0] ?? '' } }
+}
+
+/**
+ * The sound that goes with telling the user something, by how it reaches them (`Need['reach']` in
+ * `notifications/rules.ts`, by the desk's levels): what cannot wait chimes, and what can wait a little nudges.
+ */
+export function reachCue(reach: Reach): Cue {
+  return { name: reach === 'chime' ? 'chime' : 'nudge' }
 }
 
 /** The moods hobkin hops in (`hob-hop` in `avatar/hob.css`). */

@@ -3,29 +3,30 @@ import { test } from 'node:test'
 import { createRequestNotifications, type RequestFacts } from '../src/features/notifications/request.ts'
 import type { Destination, Need } from '../src/features/notifications/rules.ts'
 
-const need = (id: string, kind: Need['kind'] = 'question'): Need =>
-  ({ id, kind, title: `${kind} title`, body: `About ${id}`, opens: kind === 'question' ? { to: 'question' } : { to: 'item', id } })
+const OPENS: Partial<Record<Need['kind'], Destination>> = { question: { to: 'question' }, notice: { to: 'chat' }, digest: { to: 'chat' } }
+const need = (id: string, kind: Need['kind'] = 'question', reach: Need['reach'] = 'chime'): Need =>
+  ({ id, kind, title: `${kind} title`, body: `About ${id}`, opens: OPENS[kind] ?? { to: 'item', id }, reach })
 
 const TOLD = 'hobkin:told:home'
 
 /** A window that has seen this home before (`known`), with one question up and the window away (`front` false). */
 function fixture({ known = true } = {}) {
   let state: RequestFacts = { home: 'home', generation: 1, ready: true, needs: [need('ask')] }
-  const saved = new Map<string, string>(), sent: string[] = [], words: { title: string; body: string }[] = [], visits: Destination[] = []
+  const saved = new Map<string, string>(), sent: string[] = [], words: { title: string; body: string }[] = [], reaches: Need['reach'][] = [], visits: Destination[] = []
   if (known) saved.set(TOLD, '[]')
   let click: (id: string) => Promise<void> = async () => {}, removed = 0, inFront = false
   const adapter = {
     available: () => true,
     permission: async () => true,
     listen: async (handler: typeof click) => { click = handler; return () => { removed++ } },
-    send: async (notice: { id: string; title: string; body: string }) => {
-      sent.push(notice.id); words.push({ title: notice.title, body: notice.body }); return true
+    send: async (notice: { id: string; title: string; body: string; reach: Need['reach'] }) => {
+      sent.push(notice.id); words.push({ title: notice.title, body: notice.body }); reaches.push(notice.reach); return true
     },
   }
   const options = { facts: () => state, adapter, storage: { getItem: (key: string) => saved.get(key) ?? null, setItem: (key: string, value: string) => { saved.set(key, value) } },
     front: async () => inFront, reveal: (opens: Destination) => { visits.push(opens) } }
   return {
-    options, sent, words, visits, saved, click: (id: string) => click(id), removed: () => removed, state: () => state,
+    options, sent, words, reaches, visits, saved, click: (id: string) => click(id), removed: () => removed, state: () => state,
     told: () => JSON.parse(saved.get(TOLD) ?? 'null') as string[] | null,
     change: (patch: Partial<RequestFacts>) => { state = { ...state, ...patch } },
     front: (value: boolean) => { inFront = value },
@@ -82,6 +83,28 @@ test('a refusal is respected, while an unavailable shell or a dispatch that fail
   f.options.adapter.permission = async () => true; f.options.adapter.send = async (notice) => { f.sent.push(notice.id); return true }
   await c.refresh(); assert.equal(f.sent.length, 0)
   c.dispose()
+})
+
+test('a cue alone asks the Mac nothing and plays after a refusal; a digest is one soft notification that opens the chat', async () => {
+  const f = fixture(), c = createRequestNotifications(f.options)
+  let asked = 0
+  f.options.adapter.permission = async () => { asked++; return false }
+  f.change({ needs: [need('line', 'notice', 'cue'), need('digest', 'digest', 'soft')] })
+  await c.refresh()
+  assert.equal(asked, 1); assert.deepEqual(f.reaches, ['cue']); assert.deepEqual(f.told()?.toSorted(), ['digest', 'line'])
+  c.dispose()
+
+  const g = fixture(), d = createRequestNotifications(g.options)
+  g.options.adapter.permission = async () => { throw new Error('a cue asks nothing') }
+  g.change({ needs: [need('line', 'notice', 'cue')] }); await d.refresh()
+  g.options.adapter.permission = async () => true
+  g.change({ needs: [need('digest', 'digest', 'soft')] }); await d.refresh()
+  assert.deepEqual(g.reaches, ['cue', 'soft'])
+  await g.click(g.sent.at(-1)!); assert.deepEqual(g.visits, [{ to: 'chat' }])
+  // With the window in front a cue is as quiet as a notification, and is not played later.
+  g.front(true); g.change({ needs: [need('line-2', 'notice', 'cue')] }); await d.refresh()
+  g.front(false); await d.refresh(); assert.deepEqual(g.reaches, ['cue', 'soft'])
+  d.dispose()
 })
 
 test('home, generation, reset and closed requests invalidate pending permission checks', async () => {

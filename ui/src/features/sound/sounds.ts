@@ -4,7 +4,7 @@
  * creature, never a system alert.
  */
 
-export const SOUND_NAMES = ['talk', 'hop', 'land', 'pick', 'tap', 'chime', 'cheer'] as const
+export const SOUND_NAMES = ['talk', 'hop', 'land', 'pick', 'tap', 'chime', 'cheer', 'nudge'] as const
 export type SoundName = (typeof SOUND_NAMES)[number]
 
 /** Sine is the softest. Triangle adds a little edge, so a quiet tone still reads on laptop speakers. */
@@ -151,6 +151,8 @@ const SOUNDS: Record<SoundName, (word: string) => Tone[]> = {
   chime: () => [...bell(NOTE.G5, 0, 0.5), ...bell(NOTE.C6, 0.14, 0.7)],
   // Three quick notes up a major chord, the last held a little.
   cheer: () => [blip(NOTE.E5, 0, 0.08), blip(NOTE.Gs5, 0.07, 0.08), blip(NOTE.B5, 0.14, 0.16)],
+  // The chime's last bell alone, at half its loudness: news that can wait a little, never an alarm.
+  nudge: () => [tone('sine', NOTE.C6, NOTE.C6, 0, 0.5, 0.05, 0.006), tone('sine', NOTE.C6 * 2, NOTE.C6 * 2, 0, 0.25, 0.011, 0.004)],
 }
 
 /** The tones of one sound. `word` only changes `talk`. */
@@ -167,7 +169,7 @@ export function soundLength(tones: readonly Tone[]): number {
  * The least time between two of the same sound, in milliseconds. Notices that arrive together chime once, and a mood
  * that flickers does not chirp twice. Babble keeps up with one word every 45 ms.
  */
-export const GAP_MS: Record<SoundName, number> = { talk: 30, hop: 250, land: 120, pick: 60, tap: 40, chime: 1500, cheer: 300 }
+export const GAP_MS: Record<SoundName, number> = { talk: 30, hop: 250, land: 120, pick: 60, tap: 40, chime: 1500, cheer: 300, nudge: 1500 }
 
 /** Whether a sound may play now, given when it last played (milliseconds on one clock). */
 export function mayPlay(name: SoundName, now: number, last: number | undefined): boolean {

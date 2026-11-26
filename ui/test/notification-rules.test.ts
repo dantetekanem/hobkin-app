@@ -85,6 +85,63 @@ test('each new turn a durable hobkin waits after is a need of its own', () => {
   assert.notEqual(first[0]!.id, second[0]!.id)
 })
 
+/** A line hobkin's desk let through, with the level it found (075-chief-of-staff S3). */
+const leveled = (id: string, level: string, patch: Record<string, unknown> = {}): ChatMessage =>
+  ({ id, role: 'notice', content: 'Deploy check: the build is red.\nThe log says more.', tone: 'critical', level, at: NOW - 1000, ...patch }) as ChatMessage
+
+const digestOf = (id: string, at = NOW - 1000): ChatMessage =>
+  ({
+    id, role: 'notice', tone: 'useful', at,
+    content: 'Digest: 1 for today, 1 that can wait.\n- The change review of "Fix login" in storefront is ready.\n- Morning recap finished.',
+    digest: {
+      levels: { P1: 1, P2: 1 },
+      items: [
+        { id: 'notice:client:review-ready:b', level: 'P1', content: 'The change review of "Fix login" in storefront is ready.', review: 'change:storefront:3fa9c1' },
+        { id: 'notice:routine:c', level: 'P2', content: 'Morning recap finished.' },
+      ],
+    },
+  }) as ChatMessage
+
+test('levels set how a line reaches the user: P0 with the chime, a lone P1 as a soft cue alone, a digest as one soft notification', () => {
+  const needs = needsOf(sources({
+    messages: [
+      leveled('notice:work:p0', 'P0'),
+      leveled('notice:work:p1', 'P1'),
+      digestOf('notice:digest:1'),
+      // P2 and P3 wait for a digest or are only logged; a line from a hobkin before levels is as before.
+      leveled('notice:work:p2', 'P2'),
+      leveled('notice:work:p3', 'P3'),
+      { id: 'notice:work:plain', role: 'notice', content: 'Deploy check: the build is red.', tone: 'critical', at: NOW - 1000 } as ChatMessage,
+    ],
+  }))
+  assert.deepEqual(needs.map(({ id, kind, reach, opens }) => ({ id, kind, reach, opens })), [
+    { id: 'notice:work:p0', kind: 'notice', reach: 'chime', opens: { to: 'chat' } },
+    { id: 'notice:work:p1', kind: 'notice', reach: 'cue', opens: { to: 'chat' } },
+    { id: 'notice:digest:1', kind: 'digest', reach: 'soft', opens: { to: 'chat' } },
+  ])
+  assert.deepEqual(needs.map(({ title, body }) => [title, body]), [
+    ['Needs you now', 'Deploy check: the build is red.'],
+    ['For today', 'Deploy check: the build is red.'],
+    ['Digest', '1 for today, 1 that can wait.'],
+  ])
+})
+
+test('a review that is ready keeps its notification without a level, and follows its level with one', () => {
+  const ready = (id: string, level?: string) => ({ ...reviewNotice(id, NOW - 1000), ...(level ? { level } : {}) }) as ChatMessage
+  const needs = needsOf(sources({ messages: [ready('plain'), ready('now', 'P0'), ready('today', 'P1'), ready('later', 'P2')] }))
+  assert.deepEqual(needs.map(({ id, kind, reach, opens }) => ({ id, kind, reach, opens })), [
+    { id: 'plain', kind: 'review', reach: 'chime', opens: { to: 'review', id: 'change:storefront:3fa9c1' } },
+    { id: 'now', kind: 'review', reach: 'chime', opens: { to: 'review', id: 'change:storefront:3fa9c1' } },
+    { id: 'today', kind: 'review', reach: 'cue', opens: { to: 'review', id: 'change:storefront:3fa9c1' } },
+  ])
+})
+
+test('a leveled line or a digest is news only while it is fresh, and needs nobody once it is history', () => {
+  const old = NOW - REVIEW_FRESH_MS - 1
+  const needs = needsOf(sources({ messages: [leveled('old-p0', 'P0', { at: old }), leveled('undated', 'P0', { at: undefined }), digestOf('old-digest', old)] }))
+  assert.deepEqual(needs, [])
+})
+
 test('only a refusal shows a line in Settings', () => {
   assert.equal(typeof permissionLine('denied'), 'string')
   for (const state of ['granted', 'prompt', 'unknown', 'unavailable'] as const) assert.equal(permissionLine(state), null, state)

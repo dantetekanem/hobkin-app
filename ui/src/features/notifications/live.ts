@@ -3,11 +3,12 @@ import { remembered } from '@/app/location.ts'
 import { useView } from '@/app/view-store.ts'
 import { hostStore } from '@/lib/host/client.ts'
 import { shell, windowInFront, type NoticeShell } from '@/lib/native.ts'
+import { reachCue } from '@/features/sound/cues.ts'
 import { play } from '@/features/sound/index.ts'
 import { useActionItems } from '../actions/store.ts'
 import { useNoticePermission } from './permission.ts'
 import { createRequestNotifications, type RequestFacts } from './request.ts'
-import { needsOf, type Destination, type Need } from './rules.ts'
+import { needsOf, type Destination, type Need, type Reach } from './rules.ts'
 
 /**
  * The Mac's notifications, connected to the window (_specs/037-notifications): the host's facts go in, and a click
@@ -34,6 +35,10 @@ export function reveal(opens: Destination): void {
       return
     case 'review':
       view.openReviewFor(opens.id)
+      return
+    case 'chat':
+      // Chat is the window's left side, beside every screen.
+      return
   }
 }
 
@@ -81,10 +86,12 @@ function adapterOf(notices: NoticeShell) {
       return asking
     },
     listen: (click: (id: string) => Promise<void>) => notices.onOpen((key) => void click(key)),
-    send: async ({ id, title, body }: { id: string; title: string; body: string }) => {
-      // hobkin's chime goes with each notice it raises, whether or not the Mac shows its banner. Several at once chime once.
-      play('chime')
-      await notices.send({ key: id, title, body })
+    send: async ({ id, title, body, reach }: { id: string; title: string; body: string; reach: Reach }) => {
+      // hobkin's sound goes with each notice it raises, whether or not the Mac shows its banner: the chime, or the softer
+      // nudge for what can wait a little. Several at once sound once. A cue is the nudge alone.
+      const cue = reachCue(reach)
+      play(cue.name)
+      if (reach !== 'cue') await notices.send({ key: id, title, body })
       return true
     },
   }

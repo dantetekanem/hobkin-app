@@ -1,4 +1,4 @@
-import type { Destination, Need, NeedKind } from './rules.ts'
+import type { Destination, Need, NeedKind, Reach } from './rules.ts'
 
 /** Only current authoritative host facts: the home, its connection's generation, and what needs the user there now. */
 export interface RequestFacts {
@@ -16,8 +16,11 @@ interface Options {
     /** Whether hobkin may notify. It may show the Mac's own prompt, the first time there is something to tell. */
     permission(): Promise<boolean>
     listen(click: (id: string) => Promise<void>): Promise<() => void>
-    /** True means dispatch accepted, never confirmed OS delivery. Must not request permission. */
-    send(notice: { id: string; title: string; body: string }): Promise<boolean>
+    /**
+     * True means dispatch accepted, never confirmed OS delivery. Must not request permission. A `cue` is the sound alone:
+     * it shows nothing, and is sent without asking the Mac.
+     */
+    send(notice: { id: string; title: string; body: string; reach: Reach }): Promise<boolean>
   }
   /** Whether the window is in front: shown, not minimized, and hobkin the active app. */
   front(): Promise<boolean>
@@ -29,13 +32,15 @@ interface Options {
 const KEPT = 500
 const toldKey = (home: string) => `hobkin:told:${home}`
 
+const KINDS: readonly NeedKind[] = ['question', 'item', 'hobkin', 'review', 'notice', 'digest']
+
 /** A notification's id names the home, the need and its kind. A click hands it back, and nothing else in it is trusted. */
 function parseKey(key: string): { home: string; id: string; kind: NeedKind } | null {
   try {
     const value: unknown = JSON.parse(key)
     if (!Array.isArray(value) || value.length !== 3 || !value.every((part) => typeof part === 'string')) return null
     const [home, id, kind] = value as [string, string, string]
-    return kind === 'question' || kind === 'item' || kind === 'hobkin' || kind === 'review' ? { home, id, kind } : null
+    return KINDS.includes(kind as NeedKind) ? { home, id, kind: kind as NeedKind } : null
   } catch {
     return null
   }
@@ -45,7 +50,8 @@ function parseKey(key: string): { home: string; id: string; kind: NeedKind } | n
  * The Mac's notifications for what needs the user (_specs/037-notifications). Each need is told once in its home: what
  * was told, and what the user already saw with the window in front, is kept per home and survives reconnects and
  * reloads. A home this window never saw is taken as it is, so opening hobkin does not tell what was already waiting.
- * A refusal is respected: nothing is told, then or later. A click opens the need's place while it still waits.
+ * A refusal is respected: no notification is shown, then or later, and a cue, which shows nothing, still plays. A click
+ * opens the need's place while it still waits.
  */
 export function createRequestNotifications(options: Options) {
   const inflight = new Set<string>()
@@ -115,14 +121,15 @@ export function createRequestNotifications(options: Options) {
       return
     }
     if (!targets.some(({ target }) => current(target))) return
-    if (!(await options.adapter.permission())) {
-      mark(facts.home, targets.filter(({ target }) => current(target)).map(({ need }) => need.id))
-      return
-    }
-    for (const { need, target } of targets) {
-      if (!current(target)) continue
+    const shows = ({ need }: (typeof targets)[number]) => need.reach !== 'cue'
+    // Only a notification asks the Mac. A cue is a sound in the window.
+    const refused = targets.some(shows) && !(await options.adapter.permission())
+    if (refused) mark(facts.home, targets.filter((each) => shows(each) && current(each.target)).map(({ need }) => need.id))
+    for (const each of targets) {
+      const { need, target } = each
+      if (!current(target) || (refused && shows(each))) continue
       const key = JSON.stringify([facts.home, need.id, need.kind])
-      if ((await options.adapter.send({ id: key, title: need.title, body: need.body })) && current(target)) mark(facts.home, [need.id])
+      if ((await options.adapter.send({ id: key, title: need.title, body: need.body, reach: need.reach })) && current(target)) mark(facts.home, [need.id])
     }
   }
 

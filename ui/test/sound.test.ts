@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
 import type { Bubble } from '../src/features/chat/bubble.ts'
-import { bubbleCue, hopCue } from '../src/features/sound/cues.ts'
+import { bubbleCue, hopCue, reachCue } from '../src/features/sound/cues.ts'
 import { playTones, type SoundContext } from '../src/features/sound/player.ts'
 import { FADE_OUT, mayPlay, pitchCurve, SOUND_NAMES, soundLength, talkPitch, TALK_RANGE, tonesOf, type SoundName, type Tone } from '../src/features/sound/sounds.ts'
 
@@ -19,7 +19,7 @@ const { useSettings } = await import('../src/features/settings/store.ts')
 const { play } = await import('../src/features/sound/index.ts')
 
 /** The longest each sound may run, in seconds. Small sounds for a small creature, never an alert. */
-const LONGEST: Record<SoundName, number> = { talk: 0.115, hop: 0.13, land: 0.11, pick: 0.1, tap: 0.06, chime: 1, cheer: 0.4 }
+const LONGEST: Record<SoundName, number> = { talk: 0.115, hop: 0.13, land: 0.11, pick: 0.1, tap: 0.06, chime: 1, cheer: 0.4, nudge: 0.6 }
 /** The loudest any tone may get, and the babble much softer than that. */
 const LOUDEST = 0.2
 const TALK_LOUDEST = 0.08
@@ -199,6 +199,13 @@ test('a new line hobkin says in its bubble babbles once, and what it is doing st
   assert.equal(bubbleCue(null, doing), null)
   assert.equal(bubbleCue(doing, { kind: 'doing', text: "I'm writing…" }), null)
   assert.equal(bubbleCue(tip, null), null)
+})
+
+test('what cannot wait chimes, and what can wait a little nudges: one bell, softer and shorter than the chime', () => {
+  assert.deepEqual([reachCue('chime'), reachCue('soft'), reachCue('cue')], [{ name: 'chime' }, { name: 'nudge' }, { name: 'nudge' }])
+  const loudest = (name: SoundName) => Math.max(...tonesOf(name).map(({ peak }) => peak))
+  assert.ok(loudest('nudge') < loudest('chime'))
+  assert.ok(soundLength(tonesOf('nudge')) < soundLength(tonesOf('chime')))
 })
 
 test('hobkin chirps once as its mood turns to one it hops in, and not while it holds still', () => {
