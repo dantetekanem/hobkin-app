@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
@@ -22,6 +22,7 @@ function workspace(t) {
 
 const survey = (h, gh = async () => '[]') => surveyUnmerged(h.root, { now: NOW, gh, reviews: join(h.base, 'auto-review') });
 const unit = (h, name, slug = 'api') => readUnmerged(h.root).projects[slug].open.find(({ branch }) => branch === name);
+const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 /** Changes what the last survey wrote down, so a survey that reads a branch again says so by writing what git says instead. */
 function rewriteSaved(h, change) {
@@ -148,4 +149,32 @@ test('hobkin work sync with a project it does not know says so', async t => {
   await assert.rejects(runWorkCommand(h.root, ['sync', 'nope']), /Unknown project: nope/);
 });
 
+test('two surveys of one home take turns', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc');
+  const spans = [];
+  const slowGh = async () => {
+    const start = Date.now();
+    await sleep(300);
+    spans.push([start, Date.now()]);
+    return '[]';
+  };
 
+  await Promise.all([survey(h, slowGh), survey(h, slowGh)]);
+
+  const [first, second] = spans.toSorted(([a], [b]) => a - b);
+  assert.ok(second[0] >= first[1], 'the second survey asked its host while the first still was');
+});
+
+test('a survey lock left by a holder long gone does not hold a survey up', { timeout: 20000 }, async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc');
+  const lock = join(h.root, 'work', 'survey.lock');
+  mkdirSync(lock, { recursive: true });
+  const longAgo = new Date(Date.now() - 10 * 60000);
+  utimesSync(lock, longAgo, longAgo);
+
+  await survey(h);
+
+  assert.ok(unit(h, 'hobkin/abc'));
+});

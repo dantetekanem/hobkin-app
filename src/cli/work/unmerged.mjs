@@ -1,9 +1,11 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { promisify } from 'node:util';
+import lockfile from 'proper-lockfile';
 import { atomicJson } from '../config.mjs';
 import { readReviewGrades, reviewsFolder } from './grades.mjs';
 import { areaOf, isTestPath } from './patterns.mjs';
@@ -57,6 +59,8 @@ const PATCH_CHECK_TIMEOUT_MS = 60000;
 const AT_ONCE = 2;
 // Which reading of a branch `readAt` is. A change to what `branchFacts` reads or how raises it, so nothing an older reading saved is kept.
 const READ_VERSION = 1;
+// A survey asked for while another runs waits up to five minutes, asking again every 200 ms.
+const SURVEY_LOCK = { realpath: false, stale: 30000, update: 5000, retries: { retries: 1500, factor: 1, minTimeout: 200, maxTimeout: 200 } };
 
 const run = promisify(execFile);
 export const ghWithin = timeout => async (args, cwd) => (await run('gh', args, { cwd, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
@@ -703,12 +707,37 @@ function retireBackupWork(root, slug, now) {
 }
 
 /**
+ * One survey of a home at a time, so surveys asked for together never read the same branches at once. One that waits starts when the other
+ * ends, and finds most branches as that one left them. A lock whose holder stopped refreshing it, as a killed process does, is free after `stale`.
+ */
+async function lockSurvey(root) {
+  const work = join(root, 'work');
+  mkdirSync(work, { recursive: true, mode: 0o700 });
+  try {
+    const release = await lockfile.lock(work, { ...SURVEY_LOCK, lockfilePath: join(work, 'survey.lock'), onCompromised: () => {} });
+    return () => release().catch(() => {});
+  } catch (error) {
+    if (error.code === 'ELOCKED') throw Error('Another survey has run for over five minutes, so this one did not start.');
+    throw error;
+  }
+}
+
+/**
  * Only projects still being worked on count, and with `only`, that one project, while the others keep what the last survey said and when. Work that
  * has landed closes its item here, and `settled` names them. Work that cannot merge gets an item, and `filed` names those. A branch nothing named
  * gets an item, and `adopted` names those. What was filed for a backup is dropped, and `retired` names those.
  * This writes only hobkin's own records, and it never writes to a repository.
  */
-export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, reviews = reviewsFolder(), only = null } = {}) {
+export async function surveyUnmerged(root, options = {}) {
+  const release = await lockSurvey(root);
+  try {
+    return await surveyHeld(root, options);
+  } finally {
+    await release();
+  }
+}
+
+async function surveyHeld(root, { now = Date.now(), gh = defaultGh, reviews = reviewsFolder(), only = null }) {
   const last = readUnmerged(root);
   const previous = last.projects;
   const grades = readReviewGrades({ folder: reviews, now });
