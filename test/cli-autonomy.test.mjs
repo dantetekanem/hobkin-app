@@ -117,7 +117,7 @@ test('a class at draft stays at draft after another override', t => {
   assert.equal(readAutonomy(root)['code-fix'].overrides, 3);
 });
 
-test('after five clean runs in a row, the one question to file, as a decide card', t => {
+test('after five clean runs in a row, the one question to file, as a plain decide card that keeps no rule', t => {
   const root = home(t);
 
   cleanRuns(root, 'code-fix', PROMOTION_STREAK - 1, { reviewMinutes: 3 });
@@ -127,7 +127,7 @@ test('after five clean runs in a row, the one question to file, as a decide card
   const card = promotionDue(root, 'code-fix');
 
   assert.equal(card.kind, 'autonomy');
-  assert.equal(card.learn, true);
+  assert.deepEqual([card.learn, card.rule], [undefined, undefined], 'a yes moves this class once, and never answers a later promotion');
   assert.equal(card.taskClass, 'code-fix');
   assert.equal(card.key, 'autonomy:code-fix:deadline');
   assert.deepEqual(card.choices.map(({ value }) => value), ['yes', 'no']);
@@ -136,7 +136,7 @@ test('after five clean runs in a row, the one question to file, as a decide card
   assert.match(card.question, /code-fix/);
   assert.match(card.why, /5 clean runs in a row/);
   assert.match(card.why, /3 minutes/, 'the median review time, measured');
-  assert.equal(card.rule, 'From now on, code-fix acts at a deadline unless you object.');
+  assert.equal(card.choices[0].label, 'Yes, it acts at a deadline unless you object');
   assert.equal(levelFor(root, 'code-fix'), 'recommend', 'asking changes nothing');
 });
 
@@ -150,7 +150,7 @@ test('only the user\'s yes moves a class on, one level, and its streak starts ag
   assert.equal(promotionDue(root, 'code-fix'), null);
 
   cleanRuns(root, 'code-fix', PROMOTION_STREAK);
-  assert.equal(promotionDue(root, 'code-fix').rule, 'From now on, code-fix acts and reports in the digest.');
+  assert.match(promotionDue(root, 'code-fix').question, /Should it act and report in the digest from now on\?/);
 });
 
 test('the user\'s no keeps the level and asks again only after another full streak', t => {

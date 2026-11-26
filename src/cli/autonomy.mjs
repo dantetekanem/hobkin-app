@@ -33,7 +33,7 @@ export const autonomyPath = root => join(root, 'runtime', 'autonomy.json');
 /** The five levels, from the one the user watches most to the one they watch least. */
 export const LEVELS = ['draft', 'recommend', 'deadline', 'report', 'log'];
 
-/** What a class at each level does, said to the user: `does` in a rule read back, `ask` in the question. */
+/** What a class at each level does, said to the user: `does` in a choice, `ask` in the question. */
 const LEVEL_WORDS = {
   draft: { does: 'drafts and leaves the rest to you', ask: 'draft and leave the rest to you' },
   recommend: { does: 'recommends and waits for your yes', ask: 'recommend and wait for your yes' },
@@ -187,7 +187,10 @@ const isDue = (taskClass, row) => row.cleanStreak >= PROMOTION_STREAK && nextLev
 
 const plural = (number, word) => `${number} ${word}${number === 1 ? '' : 's'}`;
 
-/** The question for a class that is due, as a `hobkin decide` card. */
+/**
+ * The question for a class that is due, as a plain `hobkin decide` card. Its `kind` only labels it: it keeps no rule, because a yes moves
+ * this class one level once and must never answer a later promotion.
+ */
 function promotionCard(taskClass, row) {
   const next = nextLevel(taskClass, row.level);
   const reviewed = median(row.reviewMinutes.recent);
@@ -206,8 +209,6 @@ function promotionCard(taskClass, row) {
     recommended: 'yes',
     why,
     kind: 'autonomy',
-    learn: true,
-    rule: `From now on, ${taskClass} ${LEVEL_WORDS[next].does}.`,
   };
 }
 
