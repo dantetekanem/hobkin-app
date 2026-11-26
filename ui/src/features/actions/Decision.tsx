@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useStops } from '@/app/stops.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { CardFactsLine, ChoiceText, PickMark } from '@/features/questions/CardParts.tsx'
 import type { Answer } from '@/features/questions/queue.ts'
 import { timeOf, waited } from '@/features/reports/time.ts'
 import { cn } from '@/lib/utils.ts'
@@ -187,6 +188,7 @@ function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onOpenElse
           ) : null}
 
           <TestLocally answerTo={row.item?.answerTo} />
+          <CardFactsLine question={row.question} now={now} />
           {choices.length ? (
             <div role="group" aria-label="Answers" className="flex flex-col gap-1.5">
               {choices.map((choice, index) => (
@@ -199,10 +201,10 @@ function Card({ row, sample, now, onClose, onAnswer, onReview, reads, onOpenElse
                 >
                   <Kbd className="mt-0.5 shrink-0 group-focus-visible:bg-primary group-focus-visible:text-primary-foreground">{index + 1}</Kbd>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[15px] leading-snug font-medium">{choice.label}</span>
+                    <ChoiceText choice={choice} question={row.question} className="text-[15px] leading-snug font-medium" />
                     {choice.value === pick && why ? <span className="mt-0.5 block text-[13px] leading-snug text-muted-foreground">{why}</span> : null}
                   </span>
-                  {choice.value === pick ? <span className="eyebrow mt-1 shrink-0 text-sun-fg">hobkin's pick</span> : null}
+                  {choice.value === pick ? <PickMark sure={row.question.sure} className="mt-1" /> : null}
                 </button>
               ))}
             </div>

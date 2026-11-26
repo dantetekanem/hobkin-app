@@ -2,6 +2,7 @@ import { ArrowUpRight, ExternalLink, MessagesSquare, Waypoints } from 'lucide-re
 import { motion, type Variants } from 'motion/react'
 import { Fragment } from 'react'
 import { Button } from '@/components/ui/button.tsx'
+import { CardFactsLine, PickMark } from '@/features/questions/CardParts.tsx'
 import { rowLayout } from '@/features/reports/list-motion.ts'
 import { timeOf, waited } from '@/features/reports/time.ts'
 import { cn } from '@/lib/utils.ts'
@@ -99,15 +100,24 @@ export function ItemCard({ row, now, variants, order, reads = false, onAsk, onRe
               )}
             </p>
           ) : (
-            <p className="mt-1.5 text-[13px] leading-snug text-muted-foreground">
-              {choices.map((choice, index) => (
-                <Fragment key={choice.value}>
-                  {index ? <span aria-hidden="true"> · </span> : null}
-                  <span className={cn(choice.label === row.pick && 'font-medium text-foreground')}>{choice.label}</span>
-                  {choice.label === row.pick ? <span className="eyebrow ml-1.5 text-sun-fg">hobkin's pick</span> : null}
-                </Fragment>
-              ))}
-            </p>
+            <>
+              <p className="mt-1.5 text-[13px] leading-snug text-muted-foreground">
+                {choices.map((choice, index) => (
+                  <Fragment key={choice.value}>
+                    {index ? <span aria-hidden="true"> · </span> : null}
+                    {/* A long label, such as the rule an "Always" choice keeps, is cut to one line, whole on hover. */}
+                    <span
+                      title={choice.label}
+                      className={cn('inline-block max-w-full truncate align-bottom', choice.label === row.pick && 'font-medium text-foreground')}
+                    >
+                      {choice.label}
+                    </span>
+                    {choice.label === row.pick ? <PickMark sure={row.question.sure} className="ml-1.5" /> : null}
+                  </Fragment>
+                ))}
+              </p>
+              <CardFactsLine question={row.question} now={now} className="mt-1" />
+            </>
           )}
           {row.changed ? (
             <p className="mt-1.5 flex items-baseline gap-2 text-[13px] leading-snug">

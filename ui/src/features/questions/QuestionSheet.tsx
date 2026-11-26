@@ -8,6 +8,7 @@ import { useSetup } from '@/features/onboarding/store.ts'
 import { useTour } from '@/features/tour/store.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
+import { CardFactsLine, ChoiceText, PickMark } from './CardParts.tsx'
 import { WAIT_MS, onSheet, timeLeft, type Question } from './queue.ts'
 import { useQuestions } from './store.ts'
 // hobkin's own questions rise on this sheet, and the answers go back to it (022 S4).
@@ -178,6 +179,7 @@ function Sheet({ question, at, of, left }: { question: Question; at: number; of:
 
             <h2 className="mt-4 text-[24px] leading-[1.2] font-semibold text-balance">{question.question}</h2>
             {question.tldr ? <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">{question.tldr}</p> : null}
+            <CardFactsLine question={question} now={Date.now()} className="mt-3" />
 
             <div
               ref={options}
@@ -218,10 +220,10 @@ function Sheet({ question, at, of, left }: { question: Question; at: number; of:
                   >
                     <Kbd className={cn('mt-0.5 shrink-0', active && 'bg-primary text-primary-foreground')}>{index + 1}</Kbd>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[15px] leading-snug font-medium">{choice.label}</span>
+                      <ChoiceText choice={choice} question={question} className="text-[15px] leading-snug font-medium" />
                       {recommended && question.why ? <span className="mt-0.5 block text-[13px] leading-snug text-muted-foreground">{question.why}</span> : null}
                     </span>
-                    {recommended ? <span className="eyebrow mt-1 shrink-0 text-sun-fg">hobkin's pick</span> : null}
+                    {recommended ? <PickMark sure={question.sure} className="mt-1" /> : null}
                   </motion.div>
                 )
               })}
