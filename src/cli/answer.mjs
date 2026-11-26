@@ -1,3 +1,4 @@
+import { answerPromotion } from './autonomy.mjs';
 import { noteForCheck } from './checks.mjs';
 import { answerDecision, decisionRow, findOpenDecision, handDecision, isActionItem, openDecisions } from './decisions.mjs';
 import { ROUTINE_ASKS } from './routine-care.mjs';
@@ -25,6 +26,7 @@ function carryOutChoice(root, { answerTo }, value, now) {
   if (answerTo?.kind === 'deploy') return answerDeploy(root, value, answerTo, now);
   if (answerTo?.kind === 'pickup') return answerPickUp(root, value, answerTo.keys);
   if (answerTo?.kind === 'subscription') return answerSubscriptionPause(root, value, answerTo.until, now);
+  if (answerTo?.kind === 'autonomy') return answerPromotion(root, answerTo.taskClass, value, now);
   return null;
 }
 

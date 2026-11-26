@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicJson } from './config.mjs';
+import { fileDecision, openDecisions } from './decisions.mjs';
 import { isGuardedKind } from './outward.mjs';
 
 /**
@@ -244,6 +245,42 @@ export function declinePromotion(root, taskClass) {
   return change(root, taskClass, row => {
     row.cleanStreak = 0;
   });
+}
+
+const isAskingFor = taskClass => ({ answerTo }) => answerTo?.kind === 'autonomy' && answerTo.taskClass === taskClass;
+
+/** Files the promotion question when the class is due and none is open for it, whatever level that one would move the class to. */
+function askToPromote(root, taskClass, now) {
+  const card = promotionDue(root, taskClass);
+  if (!card || openDecisions(root).some(isAskingFor(taskClass))) return null;
+  return fileDecision(root, { ...card, from: 'hobkin', answerTo: { kind: 'autonomy', taskClass } }, now);
+}
+
+/**
+ * One outcome, as `recordOutcome` takes it, from the places work ends: a merge, the user's no, a branch sent back, an undo or a session's end.
+ * After a clean one, the promotion question is filed once it is due. It never throws: the work it records has already happened, and a ledger
+ * that cannot take it costs only the record. Gives the class's row, or null when nothing was recorded.
+ */
+export function noteOutcome(root, taskClass, outcome, now = Date.now()) {
+  let row;
+  try {
+    row = recordOutcome(root, taskClass, outcome, now);
+  } catch {
+    return null;
+  }
+  try {
+    if (outcome.clean === true) askToPromote(root, taskClass, now);
+  } catch {
+    // A question that cannot be filed now is asked after the next clean run, since the streak still stands.
+  }
+  return row;
+}
+
+/** The user's answer to a promotion question (`answer.mjs`): yes moves the class one level further from draft, and no keeps it where it is. */
+export function answerPromotion(root, taskClass, value, now = Date.now()) {
+  const { level } = value === 'yes' ? promote(root, taskClass, now) : declinePromotion(root, taskClass);
+  const said = value === 'yes' ? 'now' : 'still';
+  return { ok: true, message: `${taskClass} ${said} ${LEVEL_WORDS[level].does}.` };
 }
 
 const classView = (taskClass, row) => ({
