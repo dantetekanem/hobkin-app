@@ -33,8 +33,8 @@ hobkin runs the user's day the way a good chief of staff does, through the routi
   Every case is judged against these three. Scripts per case are not added: the main prompt's case mechanics become reference loaded on demand (070).
 - The day rides the routine system that is already running. The morning-brief, meetings, end-of-day, weekly-plan and weekly-review templates take on the chief's work. Digests reuse the brief and the catch-up and post in Chat. Nothing adds a routine, a sidebar row, a tab or a run that shows in the agents list.
 - The load is the day's meetings, plus the work committed to that day, plus the reviews and decisions waiting on the user, measured against 8 hours on a work day or the user's normal day off work. Past about 80%, the brief says the day is too full and names what to move. hobkin plans no slack blocks and books nothing into the calendar.
-- Incoming items get four levels. P0 interrupts at the next breakpoint. P1 lands in the next digest the same day. P2 waits for a digest. P3 is logged. Digests come 3 times a day at times the user picks, never hourly and never not at all (notes §3). An always-open "what's waiting" view lets the user pull.
-- No interruption reaches the user during a meeting, a focus block or quiet hours, except P0. Chimes and Mac notifications follow the same levels.
+- Incoming items get four levels. P0 interrupts at the next breakpoint. P1 lands in the next digest the same day. P2 waits for a digest. P3 is logged. Digests come about 3 times a day, never hourly and never not at all (notes §3). hobkin times them from when the user is actually on: it learns from presence and use when they usually start, come back after a break and stop, and posts a digest at those moments. An always-open "what's waiting" view lets the user pull.
+- hobkin learns quiet hours the same way, from when the user is usually away. No interruption reaches the user during a meeting, a focus block or quiet hours, except P0. Chimes and Mac notifications follow the same levels.
 - One card format for every question from every source:
   - One line on what and why now.
   - hobkin's pick first, with how sure it is.
@@ -54,6 +54,7 @@ hobkin runs the user's day the way a good chief of staff does, through the routi
 - Some actions stay at "recommend" or above unless the user has a standing rule: sending anything in the user's name, spending, deleting, committing the user's time to other people, anything irreversible, and anything about health, money or law. Code enforces this at the tool level, not only the prompt. Neither "continue" nor a stored prompt counts as consent.
 - The user's choices on 2026-11-26 are the first rows. Branch work on code is "act and report". An investigating agent on `mid` or higher fixes what it found in its own folder before reporting. Merging, pushing and deploying keep their current rules.
 - hobkin checks delegated work itself, with tests, diffs and live sources. It measures the user's review minutes instead of trusting how fast things feel (notes §5).
+- hobkin finds the calendar and mail source itself, from the MCP servers and integrations its routines can reach, and says in the brief which one it uses.
 - When hobkin interrupts work, a short resume note (where you stopped, what comes next) goes with it.
 
 ## Out of scope
@@ -99,8 +100,8 @@ Phase 0: baseline. hobkin measures before anything changes.
 Phase 1: the desk. This brings the fastest relief, and it needs no calendar.
 
 - [ ] S3 (A4). The four levels on every incoming item. Routines, agents, work mode, reminders and other sessions put items on the desk instead of posting straight to Chat.
-- [ ] S4 (A3, A4). Three digests at times the user picks, built from the brief and the catch-up and posted in Chat, plus the "what's waiting" view.
-- [ ] S5 (A4). Quiet hours, and an awareness of meetings and focus blocks from the day file (S11). Sounds and notifications follow the levels.
+- [ ] S4 (A3, A4). About three digests a day, timed from the user's presence and use, built from the brief and the catch-up and posted in Chat, plus the "what's waiting" view. Before a week of presence data exists, a digest comes when the user returns after a gap.
+- [ ] S5 (A4). Quiet hours learned from when the user is usually away, and an awareness of meetings and focus blocks from the day file (S11). Sounds and notifications follow the levels.
 - [ ] S6. The known bugs. Routine care runs hourly. Report calls show in `hobkin pending` and the brief, and close when they are done. Recall finds accented words.
 
 Phase 2: decisions.
@@ -112,7 +113,7 @@ Phase 2: decisions.
 
 Phase 3: the day, inside the routines.
 
-- [ ] S11 (A1, A3). When the morning-brief and meetings routines read the calendar, as they do today, they also write `runtime/day.json` with working hours, events and free gaps. The main chat reads that file. There is no new poller and no new run.
+- [ ] S11 (A1, A3). When the morning-brief and meetings routines read the calendar through the source hobkin found, as they do today, they also write `runtime/day.json` with working hours, events and free gaps. The main chat reads that file. There is no new poller and no new run.
 - [ ] S12 (A1). The morning brief's load line, from the day file, what is committed to that day, and what waits on the user.
 - [ ] S13 (A2). When P1 work lands and the day no longer fits, the next digest says what to move, and a resume note goes with any interruption.
 - [ ] S14 (A10). Openings, from the gaps in the day file: under 15 minutes, a break or up to 3 one-tap cards; 15 to 45 minutes, one bounded task with its checks attached; 60 minutes or more, the next deep task.
@@ -136,8 +137,6 @@ Phase 1 touches hobkin files where another writer has uncommitted edits: `applic
 
 ## Open questions
 
-1. Digest times, working hours and quiet hours. Proposed: 9:00, 13:00 and 17:30, with quiet hours from 21:00 to 8:00.
-2. Which calendar and mail source is the one hobkin trusts? Pi has `gmail` configured, and it is inferred to serve the calendar too.
-3. Should the daily decision budget start at 6?
-4. May a reversible card take its default at a deadline when the user says nothing? Or should every card wait?
-5. Where do the bank's real cases come from? Agents here never read `~/.hobkin`, so the options are cases hobkin exports, redacted, on the user's word, or cases the user picks.
+1. Should the daily decision budget start at 6?
+2. May a reversible card take its default at a deadline when the user says nothing? Or should every card wait?
+3. Where do the bank's real cases come from? Agents here never read `~/.hobkin`, so the options are cases hobkin exports, redacted, on the user's word, or cases the user picks.
