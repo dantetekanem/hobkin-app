@@ -320,3 +320,16 @@ test('every hobkin run with tools loads the guard once, is named its kind, and r
   assert.equal(attempts(root).length, 4);
   assert.deepEqual(attempts(inherited), []);
 });
+
+test('the run kind is read once and kept from the run\'s own commands, so their children do not inherit it', async t => {
+  const root = home(t);
+  const before = process.env[RUN_KIND_ENV];
+  t.after(() => { if (before === undefined) delete process.env[RUN_KIND_ENV]; else process.env[RUN_KIND_ENV] = before; });
+  process.env[RUN_KIND_ENV] = 'routine';
+  const pi = fakePi();
+  outwardGuard(pi, { root });
+
+  assert.equal(process.env[RUN_KIND_ENV], undefined, 'gone from the environment tools inherit');
+  await pi.call('mcp__gmail__gmail_send', send, join(root, 'jobs', 'a.jsonl'));
+  assert.equal(attempts(root)[0].run, 'routine');
+});

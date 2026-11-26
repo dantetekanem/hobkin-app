@@ -53,6 +53,9 @@ function standingRules(root) {
 }
 
 export default function outwardGuard(pi, { root, env = process.env } = {}) {
+  // The run kind is read once and taken out of this process's environment, so the commands the run starts never inherit it.
+  const named = { [RUN_KIND_ENV]: env[RUN_KIND_ENV] };
+  if (env === process.env) delete process.env[RUN_KIND_ENV];
   // The latest words given to this Pi. Only the main chat's are the user's own: every other run starts from a stored prompt.
   let said = '';
   pi.on('input', event => {
@@ -63,7 +66,7 @@ export default function outwardGuard(pi, { root, env = process.env } = {}) {
       const kind = outwardKind(event?.toolName, event?.input);
       if (!kind) return;
       const file = ctx?.sessionManager?.getSessionFile?.() ?? '';
-      const run = runKindOf(pi, file, env);
+      const run = runKindOf(pi, file, named);
       const askCovered = run === 'main' && askCovers(kind, said);
       const home = root ?? homeOf(file, env);
       if (!home) return;
