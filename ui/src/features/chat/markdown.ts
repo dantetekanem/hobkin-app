@@ -1,10 +1,11 @@
 import { motion, type Variants } from 'motion/react'
 import { createElement, Fragment, memo, type ComponentProps, type ElementType, type ReactElement } from 'react'
-import ReactMarkdown, { type Components } from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { stillVariants } from '../../app/still-rule.ts'
 import { spring, tween } from '../../lib/motion.ts'
 import { localPathOf, remarkFilePaths } from '../viewer/paths.ts'
+import { keepSlackLinks } from '../viewer/slack-links.ts'
 import { Fence } from './CopyBlock.ts'
 import { blockScan, type Definition } from './stream-buffer.ts'
 
@@ -49,6 +50,9 @@ const styled =
   ({ node, className: given, ...props }: ComponentProps<Name> & { node?: unknown }) =>
     createElement(tag, { ...props, ...motionProps, ...(motionProps && wasShown(node) ? { initial: false } : {}), className: given ? `${given} ${className}` : className })
 
+/** react-markdown's address rule, with a `slack://` link kept. */
+const urlTransform = keepSlackLinks(defaultUrlTransform)
+
 const LINK = 'underline decoration-border-strong underline-offset-2 transition-colors duration-[160ms] ease-[ease] hover:decoration-foreground'
 
 const inline: Components = {
@@ -92,7 +96,7 @@ const plugins = [remarkGfm, remarkFilePaths]
 
 /** Renders Markdown text. The same component draws a message in the conversation and the preview in the prompt editor. */
 export const Markdown = memo(function Markdown({ text }: { text: string }): ReactElement {
-  return createElement(ReactMarkdown, { remarkPlugins: plugins, components }, text)
+  return createElement(ReactMarkdown, { remarkPlugins: plugins, components, urlTransform }, text)
 })
 
 /** A message's words. hobkin's replies and the user's own messages are both Markdown. */
@@ -228,7 +232,7 @@ export const sameBlock = (left: BlockProps, right: BlockProps): boolean =>
 
 /** One block of Markdown that may still grow, parsed after the definitions of the rest. */
 const BlockMarkdown = memo(function BlockMarkdown({ text, prefix }: { text: string; prefix: string }): ReactElement {
-  return createElement(ReactMarkdown, { remarkPlugins: pluginsAfter(prefix), components }, prefix + text)
+  return createElement(ReactMarkdown, { remarkPlugins: pluginsAfter(prefix), components, urlTransform }, prefix + text)
 })
 
 /**
@@ -346,6 +350,7 @@ const StreamingBlock = memo(function StreamingBlock({ text, offset, marks, prefi
       remarkPlugins: pluginsAfter(prefix),
       rehypePlugins: [freshSpans(marks, offset - prefix.length, drawn)],
       components: still ? stillStreamingComponents : streamingComponents,
+      urlTransform,
     },
     prefix + text,
   )

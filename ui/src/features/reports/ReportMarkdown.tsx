@@ -2,6 +2,7 @@ import { createContext, memo, useContext, useMemo, type ComponentProps } from 'r
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { localPathOf, rehypeCodePaths, remarkFilePaths } from '../viewer/paths.ts'
+import { keepSlackLinks } from '../viewer/slack-links.ts'
 import { foldsOf, type ReportPart } from './folds.ts'
 import { reportLinkOf } from './report-link.ts'
 
@@ -33,7 +34,7 @@ const LINK = 'underline decoration-border-strong underline-offset-[3px] transiti
 export const OpenReport = createContext<((id: string) => void) | null>(null)
 
 /** A link to a report keeps its address so its press can find the report. Every other address goes through react-markdown's own rule. */
-const keepReportLinks = (url: string, key: string) => (key === 'href' && reportLinkOf(url) !== null ? url : defaultUrlTransform(url))
+const keepReportLinks = (url: string, key: string) => (key === 'href' && reportLinkOf(url) !== null ? url : keepSlackLinks(defaultUrlTransform)(url))
 
 function Link({ node: _node, href, ...props }: ComponentProps<'a'> & { node?: unknown }) {
   const openReport = useContext(OpenReport)
