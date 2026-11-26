@@ -73,7 +73,7 @@ You can do everything from the keyboard. Tab walks the screens, the arrows walk 
 - Your chats, reports, memory and reviews live in `~/.hobkin` on your Mac.
 - Agents work on branches. They never commit to your default branch, and deploying, publishing and deleting what git can't bring back stay with you.
 - Nothing merges without your word, unless you turn on YOLO mode and a change clears your rules.
-- Your model provider, and the tools you connect, see what agents work on. hobkin itself sends anonymous usage events, which you can turn off, and feedback only when you send it. The runtime's README lists [exactly what leaves your Mac](https://github.com/dantetekanem/hobkin#what-leaves-your-machine).
+- Your model provider, and the tools you connect, see what agents work on. hobkin itself sends usage events made of fixed words and counts, never your messages, names or paths, and you can turn them off. Feedback goes only when you send it, and the app checks hobkin.dev for updates. The runtime's README says more about [what leaves your Mac](https://github.com/dantetekanem/hobkin#what-leaves-your-machine).
 
 ## Run it from source
 
