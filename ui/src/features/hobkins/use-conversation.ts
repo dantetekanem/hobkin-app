@@ -1,38 +1,53 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { HobkinConversation, HobkinSummary } from '#shared/protocol/hobkins.ts'
 import { runCommand } from '@/lib/host/client.ts'
-import { latestWins, reloadKey, seenToSend } from './conversation.ts'
+import { reloadKey, seenToSend } from './conversation.ts'
 import { pageShownId } from './page-shown.ts'
+import { askOnce, keepPage, pageTickets, useKeptPage } from './page-store.ts'
+
+/** What a read of the conversation came to: kept, outrun by a later read, or refused. */
+type Answered = 'read' | 'stale' | { problem: string }
+
+/**
+ * Reads a hobkin's conversation for `key`, once however many pages ask while it is out, and keeps the answer with its
+ * page unless a later read has answered first.
+ */
+function readConversation(id: string, key: string): Promise<Answered> {
+  return askOnce(`read\n${id}\n${key}`, () => {
+    const tickets = pageTickets(id)
+    const ticket = tickets.begin()
+    return runCommand('hobkin.read', { id }).then(
+      (answer): Answered => {
+        if (!tickets.accept(ticket)) return 'stale'
+        keepPage(id, (page) => ({ ...page, conversation: answer, readAt: key }))
+        return 'read'
+      },
+      (error: unknown): Answered => (tickets.accept(ticket) ? { problem: error instanceof Error ? error.message : String(error) } : 'stale'),
+    )
+  })
+}
 
 /**
  * A durable hobkin's conversation, read with `hobkin.read` when its page opens and again whenever its turns, its state or
- * what it said last change. An answer that comes back after a newer one is dropped. Null until the first read answers.
+ * what it said last change. It is kept with the page (`page-store.ts`), so a page opened again shows it at once and reads
+ * it only if one of those changed since. An answer that comes back after a newer one is dropped. Null until the first
+ * read answers.
  */
 export function useConversation(
   id: string | null,
   hobkin: HobkinSummary | undefined,
   connected: boolean,
 ): { conversation: HobkinConversation | null; problem: string | null } {
-  const [conversation, setConversation] = useState<HobkinConversation | null>(null)
+  const { conversation, readAt } = useKeptPage(id)
   const [problem, setProblem] = useState<string | null>(null)
-  const reads = useRef(latestWins())
   const key = reloadKey(hobkin)
 
   useEffect(() => {
-    if (!id || !connected || !key) return
-    const ticket = reads.current.begin()
-    runCommand('hobkin.read', { id }).then(
-      (answer) => {
-        if (!reads.current.accept(ticket)) return
-        setConversation(answer)
-        setProblem(null)
-      },
-      (error: unknown) => {
-        if (!reads.current.accept(ticket)) return
-        setProblem(error instanceof Error ? error.message : String(error))
-      },
-    )
-  }, [id, connected, key])
+    if (!id || !connected || !key || readAt === key) return
+    void readConversation(id, key).then((answered) => {
+      if (answered !== 'stale') setProblem(answered === 'read' ? null : answered.problem)
+    })
+  }, [id, connected, key, readAt])
 
   return { conversation, problem }
 }

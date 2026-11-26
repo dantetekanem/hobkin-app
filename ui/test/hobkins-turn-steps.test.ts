@@ -32,7 +32,7 @@ mock.method(HostConnection.prototype, 'command', async (name: string, args: { jo
   return { steps: saved[args.job] ?? [], more: false, found: args.before !== undefined }
 })
 const { hostStore } = await import('../src/lib/host/client.ts')
-const { useTurnSteps } = await import('../src/features/hobkins/turn-steps.ts')
+const { useDrawnSteps } = await import('../src/features/hobkins/turn-steps.ts')
 after(() => {
   mock.restoreAll()
   Reflect.deleteProperty(globalThis, 'window')
@@ -50,10 +50,10 @@ test('a finished turn the host holds nothing of is read from the conversation on
     set: { runs: [], reports: [] },
     activity: [{ op: 'reset', job: turn(2), entries: [bash('c', 3)] }, { op: 'reset', job: turn(3), entries: full }],
   })
-  let shown: ReturnType<typeof useTurnSteps> = {}
+  let shown: ReturnType<typeof useDrawnSteps>['finished'] = {}
   const runs = [turn(1), turn(2), turn(3), turn(4)]
   const Page = () => {
-    shown = useTurnSteps(runs, { live: turn(4) })
+    shown = useDrawnSteps('0a1b2c3d', runs, { live: turn(4) }).finished
     return null
   }
   const mounted = await mountCounting(() => createElement(Page))

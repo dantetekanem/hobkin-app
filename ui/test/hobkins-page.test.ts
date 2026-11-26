@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import type { HobkinConversation, HobkinSummary, HobkinTurn } from '#shared/protocol/hobkins.ts'
 import {
+  drawNext,
   firstMessageNext,
   latestWins,
   pageRows,
@@ -226,4 +227,36 @@ test("a turn a schedule began is one row named by its schedule, where its messag
   assert.equal(row.key, 'hobkin:0a1b2c3d:2:asked', 'keyed as its message was')
   assert.equal(row.at, Date.parse('2026-11-13T10:02:00.000Z'), 'timed when the turn was asked')
   assert.equal(row.run, 'hobkin:0a1b2c3d:2')
+})
+
+test('a page draws its turns newest first, and the next older one only while the drawn ones are known and their rows do not fill the window', () => {
+  const resting: HobkinSummary = { ...summary, state: 'waiting', run: null, turns: 5 }
+  const bash = (id: string, at: number): ActivityEntry => ({ id: `tool:${id}`, kind: 'tool', name: 'bash', state: 'completed', input: JSON.stringify({ command: `npm test -- ${id}` }), output: 'ok', at })
+  const conversation: HobkinConversation = { hobkin: resting, turns: [1, 2, 3, 4, 5].map((n) => turn(n, 'completed', `Done ${n}.`)) }
+  const turns = pageTurns(conversation, resting, [])
+  const run = (n: number) => `hobkin:0a1b2c3d:${n}`
+  // Each turn the page has drawn has three steps: a command, words, a command. The others have none the page has.
+  const says = (id: string, at: number): ActivityEntry => ({ id: `message:${id}`, kind: 'assistant', text: `Looking at ${id}.`, at })
+  const steps = (n: number, count: number) => ({ entries: Array.from({ length: count }, (_, index) => (index % 2 ? says : bash)(`${n}-${index}`, n * 10 + index)), seenAt: () => undefined })
+  const finished = { [run(5)]: steps(5, 3), [run(4)]: steps(4, 3) }
+  const rows = (drawn: readonly string[]) => pageRows(turns, { sending: null, activity: null, finished: Object.fromEntries(drawn.flatMap((each) => (finished[each] ? [[each, finished[each]]] : []))) })
+  const known = (...runs: string[]) => (each: string) => runs.includes(each)
+  const window = 8
+
+  assert.deepEqual(drawNext([], { turns, rows: rows([]), known: known(), window }), { next: run(5), settled: false }, 'none drawn: the newest')
+  assert.deepEqual(drawNext([run(5)], { turns, rows: rows([run(5)]), known: known(), window }), { next: null, settled: false }, 'its steps are on their way')
+  // Its message, three steps and answer are five rows: fewer than eight, so the turn before it too.
+  assert.deepEqual(drawNext([run(5)], { turns, rows: rows([run(5)]), known: known(run(5)), window }), { next: run(4), settled: false })
+  // Five more rows: ten from turn 4's message to the end fill the window.
+  const both = [run(5), run(4)]
+  assert.deepEqual(drawNext(both, { turns, rows: rows(both), known: known(...both), window }), { next: null, settled: true })
+  assert.deepEqual(drawNext(both, { turns, rows: rows(both), known: known(...both), window: 20 }), { next: run(3), settled: false }, 'a longer window takes more turns')
+  const all = [5, 4, 3, 2, 1].map(run)
+  assert.deepEqual(drawNext(all, { turns, rows: rows(all), known: known(...all), window: 100 }), { next: null, settled: true }, 'every turn drawn')
+  assert.deepEqual(drawNext([], { turns: [], rows: [], known: known(), window }), { next: null, settled: true }, 'no turns')
+
+  // A turn in flight is the newest: the page draws it first and, known, counts its rows.
+  const live = pageTurns({ hobkin: summary, turns: [turn(1, 'completed', 'Done.'), turn(2, 'completed', 'Done.'), turn(3, 'running')] }, summary, [])
+  const liveRows = pageRows(live, { sending: null, activity: steps(3, 2), finished: {} })
+  assert.deepEqual(drawNext([run(3)], { turns: live, rows: liveRows, known: known(run(3)), window }), { next: run(2), settled: false })
 })

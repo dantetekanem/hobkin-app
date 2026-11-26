@@ -286,6 +286,43 @@ export function withDrawnTurns(held: readonly string[], rows: readonly object[])
   return added.length ? [...held, ...added] : held
 }
 
+/** The run of the turn a row belongs to, or null for one of no turn's, as the thinking row or a schedule's run. */
+const runOfRow = (row: object): string | null => ('run' in row && typeof row.run === 'string' ? row.run : null)
+
+interface Drawing {
+  /** The turns, oldest first and the one in flight last (`pageTurns`). */
+  turns: readonly ShownTurn[]
+  /** The page's rows from them, oldest first. */
+  rows: readonly object[]
+  /** Whether the page has all the steps of a turn it draws. */
+  known: (run: string) => boolean
+  /** How many rows the page draws from the newest up. */
+  window: number
+}
+
+/**
+ * The turn a page draws next, newest first, so it watches and reads only the turns that reach its newest rows. With none
+ * drawn, the newest. Once every turn drawn has its steps, the next older one, while their rows, from the first of them to
+ * the end, are fewer than `window`. `settled` once every turn drawn has its steps and none is to come: their rows fill
+ * the window, or every turn is drawn. `drawn` are the runs of the turns drawn, the one in flight among them.
+ */
+export function drawNext(drawn: readonly string[], { turns, rows, known, window }: Drawing): { next: string | null; settled: boolean } {
+  if (!turns.length) return { next: null, settled: true }
+
+  const order = new Map(turns.map((turn, index) => [turn.run, index]))
+  const held = drawn.filter((run) => order.has(run))
+  if (!held.length) return { next: turns.at(-1)!.run, settled: false }
+  if (!held.every(known)) return { next: null, settled: false }
+
+  const oldest = Math.min(...held.map((run) => order.get(run)!))
+  const first = rows.findIndex((row) => {
+    const run = runOfRow(row)
+    return run !== null && (order.get(run) ?? -1) >= oldest
+  })
+  if ((first >= 0 && rows.length - first >= window) || oldest === 0) return { next: null, settled: true }
+  return { next: turns[oldest - 1]!.run, settled: false }
+}
+
 /**
  * The notes the user sent, by hobkin, with each one hobkin's receipts now say its turn read in marked so. A receipt
  * counts only under the run of the turn the note reached. A hobkin's notes with nothing new stay the same list, and with

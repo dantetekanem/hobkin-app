@@ -17,7 +17,7 @@ import { withRuns, type RunsRow } from '@/features/schedules/runs.ts'
 import { ScheduleRunsItem } from '@/features/schedules/ScheduleRuns.tsx'
 import { ScheduleWakeItem } from '@/features/schedules/ScheduleWake.tsx'
 import { useScheduleRuns } from '@/features/schedules/use-schedule-runs.ts'
-import { earlierRow, useNewest, withEarlier } from '@/features/agent-activity/newest.ts'
+import { earlierRow, NEWEST_STEPS, useNewest, withEarlier } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
 import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
@@ -47,7 +47,6 @@ import {
   pageTurns,
   talkOpen,
   waitsForTurn,
-  withDrawnTurns,
   withKept,
   withReceipts,
   type Delivery,
@@ -64,7 +63,7 @@ import { useTalkControls } from '@/features/work/use-talk-controls.ts'
 import { PageHeader, pageGutter, PartFrame, splitSpring } from './PageHeader.tsx'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
-import { timeOfTurn, useTurnSteps } from './turn-steps.ts'
+import { timeOfTurn, useDrawnSteps, useNewestFirst } from './turn-steps.ts'
 import { useConversation, useMarkSeen, usePageShown } from './use-conversation.ts'
 import { useOnClaudeCode } from './use-pal.ts'
 import { usePageSlash } from '@/features/work/use-agent-slash.ts'
@@ -313,6 +312,7 @@ function rowTime(row: PageRow): number | null {
   return row.at
 }
 const OLDER_ROW: ShownRow = { kind: 'older', key: 'older' }
+const NO_TURNS: readonly string[] = []
 
 interface ConversationProps {
   /** The hobkin's id: how many of its newest rows are drawn is kept by it. */
@@ -331,7 +331,8 @@ interface ConversationProps {
  * with no turn yet has nothing here until its first message is sent. Each row keeps its key while the host catches up
  * with a message sent (`pageRows`), so none is drawn twice. Every row says when it happened, in a column at its left. It
  * reads the turns' steps itself, so a step draws the conversation alone: the live turn's, and those of each turn that is
- * over from the time it is drawn (`turn-steps.ts`).
+ * over from the time it is drawn (`turn-steps.ts`). It draws its turns newest first, so it watches and reads only the
+ * turns that reach its newest rows (`useNewestFirst`).
  */
 const Conversation = memo(ConversationRows)
 
@@ -347,10 +348,10 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
   const older = useOlderSteps(job)
   const saved = earlierRow(0, { more: older.more, loading: older.loading, mayHaveOlder: job !== null && mayHaveOlder(activity?.entries) })
   const offersOlder = saved !== null
-  // The steps of each turn drawn so far, the one in flight among them, so they stay when it ends (`withDrawnTurns`).
-  const [drawn, setDrawn] = useState<readonly string[]>([])
+  // The steps of each turn drawn so far, the one in flight among them, so they stay when it ends (`useNewestFirst`).
+  const [drawn, setDrawn] = useState<readonly string[]>(NO_TURNS)
   const turnsWithSteps = useMemo(() => (run && !drawn.includes(run) ? [...drawn, run] : drawn), [drawn, run])
-  const finished = useTurnSteps(turnsWithSteps, { live: run, cwd })
+  const { finished, known } = useDrawnSteps(id, turnsWithSteps, { live: run, cwd })
   // A step reads a whole output from its own turn's run, and its times as that run's.
   const jobOf = (turnRun: string) => (turnRun === run ? job : live ? turnRun : null)
   const timeOfStep = (turnRun: string) => (turnRun === run && activity ? activity.timeOf : timeOfTurn(turnRun))
@@ -366,7 +367,7 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
   // A long conversation draws only its newest rows, with a row above them for the ones before (newest.ts). The step
   // being read stays where it was when older steps come.
   const newest = useNewest(id, rows)
-  useEffect(() => setDrawn((held) => withDrawnTurns(held, newest.shown)), [newest.shown])
+  useNewestFirst(id, turnsWithSteps, setDrawn, { turns, rows, known, shown: newest.shown, window: NEWEST_STEPS })
   const holdPlace = useReadingPlace(scroll.scroller, older.steps)
   const readOlder = () => {
     holdPlace()
