@@ -149,17 +149,19 @@ test('a face in the agents list is lit while its agent keeps a live schedule, an
   assert.equal(faceRing([done, { ...done, id: 'c', state: 'cancelled' }, { ...done, id: 'f', state: 'failed' }], NOW), null, 'only ended ones')
 })
 
-test('each face is lit by its own agent’s schedules: a durable hobkin’s from any of its turns, a run’s, and no one else’s', () => {
+test('each face is lit by its own agent’s schedules alone, a durable hobkin’s and a run’s alike, by the id the list names it with', () => {
   const all: AgentSchedule[] = [
+    watch,
     { ...watch, id: 'h', owner: { kind: 'hobkin', id: 'abcd1234' } },
     { ...watch, id: 'm', owner: { kind: 'main' } },
     { ...watch, id: 'e', owner: { kind: 'hobkin', id: 'ffff0000' }, state: 'expired' },
   ]
   const ringOf = (agentId: string) => faceRing(schedulesIn(all, placeOfAgent(agentId)), NOW)
+
   assert.equal(ringOf('hobkin:abcd1234'), 'lit')
+  assert.equal(ringOf('run-412'), 'lit', 'a run’s face reads its own the same way')
   assert.equal(ringOf('hobkin:ffff0000'), null, 'its one schedule ended')
-  assert.equal(ringOf('run-412'), null, 'the main chat’s schedule is not an agent’s')
-  assert.equal(faceRing(schedulesIn([watch, ...all], placeOfAgent('run-412')), NOW), 'lit', 'a run’s face reads its own the same way')
+  assert.equal(ringOf('run-9'), null, 'the main chat’s and other agents’ schedules are not its own')
 })
 
 test('the line wakes when the soonest waiting schedule comes due, to glow, and waits for nothing else', () => {
