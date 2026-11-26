@@ -20,8 +20,8 @@ import { gitReader } from './review-git.ts'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const SAMPLE = path.join(ROOT, 'ui/src/features/review/sample')
-// The hobkin checkout this client links to. See "hobkin" in package.json.
-const REPOSITORY = process.env.HOBKIN_REPOSITORY ?? path.resolve(ROOT, '../hobkin')
+// hobkin's history is part of this repository's, so the sample commit is read from here.
+const REPOSITORY = process.env.HOBKIN_REPOSITORY ?? ROOT
 /** "Say what the main agent is doing, above the input": nine files, code and tests, about fifteen units. */
 const COMMIT = '7d02c99f8c61be4291e0c2046d29787cbc1c010a'
 const ITEM = '7d02c9'
