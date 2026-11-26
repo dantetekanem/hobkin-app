@@ -233,6 +233,7 @@ export function yoloStatus(root, now = Date.now()) {
  * switch being turned off; a project never turned on gets none. Called after the owner's pass and after a deploy's reading.
  */
 export function writeYoloReports(root, { slug = null, now = Date.now() } = {}) {
+  if (readMode(root).automaticYoloReports === false) return [];
   const yolo = readYolo(root);
   const before = readIndex(root);
   const projects = yoloView(root).projects.filter(project => {

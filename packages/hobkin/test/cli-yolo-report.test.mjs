@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { join } from 'node:path';
 import { atomicJson } from '../src/cli/config.mjs';
 import { handDecision, openDecisions } from '../src/cli/decisions.mjs';
-import { writeYoloReports, yoloReports } from '../src/cli/work/yolo-report.mjs';
+import { writeYoloReports, yoloReports, yoloStatus } from '../src/cli/work/yolo-report.mjs';
 import { setYolo, setYoloProject } from '../src/cli/work/yolo.mjs';
 import { setYoloRules } from '../src/cli/work/yolo-rules.mjs';
 import { updateItem, writeMode } from '../src/cli/work/store.mjs';
@@ -35,6 +35,17 @@ test('reports distinguish enabled and ready from active; unchanged reports are n
   write(h, NOW + 5);
   assert.match(report(h).body, /YOLO mode is off globally.*ready/);
   assert.deepEqual(write(h, NOW + 6), []);
+});
+
+test('home opt-out suppresses publication even when status changes', t => {
+  const h = workspace(t);
+  writeMode(h.root, { automaticYoloReports: false });
+  setYolo(h.root, { on: true }, NOW);
+  assert.deepEqual(write(h), []);
+  makeReady(h);
+  assert.deepEqual(write(h, NOW + 1), []);
+  assert.deepEqual(yoloReports(h.root, new Set()), []);
+  assert.ok(yoloStatus(h.root, NOW + 1).projects.some(project => project.slug === 'api'));
 });
 
 test('a low-rated draft PR is ineligible for more than the PR switch', async t => {
