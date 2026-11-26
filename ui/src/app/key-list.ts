@@ -45,7 +45,7 @@ export const KEY_LIST: readonly KeyEntry[] = [
   { keys: 'R', does: 'Run the check again', where: 'a proof run that ended' },
   { keys: '⌘L  ⌘↵', does: 'Go to the message input', where: 'anywhere' },
   { keys: '↓', does: 'Go to the agents list', where: 'an empty message input', hint: 'agents', basic: true },
-  { keys: 'Fn + E', does: 'Open the emoji picker', where: 'a text field on macOS', hint: 'emoji' },
+  { keys: 'Fn + E', does: 'Open the emoji picker', where: 'a text field on macOS' },
   { keys: '↑ ↓', does: 'Move through the agents, ↵ opens one', where: 'the agents list', basic: true },
   { keys: 'x', does: 'Stop the selected agent', where: 'the agents list' },
   { keys: 'w', does: 'Set the workload', where: 'Work, outside text fields' },
