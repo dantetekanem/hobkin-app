@@ -703,20 +703,22 @@ function retireBackupWork(root, slug, now) {
 }
 
 /**
- * Only projects still being worked on count. Work that has landed closes its item here, and `settled` names them. Work that cannot merge gets an item, and `filed`
- * names those. A branch nothing named gets an item, and `adopted` names those. What was filed for a backup is dropped, and `retired` names those.
+ * Only projects still being worked on count, and with `only`, that one project, while the others keep what the last survey said and when. Work that
+ * has landed closes its item here, and `settled` names them. Work that cannot merge gets an item, and `filed` names those. A branch nothing named
+ * gets an item, and `adopted` names those. What was filed for a backup is dropped, and `retired` names those.
  * This writes only hobkin's own records, and it never writes to a repository.
  */
-export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, reviews = reviewsFolder() } = {}) {
-  const previous = readUnmerged(root).projects;
+export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, reviews = reviewsFolder(), only = null } = {}) {
+  const last = readUnmerged(root);
+  const previous = last.projects;
   const grades = readReviewGrades({ folder: reviews, now });
-  const projects = {};
+  const projects = only ? { ...previous } : {};
   const settled = [];
   const filed = [];
   const adopted = [];
   const retired = [];
   // A goal has no branches, and git would read the repository around its folder.
-  for (const { slug, path } of chosenProjects(root).filter(project => !isGoal(project))) {
+  for (const { slug, path } of chosenProjects(root).filter(project => !isGoal(project) && (!only || project.slug === only))) {
     const { clone, trees } = paths(root, slug);
     // A name alone says a branch is a backup, so this reads nothing from the repository. It goes first, so no item for a backup counts as finished work below.
     retired.push(...retireBackupWork(root, slug, now));
@@ -737,7 +739,8 @@ export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, r
       if (previous[slug]) projects[slug] = previous[slug];
     }
   }
-  const survey = { at: new Date(now).toISOString(), projects };
+  // `at` is when every project was last surveyed, which the owner's half-hour survey goes by, so one project's survey leaves it.
+  const survey = { at: only ? last.at : new Date(now).toISOString(), projects };
   atomicJson(surveyPath(root), survey);
   return { ...survey, settled, filed, adopted, retired };
 }

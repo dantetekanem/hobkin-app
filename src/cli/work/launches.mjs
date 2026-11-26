@@ -289,10 +289,11 @@ async function pulseProject(root, { slug, path }, { now, gh, fetchPage }) {
 /**
  * What became of what landed, every half hour with the survey, mode on or off and with no model. It runs `git`, `gh` and one GET, and never a command an agent wrote,
  * because a project's text could reach one. What fails to answer is a gap: it never reads as clean, and a launch holds until it can be read or its limit comes.
+ * With `only`, a project's slug, it reads that project's launches alone.
  */
-export async function pulseLaunches(root, { now = Date.now(), gh = defaultGh, fetch: fetchPage = globalThis.fetch } = {}) {
+export async function pulseLaunches(root, { now = Date.now(), gh = defaultGh, fetch: fetchPage = globalThis.fetch, only = null } = {}) {
   const found = [];
-  for (const project of chosenProjects(root)) {
+  for (const project of chosenProjects(root).filter(({ slug }) => !only || slug === only)) {
     // A repository that cannot be read today is a gap too, and the rest still get their pulse.
     found.push(...await pulseProject(root, project, { now, gh, fetchPage }).catch(() => []));
   }

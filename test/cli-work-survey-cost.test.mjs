@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { chooseProject } from '../src/cli/work/store.mjs';
 import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
@@ -122,3 +123,29 @@ test('a survey of many branches runs at most two git commands at once', async t 
   assert.ok(most <= 2, `${most} git commands ran at once`);
   assert.equal(readUnmerged(h.root).projects.api.open.length, 8);
 });
+
+test('hobkin work sync with a project surveys only that project, and the others keep what they had', async t => {
+  const h = workspace(t);
+  const web = repository(h.base, 'web');
+  chooseProject(h.root, web, 'important', NOW);
+  branched(h.checkout, 'hobkin/api-work');
+  branched(web, 'hobkin/web-work');
+  await survey(h);
+  rewriteSaved(h, saved => ({ ...saved, title: 'kept' }));
+  commit(h.checkout, 'app.txt', 'main moved\n');
+  commit(web, 'app.txt', 'main moved\n');
+
+  const { message } = await runWorkCommand(h.root, ['sync', 'web']);
+
+  assert.match(message, /^Checked web\./);
+  assert.equal(unit(h, 'hobkin/web-work', 'web').title, 'hobkin/web-work');
+  assert.equal(unit(h, 'hobkin/api-work').title, 'kept');
+});
+
+test('hobkin work sync with a project it does not know says so', async t => {
+  const h = workspace(t);
+
+  await assert.rejects(runWorkCommand(h.root, ['sync', 'nope']), /Unknown project: nope/);
+});
+
+

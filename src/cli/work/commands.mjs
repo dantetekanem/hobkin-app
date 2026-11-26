@@ -50,7 +50,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   pause, resume [project]              agents finish, none start; resume ends it
   trigger <project> [look|study|item]  run it next, inside limits (was run)
   cancel <project|run id|item> [--decline]  stop it; --decline: not approved
-  sync                                 find what merged or closed, file rebases
+  sync [project]                       find what merged or closed, file rebases; a project: only there
   add project <path|name> [level] [--goal]  take a project (was choose); --goal: a folder that is no repository, the words on stdin
   add item <project> <title> [--brief text]  add work by hand
   skip <project> [look|study|item]     skip a proposal or a row (was later)
@@ -370,7 +370,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'trigger':
     case 'run': return triggerRow(root, ...args);
     case 'cancel': return cancelRuns(root, args.find(arg => arg !== '--decline'), { decline: args.includes('--decline') });
-    case 'sync': return syncWork(root);
+    case 'sync': return syncWork(root, args[0]);
     case 'ship': return setShipFirst(root, args[0]);
     case 'add': {
       const [what, reference, ...rest] = args;

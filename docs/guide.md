@@ -311,7 +311,7 @@ Work mode and checks run only while the dashboard is open, so nothing new starts
 | `hobkin work cancel <project\|run id\|item> [--decline]` | Asks for what `k` does, and the dashboard does it on its next tick. `--decline` is `Stop it: not approved` |
 | `hobkin work priority <project> <P0..P3>`, `prs <project> <off\|draft\|published>` | Sets a project's priority or PRs |
 | `hobkin work grade <project> <item> <P0..P3\|auto>` | Sets one item's grade, and `auto` hands it back |
-| `hobkin work sync` | Closes what has merged, now |
+| `hobkin work sync [project]` | Closes what has merged, now, and with a project only there |
 | `hobkin work ship [on\|off]` | Prints the pile, or lets new work start until the end of the day, and `on` ends that |
 | `hobkin work skip`, `back`, `retry`, `level`, `drop`, `done` | Steers a project or an item |
 
