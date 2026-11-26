@@ -10,8 +10,8 @@ import { buildInvocation } from '../src/cli/harnesses.mjs';
 import { learningView, runLearningCommand } from '../src/cli/learning/commands.mjs';
 import { PiDirectionsLearner } from '../src/cli/learning/pi-directions-learner.mjs';
 import { readPiDirections } from '../src/cli/learning/pi-directions.mjs';
-import { learningState } from '../src/cli/learning/store.mjs';
-import { listActionItems, readWaiting } from '../src/cli/pending-read.mjs';
+import { learningState, saveState } from '../src/cli/learning/store.mjs';
+import { listActionItems, readPending, readWaiting } from '../src/cli/pending-read.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
 const DAY = 86400000;
@@ -126,16 +126,31 @@ test('a compare that fails or answers out of form files nothing and is tried aga
   assert.equal(requests.length, 2, 'a change is looked at again');
 });
 
-test('nothing is compared while learning is off, without a named Pi folder, or with no AGENTS.md there', async t => {
+test("with Learning off a new Pi file still files its one proposal, which waits in Action Items and takes yes, later and no, while learning's own stay hidden", async t => {
   const off = home(t, { learning: false });
   writePi(off, '# Pi\n\n- Ask before sending.\n');
-  const quiet = learner(t, off);
-  await look(quiet.piDirections);
-  assert.equal(quiet.requests.length, 0);
-  setLearning(off.root, true);
-  await look(quiet.piDirections);
-  assert.equal(quiet.requests.length, 1, 'turning learning on looks at once');
+  const { piDirections, requests } = learner(t, off);
+  await look(piDirections);
+  assert.equal(requests.length, 1);
 
+  const routine = { id: 'abc123', scope: 'mail', kind: 'rethink', title: 'Mail', code: 'blocked', seen: 6, runs: 8, days: 8, latest: '2026-01-02T00:00:00.000Z', at: '2026-01-02T00:00:00.000Z' };
+  saveState(off.root, { lessons: [], proposals: [routine], pullRequests: {} });
+  const [proposal] = learningState(off.root).proposals.filter(({ kind }) => kind === 'directions');
+  assert.deepEqual(readWaiting(off.root).proposals.map(({ id }) => id), [proposal.id], "learning's own proposals stay behind the switch");
+  assert.deepEqual(listActionItems(off.root).items.map(({ id }) => id), [`learning:${proposal.id}:${proposal.at}`]);
+  assert.equal(readPending(off.root).groups.find(({ name }) => name === 'questions')?.count, 1);
+
+  runLearningCommand(off.root, ['answer', proposal.id, 'later']);
+  assert.deepEqual(readWaiting(off.root).proposals, []);
+
+  writePi(off, '# Pi\n\n- Ask before sending.\n- Prove claims.\n');
+  await look(piDirections);
+  const [next] = readWaiting(off.root).proposals;
+  for (const choice of ['no', 'yes']) assert.deepEqual(runLearningCommand(off.root, ['answer', next.id, choice]), { id: next.id, answer: 'no' }, 'the first answer is the last word');
+  assert.deepEqual(readWaiting(off.root).proposals, []);
+});
+
+test('nothing is compared without a named Pi folder, or with no AGENTS.md there', async t => {
   const unnamed = home(t);
   const none = learner(t, { root: unnamed.root, agentDir: undefined });
   await look(none.piDirections);
@@ -189,8 +204,8 @@ test('later brings the proposal back in a week, and no leaves it out until Pi ch
   assert.equal(learningState(fresh.root).proposals.length, 1, 'a change asks again');
 });
 
-test("hobkin looks at the Pi folder it is given as it starts, and a yes hands exactly the rules to the main agent", { timeout: 15000 }, async t => {
-  const where = home(t);
+test("hobkin looks at the Pi folder it is given as it starts, and a yes hands exactly the rules to the main agent, with Learning off too", { timeout: 15000 }, async t => {
+  const where = home(t, { learning: false });
   writePi(where, '# Pi\n\n- Ask before sending.\n- Prove claims.\n');
   const fake = fakePi(where.root);
   const asked = Promise.withResolvers();

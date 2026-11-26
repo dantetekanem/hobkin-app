@@ -2,6 +2,7 @@ import { readDismissedActionIds, recordActionDismissals } from './action-dismiss
 import { learningEnabled } from './config.mjs';
 import { isActionItem, openDecisions, waitingDecisions } from './decisions.mjs';
 import { proposalQuestion } from './learning/lessons.mjs';
+import { DIRECTIONS_KIND } from './learning/pi-directions.mjs';
 import { learningState } from './learning/store.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 import { pendingCard, waitingRows } from './pending.mjs';
@@ -26,7 +27,9 @@ function launchesOf(root, project) {
 
 const launchesIn = root => readProjects(root).flatMap(project => launchesOf(root, project));
 
-const proposalsIn = root => (learningEnabled(root) ? learningState(root).proposals : [])
+// Learning's own proposals wait behind its switch. The one from Pi's AGENTS.md waits whatever the switch says.
+const proposalsIn = root => learningState(root).proposals
+  .filter(proposal => proposal.kind === DIRECTIONS_KIND || learningEnabled(root))
   .map(proposal => ({ ...proposal, question: proposalQuestion(proposal) }));
 
 // An open PR speaks for its branch, so a branch row that has one is left to the PR.

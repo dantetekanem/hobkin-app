@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { learningEnabled } from '../config.mjs';
 import { readDirections } from '../directions.mjs';
 import { contextFileIn } from '../resource-catalog.mjs';
 import { fastBinding } from '../short-reports.mjs';
@@ -49,8 +48,9 @@ export class PiDirectionsLearner {
   /** Cheap enough for every tick, and never throws: a look that goes wrong waits for the next tick. */
   tick() {
     try {
-      // The folder is always named, so a home started for development or a test never reads ~/.pi/agent.
-      if (this.running || this.controller.signal.aborted || !isAbsolute(this.agentDir ?? '') || !learningEnabled(this.root)) return false;
+      // The folder is always named, so a home started for development or a test never reads ~/.pi/agent. The user wants this
+      // whatever the Learning switch says.
+      if (this.running || this.controller.signal.aborted || !isAbsolute(this.agentDir ?? '')) return false;
       const file = contextFileIn(this.agentDir);
       if (!file) return false;
       const { size, mtimeMs, ino } = statSync(file);
