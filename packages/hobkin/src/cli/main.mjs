@@ -47,7 +47,7 @@ export function parseArguments(args) {
     if (flag === '--home' && values[0] && !values[0].startsWith('-')) {
       options.root = resolve(values.shift());
       options.explicitRoot = true;
-    } else if (['--selection', '--preview', '--confirm', '--title', '--cwd'].includes(flag) && values[0] && !values[0].startsWith('-')) {
+    } else if (['--title', '--cwd'].includes(flag) && values[0] && !values[0].startsWith('-')) {
       options[flag.slice(2)] = values.shift();
     } else if (options.command === 'work' && ['--state', '--brief'].includes(flag) && values.length) {
       options[flag.slice(2)] = values.shift();
@@ -63,7 +63,10 @@ export function parseArguments(args) {
       options.hobkin = values.shift();
     } else if (options.command === 'skill' && flag === '--to' && values[0] && !values[0].startsWith('-')) {
       options.to = values.shift();
-    } else if (flag === '--plain') options.plain = true;
+    } else if (flag === '--plain') {
+      // Every status prints the saved state, so --plain changes nothing. Agents that still pass it get the same.
+      options.plain = true;
+    }
     else if (flag === '--keep' && options.command === 'session') options.keep = true;
     else if (flag === '--wake' && options.command === 'session') options.wake = true;
     else if (flag === '--approved' && options.command === 'session') options.approved = true;
@@ -95,7 +98,7 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   }
   if (options.command === 'help') {
     output.write(`hobkin ${HOBKIN_VERSION}\n`);
-    output.write('Usage: hobkin [command] [options]\n  version  print the version hobkin runs\n  init | routines | status | history  [--home directory]\n  routines templates  list the routine templates setup offers, hobkin\'s and yours from routines/templates, as JSON\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  reports [delete ID... | catch-up]  list the Reports inventory as JSON, each with whether it was read, delete reports by ID, or ask the running hobkin for one short catch-up report over the unread ones\n  telemetry [--days n]  print what happened in hobkin as JSON, from this machine only, 30 days by default\n  telemetry <view> [--days n]  print one view of those events as JSON, such as questions, interruptions or presence; telemetry help lists them all\n  telemetry upload [on | off | status]  turn the upload of usage events to hobkin\'s server on or off, on by default once this machine is enrolled, or say what goes and where\n  feedback [list | on | off | delete <id>]  list what /feedback sent, turn sending on or off, or delete a report here and on the server\n  wins [--days n]  print what got done each day as JSON: work merged, decisions made and the days in a row, 7 days by default\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill [install [--to folder]]  print a skill that teaches other agents to work with hobkin, or install it where agents load skills, ~/.pi/agent/skills by default\n  remind <text> --on YYYY-MM-DD [--from name]  save a reminder that hobkin brings up on that day\n  remember <text> [--from name]  hand hobkin\'s main agent a fact or preference to keep\n  decide [routine <id> | work <project> <item> | --from name]  file the question on stdin as JSON in Decisions\n  pending  print what is waiting on the user, across every routine and work mode, as JSON\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  proof check <spec.tla> [--cfg file] [--project slug] [--item id] [--head sha] [--workers n] [--minutes n]  parse a TLA+ spec with SANY, check its model with TLC and prove it with TLAPS when it has a proof, and record the run in proofs/\n  proof stop <id> | proof setup  stop a proof run, or download the pinned TLC into tools/tla\n  learning [on | off | clear <id> | clear all | answer <id> yes|later|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  canvas show <url> | draw <file|-> | read | save [path] | close  [--title text] [--hobkin id]  show a page or a drawing on a canvas, the main one or a durable hobkin, by writing the files the running app follows\n  tell [main | <id>] [<words> | -]  inside a durable hobkin\'s turn only: message the main hobkin or another durable hobkin, or with nothing after it, list who you can reach\n  schedule [list | make | cancel <id> | pause <id> | resume <id> | run <id>]  inside a run hobkin started on Claude Code only: keep schedules for yourself, as the hobkin_schedule tool does, with make reading the schedule as JSON on stdin\n  memory [list [kind] | get <name> | search <words> [--kind kind] | add | change | forget <name> | restore <name> | suggest]  read what hobkin remembers about the user, as the hobkin_recall tool does, never a private memory outside a durable hobkin\'s turn; inside one, save too, with add and change reading the memory as JSON on stdin; suggest hands one to the main hobkin from a run\n  session --tier fast|mid|high|max [--title name] [--cwd directory] [--keep | --wake] [--approved]  hand the brief on stdin to a full Pi session that the running hobkin starts as a job in its agents list, on the model of the tier its work needs, with --keep starts it as a durable hobkin that stays and waits for the user, and with --wake gives the main agent a turn when it ends\n');
+    output.write('Usage: hobkin [command] [options]\n  version  print the version hobkin runs\n  init | routines | status | history  [--home directory]\n  routines templates  list the routine templates setup offers, hobkin\'s and yours from routines/templates, as JSON\n  reports [delete ID... | catch-up]  list the Reports inventory as JSON, each with whether it was read, delete reports by ID, or ask the running hobkin for one short catch-up report over the unread ones\n  telemetry [--days n]  print what happened in hobkin as JSON, from this machine only, 30 days by default\n  telemetry <view> [--days n]  print one view of those events as JSON, such as questions, interruptions or presence; telemetry help lists them all\n  telemetry upload [on | off | status]  turn the upload of usage events to hobkin\'s server on or off, on by default once this machine is enrolled, or say what goes and where\n  feedback [list | on | off | delete <id>]  list what /feedback sent, turn sending on or off, or delete a report here and on the server\n  wins [--days n]  print what got done each day as JSON: work merged, decisions made and the days in a row, 7 days by default\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill [install [--to folder]]  print a skill that teaches other agents to work with hobkin, or install it where agents load skills, ~/.pi/agent/skills by default\n  remind <text> --on YYYY-MM-DD [--from name]  save a reminder that hobkin brings up on that day\n  remember <text> [--from name]  hand hobkin\'s main agent a fact or preference to keep\n  decide [routine <id> | work <project> <item> | --from name]  file the question on stdin as JSON in Decisions\n  pending  print what is waiting on the user, across every routine and work mode, as JSON\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  proof check <spec.tla> [--cfg file] [--project slug] [--item id] [--head sha] [--workers n] [--minutes n]  parse a TLA+ spec with SANY, check its model with TLC and prove it with TLAPS when it has a proof, and record the run in proofs/\n  proof stop <id> | proof setup  stop a proof run, or download the pinned TLC into tools/tla\n  learning [on | off | clear <id> | clear all | answer <id> yes|later|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  canvas show <url> | draw <file|-> | read | save [path] | close  [--title text] [--hobkin id]  show a page or a drawing on a canvas, the main one or a durable hobkin, by writing the files the running app follows\n  tell [main | <id>] [<words> | -]  inside a durable hobkin\'s turn only: message the main hobkin or another durable hobkin, or with nothing after it, list who you can reach\n  schedule [list | make | cancel <id> | pause <id> | resume <id> | run <id>]  inside a run hobkin started on Claude Code only: keep schedules for yourself, as the hobkin_schedule tool does, with make reading the schedule as JSON on stdin\n  memory [list [kind] | get <name> | search <words> [--kind kind] | add | change | forget <name> | restore <name> | suggest]  read what hobkin remembers about the user, as the hobkin_recall tool does, never a private memory outside a durable hobkin\'s turn; inside one, save too, with add and change reading the memory as JSON on stdin; suggest hands one to the main hobkin from a run\n  session --tier fast|mid|high|max [--title name] [--cwd directory] [--keep | --wake] [--approved]  hand the brief on stdin to a full Pi session that the running hobkin starts as a job in its agents list, on the model of the tier its work needs, with --keep starts it as a durable hobkin that stays and waits for the user, and with --wake gives the main agent a turn when it ends\n');
     return 0;
   }
   if (options.command === 'setup') {
@@ -216,32 +219,6 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   if (options.command === 'work') {
     const { printWorkCommand } = await import('./work/commands.mjs');
     return printWorkCommand(options, output, dependencies.input ?? process.stdin);
-  }
-  if (options.command === 'patterns-preview' || options.command === 'patterns-submit') {
-    const { previewPatterns, readSelection, submitPatterns } = await import('./patterns.mjs');
-    if (options.command === 'patterns-preview') {
-      if (!options.selection) throw Error('Select an explicit JSON selection file.');
-      output.write(`${JSON.stringify(previewPatterns(options.root, readSelection(resolve(options.selection))), null, 2)}\n`);
-      return 0;
-    }
-    if (options.plain) throw Error('Plain mode cannot submit provider work.');
-    const signals = dependencies.signals ?? process;
-    const controller = new AbortController();
-    const cancel = () => controller.abort();
-    signals.on('SIGINT', cancel);
-    signals.on('SIGTERM', cancel);
-    try {
-      const receipt = await submitPatterns(options.root, {
-        hash: options.preview,
-        confirmation: options.confirm,
-        signal: controller.signal,
-      });
-      output.write(`${JSON.stringify(receipt, null, 2)}\n`);
-      return receipt.status === 'completed' ? 0 : 1;
-    } finally {
-      signals.removeListener('SIGINT', cancel);
-      signals.removeListener('SIGTERM', cancel);
-    }
   }
   if (options.command === 'reports') {
     const inventory = () => readLocalView(options.root).reports;

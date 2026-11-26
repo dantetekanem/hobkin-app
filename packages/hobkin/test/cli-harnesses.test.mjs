@@ -176,7 +176,7 @@ test('migrated delivery uses ordinary Pi defaults for compatibility checks', asy
 });
 
 test('purpose-specific jobs keep their disabled tools and cannot change harness binding', t => {
-  for (const purpose of ['migration-repair', 'reflection', 'session-patterns']) {
+  for (const purpose of ['migration-repair', 'reflection', 'humanizer']) {
     const invocation = buildInvocation({ ...request(t), purpose });
     assert.ok(invocation.args.includes('--no-tools'));
     assert.ok(!invocation.args.includes('--tools'));

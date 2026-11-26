@@ -121,7 +121,7 @@ test('with a launcher every job spawns its command first, with its environment a
 });
 
 test('a managed launcher never passes --no-extensions and still keeps the other isolation flags', t => {
-  for (const purpose of ['migration-repair', 'reflection', 'session-patterns']) {
+  for (const purpose of ['migration-repair', 'reflection', 'humanizer']) {
     const managed = buildInvocation(request(t, { launcher, purpose }));
     assert.equal(managed.command, 'my-pi-launcher');
     assert.ok(!managed.args.includes('--no-extensions'));
