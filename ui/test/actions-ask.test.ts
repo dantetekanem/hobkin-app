@@ -61,6 +61,25 @@ test("hobkin's question rises on the sheet, with who asks and hobkin's pick and 
   stop()
 })
 
+test("a card rises with hobkin's pick first and what it says of itself", () => {
+  const { host, stop } = connected()
+  const always = { value: 'always', label: 'Always: From now on, keep newsletters I open.' }
+  host.setState({
+    question: {
+      ...asked('q1'),
+      choices: [...asked('q1').choices, always],
+      recommended: 'no',
+      sure: 'medium',
+      reversible: false,
+      learn: true,
+    },
+  })
+  const [rose] = useQuestions.getState().queue.waiting
+  assert.deepEqual(rose!.choices.map(({ value }) => value), ['no', 'yes', 'always'], 'its pick first and the rule it can keep last')
+  assert.deepEqual({ sure: rose!.sure, reversible: rose!.reversible, learn: rose!.learn, defaultsAt: rose!.defaultsAt }, { sure: 'medium', reversible: false, learn: true, defaultsAt: undefined })
+  stop()
+})
+
 test('a question of several lines is headed by its short form, as Action Items heads it, and a summary that repeats the heading is left out', () => {
   const { host, stop } = connected()
   const onSheet = (id: string) => useQuestions.getState().queue.waiting.find((question) => question.id === id)

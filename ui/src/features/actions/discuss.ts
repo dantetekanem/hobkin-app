@@ -70,9 +70,10 @@ function identityOf(row: WaitingRow): string[] {
 export function discussionOf(row: WaitingRow): ReplyTo {
   const asked = (row.item?.question ?? row.question.question).trim()
   const detail = row.item ? '' : (row.question.tldr?.trim() ?? '')
-  const pick = row.question.recommended
+  const { recommended: pick, sure, reversible, defaultsAt } = row.question
   const why = (row.question.why ?? row.item?.why ?? '').trim()
-  const choices = row.question.choices.map((choice) => (choice.value === pick ? `${choice.label} (hobkin's pick)` : choice.label))
+  const pickNote = sure ? `hobkin's pick, sure: ${sure}` : "hobkin's pick"
+  const choices = row.question.choices.map((choice) => (choice.value === pick ? `${choice.label} (${pickNote})` : choice.label))
   const body = [
     'The user wants to talk about this action item. Talking about it answers nothing: leave it open unless they ask you to answer it.',
     `Kind: ${KIND[row.kind].label}`,
@@ -82,6 +83,8 @@ export function discussionOf(row: WaitingRow): ReplyTo {
     ...(asked ? [`Question: ${asked}`] : []),
     ...(detail && detail !== asked ? [`Detail: ${detail}`] : []),
     ...(choices.length ? [`Choices: ${choices.join('; ')}`] : []),
+    ...(reversible === undefined ? [] : [`Can be undone: ${reversible ? 'yes' : 'no'}`]),
+    ...(defaultsAt ? [`Takes hobkin's pick by itself at: ${defaultsAt}`] : []),
     ...(why ? [`Why: ${why}`] : []),
     ...(row.changed ? [`Changed: ${row.changed}`] : []),
     ...(row.at ? [`Filed: ${row.at}`] : []),

@@ -101,7 +101,16 @@ test("every kind of action item is discussed by its own identity, and where it c
 
 test('an item is discussed with everything its card says, and is told to stay open', () => {
   const row = hostRows({
-    decisions: [decision('d1', { kind: 'routine', id: 'inbox-sweep' }, { from: 'Routine inbox-sweep', changed: 'It now comes twice a week.', links: [{ label: 'Inbox', url: 'https://mail.example.com/inbox' }] })],
+    decisions: [
+      decision('d1', { kind: 'routine', id: 'inbox-sweep' }, {
+        from: 'Routine inbox-sweep',
+        changed: 'It now comes twice a week.',
+        links: [{ label: 'Inbox', url: 'https://mail.example.com/inbox' }],
+        sure: 'medium',
+        reversible: true,
+        deadline: '2026-11-26T22:00:00.000Z',
+      }),
+    ],
     waiting: null,
   })[0]!
   const context = discussionOf(row)
@@ -112,7 +121,9 @@ test('an item is discussed with everything its card says, and is told to stay op
     row,
     'From: Routine inbox-sweep',
     'Question: Keep the newsletter?',
-    "Choices: Keep it; Unsubscribe (hobkin's pick)",
+    "Choices: Unsubscribe (hobkin's pick, sure: medium); Keep it",
+    'Can be undone: yes',
+    "Takes hobkin's pick by itself at: 2026-11-26T22:00:00.000Z",
     'Why: Nobody opened it in 9 weeks.',
     'Changed: It now comes twice a week.',
     'Filed: 2026-11-09T08:00:00.000Z',

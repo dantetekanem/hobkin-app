@@ -1,6 +1,6 @@
 import type { PendingQuestion, QuestionReply } from '../../../../shared/protocol/question.ts'
 import { headingOf } from '../actions/items.ts'
-import type { Answer, Question, QuestionQueue } from './queue.ts'
+import { pickFirst, type Answer, type Question, type QuestionQueue } from './queue.ts'
 
 /**
  * hobkin's own questions on the sheet (022-questions S4, 012 A6): the rules, with the host and the sheet handed in,
@@ -31,17 +31,21 @@ export interface QuestionLinks {
   defer(id: string): Promise<void>
 }
 
-/** A question as the sheet asks it, headed the way Action Items heads it (`headingOf`). */
-export function fromHost({ id, from, question, tldr, choices, recommended, why }: PendingQuestion): Question {
+/** A question as the sheet asks it, headed the way Action Items heads it (`headingOf`), its pick first, with what its card says. */
+export function fromHost({ id, from, question, tldr, choices, recommended, why, sure, reversible, defaultsAt, learn }: PendingQuestion): Question {
   const { question: heading, summary } = headingOf(question, tldr)
   return {
     id,
     from,
     question: heading,
-    choices,
+    choices: pickFirst(choices, recommended),
     ...(summary ? { tldr: summary } : {}),
     ...(recommended ? { recommended } : {}),
     ...(why ? { why } : {}),
+    ...(sure ? { sure } : {}),
+    ...(reversible === undefined ? {} : { reversible }),
+    ...(defaultsAt ? { defaultsAt } : {}),
+    ...(learn ? { learn } : {}),
   }
 }
 

@@ -1,4 +1,5 @@
-import type { Answer, Choice, Question, QuestionQueue } from '../questions/queue.ts'
+import { cardFacts } from '../../../../shared/protocol/question.ts'
+import { pickFirst, type Answer, type Choice, type Question, type QuestionQueue } from '../questions/queue.ts'
 
 /**
  * Action items: everything waiting on the user. hobkin calls them decisions (`src/cli/decisions.mjs`), and
@@ -33,6 +34,16 @@ export interface ActionItem {
   at: string
   answer?: string
   answeredAt?: string
+  /**
+   * What a `hobkin decide` card says of itself (075), null when not given: how sure the asker is, whether it can be undone,
+   * its deadline, and whether its last choice keeps a rule. `cardFacts` reads them.
+   */
+  sure?: string | null
+  reversible?: boolean | null
+  deadline?: string | null
+  learn?: boolean | null
+  /** hobkin's own word on when the card takes its pick, should it send one. */
+  defaultsAt?: string | null
 }
 
 /** What is waiting, in the user's terms. `question` is hobkin's own, or one the screen has no other name for. */
@@ -89,8 +100,9 @@ export function headingOf(question: string, tldr = ''): { question: string; summ
 const pickOf = (item: ActionItem) => item.choices.find((choice) => choice.value === item.recommended) ?? null
 
 /**
- * An item, asked the way a question is: who asks, the question, a line of summary, and the choices.
- * A question of several lines, or one long line, is headed by its short form, and its words become the summary.
+ * An item, asked the way a question is: who asks, the question, a line of summary, and the choices, hobkin's pick first,
+ * with what its card says of itself. A question of several lines, or one long line, is headed by its short form, and its
+ * words become the summary.
  */
 export function toQuestion(item: ActionItem): Question {
   const { question: heading, summary: said } = headingOf(item.question, item.tldr)
@@ -110,9 +122,10 @@ export function toQuestion(item: ActionItem): Question {
     from: item.from.trim() || 'hobkin',
     question: heading,
     ...(summary.length ? { tldr: summary.join(' ') } : {}),
-    choices: item.choices,
+    choices: pickFirst(item.choices, pick?.value),
     ...(pick ? { recommended: pick.value } : {}),
     ...(pick && why ? { why } : {}),
+    ...cardFacts(item),
   }
 }
 

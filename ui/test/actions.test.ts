@@ -113,6 +113,32 @@ test('an item asks the way a question does', () => {
   assert.equal('recommended' in toQuestion(item('a', { recommended: 'maybe' })), false, 'a pick that is not one of its choices is no pick')
 })
 
+test("hobkin's pick comes first, so 1 answers with it, and the card keeps what it says of itself", () => {
+  const always = { value: 'always', label: 'Always: From now on, unsubscribe from newsletters nobody opens.' }
+  const card = item('a', {
+    choices: [...CHOICES, { value: 'later', label: 'Ask me next week' }],
+    recommended: 'no',
+    answerTo: { kind: 'routine', id: 'inbox-sweep' },
+    sure: 'low',
+    reversible: true,
+    deadline: '2026-11-26T22:00:00.000Z',
+  })
+  const asked = toQuestion(card)
+  assert.deepEqual(asked.choices.map(({ value }) => value), ['no', 'yes', 'later'], 'the pick first, the rest as filed')
+  assert.deepEqual(answer(raise(emptyQueue, asked), 'a', { value: asked.choices[0]!.value }).answered, [{ id: 'a', answer: { value: 'no' } }])
+  assert.equal(asked.sure, 'low')
+  assert.equal(asked.reversible, true)
+  assert.equal(asked.defaultsAt, '2026-11-26T22:00:00.000Z')
+
+  const learn = toQuestion(item('b', { choices: [...CHOICES, always], recommended: 'yes', learn: true }))
+  assert.deepEqual(learn.choices.at(-1), always, 'the choice that keeps the rule stays last')
+  assert.equal(learn.learn, true)
+
+  const plain = toQuestion(item('c'))
+  assert.deepEqual(plain.choices, CHOICES, 'with no pick, the choices stay as filed')
+  assert.deepEqual(['sure', 'reversible', 'defaultsAt', 'learn'].filter((field) => field in plain), [], 'and a card that says nothing of itself shows nothing')
+})
+
 test('an answer resolves the item', () => {
   const items = [item('a'), item('b', { at: '2026-11-09T09:00:00.000Z' })]
 

@@ -2,6 +2,7 @@
  * The questions hobkin is waiting on, and the rules for answering them or putting them off.
  * Pure, so the rules can be tested without a window. See _specs/022-questions.
  */
+import type { CardFacts } from '../../../../shared/protocol/question.ts'
 
 /** How long a question stays on screen with the user idle before it moves to Action Items. hobkin's own wait. */
 export const WAIT_MS = 30_000
@@ -11,7 +12,14 @@ export interface Choice {
   label: string
 }
 
-export interface Question {
+/** hobkin's pick comes first (075's card), so 1 answers with it. The others keep their order. */
+export function pickFirst(choices: Choice[], recommended: string | undefined): Choice[] {
+  const pick = choices.find(({ value }) => value === recommended)
+  return pick ? [pick, ...choices.filter((choice) => choice !== pick)] : choices
+}
+
+/** A question, with what its card says of itself when hobkin filed it with `hobkin decide`. */
+export interface Question extends CardFacts {
   id: string
   /** Who asks: hobkin, or the routine or agent it asks for. */
   from: string
