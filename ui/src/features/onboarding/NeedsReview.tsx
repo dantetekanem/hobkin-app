@@ -263,6 +263,8 @@ export function NeedsReview({ onSignIn, onBusy, children, listClassName }: Needs
     if (thisAttempt !== attempt.current) return
 
     setSigningIn(null)
+    // Signed in with something after it gone wrong: said, with no line to copy, since the sign-in stands.
+    if (end.signedIn && end.message) setTrouble(end.message)
     if (!end.signedIn && end.message) failedOn(need, Error(end.message))
     await read()
   }

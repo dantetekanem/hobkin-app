@@ -121,14 +121,24 @@ class FakeChild extends EventEmitter implements SignInChild {
   }
 }
 
-function signIns(find: (name: SignInProgram) => string | null = (name) => `/bin.invalid/${name}`, timing: { promptMs?: number; signInMs?: number } = {}) {
+interface SignInsOptions {
+  promptMs?: number
+  signInMs?: number
+  /** How what runs after a sign-in ends, such as `gh auth setup-git`. It goes through by default. */
+  afterwards?: { stderr: string }
+}
+
+function signIns(find: (name: SignInProgram) => string | null = (name) => `/bin.invalid/${name}`, { afterwards, ...timing }: SignInsOptions = {}) {
   const started: { file: string; args: string[]; env: NodeJS.ProcessEnv; child: FakeChild }[] = []
   const spawn: SignInSpawn = (file, args, env) => {
     const child = new FakeChild()
     started.push({ file, args: [...args], env, child })
     return child
   }
-  return { started, signIns: new ProgramSignIns({ find, spawn, env: () => ({ PATH: '/usr/bin', HOME: '/home.invalid' }), ...timing }) }
+  // Nothing after a sign-in runs for real: `gh auth setup-git` would write the global git config.
+  const ranAfter: Ran[] = []
+  const run = fakeRun(ranAfter, afterwards)
+  return { started, ranAfter, signIns: new ProgramSignIns({ find, spawn, run, env: () => ({ PATH: '/usr/bin', HOME: '/home.invalid' }), ...timing }) }
 }
 
 const settled = () => new Promise((resolve) => setImmediate(resolve))
@@ -154,6 +164,43 @@ test("gh: its web sign-in runs without a terminal, and the window gets GitHub's 
   child.end(0)
   assert.deepEqual(await ended, { signedIn: true, message: null })
   assert.deepEqual(await all.wait('gh'), { signedIn: false, message: null }, 'none under way any more')
+})
+
+test('once gh signs in, git is set to use that sign-in, and a failure there is said without undoing the sign-in', async () => {
+  const signedIn = async (afterwards?: { stderr: string }) => {
+    const { started, ranAfter, signIns: all } = signIns(undefined, { afterwards })
+    const prompt = all.start('gh')
+    await settled()
+    const { child } = started[0]!
+    child.stderr.write('! First copy your one-time code: AB12-CD34\nOpen this URL to continue in your web browser: https://github.com/login/device\n')
+    await prompt
+
+    const ended = all.wait('gh')
+    child.end(0)
+    return { end: await ended, ranAfter }
+  }
+
+  const done = await signedIn()
+  assert.deepEqual(done.end, { signedIn: true, message: null })
+  assert.deepEqual(
+    done.ranAfter.map(({ file, args }) => [file, ...args]),
+    [['/bin.invalid/gh', 'auth', 'setup-git', '--hostname', 'github.com']],
+    "with the same gh, hobkin's own where it is the one found",
+  )
+  assert.equal(done.ranAfter[0]!.env.HOME, '/home.invalid')
+
+  const failed = await signedIn({ stderr: 'failed to set up git credential helper: git: command not found\n' })
+  assert.equal(failed.end.signedIn, true, 'the sign-in stands')
+  assert.match(failed.end.message ?? '', /^gh is signed in, but git could not be set to use it\./)
+  assert.match(failed.end.message ?? '', /git: command not found/)
+
+  // A sign-in that did not go through sets nothing up.
+  const { started, ranAfter, signIns: all } = signIns()
+  void all.start('gh').catch(() => {})
+  await settled()
+  started[0]!.child.end(1)
+  await all.wait('gh')
+  assert.deepEqual(ranAfter, [])
 })
 
 test("Claude Code: the window gets the page it prints for a browser that did not open, and the code pasted from it goes to Claude Code", async () => {

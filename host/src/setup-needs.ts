@@ -129,7 +129,7 @@ const QMD: Need = { id: 'qmd', group: 'optional', name: 'qmd', neededBy: 'Memory
 const SAYS = {
   git: "Installs Apple's Command Line Tools, which bring git. Not the Xcode app.",
   gh: `Installs GitHub's own gh ${GH_VERSION}, from GitHub, into hobkin's folder.`,
-  ghSignIn: 'Signs gh in to your GitHub account in the browser, with a one-time code.',
+  ghSignIn: 'Signs gh in to your GitHub account in the browser, with a one-time code, and sets git to use that sign-in.',
   claude: "Installs Claude Code with Anthropic's own installer, from claude.ai.",
   claudeSignIn: 'Signs Claude Code in to your Claude account in the browser.',
   qmd: `Installs qmd ${QMD_VERSION} from npm. It downloads its search model on first use.`,

@@ -246,6 +246,7 @@ test("on a host that installs, git, gh, Claude Code and qmd are each a press tha
   const ghIn = press(signedOut.gh!)
   assert.deepEqual([ghIn.kind, ghIn.name, ghIn.byHand], ['sign-in-program', 'gh', 'gh auth login'])
   assert.match(ghIn.says, /one-time code/)
+  assert.match(ghIn.says, /sets git to use that sign-in/)
   const claudeIn = press(signedOut.claude!)
   assert.deepEqual([claudeIn.kind, claudeIn.name, claudeIn.byHand], ['sign-in-program', 'claude', 'claude auth login'])
 

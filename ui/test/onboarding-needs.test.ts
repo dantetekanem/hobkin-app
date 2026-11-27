@@ -164,3 +164,20 @@ test("Claude Code's sign-in takes the code its page shows, and a sign-in that fa
   assert.match(text(), /claude auth login/, 'the line to copy after the failure')
   await view.unmount()
 })
+
+test('a gh sign-in that went through but could not set git up says so, and offers no line to copy', async () => {
+  let end: (value: ProgramSignInEnd) => void = () => {}
+  const { view, text, press } = await review(() => [GH_OUT], {
+    'setup.sign-in-program': () => ({ name: 'gh', url: 'https://github.com/login/device', code: 'AB12-CD34', pastes: false }),
+    'setup.sign-in-program-wait': () => new Promise((resolve) => (end = resolve)),
+  })
+
+  await press('Sign in')
+  await view.change(async () => {
+    end({ signedIn: true, message: 'gh is signed in, but git could not be set to use it.\ngit: command not found' })
+    await settled()
+  })
+  assert.match(text(), /git could not be set to use it/)
+  assert.doesNotMatch(text(), /gh auth login/, 'the sign-in stands, so there is nothing to copy for it')
+  await view.unmount()
+})

@@ -3,7 +3,8 @@ import type { Readable, Writable } from 'node:stream'
 import { scrubText } from '#shared/integrations/redact.ts'
 import { SIGN_IN_CODE_MAX, type ProgramSignIn, type ProgramSignInEnd, type SignInProgram } from '#shared/protocol/setup.ts'
 import { Unavailable } from '../commands.ts'
-import { lastLines } from './run.ts'
+import type { PiRun } from '../pi/install.ts'
+import { failure, lastLines, ran, realRun } from './run.ts'
 
 /**
  * A program's own web sign-in, run for the user from the setup's review (025-onboarding), so no one needs Terminal.
@@ -12,6 +13,8 @@ import { lastLines } from './run.ts'
  *
  * - gh: `gh auth login --web`. Without a terminal it opens no browser and asks nothing: it prints a one-time code and
  *   GitHub's device page on stderr (`internal/authflow/flow.go` in cli/cli), then waits until the code is entered there.
+ *   Once it signs in, `gh auth setup-git` makes git use that sign-in over https, which `gh auth login` only offers in a
+ *   terminal. It writes the user's global git config. If it fails, the sign-in still stands, and the failure is said.
  * - Claude Code: `claude auth login --claudeai`. It opens the browser itself, and prints the sign-in page on stdout for
  *   a browser that did not open. That page ends with a code, which it reads from stdin.
  */
@@ -20,6 +23,8 @@ import { lastLines } from './run.ts'
 const PROMPT_MS = 30_000
 /** How long a sign-in may wait for the user. gh's code lasts 15 minutes. */
 const SIGN_IN_MS = 16 * 60_000
+/** How long what runs after a sign-in may take. */
+const AFTER_MS = 30_000
 
 const ESCAPES = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[A-Za-z]/g
 /** An address in a terminal link, `ESC ] 8 ; ; <address> ST`, which a program may print around the text. */
@@ -35,10 +40,19 @@ interface SignInWay {
   onStderr: boolean
   needsCode: boolean
   pastes: boolean
+  /** What runs with the same program once it signed in, and what its failure is called. */
+  after?: { args: string[]; failed: string }
 }
 
 const WAYS: Record<SignInProgram, SignInWay> = {
-  gh: { args: ['auth', 'login', '--web', '--hostname', 'github.com', '--git-protocol', 'https'], sites: ['github.com'], onStderr: true, needsCode: true, pastes: false },
+  gh: {
+    args: ['auth', 'login', '--web', '--hostname', 'github.com', '--git-protocol', 'https'],
+    sites: ['github.com'],
+    onStderr: true,
+    needsCode: true,
+    pastes: false,
+    after: { args: ['auth', 'setup-git', '--hostname', 'github.com'], failed: 'gh is signed in, but git could not be set to use it.' },
+  },
   claude: { args: ['auth', 'login', '--claudeai'], sites: ['claude.ai', 'claude.com', 'anthropic.com'], onStderr: false, needsCode: false, pastes: true },
 }
 
@@ -104,6 +118,8 @@ export interface ProgramSignInsOptions {
   /** Finds the program to run, or null when it is not installed. */
   find: (name: SignInProgram) => string | null
   spawn?: SignInSpawn
+  /** Runs what follows a sign-in, such as `gh auth setup-git`. */
+  run?: PiRun
   env?: () => NodeJS.ProcessEnv
   promptMs?: number
   signInMs?: number
@@ -127,7 +143,8 @@ export class ProgramSignIns {
     this.stop(name)
 
     const way = WAYS[name]
-    const child = this.spawn(file, way.args, { ...(this.options.env?.() ?? process.env), ...QUIET })
+    const env = { ...(this.options.env?.() ?? process.env), ...QUIET }
+    const child = this.spawn(file, way.args, env)
     let showPrompt: (prompt: ProgramSignIn) => void = () => {}
     let refusePrompt: (error: Error) => void = () => {}
     const prompted = new Promise<ProgramSignIn>((resolve, reject) => {
@@ -162,24 +179,31 @@ export class ProgramSignIns {
       showPrompt(prompt)
     })
 
+    // What runs once it signed in: null when it went through, and otherwise what went wrong.
+    const afterwards = async (): Promise<string | null> => {
+      if (!way.after) return null
+      const result = await ran(this.options.run ?? realRun, file, way.after.args, AFTER_MS, env)
+      return result.error ? failure(way.after.failed, result, AFTER_MS).message : null
+    }
+
     const ended = new Promise<ProgramSignInEnd>((resolve) => {
       let over = false
-      const end = (signedIn: boolean) => {
+      const end = async (signedIn: boolean) => {
         if (over) return
         over = true
         clearTimeout(promptTimer)
         clearTimeout(signInTimer)
-        if (this.running.get(name)?.child === child) this.running.delete(name)
-
-        const message = signedIn ? null : lastWords(why, said)
         // A program that signed in before it said anything to do has nothing left for the user.
-        refusePrompt(signedIn ? new Unavailable(`${NAMES[name]} is signed in.`) : Error(message ?? why))
+        refusePrompt(signedIn ? new Unavailable(`${NAMES[name]} is signed in.`) : Error(lastWords(why, said)))
+
+        const message = signedIn ? await afterwards() : lastWords(why, said)
+        if (this.running.get(name)?.child === child) this.running.delete(name)
         resolve({ signedIn, message })
       }
-      child.on('exit', (code) => end(code === 0))
+      child.on('exit', (code) => void end(code === 0))
       child.on('error', (error) => {
         why = `${NAMES[name]} could not start its sign-in: ${error.message}`
-        end(false)
+        void end(false)
       })
     })
     this.running.set(name, { child, ended })
