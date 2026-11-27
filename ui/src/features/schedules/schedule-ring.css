@@ -9,7 +9,7 @@
  */
 .schedule-ring[data-schedules] {
   position: relative;
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--hb-sun) 60%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--hb-sun) 35%, transparent);
 }
 .schedule-ring[data-schedules]::before {
   content: '';
@@ -17,7 +17,7 @@
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 4px 1px color-mix(in oklab, var(--hb-sun) 30%, transparent);
+  box-shadow: 0 0 3px 1px color-mix(in oklab, var(--hb-sun) 16%, transparent);
 }
 .schedule-ring[data-schedules='breathes']::before {
   animation: schedule-ring-breathe 2.4s ease-in-out infinite;

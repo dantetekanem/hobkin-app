@@ -1,3 +1,4 @@
+import { Clock } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { useWakeAt } from '@/features/chat/use-now.ts'
 import { cn } from '@/lib/utils.ts'
@@ -23,6 +24,9 @@ export function ScheduleRing({ agentId, className, children }: { agentId: string
   return (
     <span className={cn('schedule-ring', className)} data-schedules={ring ?? undefined} title={ring ? 'Has schedules' : undefined}>
       {children}
+      {(ring === 'lit' || ring === 'breathes') && (
+        <Clock aria-label="Active schedule" role="img" className="pointer-events-none absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-background text-foreground" />
+      )}
     </span>
   )
 }

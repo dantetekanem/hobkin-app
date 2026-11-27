@@ -140,7 +140,9 @@ test('the schedules line counts the live ones, as the other lines count theirs, 
 test('a face in the agents list is lit while its agent keeps a live schedule, and breathes only while one runs or is due', () => {
   const done: AgentSchedule = { ...watch, id: 'd', state: 'done', nextAt: undefined }
   assert.equal(faceRing([watch], NOW), 'lit', 'a countdown with time left: lit and still')
-  assert.equal(faceRing([{ ...watch, state: 'paused', nextAt: undefined }], NOW), 'lit', 'a paused one is live')
+  const paused: AgentSchedule = { ...watch, id: 'p', state: 'paused' }
+  assert.equal(faceRing([paused, done], NOW), 'paused', 'keep the ring without an active clock')
+  assert.equal(faceRing([paused, watch], NOW), 'lit', 'the waiting schedule still gets a clock')
   assert.equal(faceRing([{ ...watch, nextAt: undefined }, done], NOW), 'lit')
   assert.equal(faceRing([watch, { ...watch, id: 'r', state: 'running' }], NOW), 'breathes')
   assert.equal(faceRing([{ ...watch, nextAt: at(-SECOND) }], NOW), 'breathes', 'due now')
