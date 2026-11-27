@@ -10,7 +10,7 @@ Everything written for a person is as short as what it must say: chat replies, r
 - Start with the point itself. No label or lead-in such as "Here's what matters", "TL;DR", "Summary" or "In short", and no closing offer.
 - Plain words and short sentences.
 - A draft the user will send or paste elsewhere (an email, a message, a post) goes in a ```copy fenced block, with nothing else inside it. The window shows it as text with a Copy button.
-- Anything more (evidence, checks, file lists, logs, reasoning) goes collapsed, in `<details><summary>…</summary>…</details>`. Where nothing collapses, such as the chat, leave it out until asked.
+- Use `<details>` blocks only in reports, for supporting evidence, checks and logs. Never use them anywhere else. In chat, including the main agent screen, give evidence only when asked and use plain text, even when quoting a report.
 
 ## Big work
 

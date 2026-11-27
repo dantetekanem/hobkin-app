@@ -29,27 +29,27 @@ function summaryOf(text: string): string {
   return paragraphs.map(markdown).join('\n\n')
 }
 
-/** The summary first, then the collapse, and hobkin's mark as the very last line: what the agent says leads, never the mark. */
 function render({ summary, details = '', version }: AgentMessage): string {
   const known = producerVersion(version)
-  return [
-    summaryOf(summary), '',
-    '<details>',
-    '<summary>Agent extra information</summary>',
-    '', `<pre>${html(details.trim())}</pre>`, '',
-    '</details>',
-    '', `**[made by hobkin · ${known ? `v${known}` : 'version unavailable'}]**`,
-  ].join('\n')
+  const paragraphs = [summaryOf(summary)]
+  if (details.trim()) {
+    // Indented Markdown keeps logs literal and visible, including embedded fences and HTML.
+    paragraphs.push(details.trim().split(/\r\n?|\n/).map(line => `    ${line}`).join('\n'))
+  }
+  paragraphs.push(`**[made by hobkin · ${known ? `v${known}` : 'version unavailable'}]**`)
+  return paragraphs.join('\n\n')
 }
 
 /** Only our exact, canonical envelope counts as already formatted; a mark alone is never trusted. */
 function alreadyFormatted(text: string): AgentMessage | null {
-  const match = /^([\s\S]+?)\n\n<details>\n<summary>Agent extra information<\/summary>\n\n<pre>([\s\S]*?)<\/pre>\n\n<\/details>\n\n\*\*\[made by hobkin · (v[^\]\n]+|version unavailable)\]\*\*$/.exec(text)
+  const match = /^([\s\S]+?)\n\n\*\*\[made by hobkin · (v[^\]\n]+|version unavailable)\]\*\*$/.exec(text)
   if (!match) return null
+  const body = match[1]!
+  const context = body.indexOf('\n\n    ')
   const message = {
-    version: match[3] === 'version unavailable' ? null : match[3]!.slice(1),
-    summary: unmarkdown(match[1]!),
-    details: unhtml(match[2]!),
+    version: match[2] === 'version unavailable' ? null : match[2]!.slice(1),
+    summary: unmarkdown(context < 0 ? body : body.slice(0, context)),
+    details: context < 0 ? '' : body.slice(context + 2).replace(/^ {4}/gm, ''),
   }
   try {
     return render(message) === text ? message : null
@@ -58,14 +58,13 @@ function alreadyFormatted(text: string): AgentMessage | null {
   }
 }
 
-/** Raw HTML and fences in context stay literal inside the one collapse. No prose is silently truncated or hidden. */
 export function agentMessage(message: AgentMessage): string {
   const kept = alreadyFormatted(message.summary)
   if (kept) {
     if (producerVersion(message.version) !== producerVersion(kept.version)) {
       throw new Error('An already formatted agent message does not match the producing job version; use its recorded provenance, not a pasted header.')
     }
-    if (message.details !== undefined && message.details.trim() !== kept.details) {
+    if (message.details !== undefined && message.details.trim().replace(/\r\n?/g, '\n') !== kept.details) {
       throw new Error('An already formatted agent message has different extra information; rebuild it from its summary and context.')
     }
     return message.summary
