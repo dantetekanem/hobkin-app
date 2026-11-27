@@ -18,7 +18,7 @@
  */
 import type { ModelChoice as PiModel, ModelsState, ProviderAccess } from '../protocol/models.ts'
 import { effortsOf, qualifiedId } from './from-pi.ts'
-import { EFFORTS, clampEffort, type Effort, type TierId } from './tiers.ts'
+import { EFFORTS, clampEffort, type Effort, type HostTiers, type TierId } from './tiers.ts'
 
 /** Which providers come first among those connected the same way, in this order. The user can change it. */
 export const PROVIDER_ORDER = ['openai-codex', 'openai'] as const
@@ -128,13 +128,16 @@ function pickedAt(model: PiModel, effort: Effort): Picked {
   }
 }
 
+/** Pi's default for the provider, or, with none Pi can use, the first model Pi lists that thinks, or its first. */
+const defaultOf = ({ provider, own }: Usable): PiModel => own.find((model) => model.id === provider.defaultModel) ?? own.find(thinks) ?? own[0]
+
 /** hobkin's model and each tier, from the models Pi can use now. Null when Pi reaches no provider it lists a model for. */
 export function pickFirstModels(state: ModelsState): FirstPick | null {
   const found = preferred(state)
   if (!found) return null
 
   const { provider, own } = found
-  const anchor = own.find((model) => model.id === provider.defaultModel) ?? own.find(thinks) ?? own[0]
+  const anchor = defaultOf(found)
   const fast = cheaperOfKind(own, anchor) ?? anchor
   const mid = pickedAt(anchor, 'medium')
 
@@ -148,5 +151,27 @@ export function pickFirstModels(state: ModelsState): FirstPick | null {
       high: pickedAt(anchor, 'high'),
       max: pickedAt(anchor, strongest(anchor)),
     },
+  }
+}
+
+/**
+ * hobkin's model, the checks' and each tier on Pi's default for one provider, each keeping the thinking level it has
+ * now, moved to the nearest the model has: what a provider connected later, outside the setup, gives a home where
+ * nothing was chosen (the user, 2026-11-26: "it can but will use pi default"). On such a home the fast tier follows
+ * the checks, so its level is theirs. Null when the provider is not connected or Pi lists no model for it.
+ */
+export function pickPiDefault({ providers, models }: ModelsState, providerId: string, now: HostTiers): FirstPick | null {
+  const provider = providers.find(({ id }) => id === providerId)
+  const entry = provider && { provider, piPlace: 0, own: models.filter((model) => model.provider === provider.id) }
+  if (!entry || !isUsable(entry)) return null
+
+  const anchor = defaultOf(entry)
+  const kept = (tier: TierId): Picked => pickedAt(anchor, now.tiers[tier].effort)
+
+  return {
+    provider: { id: provider.id, name: provider.name },
+    lead: pickedAt(anchor, now.lead.effort),
+    checks: kept('fast'),
+    tiers: { fast: kept('fast'), mid: kept('mid'), high: kept('high'), max: kept('max') },
   }
 }

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ModelChoice, ModelsState, ProviderAccess } from '../protocol/models.ts'
-import { pickFirstModels } from '../tiers/first-models.ts'
+import { pickFirstModels, pickPiDefault } from '../tiers/first-models.ts'
+import type { HostTiers } from '../tiers/tiers.ts'
 
 // Providers and models as the host's models slice sends them. `defaultModel` is Pi's own default for the provider.
 const subscription = { label: 'Sign in', subscription: true }
@@ -192,4 +193,49 @@ test('a provider whose models cannot think gets its first model on every tier, t
     high: 'groq/llama-4 off',
     max: 'groq/llama-4 off',
   })
+})
+
+// hobkin's tiers on a home where nothing was chosen: every tier follows the chat or the checks, at their levels.
+const UNCHOSEN: HostTiers = {
+  lead: { model: null, effort: 'medium' },
+  tiers: {
+    fast: { model: null, effort: 'low', follows: 'background' },
+    mid: { model: null, effort: 'medium', follows: 'main' },
+    high: { model: null, effort: 'medium', follows: 'main' },
+    max: { model: null, effort: 'medium', follows: 'main' },
+  },
+  review: { reviewer: 'high', quick: 'fast' },
+}
+
+test("a provider connected later: everything on Pi's default for it, each keeping its thinking level", () => {
+  // The user, 2026-11-26, of Connect a model outside the setup: "it can but will use pi default".
+  const pick = pickPiDefault({ providers: [ANTHROPIC, CODEX], models: [...ANTHROPIC_MODELS, ...CODEX_MODELS] }, 'anthropic', UNCHOSEN)
+
+  assert.deepEqual(pick?.provider, { id: 'anthropic', name: 'Anthropic' })
+  assert.equal(said(pick!.lead), 'anthropic/claude-opus-4-8 medium')
+  assert.equal(said(pick!.checks), 'anthropic/claude-opus-4-8 low', 'the checks keep the level the fast tier follows')
+  assert.deepEqual(Object.values(pick!.tiers).map(said), [
+    'anthropic/claude-opus-4-8 low',
+    'anthropic/claude-opus-4-8 medium',
+    'anthropic/claude-opus-4-8 medium',
+    'anthropic/claude-opus-4-8 medium',
+  ])
+})
+
+test('a provider connected later: a level its default lacks moves to the nearest it has', () => {
+  const narrow: ModelsState = {
+    providers: [{ ...ANTHROPIC, defaultModel: 'narrow' }],
+    models: [model('anthropic', 'narrow', 'Narrow', ['high', 'xhigh'])],
+  }
+
+  const pick = pickPiDefault(narrow, 'anthropic', UNCHOSEN)
+
+  assert.equal(said(pick!.lead), 'anthropic/narrow high')
+  assert.equal(said(pick!.tiers.fast), 'anthropic/narrow high')
+})
+
+test('a provider connected later that Pi lists no model for, or that is not connected, gives nothing', () => {
+  assert.equal(pickPiDefault({ providers: [ANTHROPIC], models: CODEX_MODELS }, 'anthropic', UNCHOSEN), null)
+  assert.equal(pickPiDefault({ providers: [{ ...ANTHROPIC, connected: false }], models: ANTHROPIC_MODELS }, 'anthropic', UNCHOSEN), null)
+  assert.equal(pickPiDefault({ providers: [ANTHROPIC], models: ANTHROPIC_MODELS }, 'nobody', UNCHOSEN), null)
 })

@@ -1,10 +1,11 @@
 /**
- * hobkin's first model and tiers (`017-model-tiers`, "The first models"): set once, when the first-run setup finds or
- * signs in to an account, from the models Pi can use now, and only on a home where no model was ever chosen. The
- * setup's story says what was set.
+ * hobkin's first model and tiers (`017-model-tiers`, "The first models"): set once, from the models Pi can use now, and
+ * only on a home where no model was ever chosen. The first-run setup's account step picks them by the setup's rule; a
+ * provider connected later on Connect a model puts them all on Pi's default for that provider. What was set is said
+ * where it happened.
  */
 import type { ModelsState } from '#shared/protocol/models.ts'
-import { pickFirstModels, type FirstModels, type Picked } from '#shared/tiers/first-models.ts'
+import { pickFirstModels, pickPiDefault, type FirstModels, type Picked } from '#shared/tiers/first-models.ts'
 import { TIER_IDS, type Effort, type HostTiers, type TierSetting, type TiersChange } from '#shared/tiers/tiers.ts'
 
 export interface FirstModelsHost {
@@ -32,10 +33,13 @@ export function neverChosen({ lead, tiers }: HostTiers): boolean {
 /** What a tier saves of a pick: its model and level, without the name. */
 const settingOf = ({ model, effort }: Picked): TierSetting => ({ model, effort })
 
-export async function setFirstModels({ models, tiers, selectModel, selectChecks, applyTiers }: FirstModelsHost): Promise<FirstModels> {
-  if (!neverChosen(await tiers())) return { set: false, why: 'chosen' }
+/** Sets the first models by the setup's rule, or, given the provider that connected later, on Pi's default for it. */
+export async function setFirstModels({ models, tiers, selectModel, selectChecks, applyTiers }: FirstModelsHost, provider?: string): Promise<FirstModels> {
+  const now = await tiers()
+  if (!neverChosen(now)) return { set: false, why: 'chosen' }
 
-  const pick = pickFirstModels(await models())
+  const usable = await models()
+  const pick = provider === undefined ? pickFirstModels(usable) : pickPiDefault(usable, provider, now)
   if (!pick) return { set: false, why: 'no-model' }
 
   // The chat's model first. Should the rest then fail, it follows Pi or the chat, and the home reads as chosen from then on.

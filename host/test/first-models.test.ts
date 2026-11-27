@@ -79,6 +79,19 @@ test("a new home gets hobkin's model, the checks' and every tier from the accoun
   assert.equal(answer.tiers.fast.name, 'GPT-6 Luna')
 })
 
+test("a provider connected later, outside the setup, gives a new home Pi's default for it everywhere, each level kept", async () => {
+  const host = fakeHost(NEW_HOME)
+  const answer = await setFirstModels(host.deps, 'openai-codex')
+
+  assert.deepEqual(host.calls, ['models', 'main', 'checks', 'tiers'])
+  assert.deepEqual(host.saved.main, ['openai-codex/gpt-6.1-sol', 'medium'])
+  assert.deepEqual(host.saved.checks, ['openai-codex/gpt-6.1-sol', 'medium'])
+  const onDefault = { model: 'openai-codex/gpt-6.1-sol', effort: 'medium' }
+  assert.deepEqual(host.saved.tiers, { tiers: { fast: onDefault, mid: onDefault, high: onDefault, max: onDefault } })
+  assert.ok(answer.set)
+  assert.equal(answer.tiers.fast.name, 'GPT-6.1 Sol')
+})
+
 test('a model chosen before, for the chat, the checks or any tier, is never overwritten', async () => {
   const chat = { ...NEW_HOME, lead: { model: 'anthropic/claude-opus-5-5', effort: 'high' as const } }
   const checks = { ...NEW_HOME, tiers: { ...NEW_HOME.tiers, fast: { model: 'anthropic/claude-haiku-5-5', effort: 'low' as const, follows: 'background' as const } } }
@@ -87,6 +100,7 @@ test('a model chosen before, for the chat, the checks or any tier, is never over
   for (const chosen of [chat, checks, tier]) {
     const host = fakeHost(chosen)
     assert.deepEqual(await setFirstModels(host.deps), { set: false, why: 'chosen' })
+    assert.deepEqual(await setFirstModels(host.deps, 'openai-codex'), { set: false, why: 'chosen' })
     assert.deepEqual(host.calls, [], 'nothing is read of Pi or saved')
   }
 })
@@ -94,7 +108,8 @@ test('a model chosen before, for the chat, the checks or any tier, is never over
 test('with no account Pi can use, nothing is set', async () => {
   const host = fakeHost(NEW_HOME, { providers: [{ ...CODEX.providers[0]!, connected: false }], models: [] })
   assert.deepEqual(await setFirstModels(host.deps), { set: false, why: 'no-model' })
-  assert.deepEqual(host.calls, ['models'])
+  assert.deepEqual(await setFirstModels(host.deps, 'openai-codex'), { set: false, why: 'no-model' })
+  assert.deepEqual(host.calls, ['models', 'models'])
 })
 
 test("hobkin's own config tells a new home from one where a model was chosen", async (t) => {
