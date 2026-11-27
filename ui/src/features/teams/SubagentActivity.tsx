@@ -166,12 +166,12 @@ function AgentFace({ agent, hue }: { agent: ActivityAgent; hue: number }) {
 }
 
 /**
- * Its own words read a little softer than the page's text (the user, 2026-11-27: "a bit darker"); what it was asked, its
+ * Its own words read a little softer than the page's text (the user, 2026-11-27: "a bit darker", twice); what it was asked, its
  * tool or its standing read quieter, and a failure in red.
  */
 function doingTone(line: ActivityLine): string {
   if (line.tone === 'bad') return 'text-bad-fg'
-  return line.ownWords ? 'text-foreground/80' : 'text-muted-foreground'
+  return line.ownWords ? 'text-foreground/65' : 'text-muted-foreground'
 }
 
 /**
