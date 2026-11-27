@@ -586,8 +586,26 @@ const launcherMayHelp = (facts: Facts): boolean => facts.host === true && facts.
  */
 const asksForLauncher = ({ computer }: Answers, facts: Facts): boolean => computer === 'work' && launcherMayHelp(facts)
 
-/** Routines are offered once an account answers, and only when there is a goal to offer them for. */
-const offersRoutines = (answers: Answers): boolean => goalsOf(answers).length > 0
+/** A model answers: an account Pi already reaches, one signed in to in the setup, or a launcher that was kept. */
+const hasAccount = (answers: Answers, facts: Facts): boolean =>
+  facts.connected.length > 0 || answers.account === 'connected' || answers.launcher === 'saved'
+
+/**
+ * Once the goals are said, and whose computer it is when that matters: set them up or go in when an account answers and
+ * there is a goal to offer routines for. Main hobkin writes them in the chat, which needs a model, so without one none are offered.
+ */
+const afterGoals = (answers: Answers, facts: Facts): BeatId =>
+  goalsOf(answers).length > 0 && hasAccount(answers, facts) ? 'more' : beforeSettings(facts)
+
+/**
+ * Whose computer this is matters only for the goals whose routines read the person's own accounts. Asked already, for
+ * the launcher, it is not asked again, and a work computer still hears once that its private cards say so.
+ */
+function whoseComputer(answers: Answers, facts: Facts): BeatId {
+  if (!asksComputer(goalsOf(answers))) return afterGoals(answers, facts)
+  if (answers.computer === undefined) return 'computer'
+  return answers.computer === 'work' ? 'computer-work' : afterGoals(answers, facts)
+}
 
 /** Projects were picked for code, with a host to hand them to work mode, so hobkin says what it did with them. */
 function handsToWork(index: number, answers: Answers, facts: Facts): boolean {
@@ -607,22 +625,9 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
   switch (id) {
     case 'hello':
       return 'sound'
+    // Pi and a model come first, since nothing after them works without them (the user's word of 2026-11-26: "you
+    // should not ask for what to use hobkin BEFORE pi/sub").
     case 'sound':
-      return 'goals'
-    case 'goals':
-      return 'goals-said'
-    // Whose computer this is matters only for the goals whose routines read the person's own accounts.
-    case 'goals-said':
-      return asksComputer(goalsOf(answers)) ? 'computer' : 'name'
-    case 'computer':
-      return answers.computer === 'work' ? 'computer-work' : 'name'
-    case 'computer-work':
-      return 'name'
-    case 'name':
-      return 'name-hi'
-    case 'name-hi':
-      return 'email'
-    case 'email':
       return 'subscription'
     // A computer not asked about yet is asked now when the launcher question would need it.
     case 'subscription':
@@ -640,14 +645,27 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
     case 'pi-ready':
     case 'pi-later':
       return accounts(facts)
+    // Then who the person is and what they are working toward, with an account or without one.
     case 'found':
     case 'connected':
-      return offersRoutines(answers) ? 'more' : beforeSettings(facts)
+    case 'no-account':
+      return 'name'
     case 'connect':
       return answers.account === 'connected' ? 'connected' : 'no-account'
-    // Main hobkin writes the routines in the chat, which needs a model, so without one none are offered.
-    case 'no-account':
-      return beforeSettings(facts)
+    case 'name':
+      return 'name-hi'
+    case 'name-hi':
+      return 'email'
+    case 'email':
+      return 'goals'
+    case 'goals':
+      return 'goals-said'
+    case 'goals-said':
+      return whoseComputer(answers, facts)
+    case 'computer':
+      return answers.computer === 'work' ? 'computer-work' : afterGoals(answers, facts)
+    case 'computer-work':
+      return afterGoals(answers, facts)
     case 'more':
       if (!answers.more) return beforeSettings(facts)
       return goalQuestions(goalsOf(answers)).length ? 'q1' : cardsFrom(answers, facts)

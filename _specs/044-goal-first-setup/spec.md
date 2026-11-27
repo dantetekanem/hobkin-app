@@ -39,7 +39,8 @@ This takes over the questions half of `025-onboarding` on the user's word of 202
 - Five goals, by id and in this order: `code`, `project`, `business`, `life` and `job`. They live in `shared/protocol/setup.ts` as `GOALS` and in the runtime as `TEMPLATE_GOALS` (`routine-templates.mjs`). A host test holds the two lists equal.
 - Code comes first and a job last. hobkin is the proactive layer for coding agents, and on 2026-11-26 the user said "finding a job should NOT be the first option". The bubbles, the goals' questions and the cards all follow this order.
 - The bubbles say "Writing code", "A project of my own", "Starting a business", "Keeping life in order" and "Finding a job". They are a cloud of bubbles (`PickCloud.tsx`), any number can be picked, and the person's own words become a bubble of their own. Own words count as the project goal, and they start the project question's answer.
-- The goals question takes the place of the computer fork, right after the sound question. The development pitch goes.
+- The goals question takes the place of the computer fork. The development pitch goes.
+- Pi and a model account come first, right after the sound question: the subscription bubble, Pi when something of it is missing, then the account found or signed in to, with what hobkin picked to think with. Only then come the name, the email, the goals and the rest. On 2026-11-26 the user said "you should not ask for what to use hobkin BEFORE pi/sub", after the goals had come first. With the sign-in put off, the name, the email and the goals are still asked and saved, and no routines are offered. The email now comes before the goals, so its second bubble names commits only when code was picked on a way back.
 - The goals answer is saved as soon as it is given, through `setup.save` as 025 saves every answer (025 A61), so main hobkin, its routines and its agents know the goals from the first conversation, even when no account gets connected.
 - Each goal may have one question, asked after "Set them up", in the order of `GOALS`. Each can be skipped.
   - `job`: the kind of job, where, and which companies or job boards to watch. Typed.
@@ -50,9 +51,9 @@ This takes over the questions half of `025-onboarding` on the user's word of 202
 
 ### Whose computer this is
 
-- It is asked once, after the goals, only when a new job, a business or keeping life in order was picked. Those are the goals whose routines read the person's own mail, money, calendar or health.
+- It is asked once, after the goals, only when a new job, a business or keeping life in order was picked, and only when it was not said already. Those are the goals whose routines read the person's own mail, money, calendar or health.
 - It changes two things. hobkin's profile line tells every agent which it is, as now (`hobkin/src/cli/profile.mjs:89`). And on a work computer, each card whose template is marked `private` says in one line that it reads the person's own accounts on a work computer, and hobkin says so once in a bubble. Nothing else depends on it.
-- Not asked, the profile's computer stays as it was. One exception: with a host, no account found and no launcher named, the question is asked right after the subscription bubble, since a work computer is then asked for the command that starts Pi (025's launcher question). It has no line about private cards there.
+- Not asked, the profile's computer stays as it was. One exception: with a host, no account found and no launcher named, the question is asked right after the subscription bubble, since a work computer is then asked for the command that starts Pi (025's launcher question). It has no line about private cards there, and it is not asked again after the goals. A work computer hears the line about private cards after the goals instead, when one of those goals was picked.
 
 ### Templates by goal
 
@@ -163,7 +164,7 @@ This takes over the questions half of `025-onboarding` on the user's word of 202
 
 ## Acceptance
 
-- A1. Right after the sound question hobkin asks what the person is working toward, with five bubbles (Writing code, A project of my own, Starting a business, Keeping life in order, Finding a job) and room for their own words. Any number can be picked, own words count as a project, and the question can be passed with none. No line before it pitches development, and the personal-or-work fork is not asked there.
+- A1. Right after the email hobkin asks what the person is working toward, with five bubbles (Writing code, A project of my own, Starting a business, Keeping life in order, Finding a job) and room for their own words. Any number can be picked, own words count as a project, and the question can be passed with none. No line before it pitches development, and the personal-or-work fork is not asked there.
 - A2. hobkin then says back what was picked in one bubble that names the goals, or, with none, that it can wait.
 - A3. The computer question comes after the goals only when a new job, a business or keeping life in order was picked. On a work computer hobkin says once that some routines read the person's own accounts, and each card marked private says so in one line. When it is not asked, the profile's computer stays as it was.
 - A4. After Set them up, each picked goal with a question asks it, in the order code, project, business, job: for code the folder, the projects and validation as 025 asks them, then the project and its date, the business in a line, and the job and where to look. Each can be skipped, and each answer is saved as it is given. With no goal picked, or with no account, no routines are offered and the story goes to the settings, through the review of what this Mac needs when a host answers.
@@ -193,13 +194,13 @@ This takes over the questions half of `025-onboarding` on the user's word of 202
 - A28. When the person asks main hobkin for the same kind of look a second time within 14 days and no routine covers it, hobkin offers once to make it a routine from the template that fits. A no is kept with its date, and that kind is not offered again.
 - A29. hobkin's lines in the story and the tour read for anyone, as "hobkin's lines" above gives them, with no em or en dashes and no line that names the user.
 - A30. The note that the answers stay in hobkin's home and reach the model provider shows once, under the goals question.
-- A31. The beats come in order: hello, sound, the goals, the goals said back, the computer when asked, the name, the name said back, the email, the subscription, Pi when something of it is missing, the account, set them up or go in, the goals' questions, the cards, what they need, the writing, what was written, the first run, the thanks, the question about usage counts and the review of what this Mac needs when a host answers (added on 2026-11-26 and 2026-11-25, 025 A76 and A73), the settings and the walk to the app. Going on from the last one ends the setup as done.
+- A31. The beats come in order (since 2026-11-26, Pi and the account first): hello, sound, the subscription, Pi when something of it is missing, the account, the name, the name said back, the email, the goals, the goals said back, the computer when asked, set them up or go in, the goals' questions, the cards, what they need, the writing, what was written, the first run, the thanks, the question about usage counts and the review of what this Mac needs when a host answers (added on 2026-11-26 and 2026-11-25, 025 A76 and A73), the settings and the walk to the app. Going on from the last one ends the setup as done.
 - A32. When an update brings several new routine templates to a home that has seen templates before, the next open files one Action Item that lists them all, with one line in Chat. The same set is not filed again, and a newer version of one template still gets its own item.
 - A33. With `routineCare` off, which it is on every home until the user's go-ahead turns it on, hobkin files no care item about a routine.
 
 ## Proof
 
-- A1. `ui/test/onboarding-story.test.ts` › "the goals question comes right after the sound question, takes any goals, their own words or none, and the computer fork is not asked there"; the five bubbles' words and that no line before them pitches development: check: read the goals beat in `story.ts` and `goals.ts`, and see it in the still renders of S10. No test asserts these words.
+- A1. `ui/test/onboarding-story.test.ts` › "the goals question comes right after the email, takes any goals, their own words or none, and the computer fork is not asked there"; the five bubbles' words and that no line before them pitches development: check: read the goals beat in `story.ts` and `goals.ts`, and see it in the still renders of S10. No test asserts these words.
 - A2. check: read `goalsSaid` in `goals.ts` for one goal, two goals and none, and see the bubble in the window (S10). No test asserts these words.
 - A3. `ui/test/onboarding-story.test.ts` › "the computer is asked only for a job, a business or life, and a work computer marks the private cards"
 - A4. `ui/test/onboarding-story.test.ts` › "each picked goal asks its own question in the goals' order, and none or no account offers no routines"
@@ -229,7 +230,7 @@ This takes over the questions half of `025-onboarding` on the user's word of 202
 - A28. check: on a scratch home with a real model, ask main hobkin for the same look twice. Not seen.
 - A29. check: read every line in `story.ts`, `goals.ts`, `cards.ts` and the tour's `steps.ts`, and search them for em and en dashes. Not seen.
 - A30. check: read the note under the goals question in the window. Not seen.
-- A31. `ui/test/onboarding-story.test.ts` › "a new Mac with goals: who the person is, Pi, a sign-in, the cards, the writing, the first run, then the app"
+- A31. `ui/test/onboarding-story.test.ts` › "a new Mac with goals: Pi and a sign-in first, then who the person is, the goals, the cards, the writing, the first run, then the app"
 - A32. `hobkin/test/cli-action-items.test.mjs` › "new templates from one update file one item that lists them all, once, and a newer version keeps its own"
 - A33. `hobkin/test/cli-application.test.mjs` › "with routine care off no care item is filed"
 

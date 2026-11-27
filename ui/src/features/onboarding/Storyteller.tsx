@@ -507,9 +507,9 @@ function useGoalCards(hasHost: boolean, earlier: SetupSaved | null, onTrouble: (
 
 /**
  * The first-run setup as a story, over the whole window. The window holds empty for a moment, the sky comes, the
- * mountains rise, and hobkin hops in from behind them to the middle and talks in speech bubbles. It asks what the
- * person is working toward, whose computer this is when that matters, their name and email, installs Pi when it is
- * missing, finds an account or signs in to one, and offers routines for the goals: each goal's question, its cards,
+ * mountains rise, and hobkin hops in from behind them to the middle and talks in speech bubbles. It installs Pi when it
+ * is missing and finds an account or signs in to one, then asks the person's name and email, what they are working
+ * toward and whose computer this is when that matters, and offers routines for the goals: each goal's question, its cards,
  * main hobkin writing the kept ones, and a first run. Then it hands over to the app, where a short tour follows. See
  * _specs/025-onboarding and _specs/044-goal-first-setup.
  *

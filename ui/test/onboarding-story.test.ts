@@ -100,7 +100,7 @@ test('a bubble that only asks to go on is passed by going on', () => {
   assert.notEqual(tellOn(ready, 'on', none, bare).at, 'subscription')
 })
 
-test('a new Mac with goals: who the person is, Pi, a sign-in, the cards, the writing, the first run, then the app', () => {
+test('a new Mac with goals: Pi and a sign-in first, then who the person is, the goals, the cards, the writing, the first run, then the app', () => {
   const answers: Answers = {
     ...none,
     goals: ['job', 'project'],
@@ -118,17 +118,17 @@ test('a new Mac with goals: who the person is, Pi, a sign-in, the cards, the wri
   assert.deepEqual(walk(answers, facts), [
     'hello',
     'sound',
-    'goals',
-    'goals-said',
-    'computer',
-    'name',
-    'name-hi',
-    'email',
     'subscription',
     'pi',
     'pi-ready',
     'connect',
     'connected',
+    'name',
+    'name-hi',
+    'email',
+    'goals',
+    'goals-said',
+    // Whose computer it is was said already, so it is not asked again. Where it is asked is tested below.
     'more',
     'q1',
     'q2',
@@ -240,7 +240,7 @@ test('an account Pi already reaches is found, and none leads to the sign-in', ()
 
   assert.equal(beatAfter('subscription', none, found), 'found')
   assert.match(beatOf('found', none, found).lines.join(' '), /OpenAI and Anthropic/)
-  assert.equal(beatAfter('found', { ...none, goals: ['job'] }, found), 'more')
+  assert.equal(beatAfter('found', none, found), 'name', 'then who the person is')
   assert.equal(beatAfter('subscription', none, bare), 'connect')
   assert.equal(beatOf('connect', none, bare).ask?.kind, 'connect')
 })
@@ -279,21 +279,22 @@ test('with its first models set, hobkin says in one more bubble, after the other
   assert.equal(line.split('GPT-6.1 Sol').length, 2, line)
 })
 
-test('putting the sign-in off skips the questions, which need a model to hand them to', () => {
+test('putting the sign-in off still asks who the person is and the goals, and skips the routines, which need a model to hand them to', () => {
   const later: Answers = { ...none, account: 'later' }
 
   assert.equal(beatAfter('connect', later, bare), 'no-account')
-  assert.equal(beatAfter('no-account', later, bare), 'settings')
+  assert.equal(beatAfter('no-account', later, bare), 'name')
+  assert.equal(beatAfter('goals-said', { ...later, goals: ['code'] }, bare), 'settings')
   assert.equal(beatAfter('connect', { ...none, account: 'connected' }, bare), 'connected')
 })
 
 test('with a host, the question about usage counts and the review of what hobkin needs come just before the settings, however the story got there', () => {
   const host: Facts = { ...bare, host: true }
 
-  assert.equal(beatAfter('no-account', { ...none, account: 'later' }, host), 'usage')
+  assert.equal(beatAfter('goals-said', { ...none, account: 'later', goals: ['code'] }, host), 'usage', 'no account: no routines')
   assert.equal(beatAfter('more', { ...none, more: false }, host), 'usage')
   assert.equal(beatAfter('thanks', none, host), 'usage')
-  assert.equal(beatAfter('connected', none, host), 'usage', 'with no goal no routines are offered')
+  assert.equal(beatAfter('goals-said', { ...none, account: 'connected' }, host), 'usage', 'with no goal no routines are offered')
   assert.equal(beatAfter('usage', none, host), 'needs')
   assert.equal(beatAfter('needs', none, host), 'settings')
   assert.equal(beatOf('needs', none, host).ask?.kind, 'needs')
@@ -324,11 +325,11 @@ test("only main hobkin's own question is asked in the story, and a choice withou
   assert.equal(followUpOf(null), null)
 })
 
-test('hobkin asks about sound right after the hello, before anything else', () => {
+test('hobkin asks about sound right after the hello, before anything else, and then needs something to think with', () => {
   const sound = beatOf('sound', none, bare)
 
   assert.equal(beatAfter('hello', none, bare), 'sound')
-  assert.equal(beatAfter('sound', none, bare), 'goals')
+  assert.equal(beatAfter('sound', none, bare), 'subscription')
   assert.equal(sound.ask?.kind === 'choice' && sound.ask.field, 'sound')
 })
 
@@ -712,24 +713,27 @@ const groups: GoalCards[] = [
   { goal: 'code', starters: [card('review-queue')], more: [] },
 ]
 
-test('the goals question comes right after the sound question, takes any goals, their own words or none, and the computer fork is not asked there', () => {
+test('the goals question comes right after the email, takes any goals, their own words or none, and the computer fork is not asked there', () => {
   const goals = beatOf('goals', none, bare)
 
-  assert.equal(beatAfter('sound', none, bare), 'goals')
+  assert.equal(beatAfter('email', none, bare), 'goals')
   assert.deepEqual(goals.ask?.kind === 'pick' && goals.ask.from, { options: ['Writing code', 'A project of my own', 'Starting a business', 'Keeping life in order', 'Finding a job'] })
   assert.match(goals.ask?.kind === 'pick' ? goals.ask.note ?? '' : '', /model provider/, 'the note about the answers is under this question')
   assert.equal(beatAfter('goals', none, bare), 'goals-said')
   for (const said of [[], ['code'], ['project', 'code']] as const) {
-    assert.equal(beatAfter('goals-said', { ...none, goals: [...said] }, bare), 'name', 'no computer fork for these goals')
+    assert.equal(beatAfter('goals-said', { ...none, goals: [...said] }, smart), said.length ? 'more' : 'settings', 'no computer fork for these goals')
   }
   assert.doesNotMatch(beatOf('hello', none, bare).lines.join(' ') + goals.lines.join(' '), /develop/i, 'nothing before it pitches development')
 })
 
 test('the computer is asked only for a job, a business or life, and a work computer marks the private cards', () => {
   for (const goal of ['job', 'business', 'life'] as const) assert.equal(beatAfter('goals-said', { ...none, goals: [goal] }, bare), 'computer')
-  assert.equal(beatAfter('computer', { ...none, goals: ['job'], computer: 'work' }, bare), 'computer-work', 'hobkin says once that it will say so')
-  assert.equal(beatAfter('computer', { ...none, goals: ['job'], computer: 'personal' }, bare), 'name')
-  assert.equal(beatAfter('computer-work', none, bare), 'name')
+  assert.equal(beatAfter('computer', { ...none, goals: ['job'], computer: 'work' }, smart), 'computer-work', 'hobkin says once that it will say so')
+  assert.equal(beatAfter('computer', { ...none, goals: ['job'], computer: 'personal' }, smart), 'more')
+  assert.equal(beatAfter('computer-work', { ...none, goals: ['job'] }, smart), 'more')
+  // Asked already, at the subscription for the launcher, it is not asked again. A work computer still hears the line once.
+  assert.equal(beatAfter('goals-said', { ...none, goals: ['job'], computer: 'personal' }, smart), 'more')
+  assert.equal(beatAfter('goals-said', { ...none, goals: ['job'], computer: 'work' }, smart), 'computer-work')
 })
 
 test('each picked goal asks its own question in the goals\' order, and none or no account offers no routines', () => {
@@ -744,9 +748,10 @@ test('each picked goal asks its own question in the goals\' order, and none or n
   assert.deepEqual(walk({ ...none, goals: ['life'], more: true }, bare, 'more'), ['more', 'cards-life', 'thanks', 'settings', 'tour'], 'life asks none')
 
   // No goal, or no account: no routines, and on to the settings.
-  assert.equal(beatAfter('connected', none, bare), 'settings')
-  assert.equal(beatAfter('found', { ...none, goals: [] }, bare), 'settings')
-  assert.equal(beatAfter('no-account', { ...none, goals: ['job'] }, bare), 'settings')
+  assert.equal(beatAfter('goals-said', { ...none, account: 'connected', goals: [] }, bare), 'settings')
+  assert.equal(beatAfter('goals-said', { ...none, goals: [] }, smart), 'settings')
+  assert.equal(beatAfter('goals-said', { ...none, account: 'later', goals: ['code'] }, bare), 'settings')
+  assert.equal(beatAfter('goals-said', { ...none, launcher: 'saved', goals: ['code'] }, bare), 'more', 'a launcher kept is an account')
 })
 
 test('after the cards hobkin says it will check what they need, and with none kept the story goes to the thanks', () => {
