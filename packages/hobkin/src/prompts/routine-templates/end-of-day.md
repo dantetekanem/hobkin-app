@@ -1,11 +1,11 @@
 ---
 title: End of day
-summary: What agents did today, what still waits on them with each call checked against its live state, and what runs overnight.
-recurrence: Weekday evenings, about an hour before they stop
+summary: What agents did today, what still waits on you with each call checked against its live state, and what runs overnight.
+recurrence: Weekday evenings, about an hour before you stop
 goals: code, project
 effort: medium
 fits: Someone who wants to stop work knowing what got done, that nothing from today is still waiting on them, and what keeps going overnight.
-tells: What agents did today, each call still waiting on them checked against its live state, and what runs overnight.
+tells: What agents did today, each call still waiting on you checked against its live state, and what runs overnight.
 gives: report
 closes: The call's live state, such as a reply sent or a build that passes.
 version: 2

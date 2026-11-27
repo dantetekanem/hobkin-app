@@ -240,7 +240,7 @@ const SAMPLE: Record<Goal, { starters: Card[]; more: Card[] }> = {
       card('review-queue', {
         title: 'Review queue',
         summary: 'Pull requests that wait on your review, and yours that wait on someone else.',
-        needs: ['gh or the CLI of your code host'],
+        needs: ["the gh CLI or your code host's own"],
         recurrence: 'Weekday mornings, with a refresh at midday and mid-afternoon',
         tells: 'A review is asked of you, or one of yours got an answer.',
         skips: 'Drafts and bots.',
@@ -264,7 +264,7 @@ const SAMPLE: Record<Goal, { starters: Card[]; more: Card[] }> = {
       card('unblocker', {
         title: 'Unblocker',
         summary: 'Your pull requests that are stuck, and the one step that moves each.',
-        needs: ['gh or the CLI of your code host'],
+        needs: ["the gh CLI or your code host's own"],
         recurrence: 'Hourly in working hours',
         tells: 'A check failed, a review asked for changes, or a merge is blocked.',
         skips: null,

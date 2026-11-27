@@ -1,13 +1,13 @@
 ---
 title: Meeting prep
-summary: A short brief before each meeting they confirm, with what matters there, and before a standup, what they got done since the last one, in plain words.
+summary: A short brief before each meeting you confirm, with what matters there, and before a standup, what you got done since the last one, in plain words.
 recurrence: Weekday mornings, with a refresh at midday and mid-afternoon
 goals: code, business, project
 needs: calendar, code host, notes
 effort: medium
 fits: Someone who walks into meetings cold, or who spends the minutes before a standup piecing together what they did since the last one.
-tells: A brief for each meeting they confirmed, and before a standup what they got done since the last one.
-skips: Meetings they have not confirmed, and ticket numbers, commit hashes and tool names in a standup brief.
+tells: A brief for each meeting you confirmed, and before a standup what you got done since the last one.
+skips: Meetings you have not confirmed, and ticket numbers, commit hashes and tool names in a standup brief.
 gives: report, action, follow-up
 closes: The meeting starting, moving or being cancelled.
 asks: Which meetings should get a brief: every meeting with other people, or only some, such as standups, 1:1s and reviews?

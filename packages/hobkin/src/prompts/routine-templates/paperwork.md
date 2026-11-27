@@ -1,6 +1,6 @@
 ---
 title: Paperwork
-summary: What changed on the official pages for an application, a renewal or a tax deadline they follow, and the next date that matters.
+summary: What changed on the official pages for an application, a renewal or a tax deadline you follow, and the next date that matters.
 recurrence: Weekly
 goals: life, job, business
 needs: web access

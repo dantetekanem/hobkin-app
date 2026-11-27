@@ -35,6 +35,7 @@ Read <their calendar> and <their mail> for appointments, bills, renewals and oth
 - `closes` says what closes an item, such as a reply in the thread or their word.
 - `private: yes` marks one that reads the person's own accounts, such as their mail, money, calendar or health. On a work computer, its card says so. Leave it out otherwise.
 - `asks` is what setup has to ask before it writes the routine, such as whose birthdays to keep. Leave it out when the answers before are enough.
+- The fields a card shows (`summary`, `needs`, `recurrence`, `tells`, `skips` and `asks`) speak to the person, as "you" and "your". `fits`, `closes` and the body speak about them.
 - `version` is a whole number, and `1` when left out. Raise it when a template here changes in a way a routine made from the old one should get, and after the next update hobkin tells the user which templates are new or newer. A change to the header alone leaves the body as it is, so it does not raise the version.
 
 The body is the draft of the routine's instructions, for an agent that has seen nothing of setup: what to read, what to report and what to leave alone. A routine that watches something keeps what it already told in its memory, so nothing unchanged is told twice. Put what setup fills in for the person in angle brackets, such as `<their calendar>`. Leave out what `RULES.md` already says, because setup adds those rules to every routine made from a template.

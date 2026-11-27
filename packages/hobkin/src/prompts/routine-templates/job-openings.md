@@ -1,13 +1,13 @@
 ---
 title: Roles that fit
-summary: New openings that fit the role and places they named, at the companies and job boards they watch, best fit first.
+summary: New openings that fit the role and places you named, at the companies and job boards you watch, best fit first.
 recurrence: Twice a week, such as Monday and Thursday mornings
 goals: job
 needs: web access
 effort: medium
 fits: Someone looking for a new job who keeps checking the same company pages and job boards for new postings.
-tells: A new posting that fits, or one they kept that changed or closed.
-skips: Roles they ruled out, each with its date.
+tells: A new posting that fits, or one you kept that changed or closed.
+skips: Roles you ruled out, each with its date.
 gives: report
 closes: The posting's page is gone or says it is closed, or they applied, which moves it to Applications.
 asks: What kind of role, where, and which companies or job boards should it watch?

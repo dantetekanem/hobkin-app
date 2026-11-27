@@ -1,6 +1,6 @@
 ---
 title: Tools worth adding
-summary: New Pi packages or tools that would help their work, with the benefit, the overlap and the setup cost of each.
+summary: New Pi packages or tools that would help your work, with the benefit, the overlap and the setup cost of each.
 recurrence: Weekly
 goals: code
 needs: web access

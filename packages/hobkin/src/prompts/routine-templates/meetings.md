@@ -9,7 +9,7 @@ fits: Someone whose day runs on meetings and who wants to walk into each one rea
 tells: What each of today's meetings needs and any clashes, and after each meeting with others, its notes and action items.
 gives: report, follow-up
 closes: The meeting ending with its notes gathered, or moving or being cancelled.
-asks: Where do their meeting notes land after a meeting?
+asks: Where do your meeting notes land after a meeting?
 version: 2
 ---
 

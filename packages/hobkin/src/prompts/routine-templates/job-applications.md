@@ -1,12 +1,12 @@
 ---
 title: Applications
-summary: Each job application they sent, where it stands, and the ones gone quiet, with a follow-up drafted for each.
+summary: Each job application you sent, where it stands, and the ones gone quiet, with a follow-up drafted for each.
 recurrence: Daily, in the morning
 goals: job
 needs: mail
 effort: medium
 fits: Someone sending out job applications who loses track of which ones answered and which went quiet.
-tells: A reply, a request such as a form or a test, a no, or an application quiet past the days they set.
+tells: A reply, a request such as a form or a test, a no, or an application quiet past the days you set.
 gives: report, action
 closes: A reply in their mail, or their word.
 private: yes

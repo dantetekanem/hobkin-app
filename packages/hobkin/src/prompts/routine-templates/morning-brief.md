@@ -1,6 +1,6 @@
 ---
 title: Morning brief
-summary: Whether today holds more than fits, today's meetings and what each needs, the reviews waiting on them, their stuck work and what is left from yesterday, on one screen.
+summary: Whether today holds more than fits, today's meetings and what each needs, the reviews waiting on you, your stuck work and what is left from yesterday, on one screen.
 recurrence: Weekday mornings
 goals: code, life
 needs: calendar, code host

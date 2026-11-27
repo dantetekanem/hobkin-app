@@ -6,7 +6,7 @@ goals: business
 needs: mail
 effort: medium
 fits: Someone running a business who answers customers between everything else and lets some wait too long.
-tells: A new lead or customer waiting on them, or a deal quiet past the days they set.
+tells: A new lead or customer waiting on you, or a deal quiet past the days you set.
 gives: report, action
 closes: Their reply in the thread, or their word.
 private: yes

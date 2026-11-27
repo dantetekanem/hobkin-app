@@ -1,6 +1,6 @@
 ---
 title: Worth writing about
-summary: At most one candidate a week for a post, a case study or a paper, from their real work, as a short brief.
+summary: At most one candidate a week for a post, a case study or a paper, from your real work, as a short brief.
 recurrence: Weekly
 goals: project, code, business
 effort: high

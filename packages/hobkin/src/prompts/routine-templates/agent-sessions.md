@@ -1,11 +1,11 @@
 ---
 title: Agent sessions
-summary: Requests they keep repeating, errors that keep coming back and slow tools in the week's Pi sessions, each with a skill, a routine or a setting to fix it.
+summary: Requests you keep repeating, errors that keep coming back and slow tools in the week's Pi sessions, each with a skill, a routine or a setting to fix it.
 recurrence: Weekly
 goals: code
 effort: high
 fits: Someone who works with Pi every day and keeps asking it the same things or hitting the same errors.
-tells: A request they keep repeating, an error that keeps coming back or a slow tool, with how often and a fix for it.
+tells: A request you keep repeating, an error that keeps coming back or a slow tool, with how often and a fix for it.
 gives: report
 closes: The pattern no longer showing in the week's sessions, or their word.
 ---

@@ -1,12 +1,12 @@
 ---
 title: Slack
-summary: Mentions, direct messages and threads in Slack that wait on their reply.
+summary: Mentions, direct messages and threads in Slack that wait on your reply.
 recurrence: Every 30 minutes in working hours, because chat is the fast channel
 goals: code, business, project
 needs: Slack
 effort: low
 fits: Someone whose team works in Slack and who does not want a question to sit unanswered while they focus.
-tells: A mention, a direct message or a thread that waits on their reply.
+tells: A mention, a direct message or a thread that waits on your reply.
 gives: report
 closes: Their reply in the thread.
 ---
