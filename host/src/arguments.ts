@@ -11,6 +11,8 @@ export interface HostArguments {
   signedOut: boolean
   /** With the scripted model, the GitHub page reads the real GitHub through gh, read only. Without it the page shows made-up data. Set only when given. */
   github?: boolean
+  /** With the scripted model, the setup reads and installs on a pretend Mac with nothing on it (`simulate-new-mac.ts`). Set only when given. */
+  simulateNewMac?: boolean
   port: number | null
   /** The process that started this host. The host stops once it is gone. Set only when given. */
   parent?: number
@@ -20,12 +22,13 @@ export interface HostArguments {
 }
 
 export const USAGE = [
-  'Usage: node host/src/main.ts [--home <folder>] [--live] [--dev] [--signed-out] [--github] [--port <number>] [--origin <url>]',
+  'Usage: node host/src/main.ts [--home <folder>] [--live] [--dev] [--signed-out] [--github] [--simulate-new-mac] [--port <number>] [--origin <url>]',
   '  --home <folder>  the hobkin home to open. Default: .dev-home in this repository, never ~/.hobkin',
   '  --live           use the real model. Default: a scripted model that spends nothing',
   '  --dev            serve the development UI at http://127.0.0.1:5187 on port 5188',
   '  --signed-out     with the scripted model, start with no provider connected',
   '  --github         with the scripted model, read the real GitHub through gh, read only. Default: sample GitHub data',
+  '  --simulate-new-mac  with the scripted model, the setup sees a Mac with nothing installed and no model; its installs and sign-ins pretend',
   '  --port <number>  listen on this port. Default: a free port, or 5188 with --dev',
   '  --parent <pid>   stop once this process has gone, as the app passes its own',
   '  --origin <url>   also talk to this page: http://localhost:<port> or http://127.0.0.1:<port>. With --live, only on a new --home and a new folder in PI_CODING_AGENT_DIR',
@@ -58,11 +61,14 @@ export function parseArguments(args: readonly string[]): HostArguments {
     else if (flag === '--dev') options.dev = true
     else if (flag === '--signed-out') options.signedOut = true
     else if (flag === '--github') options.github = true
+    else if (flag === '--simulate-new-mac') options.simulateNewMac = true
     else if (flag === '--help' || flag === '-h') options.help = true
     else throw Error(`Unknown option: ${flag}\n${USAGE}`)
   }
   // A real sign-in is Pi's. Only the scripted model has a scripted one.
   if (options.live && options.signedOut) throw Error(`--signed-out is for the scripted model. With --live, Pi decides who is signed in.\n${USAGE}`)
+  // A live host installs for real. Only the scripted one pretends.
+  if (options.live && options.simulateNewMac) throw Error(`--simulate-new-mac is for the scripted model. With --live, the setup installs for real.\n${USAGE}`)
   // --origin with --live depends on the home and Pi's folder, which only the entry can see: `whyNotOrigin` in main.ts decides.
   return options
 }
