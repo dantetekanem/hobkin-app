@@ -226,7 +226,8 @@ const Panel = memo(function Panel({ id, tasks, progress, still }: { id: string; 
     rows.push(rowOf(task, index, task.state === 'now' ? `${tint}:now:${working++}` : undefined, still))
   })
   return (
-    // Spans the row the line sits in, and stands under the line at its left end.
+    // Spans the row the line sits in, 80% of the agent's screen, and stands under the line at its left end. The user,
+    // 2026-11-27: "width should cover 80% of the agent screen, now is less than half".
     <div ref={outer} className="pointer-events-none absolute inset-x-0 top-full z-20 mt-2 flex">
       <motion.div
         id={id}
@@ -237,7 +238,7 @@ const Panel = memo(function Panel({ id, tasks, progress, still }: { id: string; 
         initial={holdStill({ opacity: 0, transform: 'translateY(-6px) scale(0.96)' }, still)}
         animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.sheet, opacity: tween.enter } }, still)}
         exit={holdStill({ opacity: 0, transform: 'translateY(-4px) scale(0.96)', transition: tween.exit }, still)}
-        className="pointer-events-auto flex w-full max-w-[28rem] origin-top-left flex-col overflow-hidden rounded-[18px] border border-border bg-popover text-popover-foreground shadow-panel"
+        className="pointer-events-auto flex w-full origin-top-left flex-col overflow-hidden rounded-[18px] border border-border bg-popover text-popover-foreground shadow-panel"
       >
         <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
           <span className="text-[13px] font-medium">Tasks</span>
@@ -261,7 +262,11 @@ const Panel = memo(function Panel({ id, tasks, progress, still }: { id: string; 
   )
 })
 
-/** One task: how it stands, its number, its title and its description, whole. Each rises in after the one before as the list opens. */
+/**
+ * One task: how it stands, its number, its title, and its description cut to one quiet line, whole on hover (the user,
+ * 2026-11-27: "the body is too long, just a trim version in a dark color is better, a 2px bigger title too"). Each rises
+ * in after the one before as the list opens.
+ */
 function rowOf(task: AgentTask, index: number, tint: string | undefined, still: boolean): ReactElement {
   const delay = Math.min(index, 8) * 0.03
   return (
@@ -281,10 +286,14 @@ function rowOf(task: AgentTask, index: number, tint: string | undefined, still: 
       <span className="relative mt-px w-5 shrink-0 text-right font-mono text-[11px] text-muted-foreground tabular-nums">{task.id}</span>
       <span className="relative flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-baseline gap-2">
-          <span className={cn('min-w-0 flex-1 break-words', task.state === 'done' && 'text-muted-foreground', task.state === 'now' && 'font-medium')}>{titleOf(task)}</span>
+          <span className={cn('min-w-0 flex-1 text-[15px] break-words', task.state === 'done' && 'text-muted-foreground', task.state === 'now' && 'font-medium')}>{titleOf(task)}</span>
           <span className={cn('shrink-0 text-[11px] text-muted-foreground', task.state === 'now' && 'font-medium text-foreground')}>{STATE_WORDS[task.state]}</span>
         </span>
-        {task.description ? <span className="text-[12px] break-words whitespace-pre-line text-muted-foreground">{task.description}</span> : null}
+        {task.description ? (
+          <span title={task.description} className="truncate text-[12px] text-muted-foreground/70">
+            {task.description}
+          </span>
+        ) : null}
       </span>
     </motion.li>
   )

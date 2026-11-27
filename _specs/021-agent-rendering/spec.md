@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "ready",
   "depends": ["008-review-code", "011-work"],
-  "updated": "2026-11-23"
+  "updated": "2026-11-27"
 }
 ---
 # How an agent's work is drawn
@@ -33,7 +33,7 @@ An agent's canvas shows its work as it happens, in a form a person can follow at
 - Edits to the same file in a row are one code change block that updates in place. It shows the file's change so far, not each step.
 - A command that failed is never folded away. Its row keeps its exit code, even when later commands follow.
 - Each kind of tool block arrives open or shows only its one-line header as Settings says (`020-settings`): every kind arrives closed, code changes too (the user, 2026-11-23, who chose a change as one row whose diff is drawn only when the row is pressed; it replaces the rule of 2026-11-13 that code changes arrive open). Settings saved before that day load with code changes closed, since they had kept the old default and not a choice. A change in Settings applies at once to the blocks not opened or closed by hand, and a block opened or closed by its header keeps that. Control+O opens every block on the screen, and closes them all again. Blocks that arrive while they are open arrive open, and ones that arrive after they closed follow Settings.
-- The agent's tasks, from its task tools, are one line above the blocks that stays in sight while they scroll: how many are done of how many and the one in progress, or the next one, or that all are done, such as "2 of 5 tasks · in progress: Write the report". A click or Enter on it opens every task under it, with its state and its description, and the same again closes it. The task calls are not blocks, except one that failed (the user, 2026-11-13).
+- The agent's tasks, from its task tools, are one line above the blocks that stays in sight while they scroll: how many are done of how many and the one in progress, or the next one, or that all are done, such as "2 of 5 tasks · in progress: Write the report". A click or Enter on it opens every task under it, with its state and its description, and the same again closes it. The task calls are not blocks, except one that failed (the user, 2026-11-13). The open list spans the row of lines, 80% of the agent's screen; each task's title is 15px, and its description is one line in a quieter color, whole on hover (the user, 2026-11-27: "width should cover 80% of the agent screen, now is less than half. and the body is too long, just a trim version in a dark color is better, a 2px bigger title too").
 - A command that is running shows at most its last 12 lines of output and its elapsed time. The full output opens on request.
 - Thinking is hidden. While the agent thinks, the canvas says so and for how long. A thought is surfaced, as one short line, only in two cases: the agent has been thinking for more than 20 seconds with nothing else to show, so the user can tell it is not stuck, or the thought states a blocker, a question for the user, or a change of plan.
 - Above the blocks, in one line and with no box around it: the agent's mission (goal, question, expected result), what it is doing now, the time so far, its tier and its tokens. The mission opens in full on request.
