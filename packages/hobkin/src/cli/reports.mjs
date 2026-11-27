@@ -7,6 +7,16 @@ export const reportText = value => String(value ?? '')
   .replace(/<!--\s*hobkin-(?:publication|question):[\s\S]*?(?:-->|$)/gi, '')
   .trim();
 
+export const reportNoticeId = runId => `notice:report:${createHash('sha256').update(String(runId)).digest('hex')}`;
+
+// Only a completed assistant reply with visible words can carry this private receipt.
+export function splitReportCoverage(text, message) {
+  const trailer = message.role === 'assistant' && message.stopReason === 'stop'
+    && /\n<!-- hobkin-covered: (notice:report:[a-f0-9]{64}(?: notice:report:[a-f0-9]{64})*) -->\s*$/.exec(text);
+  if (!trailer || !text.slice(0, trailer.index).trim()) return { text };
+  return { text: text.slice(0, trailer.index), coveredReports: trailer[1].split(' ') };
+}
+
 export const runOutcomeText = run => run.result?.text || run.result?.error || run.error || '';
 
 const RESTARTED = 'Pi crashed in its code tool, and hobkin restarted it.';

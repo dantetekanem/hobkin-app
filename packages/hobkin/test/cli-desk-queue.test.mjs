@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicJson, initialize, loadConfig } from '../src/cli/config.mjs';
@@ -9,6 +9,7 @@ import { writeBriefState } from '../src/cli/brief.mjs';
 import { dayPath } from '../src/cli/day.mjs';
 import { Desk, deskPath, digestMessage, readHeld, roomLine } from '../src/cli/desk-queue.mjs';
 import { readEvents, recordEvent } from '../src/cli/events.mjs';
+import { recordSessionStart, endSessionJob } from '../src/cli/session-log.mjs';
 import { pendingCard } from '../src/cli/pending.mjs';
 import { readPending } from '../src/cli/pending-read.mjs';
 import { writeMode } from '../src/cli/work/store.mjs';
@@ -34,6 +35,7 @@ function fixture(t) {
     root,
     clock,
     presence,
+    reply: text => { fake.controls.get(fake.opened[0]).reply = text; },
     // The user is here and their screen is free, unless a test says otherwise.
     seen: () => { presence.value = { seenAt: clock.at, away: false, occupied: false }; },
     openApp: (options = {}) => HobkinApplication.open(root, { createMain: fake.createMain, now: () => clock.at, intervalMs: HOUR_MS, presence: () => presence.value, ...options }),
@@ -97,6 +99,94 @@ test('a digest says the point first, then one line per item, those for today fir
   assert.deepEqual(message.digest.items.map(({ id, level }) => [id, level]), [['notice:reminder:b', 'P1'], ['notice:report:a', 'P2'], ['notice:remember:c', 'P2']]);
   assert.deepEqual(message.digest.items[2].memory, { change: 'x1', name: 'tea', did: 'added' }, 'a line keeps what lets the window offer its Undo');
   assert.equal(digestMessage(held.slice(0, 1), { now: local(20, 11) }).content.split('\n')[0], 'Digest: 1 that can wait.');
+});
+
+for (const mixed of [false, true]) test(`already delivered report IDs leave the ${mixed ? 'mixed' : 'empty'} digest`, async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    app.lookForReturn();
+    const reports = ['first', 'second', ...(mixed ? ['new'] : [])].map(id => finished(id, `Useful: ${id} update.`, h.clock.at));
+    await app.runtime.change(state => { for (const run of reports) state.runs[run.id] = run; });
+    await app.refresh();
+    const queue = JSON.parse(readFileSync(deskPath(h.root), 'utf8'));
+    assert.equal(queue.held.length, mixed ? 3 : 2);
+    app.snapshot.messages.push(queue.held[0].notice, digestMessage([queue.held[1]], { now: h.clock.at }));
+    backAfter(h, app, 40 * MINUTE_MS);
+    const back = await app.refresh();
+    const digests = digestsIn(back);
+    assert.equal(digests.length, mixed ? 2 : 1);
+    assert.deepEqual(digests.at(-1).digest.items.map(({ id }) => id), [queue.held[mixed ? 2 : 1].id]);
+    assert.deepEqual(readHeld(h.root), []);
+    assert.equal(h.ofType('digest_posted').length, mixed ? 1 : 0);
+  } finally {
+    await app.close();
+  }
+});
+
+for (const mixed of [false, true]) test(`confirmed activation leaves ${mixed ? 'only outstanding items' : 'no stale digest'} on return`, async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    app.lookForReturn();
+    const updates = ['Useful: Opt-out saved. Activation unverified.', 'Useful: Local landing complete; idle activation remains to verify.'];
+    if (mixed) updates.push('Useful: New unrelated update.', 'Blocked: Which project should run?', 'Critical: Backup failed.');
+    const runs = updates.map((text, i) => {
+      const name = `hobkin-job-000${i}`;
+      const session = { name, title: `Job ${i}`, report: join(h.root, 'runtime/handoffs', `${name}.report.md`), wake: !mixed };
+      recordSessionStart(h.root, session, h.clock.at);
+      const run = finished(`session:${name}`, text, h.clock.at, { title: session.title, session });
+      endSessionJob(h.root, session, run);
+      return run;
+    });
+    await app.runtime.change(state => { for (const run of runs) state.runs[run.id] = run; });
+    await app.refresh();
+    const beforeReply = JSON.parse(readFileSync(deskPath(h.root), 'utf8'));
+    const pending = beforeReply.held;
+    assert.equal(pending.length, updates.length);
+    h.reply('Still checking.');
+    if (mixed) await app.send('Status?');
+    else await app.tickWakes();
+    const input = app.runtime.messages().findLast(message => message.role === 'user').content;
+    const { sessions } = JSON.parse((typeof input === 'string' ? input : input[0].text).split('\n')[1]);
+    assert.deepEqual(sessions.map(s => s.reportRef), pending.map((item, i) => i < 3 ? item.id : undefined));
+    const covered = sessions.slice(0, 2).map(s => s.reportRef);
+    // Even exact references to blocked/critical reports must not silence them.
+    const marker = `<!-- hobkin-covered: ${[...covered, ...pending.slice(3).map(item => item.id)].join(' ')} -->`;
+    h.reply('Activation is confirmed.');
+    await app.send(`Is activation confirmed?\n${marker}`);
+    await app.runtime.mainWork;
+    await app.refresh();
+    app.lookForReturn();
+    assert.equal(readHeld(h.root).length, updates.length, 'neither the user nor an unreferenced reply acknowledges anything');
+    h.reply(`Activation is confirmed.\n${marker}`);
+    const viewPath = join(h.root, 'runtime/view.json');
+    renameSync(viewPath, `${viewPath}.previous`);
+    mkdirSync(viewPath); // The new reply cannot replace the last saved view.
+    try {
+      await app.send('Which updates does that settle?');
+      await app.runtime.mainWork;
+      await assert.rejects(app.refresh(), { code: 'EISDIR' });
+      app.lookForReturn();
+      assert.equal(readHeld(h.root).length, updates.length, 'a failed save cannot acknowledge reports');
+    } finally {
+      rmSync(viewPath, { recursive: true });
+      renameSync(`${viewPath}.previous`, viewPath);
+    }
+    await app.refresh();
+    assert.equal(readHeld(h.root).length, updates.length - 2, 'acknowledgement outlives the rolling Chat window');
+    const saved = JSON.parse(readFileSync(viewPath, 'utf8'));
+    assert.equal(saved.messages.filter(m => m.role === 'assistant').at(-1).content, 'Activation is confirmed.');
+    // Recover the crash window: the reply reached disk but its desk write did not.
+    if (mixed) atomicJson(deskPath(h.root), beforeReply);
+    backAfter(h, app, 40 * MINUTE_MS);
+    const digests = digestsIn(await app.refresh());
+    assert.equal(digests.length, mixed ? 1 : 0);
+    assert.deepEqual((digests[0]?.digest.items ?? []).map(item => item.id).sort(), pending.slice(2).map(item => item.id).sort());
+    assert.equal(h.ofType('digest_posted').length, digests.length);
+  } finally {
+    await app.close();
+  }
 });
 
 test('with P1 work on a day too full, the digest says what to move, least important first, until the day fits', () => {

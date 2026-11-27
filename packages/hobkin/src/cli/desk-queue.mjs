@@ -166,6 +166,18 @@ export function readHeld(root) {
   }
 }
 
+// A receipt is narrower than an already posted notice: it settles only ordinary informational reports.
+function removeDelivered(queue, inChat, coveredReports) {
+  const before = queue.held.length;
+  queue.held = queue.held.filter(({ id, level, source, notice }) => {
+    if (inChat?.has(id)) return false;
+    const informational = source === 'report' && level === 'P2' && notice.tone === 'useful';
+    return !informational || !coveredReports.has(id);
+  });
+  if (before && !queue.held.length) queue.returned = null;
+  return queue.held.length !== before;
+}
+
 const byLevelThenAge = (left, right) => RANK[left.level] - RANK[right.level] || Date.parse(left.heldAt) - Date.parse(right.heldAt);
 
 /** The return that waits with what is held: this look's, or the one saved before it. With nothing held there is none. */
@@ -349,12 +361,14 @@ export class Desk {
   }
 
   /** What `route` let go is in a saved view now, so it leaves the queue. */
-  markPosted() {
-    if (!this.posting.length) return;
+  markPosted(coveredReports = new Set()) {
+    if (!this.posting.length && !coveredReports.size) return;
     const posted = new Set(this.posting);
     this.posting = [];
     try {
       const queue = readQueue(this.root);
+      const acknowledged = removeDelivered(queue, null, coveredReports);
+      if (!acknowledged && !posted.size) return;
       queue.posting = queue.posting.filter(({ id }) => !posted.has(id));
       writeQueue(this.root, queue, this.now());
     } catch {
@@ -367,14 +381,15 @@ export class Desk {
    * (`returned` is the presence the look recorded, if any) or at a pause once what is held can wait no longer, and each held item whose
    * pause came. Answers whether Chat has something new.
    */
-  look({ presence, returned = null, busy = false } = {}) {
+  look({ presence, returned = null, busy = false, inChat = new Set(), coveredReports = new Set() } = {}) {
     try {
       if (!presence || !deskEnabled(this.root)) return false;
       const now = this.now();
       const queue = openQueue(this.root, now);
       const context = this.context(now, presence, busy);
       const events = [];
-      let changed = this.release(queue, context, events);
+      const delivered = removeDelivered(queue, inChat, coveredReports);
+      let changed = this.release(queue, context, events) || delivered;
 
       // A return waits with what is held until a digest takes it, so a look that cannot post one yet does not lose it. What comes in
       // after a return that found nothing held waits for the next one.

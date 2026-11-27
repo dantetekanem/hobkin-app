@@ -1,7 +1,7 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { noteOutcome } from './autonomy.mjs';
-import { readReport, runReport, saveReport } from './reports.mjs';
+import { readReport, reportNoticeId, reportTriage, runReport, saveReport } from './reports.mjs';
 
 const LOG = 'sessions.jsonl';
 const MOST_READ_BYTES = 1048576;
@@ -27,8 +27,8 @@ export const recordSessionStart = (root, { name, title, report, wake, taskClass 
 });
 
 /** Written when a session's job ends (`session-jobs.mjs`). A session's report sits beside this log. */
-export const recordSessionEnd = ({ name, report, userStop, outcome }, now = Date.now()) => append(dirname(report), {
-  name, report, ...(userStop ? { userStop } : {}), ...(outcome ? { outcome } : {}), endedAt: new Date(now).toISOString(),
+export const recordSessionEnd = ({ name, report, reportRef, userStop, outcome }, now = Date.now()) => append(dirname(report), {
+  name, report, ...(reportRef ? { reportRef } : {}), ...(userStop ? { userStop } : {}), ...(outcome ? { outcome } : {}), endedAt: new Date(now).toISOString(),
 });
 
 /**
@@ -52,7 +52,8 @@ export function endSessionJob(root, session, run) {
   if (!existsSync(session.report) && report) writeFileSync(session.report, report, { mode: 0o600 });
   const userStop = run?.userStop && run.status === 'interrupted'
     ? { runId: run.id, reason: run.userStop.reason } : undefined;
-  recordSessionEnd({ ...session, userStop, outcome: run?.status });
+  const reportRef = run && reportTriage(run)?.level === 'useful' ? reportNoticeId(run.id) : undefined;
+  recordSessionEnd({ ...session, reportRef, userStop, outcome: run?.status });
   const { taskClass } = readLog(root).find(({ name }) => name === session.name) ?? {};
   const outcome = judged(run, userStop);
   if (taskClass && outcome) noteOutcome(root, taskClass, outcome);
@@ -148,7 +149,8 @@ export function sessionReports(root, deleted) {
     .map(({ session, body }) => reportOf(session, body));
 }
 
-const toldToMainAgent = ({ name, title, said, report, endedAt, userStop }) => ({
+const toldToMainAgent = ({ name, title, said, report, reportRef, endedAt, userStop }) => ({
+  ...(reportRef ? { reportRef } : {}),
   name,
   title: title ?? name,
   endedAt,

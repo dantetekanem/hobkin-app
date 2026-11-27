@@ -91,7 +91,7 @@ import { safeSteps, turnFrom } from './turn-metrics.mjs';
 import { withoutSinceNote } from './prompt-parts.mjs';
 import { PastedImages } from './paste-image.mjs';
 import { forgetUnread, readUnread } from './unread.mjs';
-import { deletedReportIds, isQuietRun, readReport, referToReport, reportText, reportTriage, runOutcomeText, savedReportPath, splitReportReference } from './reports.mjs';
+import { deletedReportIds, isQuietRun, readReport, referToReport, reportNoticeId, reportText, reportTriage, runOutcomeText, savedReportPath, splitReportCoverage, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
 
 const textOf = message => (typeof message.content === 'string' ? message.content
@@ -125,9 +125,11 @@ const imagesIn = message => (Array.isArray(message.content) ? message.content : 
 const withoutImageData = (_, value) => (value?.type === 'image' ? { ...value, data: '' } : value);
 // What the user typed, and the report it was about, without the notes hobkin sends ahead of it.
 const typedPart = text => splitReportReference(withoutSinceNote(withoutBriefNote(withoutLearningNote(withoutWorkNote(text)))));
-const chatMessage = (message, index, shown) => {
-  const { text, about } = typedPart(textOf(message));
+const coveredIn = messages => new Set(messages.flatMap(message => message.role === 'assistant' ? message.coveredReports ?? [] : []));
+const chatMessage = (message, index, shown, unsettled = false) => {
   const endedTheChat = index === shown.length - 1;
+  const { text: words, coveredReports } = splitReportCoverage(textOf(message), message);
+  const { text, about } = typedPart(words);
   const images = imagesIn(message);
   return {
     id: createHash('sha256').update(JSON.stringify(message, withoutImageData)).digest('hex'),
@@ -135,6 +137,7 @@ const chatMessage = (message, index, shown) => {
     content: reportText(text || (endedTheChat ? turnFailure(message) : '')).slice(0, 8192),
     at: message.timestamp ?? message.at,
     ...(about ? { about } : {}),
+    ...(coveredReports && !(endedTheChat && unsettled) ? { coveredReports } : {}),
     ...(images ? { images } : {}),
   };
 };
@@ -817,7 +820,7 @@ export class HobkinApplication {
     for (const run of scheduledReports) {
       if (noticedRunIds.has(run.id)) continue;
       noticedRunIds.add(run.id);
-      const id = `notice:report:${createHash('sha256').update(String(run.id)).digest('hex')}`;
+      const id = reportNoticeId(run.id);
       if (noticeIds.has(id)) continue;
       const scheduleName = String(run.title ?? run.scheduleId ?? 'your routine').slice(0, 512);
       const triage = reportTriage(run);
@@ -853,8 +856,9 @@ export class HobkinApplication {
     // Every line new to Chat goes through the desk (075): what can wait is held for a digest, and the rest posts now.
     const incoming = notices.splice(fresh);
     notices.push(...(this.desk?.route(incoming, { presence: this.presence?.(), busy: this.runtime.mainBusy, inChat: new Set(notices.map(({ id }) => id)) }) ?? incoming));
+    const unsettled = this.runtime.mainBusy || this.runtime.main?.isStreaming || this.runtime.mainFault;
     const messages = foldFinishedLines([
-      ...inReadOrder(visibleChatMessages(this.runtime.messages()).map(chatMessage)),
+      ...inReadOrder(visibleChatMessages(this.runtime.messages()).map((message, index, shown) => chatMessage(message, index, shown, unsettled))),
       ...notices.map(message => ({ message, time: messageTime(message) })),
     ].map((entry, index) => ({ ...entry, index }))
       .sort((left, right) => {
@@ -926,7 +930,7 @@ export class HobkinApplication {
     markCardActionsPosted(this.runtime.directory, cardActions);
     markInboxPosted(this.runtime.directory, handedOver);
     markClientNoticesPosted(this.runtime.directory, clientLines);
-    this.desk?.markPosted();
+    this.desk?.markPosted(coveredIn(messages));
     const active = new Set(runs
       .filter(run => run.kind === 'background' && run.scheduleId && run.status === 'running')
       .map(run => run.id));
@@ -2118,7 +2122,9 @@ export class HobkinApplication {
       const sighted = recordPresence(root, { lastSeenAt: state.lastSeenAt, seenAt: presence.seenAt });
       if (sighted) writeBriefState(root, { lastSeenAt });
       // A digest once one is due, and what the desk held for the user's pause (075). It never throws.
-      if (this.desk?.look({ presence, returned: sighted, busy: this.runtime.mainBusy })) this.requestRefresh();
+      const messages = this.snapshot.messages ?? []; // Published only after the view is saved.
+      const inChat = new Set(messages.flatMap(message => [message.id, ...(message.digest?.items ?? []).map(item => item.id)]));
+      if (this.desk?.look({ presence, returned: sighted, busy: this.runtime.mainBusy, inChat, coveredReports: coveredIn(messages) })) this.requestRefresh();
       const since = returnedSince({ lastSeenAt: state.lastSeenAt, seenAt: presence.seenAt });
       const offer = since && state.offer?.since !== since ? this.offerAfter(root, since, now) : null;
       const seen = !sighted && seenMoved(state, presence.seenAt) ? { lastSeenAt } : {};
