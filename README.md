@@ -60,6 +60,10 @@ Or do it yourself:
 
 4. Follow the setup. The first time the app opens, hobkin checks this Mac and offers to install what's missing: its own copy of Node, Pi and the Pi packages its agents use, each when you press Install. The TLA+ tools set themselves up in the background. Then you connect a model: an OpenAI (ChatGPT) subscription or an API key. hobkin picks its first models from that account, and Settings changes them. Settings › Check this Mac runs the same check at any time.
 
+### Updates
+
+When a new version of hobkin is out on GitHub, the window says "New version available". Press Update, and hobkin brings your copy up to date, installs its packages, and restarts into it once nothing is running. If your copy is on another branch or has changes of its own, hobkin says so and leaves the update to you.
+
 ## A tour
 
 ### Talk to it
@@ -130,7 +134,7 @@ Some data does leave your Mac:
 - A tool you connect, such as GitHub, gets what your agents send it.
 - hobkin sends usage counts to its own server only if you say yes during the setup. They hold fixed words and counts, never your messages, names or file paths. Settings turns them on or off at any time.
 - Feedback goes to hobkin's server only when you send it.
-- The app checks hobkin.dev for updates.
+- hobkin looks on GitHub for a new version of itself.
 
 The runtime's README has the details, in [what leaves your machine](packages/hobkin/README.md#what-leaves-your-machine).
 
