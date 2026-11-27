@@ -80,3 +80,36 @@ test('a failed install is tried again from the step that failed, and the steps b
   assert.deepEqual(outcomes, ['installed'])
   await view.unmount()
 })
+
+test('while Pi itself is missing or too old there is no Not now, and with only packages missing Not now puts them off', async () => {
+  const forget = () => {
+    for (const words of Object.keys(presses)) delete presses[words]
+  }
+  const mounted = async (pi: PiSetup) => {
+    forget()
+    const outcomes: string[] = []
+    const view = await mountView(() => createElement(PiPanel, { pi, onState() {}, onDone: (outcome: string) => outcomes.push(outcome), onBusy() {}, still: true }))
+    return { view, outcomes }
+  }
+
+  // "if pi is not installed it cant move": the story holds at Pi, with Install, Look again and the agent's prompt.
+  const missing = await mounted(bare)
+  assert.equal(presses['Not now'], undefined)
+  assert.ok(presses.Install)
+  await missing.view.unmount()
+
+  const byHand = await mounted({ ...bare, canInstallNode: false })
+  assert.equal(presses['Not now'], undefined)
+  assert.ok(presses['Look again'], 'by hand, Look again finds the Pi installed meanwhile')
+  await byHand.view.unmount()
+
+  const tooOld = await mounted({ ...bare, installed: true, version: '0.9.0', canInstall: true })
+  assert.equal(presses['Not now'], undefined)
+  await tooOld.view.unmount()
+
+  const packagesOnly = await mounted({ ...bare, installed: true, version: '1.5.0', matches: true, canInstall: true, node: { found: true, version: '26.3.1', installs: '26.3.1' } })
+  assert.ok(presses['Not now'], 'the packages stay as they were: they can wait')
+  await packagesOnly.view.change(() => presses['Not now']!())
+  assert.deepEqual(packagesOnly.outcomes, ['later'])
+  await packagesOnly.view.unmount()
+})

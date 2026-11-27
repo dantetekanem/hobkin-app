@@ -8,7 +8,7 @@ import { runCommand } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { copyText, useCopied } from './copy.ts'
-import { piByHand, piHandWords, piNeeds, piSteps, type PiStep } from './story.ts'
+import { piBlocks, piByHand, piHandWords, piNeeds, piSteps, type PiStep } from './story.ts'
 import './story.css'
 
 /** Installs one step through the host, which answers with Pi as it is after. */
@@ -86,6 +86,8 @@ export function PiPanel({ pi, onState, onDone, onBusy, still }: PiPanelProps) {
   const byHand = piByHand(pi)
   // Something is still missing after a failure, or must be installed by hand: the user may look again, or ask an agent.
   const stuck = byHand || lastFailure !== null
+  // Without Pi the story cannot go on, so only the packages can be put off.
+  const mayPutOff = !piBlocks(pi)
 
   useEffect(() => {
     primary.current?.focus({ preventScroll: true })
@@ -196,9 +198,11 @@ export function PiPanel({ pi, onState, onDone, onBusy, still }: PiPanelProps) {
       ) : null}
 
       <div className="flex items-center justify-end gap-2">
-        <Button variant="ghost" size="lg" className="px-3.5" disabled={running || checking} onClick={() => onDone('later')}>
-          Not now
-        </Button>
+        {mayPutOff ? (
+          <Button variant="ghost" size="lg" className="px-3.5" disabled={running || checking} onClick={() => onDone('later')}>
+            Not now
+          </Button>
+        ) : null}
         {stuck && !byHand ? (
           <Button variant="outline" size="lg" className="px-3.5" disabled={running || checking} onClick={() => void lookAgain()}>
             {checking ? 'Looking' : 'Look again'}

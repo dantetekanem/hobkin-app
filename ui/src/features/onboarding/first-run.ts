@@ -5,7 +5,7 @@ import { COMPUTER_KINDS, type ComputerKind } from '#shared/protocol/setup.ts'
  * not per hobkin home. See _specs/025-onboarding.
  *
  * `seen`: finished or skipped. `unfinished`, or `unfinished:work` with whose computer it is: told to the end with no
- * account, so the next launch opens it again at the account step.
+ * account, or ended in any way while Pi is missing, so the next launch opens it again where Pi and the account are.
  */
 
 export const SETUP_KEY = 'hobkin-client-setup'
@@ -21,8 +21,14 @@ export function setupWanted(stored: string | null, search: string): boolean {
 /** How a setup ended: told to the end, or skipped. */
 export type Ended = 'done' | 'skipped'
 
-/** Told to the end with no account, it is unfinished. Skipping it, or ending it with an account, finishes it. */
-export const endedAs = (ended: Ended, account: boolean): 'finished' | 'unfinished' => (ended === 'done' && !account ? 'unfinished' : 'finished')
+/**
+ * Ended in any way while Pi is missing, or told to the end with no account, it is unfinished. Otherwise skipping it,
+ * or ending it with an account, finishes it.
+ */
+export function endedAs(ended: Ended, account: boolean, piReady = true): 'finished' | 'unfinished' {
+  if (!piReady) return 'unfinished'
+  return ended === 'done' && !account ? 'unfinished' : 'finished'
+}
 
 /** The tour starts only for a setup that was told to the end and is finished. */
 export const tourFollows = (ended: Ended, as: 'finished' | 'unfinished'): boolean => ended === 'done' && as === 'finished'
@@ -33,7 +39,7 @@ export function setupMark(as: 'finished' | 'unfinished', computer: ComputerKind 
   return computer ? `${UNFINISHED}:${computer}` : UNFINISHED
 }
 
-/** Where an unfinished setup starts again: at the account step, with the kind of computer it was. Null for any other mark. */
+/** Where an unfinished setup starts again: at Pi when it is missing, else the account, with the kind of computer it was. Null for any other mark. */
 export function unfinishedStart(stored: string | null): { computer: ComputerKind | null } | null {
   if (stored === UNFINISHED) return { computer: null }
   const computer = stored?.startsWith(`${UNFINISHED}:`) ? COMPUTER_KINDS.find((kind) => stored === `${UNFINISHED}:${kind}`) : undefined

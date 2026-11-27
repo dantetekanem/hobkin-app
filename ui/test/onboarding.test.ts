@@ -28,6 +28,17 @@ test('a setup told to the end with no account comes back, keeping whose computer
   assert.equal(setupWanted('unfinished', ''), true)
 })
 
+test("a setup that ends while Pi is missing is unfinished, told to the end or skipped, so it comes back and no tour starts", () => {
+  // "if pi is not installed it cant move": Pi is the one step the setup cannot do without.
+  for (const ended of ['done', 'skipped'] as const) {
+    for (const account of [true, false]) assert.equal(endedAs(ended, account, false), 'unfinished', `${ended}, account ${account}`)
+    assert.equal(tourFollows(ended, endedAs(ended, true, false)), false)
+  }
+  // With Pi there, the account decides as before.
+  assert.equal(endedAs('done', true, true), 'finished')
+  assert.equal(endedAs('skipped', false, true), 'finished')
+})
+
 test('an unfinished setup opens again at the account step, with the kind of computer it was', () => {
   assert.deepEqual(unfinishedStart('unfinished:work'), { computer: 'work' })
   assert.deepEqual(unfinishedStart('unfinished:personal'), { computer: 'personal' })

@@ -35,7 +35,7 @@ import { PiPanel } from './PiPanel.tsx'
 import { checksWanted, goalAnswersOf, GOAL_WORDS, goalsOf, projectStart, setupAnswersOf } from './goals.ts'
 import { SAMPLE_PROJECTS, startingReply } from './questions.ts'
 import { sampleGoalCards } from './sample-cards.ts'
-import { beatOf, checkAnswer, followUpOf, spokenText, type Answers, type Ask, type BeatId, type Facts, type Tale } from './story.ts'
+import { beatOf, checkAnswer, followUpOf, piBlocks, spokenText, type Answers, type Ask, type BeatId, type Facts, type Tale } from './story.ts'
 import { endedAs, tourFollows } from './first-run.ts'
 import { useSetup } from './store.ts'
 import { keepUsage, usageAnswer } from './usage-ask.ts'
@@ -848,9 +848,10 @@ export function Storyteller() {
     setHome(homeOfFace())
     leave()
 
-    // Told to the end with no account, the setup is unfinished: it opens again at the account step, and no tour starts.
+    // Ended while Pi is missing, or told to the end with no account, the setup is unfinished: it opens again where Pi
+    // and the account are, and no tour starts.
     const ended = tale.ended === 'done' ? 'done' : 'skipped'
-    const as = endedAs(ended, facts.connected.length > 0)
+    const as = endedAs(ended, facts.connected.length > 0, !piBlocks(facts.pi))
     const handOver = () => {
       close(as)
       if (!tourFollows(ended, as)) return

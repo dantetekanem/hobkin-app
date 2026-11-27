@@ -188,6 +188,16 @@ export function piNeeds(pi: PiSetup | null): 'pi' | 'version' | 'packages' | nul
   return pi.packages.some((entry) => !entry.installed) ? 'packages' : null
 }
 
+/**
+ * Pi itself is missing, or older than hobkin runs on, so the story cannot go on (the user's word of 2026-11-26: "if pi
+ * is not installed it cant move"). It holds at the Pi step until Pi is found, and a setup that ends meanwhile comes
+ * back there. Missing packages can wait.
+ */
+export function piBlocks(pi: PiSetup | null): boolean {
+  const missing = piNeeds(pi)
+  return missing === 'pi' || missing === 'version'
+}
+
 /** "A", "A and B", "A, B and C". */
 function listed(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? ''
@@ -463,7 +473,7 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
     case 'pi-ready':
       return { mood: 'celebrating', lines: ['Pi is ready!'] }
     case 'pi-later':
-      return { mood: 'idle', lines: ["Okay, later then. My routines and agents can't run until Pi is here."] }
+      return { mood: 'idle', lines: ['Okay, later then. My agents run without those packages until they are added.'] }
     case 'found':
       return {
         mood: 'celebrating',
