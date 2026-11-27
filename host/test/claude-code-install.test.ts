@@ -61,3 +61,12 @@ test('finds claude, its version and its sign-in', async (t) => {
   const garbled = fakeRun({ '--version': { error: new Error('boom') }, 'auth status --json': { stdout: 'not json' } })
   assert.deepEqual(await claudeStatus({ find: () => claude, run: garbled }), { installed: true, version: null, signedIn: null, authMethod: null, plan: null })
 })
+
+test('signed out as Claude Code says it: `auth status` exits 1 and still prints its answer', async () => {
+  // What Claude Code 2.1.332 does on a Mac that never signed in, as its docs say: exit code 1 when not logged in.
+  const run = (_file: string, args: readonly string[], _options: unknown, done: (error: Error | null, stdout: string, stderr: string) => void) => {
+    if (args[0] === '--version') return done(null, '2.1.332 (Claude Code)\n', '')
+    done(Object.assign(Error('Command failed'), { code: 1 }), `${JSON.stringify({ loggedIn: false, authMethod: 'none', apiProvider: 'firstParty' }, null, 2)}\n`, '')
+  }
+  assert.deepEqual(await claudeStatus({ find: () => '/bin.invalid/claude', run }), { installed: true, version: '2.1.332', signedIn: false, authMethod: null, plan: null })
+})

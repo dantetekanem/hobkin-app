@@ -44,11 +44,15 @@ export interface ClaudeStatusOptions {
   timeoutMs?: number
 }
 
-/** Stdout of the program, or null when it failed or timed out. */
+/**
+ * Stdout of the program, or null when it failed with nothing printed or timed out. `auth status` exits 1 when not
+ * signed in, and still prints its answer.
+ */
 function output(execute: ClaudeRun, file: string, args: string[], timeout: number): Promise<string | null> {
+  const answered = (error: Error | null, stdout: string) => !error || (typeof (error as { code?: unknown }).code === 'number' && Boolean(stdout?.trim()))
   return new Promise((resolve) => {
     try {
-      execute(file, args, { timeout, maxBuffer: 64 * 1024, encoding: 'utf8' }, (error, stdout) => resolve(error ? null : stdout))
+      execute(file, args, { timeout, maxBuffer: 64 * 1024, encoding: 'utf8' }, (error, stdout) => resolve(answered(error, stdout) ? stdout : null))
     } catch {
       resolve(null)
     }
