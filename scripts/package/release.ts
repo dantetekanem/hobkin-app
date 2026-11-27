@@ -35,7 +35,13 @@ function builtFor(chip: Chip): Built | null {
   const { version, commit, dmg, notarized } = JSON.parse(readFileSync(record, 'utf8')) as { version: string; commit: string; dmg: string; notarized?: boolean }
   if (notarized !== true) throw Error(`The ${chip} build of ${version} was not notarized, so it cannot go out.`)
 
-  const files = { version, commit, dmg: path.join(folder, dmg), archive: path.join(folder, 'hobkin.app.tar.gz'), signature: path.join(folder, 'hobkin.app.tar.gz.sig') }
+  const files = {
+    version,
+    commit,
+    dmg: path.join(folder, dmg),
+    archive: path.join(folder, 'hobkin.app.tar.gz'),
+    signature: path.join(folder, 'hobkin.app.tar.gz.sig'),
+  }
   for (const file of [files.dmg, files.archive, files.signature]) {
     if (!existsSync(file)) throw Error(`The ${chip} build of ${version} is not whole: ${file} is missing.`)
   }
@@ -51,7 +57,7 @@ for (const chip of CHIPS) {
 
 const versions = new Set([...builds.values()].map((found) => `${found.version} at ${found.commit}`))
 if (versions.size > 1) throw Error(`The builds are of different versions or commits (${[...versions].join(', ')}). Build every chip from the same commit.`)
-const [{ version } = { version: '' }] = builds.values()
+const version = [...builds.values()][0]?.version
 if (!version) throw Error('No build was found. Run build.ts for each chip first.')
 
 // Only now is the old folder replaced, so a run that fails above leaves the last release's files where they were.

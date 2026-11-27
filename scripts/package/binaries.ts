@@ -41,7 +41,8 @@ export function foreignPlatformFolder(path: string, chip: Chip): string | null {
     const named = PLATFORM_FOLDER.exec(folder)
     if (!named) continue
     const [, platform, arch] = named
-    if (platform !== 'darwin' || (arch !== nodeArch(chip) && arch !== 'universal')) return folder
+    const runsOnChip = platform === 'darwin' && (arch === nodeArch(chip) || arch === 'universal')
+    if (!runsOnChip) return folder
   }
   return null
 }
@@ -49,5 +50,6 @@ export function foreignPlatformFolder(path: string, chip: Chip): string | null {
 /** Whether `lipo -archs` lists an architecture the chip runs natively. */
 export function coversChip(archs: string, chip: Chip): boolean {
   const listed = archs.trim().split(/\s+/)
-  return chip === 'aarch64' ? listed.some((arch) => arch.startsWith('arm64')) : listed.includes('x86_64') || listed.includes('x86_64h')
+  if (chip === 'aarch64') return listed.some((arch) => arch.startsWith('arm64'))
+  return listed.includes('x86_64') || listed.includes('x86_64h')
 }

@@ -24,28 +24,58 @@ const SHA1 = /^[0-9A-Fa-f]{40}$/
 
 type Environment = Readonly<Record<string, string | undefined>>
 
-const listed = (names: readonly string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(''))
+/** Names joined for a sentence: `A`, `A and B`, `A, B and C`. */
+function listed(names: readonly string[]): string {
+  if (names.length < 2) return names.join('')
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+}
 
-/** The variables of a route that are set, and those that are not. */
-function route(env: Environment, names: readonly string[]): { set: boolean; missing: string[] } {
+interface Route {
+  /** Some of the route's variables are set, so the user meant to take it. */
+  started: boolean
+  missing: string[]
+}
+
+function route(env: Environment, names: readonly string[]): Route {
   const missing = names.filter((name) => !env[name])
-  return { set: missing.length < names.length, missing }
+  return { started: missing.length < names.length, missing }
+}
+
+const isWhole = ({ started, missing }: Route) => started && missing.length === 0
+
+function routeProblem(name: string, names: readonly string[], { missing }: Route): string {
+  const verb = missing.length > 1 ? 'are' : 'is'
+  return `The ${name} route needs ${listed(names)}: ${listed(missing)} ${verb} not set.`
 }
 
 function notaryFrom(env: Environment): { notary: NotaryAuth | null; problems: string[] } {
   const appleId = route(env, APPLE_ID_VARS)
   const apiKey = route(env, API_KEY_VARS)
+
   // Tauri, which notarizes the app inside the build, takes the Apple ID route when it is whole, so the DMG does too.
-  if (appleId.set && !appleId.missing.length) {
-    return { notary: { route: 'apple-id', appleId: env.APPLE_ID!, password: env.APPLE_PASSWORD!, teamId: env.APPLE_TEAM_ID! }, problems: [] }
+  if (isWhole(appleId)) {
+    const notary: NotaryAuth = {
+      route: 'apple-id',
+      appleId: env.APPLE_ID!,
+      password: env.APPLE_PASSWORD!,
+      teamId: env.APPLE_TEAM_ID!,
+    }
+    return { notary, problems: [] }
   }
-  if (apiKey.set && !apiKey.missing.length) {
-    return { notary: { route: 'api-key', keyId: env.APPLE_API_KEY!, issuer: env.APPLE_API_ISSUER!, keyPath: env.APPLE_API_KEY_PATH! }, problems: [] }
+  if (isWhole(apiKey)) {
+    const notary: NotaryAuth = {
+      route: 'api-key',
+      keyId: env.APPLE_API_KEY!,
+      issuer: env.APPLE_API_ISSUER!,
+      keyPath: env.APPLE_API_KEY_PATH!,
+    }
+    return { notary, problems: [] }
   }
+
   const problems: string[] = []
-  if (apiKey.set) problems.push(`The App Store Connect API key route needs ${listed(API_KEY_VARS)}: ${listed(apiKey.missing)} ${apiKey.missing.length > 1 ? 'are' : 'is'} not set.`)
-  if (appleId.set) problems.push(`The Apple ID route needs ${listed(APPLE_ID_VARS)}: ${listed(appleId.missing)} ${appleId.missing.length > 1 ? 'are' : 'is'} not set.`)
-  if (!problems.length) {
+  if (apiKey.started) problems.push(routeProblem('App Store Connect API key', API_KEY_VARS, apiKey))
+  if (appleId.started) problems.push(routeProblem('Apple ID', APPLE_ID_VARS, appleId))
+  if (problems.length === 0) {
     problems.push(`Notarization needs an App Store Connect API key (${listed(API_KEY_VARS)}) or an Apple ID with an app-specific password (${listed(APPLE_ID_VARS)}). None of them is set.`)
   }
   return { notary: null, problems }
@@ -64,7 +94,12 @@ export function releaseSigning(env: Environment): ReleaseSigning {
     problems.push('APPLE_SIGNING_IDENTITY must name a Developer ID Application identity (or its SHA-1): Apple notarizes no other kind.')
   }
   const notary = notaryFrom(env)
-  return { identity, adHoc, notary: adHoc ? null : notary.notary, problems: [...problems, ...notary.problems] }
+  return {
+    identity,
+    adHoc,
+    notary: adHoc ? null : notary.notary,
+    problems: [...problems, ...notary.problems],
+  }
 }
 
 /** codesign's arguments: the hardened runtime always, and a secure timestamp from Apple for any identity but ad hoc. */
@@ -103,8 +138,10 @@ export function signatureProblems(description: string, identity: string): string
     if (!/^Signature=adhoc$/m.test(description)) problems.push('it is not signed ad hoc')
     return problems
   }
-  const signedBy = SHA1.test(identity) ? /^Authority=Developer ID Application: /m.test(description) : description.split('\n').includes(`Authority=${identity}`)
-  if (!signedBy) problems.push(`it is not signed by ${SHA1.test(identity) ? 'a Developer ID Application identity' : 'APPLE_SIGNING_IDENTITY'}`)
+  // A certificate's SHA-1 never appears in the description, so only the kind of identity can be checked for it.
+  const byHash = SHA1.test(identity)
+  const signedBy = byHash ? /^Authority=Developer ID Application: /m.test(description) : description.split('\n').includes(`Authority=${identity}`)
+  if (!signedBy) problems.push(`it is not signed by ${byHash ? 'a Developer ID Application identity' : 'APPLE_SIGNING_IDENTITY'}`)
   if (!/^Timestamp=/m.test(description)) problems.push('its signature has no secure timestamp')
   return problems
 }

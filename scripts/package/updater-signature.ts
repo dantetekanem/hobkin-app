@@ -25,10 +25,10 @@ export function updaterSignatureProblems(archive: Uint8Array, signature: string,
 
   const [signatureLine, trustedLine, globalLine] = dataLines(decoded(signature))
   const signed = Buffer.from(signatureLine ?? '', 'base64')
+  // `Ed` signs the file itself, `ED` its BLAKE2b-512 hash. Either is two bytes, a key id of eight, and 64 of signature.
   const algorithm = signed.subarray(0, 2).toString()
-  if (signed.length !== 74 || !['Ed', 'ED'].includes(algorithm) || !trustedLine?.startsWith('trusted comment: ') || !globalLine) {
-    return ['the .sig file is not a minisign signature']
-  }
+  const shaped = signed.length === 74 && ['Ed', 'ED'].includes(algorithm)
+  if (!shaped || !trustedLine?.startsWith('trusted comment: ') || !globalLine) return ['the .sig file is not a minisign signature']
   if (!signed.subarray(2, 10).equals(key.subarray(2, 10))) return ['the archive was signed with another key than the one in the release config']
 
   const publicKeyObject = ed25519Key(key.subarray(10))
