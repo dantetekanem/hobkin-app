@@ -1,30 +1,42 @@
 import type { PendingQuestion } from '#shared/protocol/question.ts'
-import { PROFILE_TEXT_MAX, type ComputerKind, type PiSetup, type SetupWorkDone } from '#shared/protocol/setup.ts'
+import { PROFILE_TEXT_MAX, type ComputerKind, type Goal, type PiSetup, type SetupWorkDone } from '#shared/protocol/setup.ts'
 import { PI_NODE } from '#shared/setup/agent-prompt.ts'
 import type { Mood } from '../../avatar/moods.tsx'
-import { questionsFor, USUAL_FOLDER, type Question } from './questions.ts'
+import { cardsInOrder, cardsLines, firstRunLines, firstRunOf, keptCards, routinesSaid, type CardPicks, type GoalCards, type NamedRoutine, type Written } from './cards.ts'
+import { asksComputer, emailWhy, GOAL_BUBBLES, GOALS, goalQuestions, goalsSaid } from './goals.ts'
+import { USUAL_FOLDER, type Question } from './questions.ts'
 
 /**
  * The first-run setup as a story hobkin tells in speech bubbles: what it says, what it asks, and what comes next
- * for what the user answered and what is on this Mac. Pure rules only. See _specs/025-onboarding.
+ * for what the user answered and what is on this Mac. Pure rules only. See _specs/025-onboarding and
+ * _specs/044-goal-first-setup.
  *
  * A beat is a few bubbles said in a row. Its question, when it has one, is asked with the last bubble. A word
  * between backticks, such as `⌘,`, is drawn as a key.
  */
 
-/** One beat for each question. A computer's questions may be fewer than these. */
+/** One beat for each of the goals' questions: one each for a job, a business and a project, three for code. */
 export const QUESTION_BEATS = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'] as const
 export type QuestionBeat = (typeof QUESTION_BEATS)[number]
+
+/** One beat for each goal's cards, in the goals' order. */
+export type CardsBeat = `cards-${Goal}`
+export const cardsBeatOf = (goal: Goal): CardsBeat => `cards-${goal}`
+const goalOfCards = (id: CardsBeat): Goal => id.slice('cards-'.length) as Goal
+const isCardsBeat = (id: BeatId): id is CardsBeat => id.startsWith('cards-')
 
 export type BeatId =
   | 'hello'
   | 'sound'
+  | 'goals'
+  | 'goals-said'
   | 'computer'
-  | 'computer-thanks'
+  | 'computer-work'
   | 'name'
   | 'name-hi'
   | 'email'
   | 'subscription'
+  | 'computer-late'
   | 'launcher'
   | 'pi'
   | 'pi-ready'
@@ -36,8 +48,13 @@ export type BeatId =
   | 'more'
   | QuestionBeat
   | 'projects-said'
-  | 'follow-ups'
-  | 'questions-thanks'
+  | CardsBeat
+  | 'routines-need'
+  | 'writing'
+  | 'written'
+  | 'first-run'
+  | 'first-run-started'
+  | 'thanks'
   | 'needs'
   | 'settings'
   | 'tour'
@@ -58,6 +75,10 @@ export interface Facts {
   host?: boolean
   /** What work mode did with the projects picked, once the host said, or `failed` when it could not. Left out while it has not. */
   worked?: SetupWorkDone | 'failed' | null
+  /** The routine cards for the goals picked, once they are read. Left out or null while they are not, and then every picked goal has its beat. */
+  cards?: readonly GoalCards[] | null
+  /** The kept cards that have a routine, once the writing is over. Left out until then. */
+  written?: readonly Written[]
 }
 
 /** A question main hobkin has open, as the story asks it. */
@@ -82,10 +103,14 @@ export function followUpOf(question: PendingQuestion | null): OpenQuestion | nul
   }
 }
 
-/** What the user answered so far. */
+/** What the person answered so far. */
 export interface Answers {
   /** hobkin may make its sounds. */
   sound?: boolean
+  /** What the person is working toward. Left out until the goals question is answered. */
+  goals?: Goal[]
+  /** Bubbles of the person's own words in the goals question. They count as a project. */
+  own?: string[]
   computer?: ComputerKind
   name?: string
   email?: string
@@ -95,10 +120,14 @@ export interface Answers {
   account?: 'connected' | 'later'
   /** The command that starts Pi, asked on a work computer without an account: kept as the launcher, or put off. */
   launcher?: 'saved' | 'later'
-  /** The user wants the five questions. */
+  /** The person wants their routines set up. */
   more?: boolean
-  /** The answers to the questions, by question id. */
+  /** The answers to the goals' questions, by question id. */
   replies: Readonly<Record<string, string | undefined>>
+  /** The cards kept and turned down, with the changes. */
+  cards?: CardPicks
+  /** The first run was asked for, or put off. */
+  firstRun?: 'run' | 'later'
 }
 
 export interface Option {
@@ -110,7 +139,7 @@ export interface Option {
 export type InputField = { kind: 'name' } | { kind: 'email' } | { kind: 'launcher' } | { kind: 'reply'; question: string }
 
 /** What a choice between two answers: one of the setup's own facts, or one of the questions, by its id. */
-export type ChoiceField = 'sound' | 'computer' | 'more' | { reply: string }
+export type ChoiceField = 'sound' | 'computer' | 'more' | 'first-run' | { reply: string }
 
 /** Where the bubbles to pick from come from: a list that is given, or the projects found in a folder. */
 export type PickFrom = { options: readonly string[] } | { projectsIn: string }
@@ -118,8 +147,8 @@ export type PickFrom = { options: readonly string[] } | { projectsIn: string }
 export type Ask =
   /** Two bubbles, one each side of hobkin. */
   | { kind: 'choice'; field: ChoiceField; options: readonly [Option, Option] }
-  /** A cloud of bubbles to pick as many from as one likes, for one of the questions, by its id. */
-  | { kind: 'pick'; question: string; from: PickFrom }
+  /** A cloud of bubbles to pick as many from as one likes, for one of the questions, by its id. A note may go under it. */
+  | { kind: 'pick'; question: string; from: PickFrom; note?: string }
   /** A field at the bottom, in the middle. */
   | { kind: 'input'; field: InputField; type: 'text' | 'email'; placeholder: string; optional: boolean; suggestions?: readonly string[]; note?: string }
   /** One bubble that only goes on. Going on by key passes it too. */
@@ -134,6 +163,8 @@ export type Ask =
   | { kind: 'follow-up'; question: string; options: readonly Option[]; typed: boolean }
   /** Main hobkin is thinking of what to ask. Nothing to answer yet, and only saying it is enough goes on. */
   | { kind: 'wait' }
+  /** One goal's routine cards, to keep, change or drop. Done goes on. */
+  | { kind: 'cards'; goal: Goal }
 
 export interface Beat {
   id: BeatId
@@ -230,6 +261,8 @@ function piWords(pi: PiSetup | null): string[] {
 /** How a question is asked: typed, picked from bubbles, or chosen between two. */
 function askFor(question: Question, replies: Answers['replies']): Ask {
   switch (question.kind) {
+    case 'typed':
+      return { kind: 'input', field: { kind: 'reply', question: question.id }, type: 'text', placeholder: question.placeholder, optional: true }
     case 'folder':
       return {
         kind: 'input',
@@ -257,33 +290,71 @@ function askFor(question: Question, replies: Answers['replies']): Ask {
 }
 
 /**
- * Said once, under the first of the questions. hobkin keeps the answers in front of every agent's directions, so the
- * model's provider sees them too, as the email question says of the profile.
+ * Said once, under the goals question. hobkin keeps the answers in front of every agent's directions, so the model's
+ * provider sees them too, as the email question says of the profile.
  */
 const ANSWERS_KEPT = 'I keep these answers in my home on this Mac. My agents read them, so your model provider sees them too.'
 
-function questionBeat(id: QuestionBeat, { computer, replies }: Answers): Omit<Beat, 'id'> {
-  const questions = questionsFor(computer)
-  // A beat past a computer's last question is never reached. It says the last one, so it still has words.
-  const index = Math.min(QUESTION_BEATS.indexOf(id), questions.length - 1)
-  const question = questions[index]!
-  const ask = askFor(question, replies)
-  const keptNoted = index === 0 && ask.kind === 'input' ? { ...ask, note: ANSWERS_KEPT } : ask
-  return { mood: 'listening', lines: [question.ask], ask: keptNoted }
+/** The goals picked, none while the question was not answered. */
+const goalsOf = (answers: Answers): readonly Goal[] => answers.goals ?? []
+
+function questionBeat(id: QuestionBeat, { goals = [], replies }: Answers): Omit<Beat, 'id'> {
+  const questions = goalQuestions(goals)
+  // A beat past the last question is never reached. It says the last one, so it still has words.
+  const question = questions[Math.min(QUESTION_BEATS.indexOf(id), questions.length - 1)]
+  if (!question) return { mood: 'listening', lines: ['Tell me more about it.'] }
+  return { mood: 'listening', lines: [question.ask], ask: askFor(question, replies) }
 }
 
-/** The beat for the question after one of this computer's, by its place, or what comes after the last. */
-function questionAfter(index: number, answers: Answers, facts: Facts): BeatId {
-  if (index + 1 < questionsFor(answers.computer).length) return QUESTION_BEATS[index + 1]!
-  return facts.smart ? 'follow-ups' : 'questions-thanks'
+/**
+ * The goals that show their cards, in the goals' order: every picked one while the cards are not read yet, and then
+ * only those with a card.
+ */
+function goalsWithCards(answers: Answers, facts: Facts): Goal[] {
+  const picked = GOALS.filter((goal) => goalsOf(answers).includes(goal))
+  if (!facts.cards) return picked
+  return picked.filter((goal) => facts.cards!.some((group) => group.goal === goal && group.starters.length + group.more.length > 0))
 }
+
+/** The cards kept so far, in card order. */
+const keptOf = (answers: Answers, facts: Facts) => keptCards(cardsInOrder(facts.cards ?? []), answers.cards ?? { marks: {}, changes: {} })
+
+/** The first goal's cards, or the thanks when no goal has any. */
+const cardsFrom = (answers: Answers, facts: Facts): BeatId => {
+  const [first] = goalsWithCards(answers, facts)
+  return first ? cardsBeatOf(first) : 'thanks'
+}
+
+/** The beat after one of the goals' questions, by its place, or the cards after the last. */
+function questionAfter(index: number, answers: Answers, facts: Facts): BeatId {
+  if (index + 1 < goalQuestions(goalsOf(answers)).length) return QUESTION_BEATS[index + 1]!
+  return cardsFrom(answers, facts)
+}
+
+/** The routine hobkin offers to run first, once the writing is over, or null. */
+const firstRunFor = (facts: Facts): NamedRoutine | null => firstRunOf(facts.written ?? [], facts.smart)
 
 /** A beat's words and question, for what was answered and what is on this Mac. */
 export function beatOf(id: BeatId, answers: Answers, facts: Facts): Beat {
   return { id, ...wordsOf(id, answers, facts) }
 }
 
+const WHOSE_COMPUTER: Ask = {
+  kind: 'choice',
+  field: 'computer',
+  options: [
+    { value: 'personal', label: 'My own' },
+    { value: 'work', label: 'From work' },
+  ],
+}
+
 function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
+  if (isCardsBeat(id)) {
+    const goal = goalOfCards(id)
+    const first = goalsWithCards(answers, facts)[0] === goal
+    return { mood: first ? 'happy' : 'wink', lines: cardsLines(goal, first), ask: { kind: 'cards', goal } }
+  }
+
   switch (id) {
     case 'hello':
       return { mood: 'hello', lines: ["Hi there! I'm a hobkin.", 'Yes, all lowercase. Nice to meet you!'] }
@@ -300,21 +371,19 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
           ],
         },
       }
-    case 'computer':
+    case 'goals':
       return {
         mood: 'listening',
-        lines: ["I'm here to push your development to the next level.", 'So tell me, is this your personal computer or your work one?'],
-        ask: {
-          kind: 'choice',
-          field: 'computer',
-          options: [
-            { value: 'personal', label: 'Personal' },
-            { value: 'work', label: 'Work' },
-          ],
-        },
+        lines: ["I keep watch over the things you care about, so you don't have to keep checking.", 'What are you working toward right now? Pick everything that fits.'],
+        ask: { kind: 'pick', question: 'goals', from: { options: GOAL_BUBBLES }, note: ANSWERS_KEPT },
       }
-    case 'computer-thanks':
-      return { mood: 'happy', lines: ['Fantastic! That tells me how to help you with what comes next.'] }
+    case 'goals-said':
+      return { mood: 'happy', lines: [goalsSaid(goalsOf(answers))] }
+    case 'computer':
+    case 'computer-late':
+      return { mood: 'listening', lines: ['Is this your own computer, or one from work?'], ask: WHOSE_COMPUTER }
+    case 'computer-work':
+      return { mood: 'happy', lines: ["Okay. When a routine would read your own mail or money here, I'll say so on it."] }
     case 'name':
       return {
         mood: 'listening',
@@ -326,7 +395,7 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
     case 'email':
       return {
         mood: 'listening',
-        lines: ['Would you share your e-mail too?', 'It tells me which commits, mail and accounts are yours, and which are someone else\'s.'],
+        lines: ['Would you share your e-mail too?', emailWhy(goalsOf(answers))],
         ask: {
           kind: 'input',
           field: { kind: 'email' },
@@ -341,7 +410,7 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
       return {
         mood: 'thinking',
         lines: [
-          'Perfect! I have many more questions, but before them I need something to think with.',
+          'Perfect! Before we go on, I need something to think with.',
           'I run on Pi, with a subscription you already have. I work with Claude too.',
           'And I will not charge you a single cent for any of this.',
           'If you are signed in already, I will find it myself. If not, I will help you set it up.',
@@ -389,12 +458,12 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
     case 'more':
       return {
         mood: 'thinking',
-        lines: ['I can take you straight into the app.', 'Or stay a minute and answer five questions, and I will build your first routines from them.', 'What do you say?'],
+        lines: ['I can take you straight into the app.', "Or stay a few minutes, and I'll set up a few routines for what you're working toward.", 'What do you say?'],
         ask: {
           kind: 'choice',
           field: 'more',
           options: [
-            { value: 'yes', label: 'Ask me' },
+            { value: 'yes', label: 'Set them up' },
             { value: 'no', label: 'Take me in' },
           ],
         },
@@ -414,15 +483,39 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
       if (worked === 'failed') return { mood: 'idle', lines: ['I could not put them in Work just now.'] }
       return { mood: 'happy', lines: [workSaid(worked)] }
     }
-    case 'follow-ups': {
-      // Main hobkin asks these itself, in the chat behind the setup. Its question is said in its own words.
+    case 'routines-need':
+      return { mood: 'thinking', lines: ["Before they run, I'll check that I can reach what they look at. I'll ask you before I connect anything."] }
+    case 'writing': {
+      // Main hobkin writes them in the chat behind the setup. A question it opens is said in its own words.
       const asked = facts.asked
-      if (!asked) return { mood: 'thinking', lines: ["Give me a moment. I'm thinking about what else I need to know."], ask: { kind: 'wait' } }
+      if (!asked) return { mood: 'working', lines: ["I'm writing your routines now. It takes a minute or two."], ask: { kind: 'wait' } }
       return { mood: 'listening', lines: [asked.words], ask: { kind: 'follow-up', question: asked.id, options: asked.choices, typed: asked.typed } }
     }
-    case 'questions-thanks':
-      // True both ways: after the follow-ups hobkin is already at it in the chat, and without them the answers go there next.
-      return { mood: 'love', lines: ["Thank you! I'll propose your first routines in our chat."] }
+    case 'written': {
+      const written = facts.written?.length ?? 0
+      return { mood: written ? 'celebrating' : 'idle', lines: [routinesSaid(keptOf(answers, facts).length, written)] }
+    }
+    case 'first-run': {
+      const routine = firstRunFor(facts)
+      return {
+        mood: 'wink',
+        lines: firstRunLines(routine ?? { title: 'one' }),
+        ask: {
+          kind: 'choice',
+          field: 'first-run',
+          options: [
+            { value: 'run', label: 'Run it now' },
+            { value: 'later', label: 'Later' },
+          ],
+        },
+      }
+    }
+    case 'first-run-started':
+      return { mood: 'working', lines: ["It's running. Its report will be in Reports soon."] }
+    case 'thanks':
+      return facts.written?.length
+        ? { mood: 'love', lines: ['Thank you! From now on, your routines only speak up when something changes.'] }
+        : { mood: 'love', lines: ['Thank you! Ask me for a routine any time.'] }
     case 'needs':
       return { mood: 'searching', lines: ["One last look. Here's everything I need on this Mac, and how to add what's missing."], ask: { kind: 'needs' } }
     case 'settings':
@@ -441,22 +534,49 @@ const beforeSettings = (facts: Facts): BeatId => (facts.host === true ? 'needs' 
 /** An account Pi already reaches is found. With none, the setup offers its one sign-in. */
 const accounts = (facts: Facts): BeatId => (facts.connected.length > 0 ? 'found' : 'connect')
 
+/** Pi when something of it is missing, else the account. */
+const piOrAccounts = (facts: Facts): BeatId => (piNeeds(facts.pi) ? 'pi' : accounts(facts))
+
+/** With a host, no account found and no launcher named, a work computer is asked for the command that starts Pi. */
+const launcherMayHelp = (facts: Facts): boolean => facts.host === true && facts.connected.length === 0 && !facts.pi?.launcher
+
 /**
- * A work computer with no account asks for the command the company provides to start Pi, unless the config already
+ * A work computer with no account is asked for the command the company provides to start Pi, unless the config already
  * names a launcher. Never on a personal computer, never when an account was found, and never without a host to keep it.
  */
-const asksForLauncher = ({ computer }: Answers, facts: Facts): boolean => computer === 'work' && facts.host === true && facts.connected.length === 0 && !facts.pi?.launcher
+const asksForLauncher = ({ computer }: Answers, facts: Facts): boolean => computer === 'work' && launcherMayHelp(facts)
+
+/** Routines are offered once an account answers, and only when there is a goal to offer them for. */
+const offersRoutines = (answers: Answers): boolean => goalsOf(answers).length > 0
+
+/** Projects were picked for code, with a host to hand them to work mode, so hobkin says what it did with them. */
+function handsToWork(index: number, answers: Answers, facts: Facts): boolean {
+  const question = goalQuestions(goalsOf(answers))[index]
+  return question?.kind === 'projects' && Boolean(answers.replies[question.id]?.trim()) && facts.host === true
+}
 
 /** The beat after one, or null when the story is over. Decided as the beat is left, from what is known then. */
 export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | null {
+  if (isCardsBeat(id)) {
+    const goals = goalsWithCards(answers, facts)
+    const next = goals[goals.indexOf(goalOfCards(id)) + 1]
+    if (next) return cardsBeatOf(next)
+    return keptOf(answers, facts).length > 0 ? 'routines-need' : 'thanks'
+  }
+
   switch (id) {
     case 'hello':
       return 'sound'
     case 'sound':
-      return 'computer'
+      return 'goals'
+    case 'goals':
+      return 'goals-said'
+    // Whose computer this is matters only for the goals whose routines read the person's own accounts.
+    case 'goals-said':
+      return asksComputer(goalsOf(answers)) ? 'computer' : 'name'
     case 'computer':
-      return 'computer-thanks'
-    case 'computer-thanks':
+      return answers.computer === 'work' ? 'computer-work' : 'name'
+    case 'computer-work':
       return 'name'
     case 'name':
       return 'name-hi'
@@ -464,13 +584,17 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
       return 'email'
     case 'email':
       return 'subscription'
+    // A computer not asked about yet is asked now when the launcher question would need it.
     case 'subscription':
       if (asksForLauncher(answers, facts)) return 'launcher'
-      return piNeeds(facts.pi) ? 'pi' : accounts(facts)
+      if (answers.computer === undefined && launcherMayHelp(facts)) return 'computer-late'
+      return piOrAccounts(facts)
+    case 'computer-late':
+      return asksForLauncher(answers, facts) ? 'launcher' : piOrAccounts(facts)
     // A launcher that was kept is an account: its models are the app's now. Put off, the story goes on as without it.
     case 'launcher':
       if (answers.launcher === 'saved') return 'connected'
-      return piNeeds(facts.pi) ? 'pi' : accounts(facts)
+      return piOrAccounts(facts)
     case 'pi':
       return answers.pi === 'installed' ? 'pi-ready' : 'pi-later'
     case 'pi-ready':
@@ -478,32 +602,39 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
       return accounts(facts)
     case 'found':
     case 'connected':
-      return 'more'
+      return offersRoutines(answers) ? 'more' : beforeSettings(facts)
     case 'connect':
       return answers.account === 'connected' ? 'connected' : 'no-account'
-    // The questions are handed to hobkin in the chat, which needs a model, so without one they are not asked.
+    // Main hobkin writes the routines in the chat, which needs a model, so without one none are offered.
     case 'no-account':
       return beforeSettings(facts)
     case 'more':
-      return answers.more ? 'q1' : beforeSettings(facts)
+      if (!answers.more) return beforeSettings(facts)
+      return goalQuestions(goalsOf(answers)).length ? 'q1' : cardsFrom(answers, facts)
     case 'q1':
     case 'q2':
     case 'q3':
     case 'q4':
     case 'q5':
     case 'q6': {
-      // One beat for each of this computer's questions, then main hobkin's own when a real model can ask them.
       const index = QUESTION_BEATS.indexOf(id)
-      const question = questionsFor(answers.computer)[index]
       // Projects picked go to work mode through the host, and hobkin says what it did with them.
-      const handed = question?.kind === 'projects' && Boolean(answers.replies[question.id]?.trim()) && facts.host === true
-      return handed ? 'projects-said' : questionAfter(index, answers, facts)
+      return handsToWork(index, answers, facts) ? 'projects-said' : questionAfter(index, answers, facts)
     }
     case 'projects-said':
-      return questionAfter(questionsFor(answers.computer).findIndex(({ kind }) => kind === 'projects'), answers, facts)
-    case 'follow-ups':
-      return 'questions-thanks'
-    case 'questions-thanks':
+      return questionAfter(goalQuestions(goalsOf(answers)).findIndex(({ kind }) => kind === 'projects'), answers, facts)
+    // Only main hobkin on a real model writes them. On the scripted host, or with no host, nothing is sent or written.
+    case 'routines-need':
+      return facts.smart && facts.host === true ? 'writing' : 'thanks'
+    case 'writing':
+      return 'written'
+    case 'written':
+      return firstRunFor(facts) ? 'first-run' : 'thanks'
+    case 'first-run':
+      return answers.firstRun === 'run' ? 'first-run-started' : 'thanks'
+    case 'first-run-started':
+      return 'thanks'
+    case 'thanks':
       return beforeSettings(facts)
     case 'needs':
       return 'settings'
@@ -588,10 +719,10 @@ export function startTale(): Tale {
 function nextBeat(tale: Tale, beat: Beat, answers: Answers, facts: Facts): Tale {
   const next = beatAfter(tale.at, answers, facts)
   if (!next) return { ...tale, ended: 'done' }
-  // An install or a sign-in happens once, so nothing before it can be gone back to. The follow-ups too: reaching
-  // them sends the answers to hobkin, so an answer changed after that, or a second visit, would never reach it. And
-  // what hobkin says of the projects: they are in Work by then, and picking again would not take them out.
-  const once: BeatId[] = ['follow-ups', 'projects-said']
+  // An install or a sign-in happens once, so nothing before it can be gone back to. The writing too: reaching it
+  // sends the kept cards to hobkin, so a card changed after that would never reach it. What hobkin says of the
+  // projects: they are in Work by then, and picking again would not take them out. And a run that started.
+  const once: BeatId[] = ['projects-said', 'writing', 'written', 'first-run-started']
   const sealed = beat.ask?.kind === 'pi' || beat.ask?.kind === 'connect' || once.includes(tale.at) || once.includes(next)
   return { at: next, line: 0, trail: sealed ? [] : [...tale.trail, tale.at], ended: null }
 }

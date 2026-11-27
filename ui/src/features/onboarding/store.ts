@@ -23,6 +23,8 @@ interface SetupState {
   tell: (event: TaleEvent, facts: Facts) => void
   /** Keeps an answer, and the story goes on from the question it answered. */
   answer: (change: Partial<Answers>, facts: Facts) => void
+  /** Keeps an answer while the question is still being answered, such as a card kept or dropped. The story stays. */
+  note: (change: Partial<Answers>) => void
   setPi: (pi: PiSetup) => void
   setClaude: (claude: boolean) => void
   /**
@@ -39,7 +41,7 @@ const earlierEnd = unfinishedNow()
 const startingAnswers: Answers = earlierEnd?.computer ? { replies: {}, computer: earlierEnd.computer } : NOTHING_ANSWERED
 const startingTale = (): Tale => (earlierEnd ? { ...startTale(), at: 'subscription' } : startTale())
 
-/** The first-run setup: whether it is open, where its story is and what was answered. See _specs/025-onboarding. */
+/** The first-run setup: whether it is open, where its story is and what was answered. See _specs/025-onboarding and 044. */
 export const useSetup = create<SetupState>()((set, get) => ({
   open: setupWantedNow(),
   origin: 'first-run',
@@ -62,6 +64,7 @@ export const useSetup = create<SetupState>()((set, get) => ({
     const answers = { ...get().answers, ...change }
     set({ answers, tale: tellOn(get().tale, 'answered', answers, facts) })
   },
+  note: (change) => set({ answers: { ...get().answers, ...change } }),
   setPi: (pi) => set({ pi }),
   setClaude: (claude) => {
     if (claude !== get().claude) set({ claude })

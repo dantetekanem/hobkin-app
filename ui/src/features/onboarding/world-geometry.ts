@@ -297,3 +297,37 @@ export function arrivalFor(viewport: Viewport): Arrival {
     stage,
   }
 }
+
+/** Where the cards and hobkin stand while the routine cards are up: hobkin on the hill at the side, the cards beside it. */
+export interface CardsStage {
+  seat: Seat
+  /** The part of the window the cards take, in window pixels. */
+  area: { left: number; top: number; width: number; height: number }
+  /** The widest hobkin's bubble may be, so it stays between the window's edge and the cards. */
+  bubbleWidth: number
+  /** At least 1100 wide: the cards stand side by side. */
+  wide: boolean
+}
+
+/** Room for the setup's top bar above the cards, and below them. */
+const CARDS_ROOM = { top: 72, bottom: 24 }
+
+/**
+ * hobkin hops to the side, onto the hill there, so the cards can stand beside it and nothing covers it: at 14% of the
+ * width in a wide window, 17% in a narrow one. Its bubble is at most as wide as fits between the window's edge and the
+ * cards, and the cards start past it.
+ */
+export function cardsStage(viewport: Viewport): CardsStage {
+  const wide = viewport.width >= 1100
+  const x = Math.round(wide ? Math.min(230, Math.max(190, viewport.width * 0.14)) : Math.min(190, Math.max(140, viewport.width * 0.17)))
+  const seat = { x, y: crestY('hill', x, viewport) - footBelow(1), scale: 1 }
+  const bubbleWidth = 2 * (x - 16)
+  const left = 2 * x + 8
+  const right = wide ? 32 : 24
+  return {
+    seat,
+    area: { left, top: CARDS_ROOM.top, width: viewport.width - right - left, height: viewport.height - CARDS_ROOM.top - CARDS_ROOM.bottom },
+    bubbleWidth,
+    wide,
+  }
+}

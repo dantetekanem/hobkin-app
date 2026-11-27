@@ -23,6 +23,8 @@ interface BubbleProps {
   waits: boolean
   /** The top of hobkin's pet, in the window. The bubble sits on top of it. */
   above: { x: number; y: number }
+  /** The widest it may be, as beside the routine cards. Left out, the usual. */
+  maxWidth?: number
   still: boolean
 }
 
@@ -36,7 +38,7 @@ const AT_REST = 'translateX(-50%) translateY(0px) scale(1)'
  * little. It grows from its tail, a band of light crosses it once, and its words arrive one after another. It
  * drifts while hobkin waits. A new bubble pops in as the one before it lets go.
  */
-export function Bubble({ id, line, said, waits, above, still }: BubbleProps) {
+export function Bubble({ id, line, said, waits, above, maxWidth, still }: BubbleProps) {
   // With sound on, each word babbles as it arrives. Words that are simply there, said at once or held still, say nothing.
   useEffect(() => {
     if (said || still) return
@@ -55,7 +57,7 @@ export function Bubble({ id, line, said, waits, above, still }: BubbleProps) {
             initial={{ opacity: 0, transform: still ? AT_REST : 'translateX(-50%) translateY(12px) scale(0.9)' }}
             animate={{ opacity: 1, transform: AT_REST, transition: { transform: spring.alive, opacity: tween.enter } }}
             exit={{ opacity: 0, transform: still ? AT_REST : 'translateX(-50%) translateY(-8px) scale(0.98)', transition: tween.exit }}
-            style={{ transformOrigin: '50% 100%' }}
+            style={{ transformOrigin: '50% 100%', ...(maxWidth ? { maxWidth } : {}) }}
             className={cn('tale-glassy absolute bottom-0 left-0 w-max max-w-[min(520px,calc(100vw-48px))]', said && 'tale-said')}
           >
             <div className="tale-glass tale-bubble-body rounded-[28px] px-8 py-5">

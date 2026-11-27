@@ -1,4 +1,4 @@
-import type { GoalCards, SetupAnswer, SetupCardChanges, TemplateCard, TemplateGift } from '#shared/protocol/setup.ts'
+import type { GoalCards, SetupAnswer, SetupCardChanges, SetupCardPick, TemplateCard, TemplateGift } from '#shared/protocol/setup.ts'
 import { GOAL_WORDS, type Goal } from './goals.ts'
 
 /**
@@ -154,6 +154,21 @@ export const keptCards = (cards: readonly Card[], picks: CardPicks): Card[] => c
 
 /** The cards turned down, in card order. */
 export const droppedCards = (cards: readonly Card[], picks: CardPicks): Card[] => cards.filter(({ id }) => picks.marks[id] === 'dropped')
+
+/** What the setup saves of the cards: each one kept or turned down, by template and version, with its title and changes. */
+export function cardPicksOf(groups: readonly GoalCards[], picks: CardPicks): SetupCardPick[] {
+  return cardsInOrder(groups).flatMap(({ id, version, title }) => {
+    const mark = picks.marks[id]
+    return mark ? [{ id, version, title, mark, changes: { ...picks.changes[id] } }] : []
+  })
+}
+
+/** Run again, the cards start kept or dropped as they were left, with their changes. */
+export function picksFrom(saved: readonly SetupCardPick[]): CardPicks {
+  const marks = Object.fromEntries(saved.map(({ id, mark }) => [id, mark]))
+  const changes = Object.fromEntries(saved.filter(({ changes }) => Object.keys(changes).length > 0).map(({ id, changes }) => [id, changes]))
+  return { marks, changes }
+}
 
 /** Beside Done: how many are kept, of the most. */
 export const keptLine = (picks: CardPicks): string => `${keptCount(picks)} of ${KEPT_MAX} kept`

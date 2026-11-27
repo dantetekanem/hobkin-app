@@ -1,9 +1,8 @@
-import type { ComputerKind, ProjectFolder, SetupAnswer, SetupAnswers, SetupSaved } from '#shared/protocol/setup.ts'
+import type { SetupSaved } from '#shared/protocol/setup.ts'
 
 /**
- * The five questions hobkin asks when the user wants their first routines built, by whose computer this is, the
- * message that hands the answers to hobkin in the chat, and when main hobkin's own questions after them are over.
- * See _specs/025-onboarding.
+ * How the setup's questions are asked, and code's three, as 025 asked them: where the projects live, which ones, and
+ * validation. The goals' questions are in `goals.ts`. See _specs/025-onboarding and _specs/044-goal-first-setup.
  */
 
 /** What every question has. Its id is kept with the answer, so it never changes once people have answered it. */
@@ -13,10 +12,12 @@ interface Asked {
 }
 
 /**
- * A question hobkin asks for the first routines, by how it is answered: a folder that is typed, the projects found
- * in that folder to pick from, a list of things to pick from, or a yes or a no.
+ * A question hobkin asks for the routines, by how it is answered: words that are typed, a folder that is typed, the
+ * projects found in that folder to pick from, a list of things to pick from, or a yes or a no.
  */
 export type Question =
+  /** Answered in the person's own words, in a field. */
+  | (Asked & { kind: 'typed'; placeholder: string })
   | (Asked & { kind: 'folder'; placeholder: string; suggestions: readonly string[] })
   /** `in` is the id of the question whose answer is the folder to look in. */
   | (Asked & { kind: 'projects'; in: string })
@@ -35,52 +36,18 @@ const WHERE_PROJECTS_LIVE: Question = {
   suggestions: ['~/Projects', '~/Developer', '~/Code', '~/src'],
 }
 
-export const QUESTIONS: Record<ComputerKind, readonly Question[]> = {
-  // A computer of one's own, as the user runs hobkin: projects in a folder, which ones to run, how work is proven,
-  // what to check, and what may be read for context.
-  personal: [
-    WHERE_PROJECTS_LIVE,
-    { id: 'projects', ask: 'Which ones should I run? Pick as many as you like.', kind: 'projects', in: 'projects-folder' },
-    {
-      id: 'validation',
-      ask: 'Should I set up validation for them? That is what I run before I call work done.',
-      kind: 'yes',
-      yes: 'Set it up',
-      no: 'Later',
-    },
-    {
-      id: 'check',
-      ask: "What should I check for you, so you don't have to remember?",
-      kind: 'pick',
-      options: ['Email', 'Calendar', 'Bills', 'Birthdays', 'Pull requests'],
-    },
-    { id: 'logs', ask: 'May I read your logs and past sessions to get context?', kind: 'yes', yes: 'Yes', no: 'No' },
-  ],
-  // A computer for a job: the projects, how the team works, its board, its tools, and what to watch.
-  work: [
-    WHERE_PROJECTS_LIVE,
-    { id: 'projects', ask: 'Which ones are yours to work on? Pick as many as you like.', kind: 'projects', in: 'projects-folder' },
-    {
-      id: 'team',
-      ask: 'How does your team work?',
-      kind: 'pick',
-      options: ['Pull requests', 'Code review', 'CI must pass', 'Staging first', 'Feature flags', 'GitHub issues', 'Slack messages', 'Instrumentation', 'Local tooling for APIs'],
-    },
-    { id: 'board', ask: 'Is there a board I should follow?', kind: 'pick', options: ['Linear', 'Jira', 'GitHub', 'Notion', 'None'] },
-    {
-      id: 'tools',
-      ask: 'Which MCPs or local tools should I connect?',
-      kind: 'pick',
-      options: ['Slack', 'Sentry', 'Datadog', 'GitHub', 'Figma', 'Postgres'],
-    },
-    {
-      id: 'watch',
-      ask: 'What should I watch every day?',
-      kind: 'pick',
-      options: ['Review queue', 'Failing builds', 'Mentions', 'Alerts'],
-    },
-  ],
+const WHICH_PROJECTS: Question = { id: 'projects', ask: 'Which ones should I run? Pick as many as you like.', kind: 'projects', in: 'projects-folder' }
+
+const VALIDATION: Question = {
+  id: 'validation',
+  ask: 'Should I set up validation for them? That is what I run before I call work done.',
+  kind: 'yes',
+  yes: 'Set it up',
+  no: 'Later',
 }
+
+/** What code asks (044-goal-first-setup), as 025 asked it: where the projects live, which ones, and validation. */
+export const CODE_QUESTIONS: readonly Question[] = [WHERE_PROJECTS_LIVE, WHICH_PROJECTS, VALIDATION]
 
 /** Made-up projects for a browser tab on sample data, which has no folder to look in. More than fit at once, so the filter has something to do. */
 export const SAMPLE_PROJECTS: readonly string[] = [
@@ -91,9 +58,6 @@ export const SAMPLE_PROJECTS: readonly string[] = [
   'talks', 'workshop', 'playground', 'sandbox', 'experiments', 'archive', 'backup-scripts', 'fonts', 'icons', 'keyboard',
   'laser-maze', 'lunar-lander', 'music-box', 'night-light', 'origami', 'postcards',
 ]
-
-/** The questions for a computer. Personal when the kind was never said. */
-export const questionsFor = (computer: ComputerKind | undefined): readonly Question[] => QUESTIONS[computer ?? 'personal']
 
 const partsOf = (written: string): string[] => written.split(',').map((part) => part.trim()).filter(Boolean)
 const same = (left: string, right: string) => left.toLowerCase() === right.toLowerCase()
@@ -111,133 +75,7 @@ export function toggleSuggestion(written: string, suggestion: string): string {
   return (kept.length < parts.length ? kept : [...parts, suggestion]).join(', ')
 }
 
-interface Answered {
-  computer?: ComputerKind
-  more?: boolean
-  replies: Readonly<Record<string, string | undefined>>
-}
-
-/** Each question of a computer that was answered, with the words it was asked with. */
-function answersOf(kind: ComputerKind | undefined, replies: Answered['replies']): SetupAnswer[] {
-  return questionsFor(kind).flatMap(({ id, ask }) => {
-    const answer = replies[id]?.trim()
-    return answer ? [{ id, ask, answer }] : []
-  })
-}
-
-/** Each question that was answered, with its answer under it. */
-const answeredOf = (kind: ComputerKind, replies: Answered['replies']): string[] => answersOf(kind, replies).map(({ ask, answer }) => `- ${ask}\n  ${answer}`)
-
-/** Whether projects were picked, so there is something to put in Work and to check. */
-const projectsPicked = (kind: ComputerKind | undefined, replies: Answered['replies']): boolean =>
-  questionsFor(kind).some((question) => question.kind === 'projects' && Boolean(replies[question.id]?.trim()))
-
-/** Whether a yes-or-no question of this computer was answered with its yes. */
-function saidYes(kind: ComputerKind, replies: Answered['replies'], id: string): boolean {
-  const question = questionsFor(kind).find((one) => one.id === id)
-  return question?.kind === 'yes' && replies[id]?.trim() === question.yes
-}
-
-const PROPOSE = 'Propose two or three first routines that fit this, with one line each on why. Ask before you create or connect anything.'
-// Work mode has no setting for validation: a project's checks live in its directions, which hobkin writes on a yes.
-const CHECKS = "For each project I picked, propose the commands that check its work, such as its tests, lint and build. Write them into that project's directions (work/<slug>/directions.md) only after I say yes."
-// A fact, not a go-ahead: hobkin still asks before it reads them the first time.
-const LOGS = 'You may read my logs and past sessions for context. Ask me before your first scan of them.'
-
-/** What the answers ask of hobkin beyond the routines: the projects' checks, and the logs it may read. */
-function wishesOf(kind: ComputerKind, replies: Answered['replies']): string[] {
-  const wishes: string[] = []
-  if (projectsPicked(kind, replies) && saidYes(kind, replies, 'validation')) wishes.push(CHECKS)
-  if (saidYes(kind, replies, 'logs')) wishes.push(LOGS)
-  return wishes
-}
-
-/**
- * What goes to hobkin in the chat once the setup ends: each question that was answered, with its answer, and what
- * to do with them. Null when the user did not want the questions or answered none, so nothing is sent.
- */
-export function routinesRequest({ computer, more, replies }: Answered): string | null {
-  if (!more) return null
-  const kind = computer ?? 'personal'
-  const told = answeredOf(kind, replies)
-  if (!told.length) return null
-
-  return [`I just finished the setup. This is my ${kind} computer. Here is what I answered there:`, ...told, ...wishesOf(kind, replies), PROPOSE].join('\n')
-}
-
-/**
- * What the setup saves after each answer (`setup.save`): whose computer this is, each answered question with its
- * words, and the projects picked, by path. hobkin keeps the answers in front of its directions from then on.
- */
-export function setupAnswersOf({ computer, replies }: Answered, projects: readonly ProjectFolder[]): SetupAnswers {
-  return {
-    ...(computer ? { computer } : {}),
-    answers: answersOf(computer, replies),
-    projects: projectsPicked(computer, replies) ? [...projects] : [],
-  }
-}
-
 /** Where a typed answer starts: what was answered this time, or else what was saved the last time the setup ran. */
-export function startingReply({ replies }: Answered, earlier: SetupSaved | null, id: string): string {
+export function startingReply({ replies }: { replies: Readonly<Record<string, string | undefined>> }, earlier: SetupSaved | null, id: string): string {
   return replies[id] ?? earlier?.answers.find((answer) => answer.id === id)?.answer ?? ''
-}
-
-/** The most questions main hobkin asks in the setup, after the fixed ones. */
-export const FOLLOW_UPS_MAX = 5
-
-/**
- * The message that starts main hobkin's own questions, once a real model can ask them: what the setup knows, and
- * what to do with it. It replaces the routines message, so it goes even with nothing answered.
- */
-export function followUpRequest({ computer, replies }: Answered): string {
-  const kind = computer ?? 'personal'
-  const told = answeredOf(kind, replies)
-  const known = told.length
-    ? [`I'm in the setup. This is my ${kind} computer. Here is what I answered there:`, ...told]
-    : [`I'm in the setup. This is my ${kind} computer. I skipped its questions.`]
-
-  return [
-    ...known,
-    ...wishesOf(kind, replies),
-    'Now ask me what else you need to know to build my first routines.',
-    // A new hobkin with no routines starts with its own first-run guide, and the user waits on screen while it reads.
-    "The app already took me through the first steps, so do not run `hobkin setup` or read its guide now: ask your first question right away.",
-    `Ask one question at a time with your ask_question tool, and give me choices wherever you can. Ask at most ${FOLLOW_UPS_MAX} questions, fewer if you know enough.`,
-    `Then, here in the chat: ${PROPOSE}`,
-  ].join('\n')
-}
-
-/** How long main hobkin gets to start on the message, and how long it may go without asking, in milliseconds. */
-export const FOLLOW_UPS_WAIT = { startMs: 5_000, quietMs: 120_000 }
-
-/** Where main hobkin's questions stand, as plain values. Times are in milliseconds. */
-export interface FollowUps {
-  /** When the host took the message that starts them. Null while it is on its way, or when it failed. */
-  takenAt: number | null
-  /** The message could not be sent. */
-  failed: boolean
-  /** Main hobkin is working. */
-  busy: boolean
-  /** Main hobkin has a question open. */
-  open: boolean
-  /** How many of its questions were answered. */
-  answered: number
-  /** The user said it is enough. */
-  enough: boolean
-  /** When the message was sent, or a question last came or went, whichever is later. */
-  stirredAt: number
-}
-
-/**
- * Whether main hobkin's questions are over, so the story goes on: the user said it is enough, the message did not
- * go, enough were answered, nothing was asked for two minutes, or hobkin stopped working with nothing open.
- */
-export function followUpsOver(state: FollowUps, now: number): boolean {
-  if (state.enough || state.failed || state.answered >= FOLLOW_UPS_MAX) return true
-  // An open question waits for the user, however long they take.
-  if (state.open) return false
-  if (now - state.stirredAt >= FOLLOW_UPS_WAIT.quietMs) return true
-  if (state.takenAt === null) return false
-  // Right after the message is taken hobkin may not be working yet, so idle only counts after a few seconds.
-  return !state.busy && now - state.takenAt >= FOLLOW_UPS_WAIT.startMs
 }

@@ -11,14 +11,18 @@ import { useChat } from '@/features/chat/chat-store.ts'
 import { useSettings, type Movement } from '@/features/settings/store.ts'
 import { play } from '@/features/sound/index.ts'
 import { useTour } from '@/features/tour/store.ts'
-import { answerQuestion, isLive, runCommand, useHasHost, useHost, useModels, usePendingQuestion, type QuestionReply } from '@/lib/host/index.ts'
+import { answerQuestion, hostStore, isLive, runCommand, useHasHost, useHost, useModels, usePendingQuestion, type QuestionReply } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import type { ComputerKind, ProjectFolder, SetupSaved, SetupWorkDone } from '#shared/protocol/setup.ts'
+import type { ComputerKind, Goal, GoalCards, ProjectFolder, SetupSaved, SetupWorkDone } from '#shared/protocol/setup.ts'
+import { routinesFromHost } from '@/features/routines/host-data.ts'
+import type { FirstRunStop } from '@/features/tour/steps.ts'
 import { connectedNames } from './accounts.ts'
 import { Actor, type Act } from './Actor.tsx'
 import { AnswerField } from './AnswerField.tsx'
 import { Bubble, saidAfter } from './Bubble.tsx'
+import { cardPicksOf, cardsInOrder, firstRunOf, keptCards, NO_PICKS, picksFrom, routinesWritten, writeRequest, writingOver, type Card, type NamedRoutine, type Written } from './cards.ts'
+import { CardsScreen } from './CardsScreen.tsx'
 import { Choices } from './Choices.tsx'
 import { ConnectPanel } from './ConnectPanel.tsx'
 import { FACE, footBelow, type Seat, type Viewport } from './face-size.ts'
@@ -27,14 +31,16 @@ import { NeedsPanel } from './NeedsPanel.tsx'
 import { PickCloud } from './PickCloud.tsx'
 import { foldersPicked, pickedAnswer, picksOf } from './picks.ts'
 import { PiPanel } from './PiPanel.tsx'
-import { followUpRequest, followUpsOver, routinesRequest, SAMPLE_PROJECTS, setupAnswersOf, startingReply } from './questions.ts'
-import { beatOf, checkAnswer, followUpOf, spokenText, type Answers, type Ask, type Facts, type Tale } from './story.ts'
+import { checksWanted, goalAnswersOf, GOAL_WORDS, goalsOf, projectStart, setupAnswersOf } from './goals.ts'
+import { SAMPLE_PROJECTS, startingReply } from './questions.ts'
+import { sampleGoalCards } from './sample-cards.ts'
+import { beatOf, checkAnswer, followUpOf, spokenText, type Ask, type Facts, type Tale } from './story.ts'
 import { endedAs, tourFollows } from './first-run.ts'
 import { useSetup } from './store.ts'
 import { useProofTools } from './use-proof-tools.ts'
 import { resolveTaleKey, type TaleKey, type TaleKeyContext } from './tale-keys.ts'
 import { WORLD_TIMES, World, type WorldPhase } from './World.tsx'
-import { LAYER, arrivalFor, stageFor, type Arrival } from './world-geometry.ts'
+import { LAYER, arrivalFor, cardsStage, stageFor, type Arrival } from './world-geometry.ts'
 
 /**
  * How the story opens, in seconds. The window holds empty for a moment, so the world does not start the instant
@@ -334,65 +340,78 @@ function useEarlier(): SetupSaved | null {
 
 /** Each bubble's id. A beat whose words change while it is up, as an answer comes back, says them as a new bubble. */
 function bubbleOf(tale: Tale, facts: Facts): string {
-  if (tale.at === 'follow-ups') return `${tale.at}:${facts.asked?.id ?? 'thinking'}`
+  if (tale.at === 'writing') return `${tale.at}:${facts.asked?.id ?? 'thinking'}`
   if (tale.at === 'projects-said') return `${tale.at}:${facts.worked ? 'said' : 'waiting'}`
   return `${tale.at}:${tale.line}`
 }
 
-/** What the story needs of main hobkin's own questions. */
-interface FollowingUp {
-  /** Whether the host took the message that starts them, once it was sent. Null while it never was. */
+/** The routines in hobkin's snapshot, as far as the writing reads them: id, title, the template each names, and whether it is on. */
+function namedRoutines(schedules: unknown): NamedRoutine[] {
+  return routinesFromHost({ schedules, errors: [] }).routines.map(({ id, title, template, enabled }) => ({ id, title, template, enabled }))
+}
+
+/** What the story needs of the writing. */
+interface Writing {
+  /** Whether the host took the message, once it was sent. Null while it never was. */
   seeded: RefObject<Promise<boolean> | null>
   /** Gives main hobkin the answer to its question. It answers with what went wrong, or null once hobkin has it. */
   answer: (id: string, reply: QuestionReply) => Promise<string | null>
-  /** The user has told hobkin enough. */
+  /** The person said That's enough. */
   enough: () => void
 }
 
-interface FollowUpsAt {
-  /** The story is at the follow-ups, and not leaving. */
+interface WritingAt {
+  /** The story is at the writing, and not leaving. */
   here: boolean
-  answers: Answers
+  /** The message that asks main hobkin to write the kept routines. */
+  request: string | null
+  /** The cards kept, in card order. */
+  kept: readonly Card[]
   /** The id of the question main hobkin has open, or null. */
   open: string | null
-  onOver: () => void
+  /** Once it is over, with the kept cards that have their routine. */
+  onOver: (written: Written[]) => void
   onTrouble: (words: string) => void
 }
 
 /**
- * Main hobkin's own questions, after the fixed ones. Reaching them sends hobkin the answers, once, as one message in
- * the chat, and it asks what else it needs with its `ask_question` tool. The story goes on when they are over
- * (`followUpsOver`). A question still open then is left open, and the question sheet takes it after the setup.
+ * Main hobkin writes the kept routines (044-goal-first-setup). Reaching the writing sends it the message, once, in the
+ * chat, and a question it opens is asked in the story. It is over when every kept card has a routine that names its
+ * template, when hobkin stops with nothing open, when the person says enough, when the message did not go, or after
+ * two minutes with nothing asked (`writingOver`). A question still open then is left to the question sheet.
  */
-function useFollowUps({ here, answers, open, onOver, onTrouble }: FollowUpsAt): FollowingUp {
+function useWriting({ here, request, kept, open, onOver, onTrouble }: WritingAt): Writing {
   const busy = useHost((state) => state.snapshot.busy === true)
+  const schedules = useHost((state) => state.snapshot.schedules)
   const seeded = useRef<Promise<boolean> | null>(null)
+  // The routines when the message went, so one that already named its template is not counted as written now.
+  const before = useRef<NamedRoutine[]>([])
   const stirredAt = useRef(0)
   const [takenAt, setTakenAt] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
-  const [answered, setAnswered] = useState(0)
   const [enough, setEnough] = useState(false)
 
-  // Once, on reaching them. Through the chat, so the message shows there. The story never comes back to them.
+  // Once, on reaching it. Through the chat, so the message shows there. The story never comes back to it.
   useEffect(() => {
-    if (!here || seeded.current) return
+    if (!here || seeded.current || !request) return
     stirredAt.current = Date.now()
+    before.current = namedRoutines(hostStore.getState().snapshot.schedules)
     seeded.current = useChat
       .getState()
-      .send(followUpRequest(answers))
+      .send(request)
       .catch(() => false)
       .then((taken) => {
         if (taken) setTakenAt(Date.now())
         else {
           setFailed(true)
-          onTrouble('I could not reach our chat just now, so I will not ask more here.')
+          onTrouble('I could not reach our chat just now, so I will write them once we are in.')
         }
         return taken
       })
-    // Once, with what was answered by then.
+    // Once, with what was kept by then.
   }, [here])
 
-  // A question that comes or goes is hobkin still asking, so its two minutes start over.
+  // A question that comes or goes is hobkin still at it, so its two minutes start over.
   useEffect(() => {
     stirredAt.current = Date.now()
   }, [open])
@@ -400,20 +419,21 @@ function useFollowUps({ here, answers, open, onOver, onTrouble }: FollowUpsAt): 
   useEffect(() => {
     if (!here || !seeded.current) return
     const check = () => {
-      if (followUpsOver({ takenAt, failed, busy, open: open !== null, answered, enough, stirredAt: stirredAt.current }, Date.now())) onOver()
+      const written = routinesWritten(kept, namedRoutines(hostStore.getState().snapshot.schedules), before.current)
+      const state = { takenAt, failed, busy, open: open !== null, enough, stirredAt: stirredAt.current, kept: kept.length, written: written.length }
+      if (writingOver(state, Date.now())) onOver(written)
     }
     check()
-    // Time alone can end them too: a few quiet seconds after the message, or two minutes with nothing asked.
+    // Time alone can end it too: a few quiet seconds after the message, or two minutes with nothing asked.
     const timer = setInterval(check, 1000)
     return () => clearInterval(timer)
-  }, [here, takenAt, failed, busy, open, answered, enough])
+  }, [here, takenAt, failed, busy, open, enough, schedules])
 
   const answer = async (id: string, reply: QuestionReply): Promise<string | null> => {
     const wrong = 'typed' in reply ? checkAnswer('reply', reply.typed) : null
     if (wrong) return wrong
     try {
       await answerQuestion(id, reply)
-      setAnswered((count) => count + 1)
       return null
     } catch (error) {
       return reasonOf(error)
@@ -424,10 +444,44 @@ function useFollowUps({ here, answers, open, onOver, onTrouble }: FollowUpsAt): 
 }
 
 /**
+ * The routine cards for the goals picked: read from hobkin's templates through the host, or the sample's made-up ones
+ * in a browser tab. Null while they are read. Run again, the cards start kept or dropped as the last setup left them.
+ */
+function useGoalCards(hasHost: boolean, earlier: SetupSaved | null, onTrouble: (words: string) => void) {
+  const [cards, setCards] = useState<GoalCards[] | null>(null)
+  const asked = useRef(0)
+
+  const load = (goals: Goal[]) => {
+    const round = ++asked.current
+    const landed = (groups: GoalCards[]) => {
+      if (round !== asked.current) return
+      setCards(groups)
+      const { answers, note } = useSetup.getState()
+      if (!answers.cards && earlier?.cards.length) note({ cards: picksFrom(earlier.cards) })
+    }
+    if (!hasHost) return landed(sampleGoalCards(goals))
+    setCards(null)
+    runCommand('setup.watchers', { goals }).then(
+      ({ goals: groups }) => landed(groups),
+      (error: unknown) => {
+        if (round !== asked.current) return
+        // With no cards to show, the story goes on to the thanks, and the routines wait for the chat.
+        setCards([])
+        onTrouble(`I could not read my routine templates: ${reasonOf(error)}`)
+      },
+    )
+  }
+
+  return { cards, load }
+}
+
+/**
  * The first-run setup as a story, over the whole window. The window holds empty for a moment, the sky comes, the
- * mountains rise, and hobkin hops in from behind them to the middle and talks in speech bubbles. It asks whose
- * computer this is, the user's name and email, installs Pi when it is missing, finds an account or signs in to
- * one, offers five more questions, and hands over to the app, where a short tour follows. See _specs/025-onboarding.
+ * mountains rise, and hobkin hops in from behind them to the middle and talks in speech bubbles. It asks what the
+ * person is working toward, whose computer this is when that matters, their name and email, installs Pi when it is
+ * missing, finds an account or signs in to one, and offers routines for the goals: each goal's question, its cards,
+ * main hobkin writing the kept ones, and a first run. Then it hands over to the app, where a short tour follows. See
+ * _specs/025-onboarding and _specs/044-goal-first-setup.
  *
  * While it is open the frame behind it takes no keyboard and no pointer.
  */
@@ -462,9 +516,16 @@ export function Storyteller() {
   const earlier = useEarlier()
   // What work mode did with the projects picked: null while the host has not said.
   const [worked, setWorked] = useState<SetupWorkDone | 'failed' | null>(null)
+  // Something that was meant to be kept and was not. Said once, quietly, at the bottom.
+  const [trouble, setTrouble] = useState<string | null>(null)
+  // The routine cards for the goals picked, and the kept cards that have their routine once the writing is over.
+  const { cards, load: loadCards } = useGoalCards(hasHost, earlier, setTrouble)
+  const [written, setWritten] = useState<Written[] | undefined>(undefined)
+  // The routine the setup ran, for the tour's stop about its first report.
+  const firstRun = useRef<FirstRunStop | null>(null)
   const facts: Facts = useMemo(
-    () => ({ pi, connected: connectedNames(providers), claude, smart, asked: followUpOf(pending), host: hasHost, worked }),
-    [pi, providers, claude, smart, pending, hasHost, worked],
+    () => ({ pi, connected: connectedNames(providers), claude, smart, asked: followUpOf(pending), host: hasHost, worked, cards, written }),
+    [pi, providers, claude, smart, pending, hasHost, worked, cards, written],
   )
   const beat = beatOf(tale.at, answers, facts)
   const lastLine = tale.line >= beat.lines.length - 1
@@ -485,20 +546,27 @@ export function Storyteller() {
 
   // An install is running: nothing goes back from it.
   const [busy, setBusy] = useState(false)
-  // Something that was meant to be kept and was not. Said once, quietly, at the bottom.
-  const [trouble, setTrouble] = useState<string | null>(null)
   // The TLA+ tools, set up in the background. The quiet line says how it goes while nothing went wrong.
   const toolsLine = useProofTools(setTrouble)
   const quietLine = trouble ?? toolsLine
 
-  // Main hobkin's own questions after the fixed ones. The story goes on by itself once they are over.
-  const followUps = useFollowUps({
-    here: tale.at === 'follow-ups' && !leaving,
-    answers,
+  // The kept cards, and the message that asks main hobkin to write them, from what was answered.
+  const goals = answers.goals ?? []
+  const picksNow = answers.cards ?? NO_PICKS
+  const kept = useMemo(() => keptCards(cardsInOrder(cards ?? []), picksNow), [cards, picksNow])
+  const request = writeRequest({ goals, answers: goalAnswersOf(goals, answers.replies), cards: cards ?? [], picks: picksNow, checks: checksWanted(goals, answers.replies) })
+
+  // Main hobkin writes the kept routines. The story goes on by itself once that is over.
+  const writing = useWriting({
+    here: tale.at === 'writing' && !leaving,
+    request,
+    kept,
     open: facts.asked?.id ?? null,
-    onOver: () => {
+    onOver: (done) => {
       // The story may have moved on since the last look, by "That's enough" or Skip setup.
-      if (useSetup.getState().tale.at === 'follow-ups') tell('answered', facts)
+      if (useSetup.getState().tale.at !== 'writing') return
+      setWritten(done)
+      tell('answered', { ...facts, written: done })
     },
     onTrouble: setTrouble,
   })
@@ -530,11 +598,16 @@ export function Storyteller() {
   // Each hand-off to work mode, so only the last one's answer is said.
   const handed = useRef(0)
 
+  // The cards as last read, for saves made from a handler before the next render.
+  const cardsNow = useRef(cards)
+  cardsNow.current = cards
+
   /** The answers so far, kept in hobkin's home after each one, so hobkin knows them from the first conversation. */
   const keepAnswers = () => {
     if (!hasHost) return
     const now = useSetup.getState().answers
-    runCommand('setup.save', setupAnswersOf(now, picks.current)).catch((error: unknown) => {
+    const picked = cardPicksOf(cardsNow.current ?? [], now.cards ?? NO_PICKS)
+    runCommand('setup.save', setupAnswersOf(now, picks.current, picked)).catch((error: unknown) => {
       setTrouble(`I could not keep your answers: ${reasonOf(error)}`)
     })
   }
@@ -607,8 +680,30 @@ export function Storyteller() {
     return null
   }
 
+  /**
+   * Run it now starts the one routine hobkin offered, once, as `routine.run` does: the report comes later. A refusal,
+   * such as background places that are full, is said in the quiet line, and the story goes on.
+   */
+  const runFirst = async (value: string) => {
+    const routine = firstRunOf(written ?? [], smart)
+    if (value !== 'run' || !routine) return answer({ firstRun: 'later' }, facts)
+    const startedAt = Date.now()
+    setBusy(true)
+    try {
+      await runCommand('routine.run', { id: routine.id })
+      firstRun.current = { routineId: routine.id, title: routine.title, startedAt }
+      answer({ firstRun: 'run' }, facts)
+    } catch (error) {
+      setTrouble(`I could not run ${routine.title} now: ${reasonOf(error)}`)
+      answer({ firstRun: 'later' }, facts)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const chosen = (ask: ChoiceAsk, value: string) => {
     if (ask.field === 'more') return answer({ more: value === 'yes' }, facts)
+    if (ask.field === 'first-run') return void runFirst(value)
     if (ask.field === 'sound') {
       const heard = value === 'sound-on'
       // Kept as the app's own setting, which Settings shows too. The cheer is what was chosen, heard.
@@ -628,6 +723,11 @@ export function Storyteller() {
   }
 
   const picking = asking?.kind === 'pick' ? asking : null
+  /** The goals picked before, as bubbles: this time's, or the last setup's, and the person's own words. */
+  const goalsBefore = (): string[] => {
+    const picked = answers.goals ?? earlier?.goals ?? []
+    return [...picked.map((goal) => GOAL_WORDS[goal].bubble), ...(answers.own ?? [])]
+  }
   const bubbles = useBubbles(picking, hasHost)
   const pet = usePet()
   // A list that is given takes bubbles of the user's own. Projects are only the ones that are there.
@@ -635,6 +735,14 @@ export function Storyteller() {
 
   /** A pick answered. Projects are kept by path and handed to work mode, and the story goes on to what it did with them. */
   const pickedFor = (ask: PickAsk, picked: string[]) => {
+    // The goals: their bubbles and the person's own words, which count as a project. Their cards are read at once.
+    if (ask.question === 'goals') {
+      const chosenGoals = goalsOf(picked)
+      answer(chosenGoals, facts)
+      keepAnswers()
+      if (chosenGoals.goals.length) loadCards(chosenGoals.goals)
+      return
+    }
     if ('projectsIn' in ask.from) {
       picks.current = foldersPicked(picked, bubbles.folders)
       handToWork(ask.from.projectsIn, picks.current)
@@ -642,8 +750,9 @@ export function Storyteller() {
     replied(ask.question, pickedAnswer(picked))
   }
 
-  /** What was typed for a question before, when the user comes back to it, or the last time the setup ran. */
+  /** What was typed for a question before, when the user comes back to it, or the last time the setup ran. Own words start the project. */
   const typedBefore = (ask: InputAsk): string => {
+    if (ask.field.kind === 'reply' && ask.field.question === 'project') return startingReply(answers, earlier, 'project') || projectStart(answers.own ?? [])
     if (ask.field.kind === 'reply') return startingReply(answers, earlier, ask.field.question)
     if (ask.field.kind === 'launcher') return ''
     return answers[ask.field.kind] ?? ''
@@ -701,12 +810,13 @@ export function Storyteller() {
       close(as)
       if (!tourFollows(ended, as)) return
 
-      // Main hobkin already has the answers when the follow-ups' message went. Otherwise they go now, as one message.
-      const request = routinesRequest(answers)
-      void (followUps.seeded.current ?? Promise.resolve(false)).then((taken) => {
-        if (!taken && request && hasHost) void useChat.getState().send(request)
+      // Main hobkin already has the kept cards when the writing message went. Otherwise it goes now, once, and only
+      // to main hobkin on a real model: the scripted host and a browser tab write nothing.
+      void (writing.seeded.current ?? Promise.resolve(false)).then((taken) => {
+        if (!taken && request && smart && hasHost) void useChat.getState().send(request)
       })
-      useTour.getState().start()
+      const workFolder = worked !== null && worked !== 'failed' && worked.folder.saved !== null
+      useTour.getState().startWith({ work: goals.includes('code') || workFolder, firstRun: firstRun.current })
     }
     const timer = setTimeout(handOver, still ? HAND_OFF_MS.fade : HAND_OFF_MS.flight)
     return () => clearTimeout(timer)
@@ -719,7 +829,10 @@ export function Storyteller() {
     if (cheering) play('cheer')
   }, [cheering, tale.at])
 
-  const stage = onTheGround(stageFor(viewport))
+  // While the cards are up hobkin stands on the hill at the side, and its bubble fits between the window's edge and them.
+  const onCards = tale.at.startsWith('cards-')
+  const beside = cardsStage(viewport)
+  const stage = onTheGround(onCards ? beside.seat : stageFor(viewport))
   const petTop = { x: stage.x, y: stage.y - FACE * stage.scale * topShare(PET_TOP[pet]) }
   // The two choices float in the sky, either side of what hobkin says, clear of it and inside the window.
   const choicesAt = { x: stage.x, y: Math.max(petTop.y - CHOICES.above, CHOICES.top) }
@@ -767,7 +880,7 @@ export function Storyteller() {
           />
         </World>
 
-        {storyShows ? <Bubble id={bubble} line={line} said={said} waits={waitsToGoOn} above={petTop} still={still} /> : null}
+        {storyShows ? <Bubble id={bubble} line={line} said={said} waits={waitsToGoOn} above={petTop} maxWidth={onCards ? beside.bubbleWidth : undefined} still={still} /> : null}
 
         {asking?.kind === 'choice' ? (
           <Choices
@@ -802,21 +915,39 @@ export function Storyteller() {
               options={bubbles.options}
               state={bubbles.state}
               note={bubbles.note}
-              initial={picksOf(startingReply(answers, earlier, picking.question), bubbles.options, ownAllowed)}
+              initial={picking.question === 'goals' ? goalsBefore() : picksOf(startingReply(answers, earlier, picking.question), bubbles.options, ownAllowed)}
               allowOwn={ownAllowed}
+              remark={picking.note}
               top={stage.y + footBelow(stage.scale) + 28}
               onAnswer={(picked) => pickedFor(picking, picked)}
               still={still}
             />
           ) : null}
-          {tale.at === 'follow-ups' && storyShows ? (
+          {tale.at === 'writing' && storyShows ? (
             <FollowUps
-              key="follow-ups"
+              key="writing"
               label={spokenText(line)}
               ask={asking?.kind === 'follow-up' ? asking : null}
               top={stage.y + footBelow(stage.scale) + 28}
-              onAnswer={followUps.answer}
-              onEnough={followUps.enough}
+              onAnswer={writing.answer}
+              onEnough={writing.enough}
+              still={still}
+            />
+          ) : null}
+          {asking?.kind === 'cards' ? (
+            <CardsScreen
+              key={asking.goal}
+              group={cards?.find(({ goal }) => goal === asking.goal) ?? { goal: asking.goal, starters: [], more: [] }}
+              picks={picksNow}
+              onPicks={(next) => {
+                useSetup.getState().note({ cards: next })
+                keepAnswers()
+              }}
+              work={answers.computer === 'work'}
+              area={beside.area}
+              wide={beside.wide}
+              onDone={() => tell('answered', facts)}
+              onBack={back}
               still={still}
             />
           ) : null}

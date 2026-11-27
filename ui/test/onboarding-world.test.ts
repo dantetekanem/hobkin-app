@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { FACE, footBelow, type Seat, type Viewport } from '../src/features/onboarding/face-size.ts'
-import { LAYER, arrivalFor, boxOf, crestY, pathOf, stageFor, type Shape, type Hop } from '../src/features/onboarding/world-geometry.ts'
+import { LAYER, arrivalFor, boxOf, cardsStage, crestY, pathOf, stageFor, type Shape, type Hop } from '../src/features/onboarding/world-geometry.ts'
 
 const VIEWPORTS: Viewport[] = [
   { width: 900, height: 600 },
@@ -171,3 +171,16 @@ function assertClears(hop: Hop, from: Seat, layer: number, viewport: Viewport, l
     for (const x of across(top.x, footHalf(top))) assert.ok(footOf(top) < crestY(shape, x, viewport), `${label} clears ${shape} at the top`)
   }
 }
+
+test('beside the cards hobkin stands on the hill at the side, its bubble fits beside the window\'s edge, and the cards never reach over it', () => {
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 900, height: 600 }, { width: 1100, height: 700 }]) {
+    const { seat, area, bubbleWidth, wide } = cardsStage(viewport)
+
+    assert.equal(wide, viewport.width >= 1100)
+    assert.ok(seat.x < viewport.width / 4, 'at the side')
+    assert.equal(seat.y + footBelow(seat.scale), crestY('hill', seat.x, viewport), 'on the ground there')
+    assert.ok(seat.x - bubbleWidth / 2 >= 0, 'the bubble stays in the window')
+    assert.ok(area.left >= seat.x + bubbleWidth / 2, 'the cards start past the bubble')
+    assert.ok(area.left + area.width <= viewport.width && area.top + area.height <= viewport.height, 'and stay in the window')
+  }
+})

@@ -1,5 +1,5 @@
-import { GOALS, type Goal } from '#shared/protocol/setup.ts'
-import { QUESTIONS, type Question } from './questions.ts'
+import { GOALS, type ComputerKind, type Goal, type ProjectFolder, type SetupAnswer, type SetupAnswers, type SetupCardPick } from '#shared/protocol/setup.ts'
+import { CODE_QUESTIONS, type Question } from './questions.ts'
 
 /**
  * What the person is working toward, asked right after the sound question: the goals, their bubbles and the words
@@ -58,6 +58,8 @@ const capital = (words: string) => `${words.charAt(0).toUpperCase()}${words.slic
 export function goalsSaid(goals: readonly Goal[]): string {
   if (!goals.length) return "That's fine. You can tell me later."
   const named = capital(listed(goals.map((goal) => GOAL_WORDS[goal].said)))
+  // A long list is said with a short ending, so the bubble stays one glance long.
+  if (goals.length > 2) return `${named}. Got it.`
   return `${named}. Got it. I'll come back to ${goals.length === 1 ? 'that' : 'those'} in a minute.`
 }
 
@@ -73,17 +75,10 @@ export function emailWhy(goals: readonly Goal[]): string {
   return `It tells me which ${whose} are yours, and which are someone else's.`
 }
 
-/** A question answered in the person's own words, in a field. Its id is kept with the answer, so it never changes. */
-export interface TypedQuestion {
-  kind: 'typed'
-  id: string
-  ask: string
-  placeholder: string
-}
+/** A goal's question: one typed in the person's own words, or code's, as 025 asked them. */
+export type GoalQuestion = Question
 
-export type GoalQuestion = TypedQuestion | Question
-
-const TYPED: Partial<Record<Goal, TypedQuestion>> = {
+const TYPED: Partial<Record<Goal, Question>> = {
   job: {
     kind: 'typed',
     id: 'job',
@@ -104,10 +99,6 @@ const TYPED: Partial<Record<Goal, TypedQuestion>> = {
   },
 }
 
-/** Code asks 025's own questions, as they were: where the projects live, which ones, and validation. */
-const CODE_QUESTION_IDS = ['projects-folder', 'projects', 'validation']
-const CODE_QUESTIONS: readonly Question[] = CODE_QUESTION_IDS.flatMap((id) => QUESTIONS.personal.filter((question) => question.id === id))
-
 /** The questions of the goals picked, in the goals' order. Life asks none: its cards are clear enough. */
 export function goalQuestions(goals: readonly Goal[]): GoalQuestion[] {
   const picked = GOALS.filter((goal) => goals.includes(goal))
@@ -121,3 +112,45 @@ export function goalQuestions(goals: readonly Goal[]): GoalQuestion[] {
 
 /** The person's own words for a goal start the project question's answer. */
 export const projectStart = (own: readonly string[]): string => own.join(', ')
+
+type Replies = Readonly<Record<string, string | undefined>>
+
+/** Each goal question that was answered, with the words it was asked with. */
+export function goalAnswersOf(goals: readonly Goal[], replies: Replies): SetupAnswer[] {
+  return goalQuestions(goals).flatMap(({ id, ask }) => {
+    const answer = replies[id]?.trim()
+    return answer ? [{ id, ask, answer }] : []
+  })
+}
+
+/** Projects were picked for code, so there is something to put in Work and to check. */
+export const projectsPicked = (goals: readonly Goal[], replies: Replies): boolean =>
+  goals.includes('code') && Boolean(replies.projects?.trim())
+
+/** Code's validation was said yes to with projects picked, so hobkin proposes each project its checks. */
+export function checksWanted(goals: readonly Goal[], replies: Replies): boolean {
+  const validation = CODE_QUESTIONS.find(({ id }) => id === 'validation')
+  const yes = validation?.kind === 'yes' && replies.validation?.trim() === validation.yes
+  return projectsPicked(goals, replies) && yes
+}
+
+interface Picked {
+  computer?: ComputerKind
+  goals?: readonly Goal[]
+  replies: Replies
+}
+
+/**
+ * What the setup saves after each answer (`setup.save`): whose computer this is, the goals, each answered goal question
+ * with its words, the projects picked by path, and the cards kept or turned down. hobkin keeps them in front of its
+ * directions from then on.
+ */
+export function setupAnswersOf({ computer, goals = [], replies }: Picked, projects: readonly ProjectFolder[], cards: readonly SetupCardPick[]): SetupAnswers {
+  return {
+    ...(computer ? { computer } : {}),
+    answers: goalAnswersOf(goals, replies),
+    projects: projectsPicked(goals, replies) ? [...projects] : [],
+    goals: [...goals],
+    cards: [...cards],
+  }
+}

@@ -20,6 +20,8 @@ interface PickCloudProps {
   initial: readonly string[]
   /** Typed words can become a bubble of their own. */
   allowOwn: boolean
+  /** Said under the field while there is nothing else to say, such as where the answers are kept. */
+  remark?: string
   /** Where the bubbles start, from the top of the window: under hobkin's feet. */
   top: number
   onAnswer: (picked: string[]) => void
@@ -39,7 +41,7 @@ const ARRIVE = { step: 0.012, atMost: 28 }
  * what holds the typed words, and at most fifty show at once. Where the list takes new ones, Enter makes the typed
  * words a bubble of their own. Enter with nothing typed, or Done, keeps what was picked.
  */
-export function PickCloud({ label, options, state, note, initial, allowOwn, top, onAnswer, still }: PickCloudProps) {
+export function PickCloud({ label, options, state, note, initial, allowOwn, remark, top, onAnswer, still }: PickCloudProps) {
   const id = useId()
   const field = useRef<HTMLInputElement | null>(null)
   const [typed, setTyped] = useState('')
@@ -71,6 +73,7 @@ export function PickCloud({ label, options, state, note, initial, allowOwn, top,
   if (state === 'loading') says = 'Looking.'
   else if (state === 'none') says = note ?? ''
   else if (more > 0) says = `${more} more. Type to find them.`
+  else if (remark) says = remark
 
   return (
     <motion.form

@@ -6,19 +6,9 @@ import type { PiSetup, ProjectFolder, SetupProjectOutcome, SetupProjectWhy, Setu
 import { codexProvider, connectedNames } from '../src/features/onboarding/accounts.ts'
 import { balance, GLOW, GROW, shadesFor } from '../src/features/onboarding/balance.ts'
 import { foldersPicked, matching, ownOption, pickedAnswer, picksOf, PICKS_SHOWN, shownOf, togglePick } from '../src/features/onboarding/picks.ts'
-import {
-  FOLLOW_UPS_MAX,
-  FOLLOW_UPS_WAIT,
-  followUpRequest,
-  followUpsOver,
-  pickedSuggestions,
-  QUESTIONS,
-  routinesRequest,
-  setupAnswersOf,
-  startingReply,
-  toggleSuggestion,
-  type FollowUps,
-} from '../src/features/onboarding/questions.ts'
+import { CODE_QUESTIONS, pickedSuggestions, startingReply, toggleSuggestion } from '../src/features/onboarding/questions.ts'
+import { setupAnswersOf } from '../src/features/onboarding/goals.ts'
+import { cardPicksOf, dropCard, keepCard, NO_PICKS, picksFrom, type Card, type CardPicks, type GoalCards } from '../src/features/onboarding/cards.ts'
 import {
   beatAfter,
   beatOf,
@@ -95,12 +85,12 @@ test('the story opens on the hello and is told one bubble at a time', () => {
 })
 
 test('a question holds the story until it is answered', () => {
-  const asking: Tale = { at: 'computer', line: 1, trail: ['hello', 'sound'], ended: null }
+  const asking: Tale = { at: 'goals', line: 1, trail: ['hello', 'sound'], ended: null }
 
-  assert.equal(beatOf('computer', none, bare).lines.length, 2, 'the question is asked with the last bubble')
+  assert.equal(beatOf('goals', none, bare).lines.length, 2, 'the question is asked with the last bubble')
   assert.deepEqual(tellOn({ ...asking, line: 0 }, 'on', none, bare), asking)
   assert.deepEqual(tell(['on', 'on'], none, bare, asking), asking, 'going on does not pass a question')
-  assert.equal(tellOn(asking, 'answered', { ...none, computer: 'work' }, bare).at, 'computer-thanks')
+  assert.equal(tellOn(asking, 'answered', { ...none, goals: ['job'] }, bare).at, 'goals-said')
 })
 
 test('a bubble that only asks to go on is passed by going on', () => {
@@ -110,15 +100,27 @@ test('a bubble that only asks to go on is passed by going on', () => {
   assert.notEqual(tellOn(ready, 'on', none, bare).at, 'subscription')
 })
 
-test('a new Mac: who the user is, Pi, a sign-in, then the app', () => {
-  const answers: Answers = { ...none, computer: 'personal', name: 'Ada', pi: 'installed', account: 'connected', more: false }
-  const facts: Facts = { ...bare, pi: pi({ installed: false, version: null, matches: false }) }
+test('a new Mac with goals: who the person is, Pi, a sign-in, the cards, the writing, the first run, then the app', () => {
+  const answers: Answers = {
+    ...none,
+    goals: ['job', 'project'],
+    computer: 'personal',
+    name: 'Ada',
+    pi: 'installed',
+    account: 'connected',
+    more: true,
+    cards: keepCard(NO_PICKS, 'job-openings').picks,
+    firstRun: 'run',
+  }
+  const written = [{ card: card('job-openings'), routine: { id: 'roles', title: 'Roles that fit', template: 'job-openings@1', enabled: true } }]
+  const facts: Facts = { ...smart, host: true, pi: pi({ installed: false, version: null, matches: false }), connected: [], cards: groups, written }
 
   assert.deepEqual(walk(answers, facts), [
     'hello',
     'sound',
+    'goals',
+    'goals-said',
     'computer',
-    'computer-thanks',
     'name',
     'name-hi',
     'email',
@@ -128,6 +130,17 @@ test('a new Mac: who the user is, Pi, a sign-in, then the app', () => {
     'connect',
     'connected',
     'more',
+    'q1',
+    'q2',
+    'cards-job',
+    'cards-project',
+    'routines-need',
+    'writing',
+    'written',
+    'first-run',
+    'first-run-started',
+    'thanks',
+    'needs',
     'settings',
     'tour',
   ])
@@ -226,7 +239,7 @@ test('an account Pi already reaches is found, and none leads to the sign-in', ()
 
   assert.equal(beatAfter('subscription', none, found), 'found')
   assert.match(beatOf('found', none, found).lines.join(' '), /OpenAI and Anthropic/)
-  assert.equal(beatAfter('found', none, found), 'more')
+  assert.equal(beatAfter('found', { ...none, goals: ['job'] }, found), 'more')
   assert.equal(beatAfter('subscription', none, bare), 'connect')
   assert.equal(beatOf('connect', none, bare).ask?.kind, 'connect')
 })
@@ -251,34 +264,19 @@ test('with a host, the review of what hobkin needs comes just before the setting
 
   assert.equal(beatAfter('no-account', { ...none, account: 'later' }, host), 'needs')
   assert.equal(beatAfter('more', { ...none, more: false }, host), 'needs')
-  assert.equal(beatAfter('questions-thanks', none, host), 'needs')
+  assert.equal(beatAfter('thanks', none, host), 'needs')
+  assert.equal(beatAfter('connected', none, host), 'needs', 'with no goal no routines are offered')
   assert.equal(beatAfter('needs', none, host), 'settings')
   assert.equal(beatOf('needs', none, host).ask?.kind, 'needs')
   // Without a host there is nothing to read, as in a browser tab on sample data.
   assert.equal(beatAfter('more', { ...none, more: false }, bare), 'settings')
 })
 
-test('five more questions when asked for, and none when not', () => {
-  const yes: Answers = { ...none, computer: 'work', more: true }
-
-  assert.deepEqual(walk(yes, bare, 'more'), ['more', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'questions-thanks', 'settings', 'tour'], 'a work computer: its projects, then how the team works')
-  assert.deepEqual(walk({ ...yes, computer: 'personal' }, bare, 'more'), ['more', 'q1', 'q2', 'q3', 'q4', 'q5', 'questions-thanks', 'settings', 'tour'])
-  assert.deepEqual(walk({ ...none, more: false }, bare, 'more'), ['more', 'settings', 'tour'])
-})
-
-test('with a real model, main hobkin asks its own questions after the fixed ones, and without one the thanks come next', () => {
-  const yes: Answers = { ...none, computer: 'personal', more: true }
-
-  assert.deepEqual(walk(yes, smart, 'more'), ['more', 'q1', 'q2', 'q3', 'q4', 'q5', 'follow-ups', 'questions-thanks', 'settings', 'tour'])
-  assert.deepEqual(walk({ ...yes, computer: 'work' }, smart, 'q6'), ['q6', 'follow-ups', 'questions-thanks', 'settings', 'tour'])
-  assert.deepEqual(walk(yes, { ...smart, smart: false }, 'q5'), ['q5', 'questions-thanks', 'settings', 'tour'], 'the scripted host, or a browser tab, has no hobkin that asks')
-})
-
-test('while main hobkin thinks the story waits, and the question it opens is asked in its own words', () => {
-  const at: Tale = { at: 'follow-ups', line: 0, trail: [], ended: null }
+test('while main hobkin writes the story waits, and the question it opens is asked in its own words', () => {
+  const at: Tale = { at: 'writing', line: 0, trail: [], ended: null }
   const asked = followUpOf(pending())
-  const thinking = beatOf('follow-ups', none, smart)
-  const asking = beatOf('follow-ups', none, { ...smart, asked })
+  const thinking = beatOf('writing', none, smart)
+  const asking = beatOf('writing', none, { ...smart, asked })
 
   assert.equal(thinking.lines.length, 1, 'one line while it thinks')
   assert.deepEqual(thinking.ask, { kind: 'wait' })
@@ -286,7 +284,7 @@ test('while main hobkin thinks the story waits, and the question it opens is ask
   assert.deepEqual(asking.ask, { kind: 'follow-up', question: 'ask-1', options: pending().choices, typed: true })
   assert.deepEqual(tellOn(at, 'on', none, smart), at, 'waiting holds the story')
   assert.deepEqual(tellOn(at, 'on', none, { ...smart, asked }), at, 'and so does a question')
-  assert.equal(tellOn(at, 'answered', none, { ...smart, asked }).at, 'questions-thanks', 'once they are over, the thanks')
+  assert.equal(tellOn(at, 'answered', none, { ...smart, asked }).at, 'written', 'once it is over, what was written')
 })
 
 test("only main hobkin's own question is asked in the story, and a choice without a label is said by its value", () => {
@@ -297,44 +295,11 @@ test("only main hobkin's own question is asked in the story, and a choice withou
   assert.equal(followUpOf(null), null)
 })
 
-test('the follow-ups happen once, so neither they nor what came before them can be gone back to', () => {
-  const answers: Answers = { ...none, computer: 'personal', more: true }
-  const last: Tale = { at: 'q5', line: 0, trail: ['more', 'q1', 'q2', 'q3', 'q4'], ended: null }
-  const following = tellOn(last, 'answered', answers, smart)
-  const thanks = tellOn(following, 'answered', answers, smart)
-
-  assert.equal(following.at, 'follow-ups')
-  assert.deepEqual(tellOn(following, 'back', answers, smart), following, 'the answers already went to hobkin')
-  assert.equal(thanks.at, 'questions-thanks')
-  assert.deepEqual(tellOn(thanks, 'back', answers, smart), thanks)
-})
-
-test('the questions differ by whose computer this is, and each has its own way of being answered', () => {
-  assert.equal(QUESTIONS.personal.length, 5)
-  assert.equal(QUESTIONS.work.length, 6, 'the folder and its projects, then four about the team')
-  for (const kind of ['personal', 'work'] as const) {
-    assert.equal(new Set(QUESTIONS[kind].map(({ id }) => id)).size, QUESTIONS[kind].length, 'each has its own id')
-  }
-  assert.notDeepEqual(QUESTIONS.personal.map(({ ask }) => ask), QUESTIONS.work.map(({ ask }) => ask))
-
-  const personal: Answers = { ...none, computer: 'personal', replies: { 'projects-folder': ' ~/Code ' } }
-  const [folder, projects, validation, check] = (['q1', 'q2', 'q3', 'q4'] as const).map((id) => beatOf(id, personal, bare).ask)
-
-  assert.equal(folder?.kind === 'input' && folder.optional, true, 'the folder is typed, and can be skipped')
-  assert.deepEqual(projects, { kind: 'pick', question: 'projects', from: { projectsIn: '~/Code' } }, 'the projects are the folders found in the folder that was named')
-  assert.equal(validation?.kind === 'choice' && typeof validation.field === 'object' && validation.field.reply, 'validation', 'a yes or a no is two bubbles')
-  assert.equal(check?.kind === 'pick' && 'options' in check.from && check.from.options.includes('Email'), true, 'a list is a cloud of bubbles to pick from')
-
-  const unnamed = beatOf('q2', { ...none, computer: 'personal' }, bare).ask
-  assert.deepEqual(unnamed?.kind === 'pick' && unnamed.from, { projectsIn: '~/Projects' }, 'with no folder named, the usual one is looked in')
-  assert.equal(beatOf('q1', none, bare).lines.at(-1), QUESTIONS.personal[0]!.ask, 'personal when the kind was never said')
-})
-
 test('hobkin asks about sound right after the hello, before anything else', () => {
   const sound = beatOf('sound', none, bare)
 
   assert.equal(beatAfter('hello', none, bare), 'sound')
-  assert.equal(beatAfter('sound', none, bare), 'computer')
+  assert.equal(beatAfter('sound', none, bare), 'goals')
   assert.equal(sound.ask?.kind === 'choice' && sound.ask.field, 'sound')
 })
 
@@ -344,7 +309,7 @@ test('the name is said back', () => {
 
 test('back goes one bubble back, then to the beat before', () => {
   const second = tell(['on'])
-  const asking: Tale = { at: 'computer', line: 1, trail: ['hello'], ended: null }
+  const asking: Tale = { at: 'goals', line: 1, trail: ['hello'], ended: null }
 
   assert.deepEqual(tellOn(second, 'back', none, bare), startTale())
   assert.deepEqual(tellOn(startTale(), 'back', none, bare), startTale(), 'nothing is behind the first bubble')
@@ -378,10 +343,15 @@ test('skip ends the story from anywhere, the last bubble ends it as done, and th
 })
 
 test('every beat has words, and only the last bubble of a beat asks', () => {
-  const answers: Answers = { ...none, computer: 'work', name: 'Ada', more: true }
-  const facts: Facts = { pi: pi({ installed: false, version: null, matches: false }), connected: ['OpenAI'], claude: true, smart: true, asked: null }
+  const answers: Answers = { ...none, goals: ['job', 'business', 'project', 'life', 'code'], computer: 'work', name: 'Ada', more: true, cards: keepCard(NO_PICKS, 'job-openings').picks }
+  const written = [{ card: card('job-openings'), routine: { id: 'roles', title: 'Roles that fit', template: 'job-openings@1', enabled: true } }]
+  const facts: Facts = { pi: pi({ installed: false, version: null, matches: false }), connected: ['OpenAI'], claude: true, smart: true, asked: null, cards: groups, written }
   const long = followUpOf(pending({ question: `${'Which of your projects should I watch first, and how often, '.repeat(3)}and why?` }))
-  const ids: BeatId[] = ['hello', 'sound', 'computer', 'computer-thanks', 'name', 'name-hi', 'email', 'subscription', 'launcher', 'pi', 'pi-ready', 'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'projects-said', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'needs', 'settings', 'tour']
+  const ids: BeatId[] = [
+    'hello', 'sound', 'goals', 'goals-said', 'computer', 'computer-work', 'name', 'name-hi', 'email', 'subscription', 'computer-late', 'launcher', 'pi', 'pi-ready',
+    'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'q3', 'q4', 'projects-said', 'q5', 'q6', 'cards-job', 'cards-business',
+    'cards-project', 'cards-life', 'cards-code', 'routines-need', 'writing', 'written', 'first-run', 'first-run-started', 'thanks', 'needs', 'settings', 'tour',
+  ]
 
   for (const asked of [null, long]) {
     for (const id of ids) {
@@ -389,7 +359,7 @@ test('every beat has words, and only the last bubble of a beat asks', () => {
       assert.equal(beat.id, id)
       assert.ok(beat.lines.length > 0, `${id} says something`)
       // Main hobkin's own question is said whole, as long as it made it.
-      if (id === 'follow-ups' && asked) continue
+      if (id === 'writing' && asked) continue
       for (const line of beat.lines) assert.ok(line.trim().length > 0 && line.length <= 110, `${id}: a bubble is short enough to read at a glance`)
     }
   }
@@ -404,60 +374,6 @@ test('a name is needed and an email can be left out, each held to what hobkin ke
   assert.equal(checkAnswer('email', 'ada@example.invalid'), null)
   assert.ok(checkAnswer('email', 'ada at example'))
   assert.ok(checkAnswer('email', 'a@b c'))
-})
-
-test('the answers are handed to hobkin as one message, with only what was answered', () => {
-  const [first, second] = QUESTIONS.work
-  const request = routinesRequest({ ...none, computer: 'work', more: true, replies: { [first!.id]: 'Payments API', [second!.id]: '   ' } })
-
-  assert.ok(request)
-  assert.match(request, /work computer/)
-  assert.match(request, /Payments API/)
-  assert.ok(request.includes(first!.ask), 'each answer goes with its question')
-  assert.ok(!request.includes(second!.ask), 'a question left empty is left out')
-  assert.match(request, /ask before/i, 'nothing is made without a yes')
-  assert.equal(routinesRequest({ ...none, computer: 'work', more: true, replies: {} }), null, 'nothing answered, nothing sent')
-  assert.equal(routinesRequest({ ...none, more: false, replies: { [first!.id]: 'x' } }), null)
-})
-
-test('the follow-ups start with one message that hands hobkin the answers and asks for the rest one question at a time', () => {
-  const [folder, projects] = QUESTIONS.personal
-  const seed = followUpRequest({ ...none, computer: 'personal', more: true, replies: { [folder!.id]: ' ~/Code ', [projects!.id]: '  ' } })
-
-  assert.equal(FOLLOW_UPS_MAX, 5)
-  assert.match(seed, /personal computer/)
-  assert.ok(seed.includes(`- ${folder!.ask}\n  ~/Code`), 'each answer goes with its question, as the routines message writes them')
-  assert.ok(!seed.includes(projects!.ask), 'a question left empty is left out')
-  assert.match(seed, /one question at a time/i)
-  assert.match(seed, /ask_question/)
-  assert.match(seed, /choices/)
-  assert.ok(seed.includes(`at most ${FOLLOW_UPS_MAX} questions`))
-  assert.match(seed, /two or three first routines/)
-  assert.match(seed, /ask before you create or connect anything/i, 'nothing is made without a yes')
-
-  const skipped = followUpRequest({ ...none, computer: 'work', more: true, replies: {} })
-  assert.match(skipped, /work computer/)
-  assert.match(skipped, /skipped/i, 'with nothing answered hobkin still asks, and knows why it has nothing')
-})
-
-test('the follow-ups are over when hobkin is done asking, five were answered, the user says enough, the message did not go, or nothing was asked for two minutes', () => {
-  const at = 1_000_000
-  const { startMs, quietMs } = FOLLOW_UPS_WAIT
-  const working: FollowUps = { takenAt: at, failed: false, busy: true, open: false, answered: 0, enough: false, stirredAt: at }
-  const over = (change: Partial<FollowUps>, after: number) => followUpsOver({ ...working, ...change }, at + after)
-
-  assert.equal(over({}, 1000), false, 'hobkin is working on it')
-  assert.equal(over({ busy: false }, startMs - 1), false, 'it gets a few seconds to start')
-  assert.equal(over({ busy: false }, startMs), true, 'then idle with nothing open, it is done asking')
-  assert.equal(over({ busy: false, open: true }, quietMs * 3), false, 'an open question waits for the user, however long they take')
-  assert.equal(over({ answered: FOLLOW_UPS_MAX - 1 }, 1000), false)
-  assert.equal(over({ answered: FOLLOW_UPS_MAX, open: true }, 1000), true, 'five answered is enough, even with a sixth open')
-  assert.equal(over({ enough: true, open: true }, 0), true, 'the user can say it is enough at any time')
-  assert.equal(over({ takenAt: null, failed: true }, 0), true, 'the message could not be sent')
-  assert.equal(over({ takenAt: null }, quietMs - 1), false, 'the message is on its way')
-  assert.equal(over({ takenAt: null }, quietMs), true)
-  assert.equal(over({}, quietMs), true, 'working for two minutes with nothing asked')
-  assert.equal(over({ stirredAt: at + quietMs - 1000 }, quietMs), false, 'a question that came or went starts the two minutes over')
 })
 
 test('the two choices balance: the one the pointer nears grows as the other shrinks', () => {
@@ -613,12 +529,20 @@ const workDone = (outcomes: [SetupProjectOutcome, SetupProjectWhy | null][], wor
   projects: outcomes.map(([outcome, why], index) => ({ path: `/Users/someone/Code/p${index}`, name: `p${index}`, outcome, why, reason: why ? 'Why.' : null })),
 })
 
-const picked: Answers = { ...none, computer: 'personal', more: true, replies: { 'projects-folder': '~/Code', projects: 'storefront, notes' } }
+const picked: Answers = { ...none, goals: ['code'], computer: 'personal', more: true, replies: { 'projects-folder': '~/Code', projects: 'storefront, notes' } }
 const hosted: Facts = { ...smart, smart: false, host: true }
 
-test('after the projects are picked, hobkin says what it did with them, only with a host and a pick', () => {
-  assert.deepEqual(walk(picked, hosted, 'more'), ['more', 'q1', 'q2', 'projects-said', 'q3', 'q4', 'q5', 'questions-thanks', 'needs', 'settings', 'tour'])
-  assert.deepEqual(walk({ ...picked, computer: 'work' }, { ...hosted, smart: true }, 'q2'), ['q2', 'projects-said', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'needs', 'settings', 'tour'])
+test('the folder, the projects and validation are asked only with code, and only then do projects go to Work', () => {
+  assert.deepEqual(walk(picked, hosted, 'more'), ['more', 'q1', 'q2', 'projects-said', 'q3', 'cards-code', 'thanks', 'needs', 'settings', 'tour'])
+  const [folder, projects, validation] = (['q1', 'q2', 'q3'] as const).map((id) => beatOf(id, { ...picked, replies: { 'projects-folder': ' ~/Code ' } }, bare).ask)
+  assert.equal(folder?.kind === 'input' && folder.optional, true, 'the folder is typed, and can be skipped')
+  assert.deepEqual(projects, { kind: 'pick', question: 'projects', from: { projectsIn: '~/Code' } }, 'the projects are the folders found in the folder that was named')
+  assert.equal(validation?.kind === 'choice' && typeof validation.field === 'object' && validation.field.reply, 'validation', 'a yes or a no is two bubbles')
+
+  // Without code none of them is asked, and nothing goes to Work.
+  const job: Answers = { ...picked, goals: ['job'], replies: { projects: 'storefront' } }
+  assert.deepEqual(walk(job, hosted, 'more'), ['more', 'q1', 'cards-job', 'thanks', 'needs', 'settings', 'tour'])
+  assert.deepEqual(setupAnswersOf(job, [folderOf('storefront')], []).projects, [])
   assert.equal(beatAfter('q2', { ...picked, replies: { projects: '  ' } }, hosted), 'q3', 'nothing picked, nothing to say')
   assert.equal(beatAfter('q2', picked, { ...hosted, host: false }), 'q3', 'with no host nothing was done, as in a browser tab on sample data')
 })
@@ -671,43 +595,22 @@ test('what hobkin says it did is true to what work mode did with the projects', 
   }
 })
 
-test('when validation is wanted, hobkin is asked to propose each project its checks and write them only on a yes, and the logs are a fact with a question before the first scan', () => {
-  const replies = { ...picked.replies, validation: 'Set it up', logs: 'Yes' }
-  const asked = { ...picked, replies }
-
-  for (const message of [routinesRequest(asked)!, followUpRequest(asked)]) {
-    assert.match(message, /each project I picked/)
-    assert.match(message, /tests, lint and build/)
-    assert.match(message, /work\/<slug>\/directions\.md/)
-    assert.match(message, /only after I say yes/)
-    assert.match(message, /You may read my logs and past sessions/)
-    assert.match(message, /Ask me before your first scan/)
-    assert.match(message, /ask before you create or connect anything/i, 'the rest of the message is as it was')
-  }
-
-  const later = { ...picked, replies: { ...picked.replies, validation: 'Later', logs: 'No' } }
-  for (const message of [routinesRequest(later)!, followUpRequest(later)]) {
-    assert.doesNotMatch(message, /directions\.md/)
-    assert.doesNotMatch(message, /You may read my logs/)
-    assert.ok(message.includes(QUESTIONS.personal[4]!.ask), 'the answer itself is still handed over with its question')
-  }
-  const nothingPicked = { ...asked, replies: { ...replies, projects: '' } }
-  assert.doesNotMatch(routinesRequest(nothingPicked)!, /directions\.md/, 'with no project picked there are no checks to propose')
-})
-
-test('what the setup saves: whose computer, each answered question with its words, and the picked projects by path', () => {
+test('what the setup saves: whose computer, the goals, each answered question with its words, the picked projects by path, and the cards', () => {
   const folders = [folderOf('storefront'), folderOf('notes', false)]
-  const [where, which] = QUESTIONS.personal
+  const [where, which] = CODE_QUESTIONS
+  const cards = cardPicksOf(groups, dropCard(keepCard(NO_PICKS, 'job-openings').picks, 'interviews'))
 
-  assert.deepEqual(setupAnswersOf({ ...picked, replies: { ...picked.replies, 'projects-folder': ' ~/Code ', check: ' ' } }, folders), {
+  assert.deepEqual(setupAnswersOf({ ...picked, replies: { ...picked.replies, 'projects-folder': ' ~/Code ', validation: ' ' } }, folders, cards), {
     computer: 'personal',
     answers: [
       { id: 'projects-folder', ask: where!.ask, answer: '~/Code' },
       { id: 'projects', ask: which!.ask, answer: 'storefront, notes' },
     ],
     projects: folders,
+    goals: ['code'],
+    cards,
   })
-  assert.deepEqual(setupAnswersOf({ ...none, replies: { projects: '' } }, folders), { answers: [], projects: [] }, 'no computer said, and projects only once they are picked')
+  assert.deepEqual(setupAnswersOf({ ...none, replies: { projects: '' } }, folders, []), { answers: [], projects: [], goals: [], cards: [] }, 'no computer said, and projects only once they are picked')
 })
 
 test('the projects picked are sent by their paths, in the order they were picked', () => {
@@ -724,7 +627,17 @@ test('run again, what was saved before is where a field starts, and what was ans
   assert.equal(startingReply({ ...none, replies: { 'projects-folder': '~/src' } }, earlier, 'projects-folder'), '~/src')
   assert.equal(startingReply(none, earlier, 'check'), '')
   assert.equal(startingReply(none, null, 'projects-folder'), '')
-  assert.equal(beatAfter('more', { ...none, more: true }, hosted), 'q1', 'the story still asks every question')
+  assert.equal(beatAfter('more', { ...none, goals: ['job'], more: true }, hosted), 'q1', 'the story still asks every question')
+})
+
+test('run again, the goals and the cards start as they were left', () => {
+  const left = dropCard(keepCard(NO_PICKS, 'job-openings').picks, 'interviews')
+  const changed: CardPicks = { ...left, changes: { 'job-openings': { recurrence: 'Every weekday' } } }
+
+  const saved = cardPicksOf(groups, changed)
+
+  assert.deepEqual(picksFrom(saved), changed)
+  assert.deepEqual(picksFrom([]), NO_PICKS)
 })
 
 test('a work computer with no account and no launcher is asked for the command that starts Pi, and nowhere else', () => {
@@ -738,7 +651,10 @@ test('a work computer with no account and no launcher is asked for the command t
   assert.equal(beatAfter('subscription', work, { ...host, connected: ['OpenAI'] }), 'found')
   assert.equal(beatAfter('subscription', work, { ...host, pi: pi({ launcher: 'work-pi' }) }), 'connect')
   assert.equal(beatAfter('subscription', work, { ...bare, pi: pi() }), 'connect')
-  assert.equal(beatAfter('subscription', none, host), 'connect', 'a computer that was not said is not a work one')
+  assert.equal(beatAfter('subscription', none, host), 'computer-late', 'a computer not asked about yet is asked about now')
+  assert.equal(beatAfter('computer-late', work, host), 'launcher')
+  assert.equal(beatAfter('computer-late', { ...none, computer: 'personal' }, host), 'connect')
+  assert.equal(beatAfter('subscription', none, { ...host, connected: ['OpenAI'] }), 'found', 'with an account it is not asked at all')
 })
 
 test('a launcher that was kept is an account, and one put off sends the story on as before', () => {
@@ -749,4 +665,107 @@ test('a launcher that was kept is an account, and one put off sends the story on
   assert.equal(checkAnswer('launcher', ''), null, 'empty puts it off')
   assert.equal(checkAnswer('launcher', 'work-pi --flag'), null)
   assert.notEqual(checkAnswer('launcher', 'a\u0007b'), null)
+})
+
+/** A card as hobkin's goalCards gives it. */
+function card(id: string, over: Partial<Card> = {}): Card {
+  return {
+    id, version: 1, source: 'hobkin', title: `Title of ${id}`, summary: 'What it watches.', needs: ['mail'], recurrence: 'Weekly',
+    tells: 'When it changes.', skips: null, gives: ['report'], closes: null, private: false, asks: null, effort: 'medium', ...over,
+  }
+}
+
+const groups: GoalCards[] = [
+  { goal: 'job', starters: [card('job-openings'), card('job-applications', { private: true }), card('interviews')], more: [] },
+  { goal: 'business', starters: [card('business-leads')], more: [] },
+  { goal: 'project', starters: [card('project-milestones'), card('deadlines-ahead')], more: [] },
+  { goal: 'life', starters: [card('email', { private: true })], more: [] },
+  { goal: 'code', starters: [card('review-queue')], more: [] },
+]
+
+test('the goals question comes right after the sound question, takes any goals, their own words or none, and the computer fork is not asked there', () => {
+  const goals = beatOf('goals', none, bare)
+
+  assert.equal(beatAfter('sound', none, bare), 'goals')
+  assert.deepEqual(goals.ask?.kind === 'pick' && goals.ask.from, { options: ['Finding a job', 'Starting a business', 'A project of my own', 'Keeping life in order', 'Writing code'] })
+  assert.match(goals.ask?.kind === 'pick' ? goals.ask.note ?? '' : '', /model provider/, 'the note about the answers is under this question')
+  assert.equal(beatAfter('goals', none, bare), 'goals-said')
+  for (const said of [[], ['code'], ['project', 'code']] as const) {
+    assert.equal(beatAfter('goals-said', { ...none, goals: [...said] }, bare), 'name', 'no computer fork for these goals')
+  }
+  assert.doesNotMatch(beatOf('hello', none, bare).lines.join(' ') + goals.lines.join(' '), /develop/i, 'nothing before it pitches development')
+})
+
+test('the computer is asked only for a job, a business or life, and a work computer marks the private cards', () => {
+  for (const goal of ['job', 'business', 'life'] as const) assert.equal(beatAfter('goals-said', { ...none, goals: [goal] }, bare), 'computer')
+  assert.equal(beatAfter('computer', { ...none, goals: ['job'], computer: 'work' }, bare), 'computer-work', 'hobkin says once that it will say so')
+  assert.equal(beatAfter('computer', { ...none, goals: ['job'], computer: 'personal' }, bare), 'name')
+  assert.equal(beatAfter('computer-work', none, bare), 'name')
+})
+
+test('each picked goal asks its own question in the goals\' order, and none or no account offers no routines', () => {
+  const all: Answers = { ...none, goals: ['code', 'project', 'job', 'business', 'life'], more: true }
+  const asked = (['q1', 'q2', 'q3', 'q4', 'q5', 'q6'] as const).map((id) => beatOf(id, all, bare).lines.at(-1))
+
+  assert.match(asked[0]!, /kind of job/)
+  assert.match(asked[1]!, /business in a line/)
+  assert.match(asked[2]!, /the project/)
+  assert.match(asked[3]!, /projects live/)
+  assert.equal(beatOf('q1', all, bare).ask?.kind === 'input' && beatOf('q1', all, bare).ask?.kind, 'input', 'typed, and it can be skipped')
+  assert.deepEqual(walk({ ...none, goals: ['life'], more: true }, bare, 'more'), ['more', 'cards-life', 'thanks', 'settings', 'tour'], 'life asks none')
+
+  // No goal, or no account: no routines, and on to the settings.
+  assert.equal(beatAfter('connected', none, bare), 'settings')
+  assert.equal(beatAfter('found', { ...none, goals: [] }, bare), 'settings')
+  assert.equal(beatAfter('no-account', { ...none, goals: ['job'] }, bare), 'settings')
+})
+
+test('after the cards hobkin says it will check what they need, and with none kept the story goes to the thanks', () => {
+  const kept: Answers = { ...none, goals: ['job', 'life'], cards: keepCard(NO_PICKS, 'email').picks }
+  const facts: Facts = { ...smart, host: true, cards: groups }
+
+  assert.equal(beatAfter('cards-job', kept, facts), 'cards-life', 'one goal at a time')
+  assert.equal(beatAfter('cards-life', kept, facts), 'routines-need')
+  assert.equal(beatOf('routines-need', kept, facts).lines.length, 1)
+  assert.equal(beatAfter('routines-need', kept, facts), 'writing')
+  assert.equal(beatAfter('cards-life', { ...kept, cards: dropCard(NO_PICKS, 'email') }, facts), 'thanks', 'none kept: nothing is written')
+  // The first goal's cards say how they work, the next ones only introduce themselves.
+  assert.equal(beatOf('cards-job', kept, facts).lines.length, 2)
+  assert.equal(beatOf('cards-life', kept, facts).lines.length, 1)
+  assert.deepEqual(beatOf('cards-life', kept, facts).ask, { kind: 'cards', goal: 'life' })
+})
+
+test('the writing message goes once, after the cards or else at the hand-off, and never on the scripted host or with no host', () => {
+  const kept: Answers = { ...none, goals: ['job'], cards: keepCard(NO_PICKS, 'job-openings').picks }
+
+  assert.equal(beatAfter('routines-need', kept, { ...smart, host: true, cards: groups }), 'writing')
+  assert.equal(beatAfter('routines-need', kept, { ...hosted, cards: groups }), 'thanks', 'the scripted host writes nothing')
+  assert.equal(beatAfter('routines-need', kept, { ...smart, cards: groups }), 'thanks', 'and neither does a browser tab')
+
+  // Reaching the writing sends the message, so neither it nor what came before can be gone back to.
+  const at: Tale = { at: 'routines-need', line: 0, trail: ['cards-job'], ended: null }
+  const writing = tellOn(at, 'on', kept, { ...smart, host: true, cards: groups })
+  assert.equal(writing.at, 'writing')
+  assert.deepEqual(tellOn(writing, 'back', kept, { ...smart, host: true, cards: groups }), writing)
+  // Before the message went, the cards can be gone back to, and from them the goal's question.
+  assert.deepEqual(tellOn({ at: 'cards-job', line: 1, trail: ['q1'], ended: null }, 'back', kept, smart).line, 0)
+})
+
+test('what was written decides the first run and the thanks', () => {
+  const kept: Answers = { ...none, goals: ['job'], cards: keepCard(NO_PICKS, 'job-openings').picks }
+  const written = [{ card: card('job-openings'), routine: { id: 'roles', title: 'Roles that fit', template: 'job-openings@1', enabled: true } }]
+  const facts: Facts = { ...smart, host: true, cards: groups, written }
+
+  assert.equal(beatAfter('written', kept, facts), 'first-run')
+  assert.match(beatOf('first-run', kept, facts).lines[0]!, /Roles that fit/)
+  assert.equal(beatAfter('first-run', { ...kept, firstRun: 'later' }, facts), 'thanks', 'Later starts nothing')
+  assert.equal(beatAfter('written', kept, { ...facts, written: [] }), 'thanks', 'nothing written, nothing to run')
+  assert.notDeepEqual(beatOf('thanks', kept, facts).lines, beatOf('thanks', kept, { ...facts, written: [] }).lines)
+})
+
+test('while the cards are up, Escape, Left and Right are the cards screen\'s', () => {
+  const cards: TaleKeyContext = { ...idle, asking: 'cards' }
+
+  for (const name of ['Escape', 'ArrowLeft', 'ArrowRight']) assert.equal(resolveTaleKey(key(name), cards), null)
+  assert.equal(resolveTaleKey(key('Enter'), { ...cards, pressable: true }), null, 'Enter presses the button that has the keyboard')
 })

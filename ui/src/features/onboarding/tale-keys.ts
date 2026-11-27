@@ -3,7 +3,7 @@ import type { Ask } from './story.ts'
 /**
  * The story's keys, as a function with no knowledge of the page. While the setup is open it owns the keyboard:
  * Enter, Space and Right go on, Escape and Left go back, and with two choices up Left and Right reach for them.
- * A control that uses a key itself keeps it. See _specs/025-onboarding.
+ * With the routine cards up, Escape, Left and Right are the cards'. A control that uses a key itself keeps it. See _specs/025-onboarding.
  */
 
 export interface TalePress {
@@ -34,6 +34,8 @@ export type TaleKey = { do: 'on' } | { do: 'back' } | { do: 'cancel-signin' } | 
 export function resolveTaleKey(press: TalePress, context: TaleKeyContext): TaleKey | null {
   if (press.meta || press.ctrl || press.alt) return null
   const choosing = context.asking === 'choice'
+  // The routine cards move between themselves, put a card in Change back, and go back to the goal's question.
+  if (context.asking === 'cards' && ['Escape', 'ArrowLeft', 'ArrowRight'].includes(press.key)) return null
 
   switch (press.key) {
     case 'Enter':
