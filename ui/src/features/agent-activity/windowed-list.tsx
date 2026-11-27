@@ -360,6 +360,9 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
     // while the list follows, it keeps nothing: rows let go of above would have it write the view off the end.
     anchorTo: following.current ? 'start' : 'end',
     scrollEndThreshold: -1,
+    // Rows stand in the list's own flow, so a row that changes height moves those below it with no redraw: nothing is
+    // drawn again inside a scroll event or a ResizeObserver callback, where WebKit loops on what changes size.
+    useFlushSync: false,
     initialRect: box ?? { width: 0, height: globalThis.innerHeight ?? FIRST_HEIGHT },
     // Where it opens, the first time the list asks: at the row it was left reading, or past the end, following.
     initialOffset: () => {
