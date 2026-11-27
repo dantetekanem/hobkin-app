@@ -18,7 +18,8 @@ What the setup finds:
 - Claude Code is not installed. As on a real Mac, its row in the review shows only once Claude Code is turned on in
   Settings.
 - No model is connected. The setup's sign-in connects the OpenAI subscription a moment later, with no page and no
-  question.
+  question. hobkin's first models are then picked from it and kept with the pretend Mac, so the account step says
+  what it picked, while the home's config and Settings keep the models as Pi picks them.
 
 Each install and each program sign-in takes 1 to 3 seconds, and the next read, Look again included, finds what it
 brought. The setup's own readers and installers run on pretend programs, so an install out of order is refused as on a

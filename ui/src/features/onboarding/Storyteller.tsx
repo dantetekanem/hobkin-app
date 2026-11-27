@@ -221,21 +221,23 @@ function useThisMac(): void {
 
 /**
  * hobkin's first model and tiers, set once the story reaches an account it found or signed in to (`tiers.first`, in
- * 017-model-tiers). Asked once per setup, and only of a live host: the scripted one saves nothing. A home where a model
- * was chosen before keeps it, so the host answers that it set nothing. Null until the host said.
+ * 017-model-tiers). Asked once per setup. A scripted host saves nothing and refuses, which is not said, unless it plays
+ * a simulated new Mac, which keeps them in memory so the bubble shows. A home where a model was chosen before keeps
+ * it, so the host answers that it set nothing. Null until the host said.
  */
 function useFirstModels(at: BeatId, onTrouble: (words: string) => void): FirstModels | null {
-  const live = useHost((state) => state.link === 'open' && state.model === 'live')
+  const open = useHost((state) => state.link === 'open')
+  const live = useHost((state) => state.model === 'live')
   const [models, setModels] = useState<FirstModels | null>(null)
   const asked = useRef(false)
 
   useEffect(() => {
-    if (asked.current || !live || (at !== 'found' && at !== 'connected')) return
+    if (asked.current || !open || (at !== 'found' && at !== 'connected')) return
     asked.current = true
     runCommand('tiers.first').then(setModels, (error: unknown) => {
-      onTrouble(`I could not set my models, so they stay as Pi picks them: ${reasonOf(error)}`)
+      if (live) onTrouble(`I could not set my models, so they stay as Pi picks them: ${reasonOf(error)}`)
     })
-  }, [at, live])
+  }, [at, open])
 
   return models
 }

@@ -5,8 +5,10 @@ import type { ClaudeCodeStatus } from '#shared/protocol/claude-code.ts'
 import type { ProofTools } from '#shared/protocol/proofs.ts'
 import type { ProgramInstalled, ProgramSignIn, ProgramSignInEnd, SetupProgram, SignInProgram } from '#shared/protocol/setup.ts'
 import { PI_PACKAGES } from '#shared/setup/pi-packages.ts'
+import type { HostTiers, TiersChange } from '#shared/tiers/tiers.ts'
 import { ClaudeCodeSettingsFile } from './claude-code/settings.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
+import { setFirstModels } from './first-models.ts'
 import type { HostOptions } from './host.ts'
 import type { ModelAccess } from './model-access.ts'
 import { installPackage, installPi, pinnedPi, piSetup, piSetupHandlers, type PiRun } from './pi/install.ts'
@@ -16,14 +18,16 @@ import { setupNeedsHandlers } from './setup-needs.ts'
 import { proofToolsHandlers } from './setup-proof.ts'
 import { GH_VERSION, ghBin } from './setup/gh.ts'
 import { installCommandLineTools, installQmd, QMD_VERSION } from './setup/programs.ts'
+import { readHostTiers } from './tiers.ts'
 
 /**
  * A Mac with nothing on it, for walking the first-run setup (025-onboarding) as a new person would, on the scripted
  * host started with `--simulate-new-mac`. It has no Node with npm, no Pi and no packages, Apple's git stand-in without
  * the command line tools, no gh, Claude Code, qmd or TLA+ tools, and no model connected. The setup's own readers and
  * installers run on it as they are: only the programs are pretend. Each install and sign-in takes a moment, then the
- * next read finds what it brought. Nothing here runs a program, reaches the network, opens a page or writes outside
- * the home.
+ * next read finds what it brought. The account step's first models are picked by the setup's own rule from the pretend
+ * subscription and kept with the pretend Mac, so their bubble shows. Nothing here runs a program, reaches the network,
+ * opens a page or writes outside the home.
  */
 
 /** A program with a sign-in of its own: not there, there, or signed in. */
@@ -273,6 +277,25 @@ export function simulatedNewMac({ root, real = false, delay = aMoment }: Simulat
   }
   const signingIn = new Map<SignInProgram, Promise<ProgramSignInEnd>>()
 
+  // hobkin's model and tiers as the home held them when first asked, then as the first models set them, in memory only.
+  let held: HostTiers | null = null
+  const tiersNow = async () => (held ??= await readHostTiers(root))
+  const keep = async (change: (now: HostTiers) => HostTiers) => {
+    held = change(await tiersNow())
+  }
+  const ownOf = ({ tiers }: TiersChange) => Object.fromEntries(Object.entries(tiers ?? {}).flatMap(([id, setting]) => (setting ? [[id, { ...setting, follows: null }]] : [])))
+  const firstModels = (provider?: string) =>
+    setFirstModels(
+      {
+        models: async () => (await access()).list(),
+        tiers: tiersNow,
+        selectModel: (model, effort) => keep((now) => ({ ...now, lead: { model, effort } })),
+        selectChecks: async () => {},
+        applyTiers: (change) => keep((now) => ({ ...now, tiers: { ...now.tiers, ...ownOf(change) } })),
+      },
+      provider,
+    )
+
   const simulation: HostHandlers = {
     ...pi,
     ...proofToolsHandlers({
@@ -315,6 +338,8 @@ export function simulatedNewMac({ root, real = false, delay = aMoment }: Simulat
     },
     'setup.sign-in-program-code': () => ({ ok: true as const }),
     'setup.sign-in-program-wait': ({ name }) => signingIn.get(name) ?? { signedIn: false, message: null },
+    // The scripted host saves no models. The pretend Mac keeps the first ones, so the account step says what it picked.
+    'tiers.first': ({ provider }) => firstModels(provider),
   }
 
   return { access, claudeStatus, simulation }

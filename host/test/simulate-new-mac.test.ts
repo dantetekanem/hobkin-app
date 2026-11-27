@@ -4,6 +4,7 @@ import { test, type TestContext } from 'node:test'
 import type { ClaudeCodeStatus } from '#shared/protocol/claude-code.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
 import type { PiSetup, ProgramSignIn, SetupFix, SetupNeeds, SetupSaved } from '#shared/protocol/setup.ts'
+import type { FirstModels } from '#shared/tiers/first-models.ts'
 import { PI_PACKAGES } from '#shared/setup/pi-packages.ts'
 import { parseArguments } from '../src/arguments.ts'
 import { simulatedNewMac } from '../src/simulate-new-mac.ts'
@@ -128,6 +129,26 @@ test("the setup's sign-in connects the OpenAI subscription after a moment, and n
   const asked = client.received.filter((message) => message.type === 'state' && message.signIn?.status === 'signing-in' && (message.signIn.prompt || message.signIn.authUrl))
   assert.deepEqual(asked, [], 'no page and no question')
   assert.ok(!missing(await client.run<SetupNeeds>('setup.needs')).includes('sign-in'))
+})
+
+test("the account step's first models are picked from the simulated subscription, once, and the home's config is left alone", async (t) => {
+  const root = join(temporaryDirectory(t), 'home')
+  const host = await hostFor(t, { root, ...simulatedNewMac({ root, delay: () => 0 }) })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  await client.until((view) => view.signIn?.status === 'signed-out', 'signed out')
+
+  assert.deepEqual(await client.run<FirstModels>('tiers.first', {}), { set: false, why: 'no-model' }, 'no account yet')
+  await client.run('signin.start', { provider: 'openai' })
+  await client.until((now) => now.models?.providers.some(({ id, connected }) => id === 'openai' && connected), 'OpenAI connected')
+
+  const first = await client.run<FirstModels>('tiers.first', {})
+  assert.equal(first.set, true, 'set, so the bubble that names them shows')
+  assert.equal(first.set && first.provider.id, 'openai')
+  assert.deepEqual(await client.run<FirstModels>('tiers.first', {}), { set: false, why: 'chosen' }, 'once')
+
+  const { loadConfig } = await import('hobkin/src/cli/config.mjs')
+  assert.equal(loadConfig(host.root).main.model, null, 'only the pretend Mac holds them')
 })
 
 test('Claude Code, once its agents are on, installs and signs in on its own presses', async (t) => {
