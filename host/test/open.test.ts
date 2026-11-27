@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { MAX_FILE_BYTES, MAX_IMAGE_BYTES, openablePath, readForViewer } from '../src/files.ts'
 import { imageTypeOf } from '../src/image-type.ts'
-import { openableUrl, openInSystem } from '../src/open.ts'
+import { openableUrl, openFileInSystem, openInSystem } from '../src/open.ts'
 import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
 
 test('only http, https, mailto and slack addresses are openable', () => {
@@ -25,6 +25,15 @@ test('the real opener runs open with the address as one argument and no shell', 
   assert.deepEqual(ran, [{ file: 'open', args: ['https://example.com/a%20b;rm%20-rf'], shell: undefined }])
   assert.throws(() => openInSystem('file:///etc/hosts', run, 'darwin'))
   assert.equal(ran.length, 1, 'a refused address ran nothing')
+})
+
+test('a PDF opens in a new Chrome window even when Chrome is running', async () => {
+  const calls: unknown[] = []
+  const run = ((cmd: string, args: string[], done: () => void) => { calls.push([cmd, args]); done() }) as never
+  await openFileInSystem('/tmp/One # Two.PDF', true, run, 'darwin')
+  assert.deepEqual(calls, [['open', ['-n', '-b', 'com.google.Chrome', '--args', '--new-window', 'file:///tmp/One%20%23%20Two.PDF']]])
+  await assert.rejects(openFileInSystem('/tmp/not-a-pdf.html', true, run, 'darwin'), /PDF/)
+  assert.equal(calls.length, 1)
 })
 
 test('system.open opens only what the opener is handed, and refuses other addresses', { timeout: 30000 }, async (t) => {

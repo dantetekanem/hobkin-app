@@ -24,11 +24,15 @@ export interface LinkTarget {
  * `file`: open the viewer. `app`: the host opens the file in its default app. `system`: the host opens the address in
  * the system's app. `default`: the link works as a link does.
  */
-export type LinkDecision = 'file' | 'app' | 'system' | 'default'
+export type LinkDecision = 'file' | 'app' | 'chrome' | 'system' | 'default'
 
 export function decideLink({ href, file, meta = false }: LinkTarget, { inMacWindow, hasHost }: LinkEnvironment): LinkDecision {
   // With no host to open it, the viewer says why it cannot.
-  if (file) return meta && hasHost ? 'app' : 'file'
+  if (file) {
+    if (hasHost && meta) return 'app'
+    if (hasHost && inMacWindow && /\.pdf$/i.test(file)) return 'chrome'
+    return 'file'
+  }
   if (inMacWindow && hasHost && href && /^(https?:\/\/|mailto:|slack:\/\/)/i.test(href)) return 'system'
   return 'default'
 }
@@ -36,7 +40,7 @@ export function decideLink({ href, file, meta = false }: LinkTarget, { inMacWind
 export interface LinkActions {
   environment(): LinkEnvironment
   openFile(path: string): void
-  openInApp(path: string): void
+  openInApp(path: string, pdfInChrome?: boolean): void
   openAddress(href: string): void
 }
 
@@ -55,7 +59,7 @@ export function catchLinks(page: Document, actions: LinkActions): () => void {
     if (decision === 'default') return
     event.preventDefault()
     if (decision === 'file') actions.openFile(file!)
-    else if (decision === 'app') actions.openInApp(file!)
+    else if (decision === 'app' || decision === 'chrome') actions.openInApp(file!, decision === 'chrome')
     else actions.openAddress(href!)
   }
   page.addEventListener('click', onClick)

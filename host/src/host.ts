@@ -164,7 +164,7 @@ export interface HostOptions {
   /** Opens a web or mail address in the system's default app (`system.open`). Nothing opens when not given; the entry passes the real one. */
   openSystem?: (url: string) => void
   /** Opens a file in the system's default app (`file.open`). Nothing opens when not given. */
-  openFile?: (path: string) => void
+  openFile?: (path: string, pdfInChrome?: boolean) => void
   /** Shows the Mac's folder chooser (`work.folder.pick`). No chooser shows when not given: the answer is no folder. The entry passes the real one. */
   pickFolder?: () => Promise<string | null>
   /**
@@ -835,9 +835,9 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     'appearance.customize': ({ request }) => customTheme.start(request),
     'appearance.status': ({ id }) => customTheme.status(id),
     'file.read': ({ path }) => readForViewer(path),
-    'file.open': async ({ path }) => {
+    'file.open': async ({ path, pdfInChrome }) => {
       const real = await openablePath(path)
-      ;(options.openFile ?? (() => {}))(real)
+      await options.openFile?.(real, pdfInChrome)
       return done
     },
     // The Work screen's actions, each one of hobkin's own work actions. An integration hears how each ended (`afterCommand`).

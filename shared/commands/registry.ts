@@ -1006,9 +1006,9 @@ export const COMMANDS = {
     args: Type.Object({ path: Type.String({ pattern: '^(/|~/)', maxLength: 4096 }) }, { additionalProperties: false }),
   },
   'file.open': {
-    description: 'Open a file in the Mac\'s default app for it. `path` is a full path or starts with ~/. A program or an app bundle never opens this way.',
+    description: 'Open a file in its default app, or a PDF in Chrome with pdfInChrome. `path` is a full path or starts with ~/. A program or an app bundle never opens this way.',
     runs: 'host',
-    args: Type.Object({ path: Type.String({ pattern: '^(/|~/)', maxLength: 4096 }) }, { additionalProperties: false }),
+    args: Type.Object({ path: Type.String({ pattern: '^(/|~/)', maxLength: 4096 }), pdfInChrome: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
   },
   'review.prepare': {
     description:

@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { toast } from 'sonner'
 import { hostStore, runCommand } from '@/lib/host/index.ts'
 import { hasHost } from '@/lib/host/frame.ts'
 import { catchLinks } from './catch.ts'
@@ -20,7 +21,12 @@ export function LinkLayer() {
         environment: () => ({ inMacWindow: inMacWindow(), hasHost: hasHost(hostStore.getState()) }),
         openFile: (path) => useViewer.getState().openFile(path),
         // A file the host cannot open, such as one that is not there, opens the viewer, which says why.
-        openInApp: (path) => void runCommand('file.open', { path }).catch(() => useViewer.getState().openFile(path)),
+        openInApp: (path, pdfInChrome) => {
+          void runCommand('file.open', pdfInChrome ? { path, pdfInChrome: true } : { path }).catch(() => {
+            if (pdfInChrome) toast.error('Could not open the PDF in a new Chrome window.')
+            else useViewer.getState().openFile(path)
+          })
+        },
         openAddress: (url) => void runCommand('system.open', { url }).catch(() => {}),
       }),
     [],

@@ -42,6 +42,14 @@ test('markdown shows local paths as file links and keeps web links as they were'
 
 const mac: LinkEnvironment = { inMacWindow: true, hasHost: true }
 
+test('a plain PDF click asks Chrome; command-click keeps the default-app shortcut', () => {
+  const file = { href: '#', file: '/tmp/Two Pages.PDF' }
+  assert.equal(decideLink(file, mac), 'chrome')
+  assert.equal(decideLink({ ...file, meta: true }, mac), 'app')
+  assert.equal(decideLink(file, { ...mac, hasHost: false }), 'file')
+  assert.equal(decideLink({ ...file, file: '/tmp/notes.md' }, mac), 'file')
+})
+
 test('a click is caught for a file anywhere, and for the web only in the Mac window with a host', () => {
   assert.equal(decideLink({ href: '#', file: '/Users/x/a.md' }, { inMacWindow: false, hasHost: false }), 'file')
   assert.equal(decideLink({ href: 'https://example.com', file: null }, mac), 'system')

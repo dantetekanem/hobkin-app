@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 
 /**
  * Opening things in the Mac's own apps. The Mac window's web view opens no window for a link and the shell has
@@ -32,7 +33,11 @@ export function openInSystem(address: string, run: Run = execFile, platform: Nod
   run(platform === 'darwin' ? 'open' : 'xdg-open', [openableUrl(address).href], () => {})
 }
 
-/** Opens a file in the system's default app for it. The caller has already checked the path (`openablePath`). */
-export function openFileInSystem(path: string, run: Run = execFile, platform: NodeJS.Platform = process.platform): void {
-  run(platform === 'darwin' ? 'open' : 'xdg-open', [path], () => {})
+/** The caller has checked the real path with openablePath. Only a PDF may target Chrome. */
+export async function openFileInSystem(path: string, pdfInChrome = false, run: Run = execFile, platform: NodeJS.Platform = process.platform): Promise<void> {
+  if (pdfInChrome && (platform !== 'darwin' || !/\.pdf$/i.test(path))) throw Error('Only a local PDF on the Mac opens in Chrome.')
+  const args = pdfInChrome ? ['-n', '-b', 'com.google.Chrome', '--args', '--new-window', pathToFileURL(path).href] : [path]
+  return new Promise((resolve, reject) => {
+    run(platform === 'darwin' ? 'open' : 'xdg-open', args, (error) => error ? reject(error) : resolve())
+  })
 }
