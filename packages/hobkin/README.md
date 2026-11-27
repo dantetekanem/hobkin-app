@@ -64,10 +64,11 @@ Your chats, reports, memory and event history stay on your machine. Three kinds 
 
 Your messages, and whatever your agents read while they work, are sent to the model provider you use. A tool you connect, such as GitHub, gets whatever your agents send it.
 
-### Usage counts go to hobkin's server, unless you turn them off
+### Usage counts go to hobkin's server only after you say yes
 
 Usage counts say which parts of hobkin you used and how runs and decisions ended. They hold fixed labels, counts and durations. They never hold a message, a report, a name or a file path, and each one gets a new random id that is not used anywhere on your machine. Chat tells you the first time they are sent.
 
+- To start sending them: `hobkin telemetry upload on`
 - To stop sending them: `hobkin telemetry upload off`
 - To see what is sent and where: `hobkin telemetry upload status`
 
