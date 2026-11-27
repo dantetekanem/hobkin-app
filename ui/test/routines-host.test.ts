@@ -222,3 +222,28 @@ test('invalid and unsupported schedule rows are reported, not replaced with samp
   snapshot(undefined)
   assert.deepEqual(data().routines, [])
 })
+
+test("on a host the templates come from hobkin, once for each home, and a row the screen cannot draw is left out", async () => {
+  const template = {
+    id: 'job-openings', version: 1, source: 'hobkin', title: 'Roles that fit', summary: 'New openings that fit.',
+    recurrence: 'Twice a week', goals: ['job'], fits: 'Someone looking for a job.', needs: ['web access'], effort: 'medium', asks: null,
+  }
+  let asked = 0
+  const real = routinesHost.templates
+  routinesHost.templates = (async () => {
+    asked += 1
+    return { templates: [template, { id: 'no-title' }] }
+  }) as never
+
+  hello()
+  snapshot([routine])
+  await Promise.resolve()
+  await Promise.resolve()
+
+  assert.deepEqual(data().templates, [template])
+  // Another snapshot of the same home keeps them, and does not ask again.
+  snapshot([{ ...routine, title: 'Updated' }], [], false)
+  assert.deepEqual(data().templates, [template])
+  assert.equal(asked, 1)
+  routinesHost.templates = real
+})

@@ -1,7 +1,7 @@
 import { isWorkflowRow } from '../../integration/workflows.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import { checkTimes, checkWindow } from './edit.ts'
-import { RECURRENCES, type Routine, type RoutinesData } from './types.ts'
+import { RECURRENCES, type Routine, type RoutinesData, type RoutineTemplate } from './types.ts'
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object'
 const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string')
@@ -44,8 +44,25 @@ function isRoutine(row: unknown): row is Routine {
   return true
 }
 
-/** Only schedules and definition errors are supplied here. History, memory and templates stay unknown. */
-export function routinesFromHost(snapshot: WireSnapshot): RoutinesData {
+const EFFORTS: readonly unknown[] = ['low', 'medium', 'high']
+
+/** A template row the screen can draw: its words, its version and where it comes from. */
+function isTemplate(row: unknown): row is RoutineTemplate {
+  if (!isRecord(row)) return false
+  const words = ['id', 'title', 'summary', 'recurrence', 'fits'].every((key) => typeof row[key] === 'string' && row[key] !== '')
+  if (!words || !Number.isInteger(row.version) || (row.source !== 'hobkin' && row.source !== 'yours')) return false
+  if (!isStringArray(row.goals) || !isStringArray(row.needs) || !EFFORTS.includes(row.effort)) return false
+  return row.asks === null || typeof row.asks === 'string'
+}
+
+/** The templates in hobkin's answer to `routine.templates`, without a row the screen cannot draw. */
+export function templatesFromHost(answer: unknown): RoutineTemplate[] {
+  const rows = isRecord(answer) && Array.isArray(answer.templates) ? answer.templates : []
+  return rows.filter(isTemplate)
+}
+
+/** Schedules and definition errors come from the snapshot, and the templates as hobkin listed them. History and memory stay unknown. */
+export function routinesFromHost(snapshot: WireSnapshot, templates: RoutineTemplate[] = []): RoutinesData {
   const data: RoutinesData = {
     routines: [],
     errors: [],
@@ -54,7 +71,7 @@ export function routinesFromHost(snapshot: WireSnapshot): RoutinesData {
     reports: {},
     running: {},
     changedAt: {},
-    templates: [],
+    templates,
   }
   for (const error of Array.isArray(snapshot.errors) ? snapshot.errors : []) {
     if (isRecord(error) && typeof error.path === 'string' && typeof error.message === 'string') {

@@ -67,6 +67,7 @@ import { AgentScheduleReader, scheduleEnvironmentOf, scheduleHandlers, scheduleO
 import { memoryHandlers, memoryOperationsAt } from './memories.ts'
 import { hobkinHandlers } from './hobkins.ts'
 import { routineHandlers } from './routines.ts'
+import { routineTemplateHandlers } from './routine-templates.ts'
 import { appearanceRequest, loadHostAppearance } from './appearance-host.ts'
 import { appearanceSession } from './appearance-session.ts'
 import * as canvasStore from 'hobkin/src/cli/canvas.mjs'
@@ -826,6 +827,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...reminderHandlers({ root: () => hobkin().runtime.directory, changed: publish }),
     // A routine's switch, its times and Run now, each through hobkin's own runner (010-routines).
     ...routineHandlers({ app: hobkin }),
+    // The templates the Routines screen offers, hobkin's and the user's own, read as setup reads them.
+    ...routineTemplateHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root) }),
     // Change Review: prepared reviews, the reviewer's notes, and verdicts (005, 009).
     ...reviewHandlers(reviews),
     // Make it a stack: one max-tier agent splits the change, started the way hobkin.start starts one.

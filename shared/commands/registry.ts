@@ -36,6 +36,7 @@ import {
 } from '../protocol/setup.ts'
 import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import type { ProofRun } from '../protocol/proofs.ts'
+import type { RoutineTemplatesList } from '../protocol/routine-templates.ts'
 import { METRICS_DAYS_MAX, type WorkMetrics } from '../protocol/metrics.ts'
 import type { ActivityEntry } from '../protocol/activity.ts'
 import { GRADES, ISSUE_PICKUPS, PR_MODES, PROJECT_KINDS, REVIEW_PULLS, type FolderLook, type FolderPicked, type NewProjectDone, type RunGuide, type RunGuideAsked, type WholeQueue, type Workload, type YoloRules } from '../protocol/work.ts'
@@ -1428,6 +1429,13 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ id: routineId }, { additionalProperties: false }),
   },
+  'routine.templates': {
+    description:
+      "List the routine templates hobkin can set up: its own and the user's own from routines/templates, one per name with the user's winning, each with its title, what it watches, how often, the goals it serves, who it fits, what it needs, its effort and its own question. It only reads.",
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
   'routine.enable': {
     description: "Turn a routine on or off: hobkin writes `enabled` in the routine's file, and nothing else in it changes. Off, it never runs by itself.",
     runs: 'host',
@@ -1778,6 +1786,7 @@ export interface CommandResults {
   'activity.output': WholeOutput | null
   /** The run hobkin started. */
   'routine.run': { run: string }
+  'routine.templates': RoutineTemplatesList
   'routine.enable': { ok: true }
   'routine.times': { ok: true }
   'routine.delete': { id: string; deleted: true }

@@ -4,14 +4,14 @@ import { hostStore, runCommand } from '../../lib/host/client.ts'
 import type { HostState } from '../../lib/host/state.ts'
 import { hasHost } from '../../lib/host/frame.ts'
 import { useView } from '../../app/view-store.ts'
-import { routinesFromHost } from './host-data.ts'
+import { routinesFromHost, templatesFromHost } from './host-data.ts'
 import type { TimesEdit, WindowEdit } from './edit.ts'
 import { groupChoices, groupOf, type GroupChoices } from './groups.ts'
 import { prepareRoutines, withSkyWidth, type PreparedRoutines } from './prepare.ts'
 import { changeTimes, finishRun, holdFor, setEnabled, startRun, type RunOutcome } from './rules.ts'
 import { buildSample, SAMPLE_OUTCOMES } from './sample.ts'
 import { occurrencesBetween } from './timeline.ts'
-import type { Recurrence, RoutinesData } from './types.ts'
+import type { Recurrence, RoutinesData, RoutineTemplate } from './types.ts'
 
 /**
  * With a host, Run now, the switch and new times are hobkin's own commands, and its snapshot then shows what it did.
@@ -32,7 +32,7 @@ export const VIEW_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 export type Pending = { action: 'run' } | { action: 'enable'; enabled: boolean } | { action: 'times' }
 
 /** The host's commands, through the window's connection. A test hands in a host of its own. */
-export const routinesHost = { run: runCommand }
+export const routinesHost = { run: runCommand, templates: () => runCommand('routine.templates', {}) }
 
 const SECOND = 1000
 const MINUTE = 60 * SECOND
@@ -283,6 +283,29 @@ export const useRoutines = create<RoutinesState>()(
   ),
 )
 
+/** hobkin's templates for the home this window shows, asked once for each home and connection. */
+let hostTemplates: { key: string; rows: RoutineTemplate[] } | null = null
+
+/**
+ * The templates known for this home and connection. The first look asks hobkin for them and answers with none; they
+ * join the screen's data once hobkin answers. A host that cannot list them leaves the screen without templates.
+ */
+function templatesFor(state: HostState): RoutineTemplate[] {
+  const key = `${state.home} ${state.epoch}`
+  if (hostTemplates?.key === key) return hostTemplates.rows
+  // A connection's first full state starts its epoch. Before it, and while the link is down, there is no one to ask.
+  if (state.epoch === 0 || state.link !== 'open') return []
+  hostTemplates = { key, rows: [] }
+
+  const landed = (rows: RoutineTemplate[]) => {
+    if (hostTemplates?.key !== key) return
+    hostTemplates = { key, rows }
+    useRoutines.setState((now) => (now.sample === null ? { data: { ...now.data, templates: rows } } : {}))
+  }
+  routinesHost.templates().then((answer) => landed(templatesFromHost(answer)), () => {})
+  return []
+}
+
 function syncRoutines(state: HostState, previous?: HostState): void {
   if (previous && state.home === previous.home &&
     state.snapshot.schedules === previous.snapshot.schedules &&
@@ -293,7 +316,7 @@ function syncRoutines(state: HostState, previous?: HostState): void {
   const current = useRoutines.getState()
   const sample = !hasHost(state) ? 'full' : null
   // Hello still carries the previous home's snapshot until the following state message.
-  const data = sample ? freshSample() : routinesFromHost(changedHome ? {} : state.snapshot)
+  const data = sample ? freshSample() : routinesFromHost(changedHome ? {} : state.snapshot, templatesFor(state))
   const contains = (id: string | null) => !changedHome && data.routines.some((routine) => routine.id === id)
   useRoutines.setState({
     ...ready(data),

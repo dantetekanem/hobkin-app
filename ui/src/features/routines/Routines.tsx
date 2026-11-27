@@ -111,8 +111,8 @@ export function Routines() {
   const { facts, holds } = screen
   const order = useMemo(() => listOrder(facts), [facts])
 
-  // hobkin's own routines come with their schedules only. The sample also has their runs, memory and reports, and the
-  // asks that put a message to hobkin in the input: a new routine, a template, a fix for a broken file.
+  // hobkin's own routines come with their schedules only. The sample also has their runs, memory and reports. Both have
+  // the asks that put a message to hobkin in the input: a first or a new routine, a template, a fix for a broken file.
   const fromHost = sample === null
   const opened = facts.find((item) => item.routine.id === openId)
   const walkable = opened === undefined
@@ -183,7 +183,7 @@ export function Routines() {
               onView={chooseView}
               walkable={walkable}
               empty={empty}
-              onNewRoutine={fromHost ? undefined : () => {
+              onNewRoutine={() => {
                 askForNewRoutine()
                 onAsked()
               }}
@@ -203,19 +203,17 @@ export function Routines() {
             />
           </Hero>
 
-          {fromHost || empty ? null : <Suggested shown={asked > 0} />}
+          {empty ? null : <Suggested shown={asked > 0} />}
 
           {data.errors.length ? (
             <Rise>
-              {fromHost ? data.errors.map((error, index) => (
-                <p key={`${error.path}-${index}`} className="text-[13px] text-warn-fg">{error.path}: {error.message}</p>
-              )) : <BrokenFiles errors={data.errors} walkable={walkable} onAsked={onAsked} />}
+              <BrokenFiles errors={data.errors} walkable={walkable} onAsked={onAsked} />
             </Rise>
           ) : null}
 
           {empty ? (
             <Rise>
-              {fromHost ? <p className="text-[14px] text-muted-foreground">No routines in the current host snapshot.</p> : <EmptyHome walkable={walkable} onAsked={onAsked} asked={asked > 0} />}
+              <EmptyHome walkable={walkable} onAsked={onAsked} asked={asked > 0} />
             </Rise>
           ) : (
             <Rise>
@@ -231,7 +229,7 @@ export function Routines() {
 
           <Workflows walkable={walkable} now={now} />
 
-          {!fromHost && !empty && view === 'all' ? (
+          {empty || view === 'all' ? (
             <Rise>
               <Templates templates={data.templates} walkable={walkable} onAsked={onAsked} />
             </Rise>

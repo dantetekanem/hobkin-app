@@ -1,3 +1,5 @@
+import type { RoutineTemplateRow } from '#shared/protocol/routine-templates.ts'
+
 /**
  * Routines, shaped as hobkin's own data, so wiring the host later is an adapter and not a rewrite.
  * Source: hobkin `src/cli/schedules.mjs` (the files), `checks.mjs` (the log, the memory, the hold rule),
@@ -86,18 +88,8 @@ export interface RunningRun {
 /** What the user sees a routine as. */
 export type RoutineState = 'on' | 'off' | 'held' | 'running'
 
-/** A ready-made routine hobkin can set up in a conversation. */
-export interface RoutineTemplate {
-  id: string
-  title: string
-  summary: string
-  recurrence: string
-  group: 'day' | 'code' | 'week' | 'life' | 'machine'
-  fits: string
-  needs: string[]
-  effort: string
-  asks: string | null
-}
+/** A ready-made routine hobkin can set up in a conversation, as the host lists them (`routine.templates`). */
+export type RoutineTemplate = RoutineTemplateRow
 
 /** Everything the screen draws, as the host will supply it. */
 export interface RoutinesData {
