@@ -231,7 +231,9 @@ function useFirstModels(at: BeatId, onTrouble: (words: string) => void): FirstMo
   useEffect(() => {
     if (asked.current || !live || (at !== 'found' && at !== 'connected')) return
     asked.current = true
-    runCommand('tiers.first').then(setModels, (error: unknown) => onTrouble(`I could not set my models, so they stay as Pi picks them: ${reasonOf(error)}`))
+    runCommand('tiers.first').then(setModels, (error: unknown) => {
+      onTrouble(`I could not set my models, so they stay as Pi picks them: ${reasonOf(error)}`)
+    })
   }, [at, live])
 
   return models

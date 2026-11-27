@@ -4,8 +4,8 @@
  * setup's story says what was set.
  */
 import type { ModelsState } from '#shared/protocol/models.ts'
-import { pickFirstModels, type FirstModels } from '#shared/tiers/first-models.ts'
-import { TIER_IDS, type Effort, type HostTiers, type TierId, type TierSetting, type TiersChange } from '#shared/tiers/tiers.ts'
+import { pickFirstModels, type FirstModels, type Picked } from '#shared/tiers/first-models.ts'
+import { TIER_IDS, type Effort, type HostTiers, type TierSetting, type TiersChange } from '#shared/tiers/tiers.ts'
 
 export interface FirstModelsHost {
   /** The models Pi can use now, asked again. */
@@ -27,14 +27,19 @@ export function neverChosen({ lead, tiers }: HostTiers): boolean {
   return lead.model === null && TIER_IDS.every((tier) => tiers[tier].follows !== null && tiers[tier].model === null)
 }
 
+/** What a tier saves of a pick: its model and level, without the name. */
+const settingOf = ({ model, effort }: Picked): TierSetting => ({ model, effort })
+
 export async function setFirstModels({ models, tiers, selectModel, applyTiers }: FirstModelsHost): Promise<FirstModels> {
   if (!neverChosen(await tiers())) return { set: false, why: 'chosen' }
+
   const pick = pickFirstModels(await models())
   if (!pick) return { set: false, why: 'no-model' }
 
   // The chat's model first. Should the tiers then fail, they follow it, and the home reads as chosen from then on.
   await selectModel(pick.lead.model, pick.lead.effort)
-  const settings = Object.fromEntries(TIER_IDS.map((tier) => [tier, { model: pick.tiers[tier].model, effort: pick.tiers[tier].effort }])) as Record<TierId, TierSetting>
-  await applyTiers({ tiers: settings })
+  const { fast, mid, high, max } = pick.tiers
+  await applyTiers({ tiers: { fast: settingOf(fast), mid: settingOf(mid), high: settingOf(high), max: settingOf(max) } })
+
   return { set: true, ...pick }
 }

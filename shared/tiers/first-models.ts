@@ -16,7 +16,7 @@
  */
 import type { ModelChoice as PiModel, ModelsState, ProviderAccess } from '../protocol/models.ts'
 import { effortsOf, qualifiedId } from './from-pi.ts'
-import { EFFORTS, TIER_IDS, clampEffort, type Effort, type TierId } from './tiers.ts'
+import { EFFORTS, clampEffort, type Effort, type TierId } from './tiers.ts'
 
 /** The providers hobkin's first models come from, in this order, when several are connected the same way. The user can change it. */
 export const PROVIDER_ORDER = ['openai-codex', 'openai', 'anthropic', 'github-copilot'] as const
@@ -40,29 +40,54 @@ export interface FirstPick {
 export type FirstModels = ({ set: true } & FirstPick) | { set: false; why: 'chosen' | 'no-model' }
 
 /** Someone already pays for it as a whole: a subscription's sign-in, or the company's launcher on a work computer. */
-const paidAsWhole = ({ connectedBy, signIn }: ProviderAccess): boolean => connectedBy === 'launcher' || (connectedBy === 'sign-in' && signIn?.subscription === true)
+function paidAsWhole({ connectedBy, signIn }: ProviderAccess): boolean {
+  if (connectedBy === 'launcher') return true
+  return connectedBy === 'sign-in' && signIn?.subscription === true
+}
 
 /** Where a provider stands in the written order. One it does not name comes after every one it does. */
-const written = ({ id }: ProviderAccess): number => {
+function writtenPlace({ id }: ProviderAccess): number {
   const place = (PROVIDER_ORDER as readonly string[]).indexOf(id)
   return place === -1 ? PROVIDER_ORDER.length : place
 }
 
-/** The connected provider the first models come from, with its models in Pi's order. Null when Pi can use none. */
-function preferred({ providers, models }: ModelsState): { provider: ProviderAccess; own: PiModel[] } | null {
+/** A connected provider with the models Pi lists for it, in Pi's order, and where Pi lists the provider. */
+interface Usable {
+  provider: ProviderAccess
+  piPlace: number
+  own: [PiModel, ...PiModel[]]
+}
+
+const isUsable = (entry: Omit<Usable, 'own'> & { own: PiModel[] }): entry is Usable => entry.provider.connected && entry.own.length > 0
+
+/** Paid as a whole first, then the written order, then Pi's order. */
+function byPreference(a: Usable, b: Usable): number {
+  const paid = Number(paidAsWhole(b.provider)) - Number(paidAsWhole(a.provider))
+  if (paid !== 0) return paid
+
+  const written = writtenPlace(a.provider) - writtenPlace(b.provider)
+  if (written !== 0) return written
+
+  return a.piPlace - b.piPlace
+}
+
+/** The connected provider the first models come from. Null when Pi can use none. */
+function preferred({ providers, models }: ModelsState): Usable | null {
   const usable = providers
-    .map((provider, place) => ({ provider, place, own: models.filter((model) => model.provider === provider.id) }))
-    .filter(({ provider, own }) => provider.connected && own.length > 0)
-  // Sorting is stable, so Pi's order settles what the first two leave even.
-  usable.sort((a, b) => Number(paidAsWhole(b.provider)) - Number(paidAsWhole(a.provider)) || written(a.provider) - written(b.provider) || a.place - b.place)
-  return usable[0] ?? null
+    .map((provider, piPlace) => ({ provider, piPlace, own: models.filter((model) => model.provider === provider.id) }))
+    .filter(isUsable)
+
+  return usable.sort(byPreference)[0] ?? null
 }
 
 /** Pi lists `off` for a model that cannot think, so thinking means a level above it. */
 const thinks = (model: PiModel): boolean => effortsOf(model.thinking).some((effort) => effort !== 'off')
 
 /** The most the model allows. One that lists no level Pi knows is asked for off, which Pi runs every model at. */
-const strongest = (model: PiModel): Effort => EFFORTS.toReversed().find((effort) => effortsOf(model.thinking).includes(effort)) ?? 'off'
+function strongest(model: PiModel): Effort {
+  const offered = effortsOf(model.thinking)
+  return EFFORTS.toReversed().find((effort) => offered.includes(effort)) ?? 'off'
+}
 
 /** A model's kind: its id's first word, such as `gpt`, `claude` or `moonshotai`. */
 const kindOf = ({ id }: PiModel): string => id.split(/[-/]/)[0] ?? id
@@ -74,32 +99,46 @@ const priceOf = ({ cost }: PiModel): number | null => (cost ? cost.input + cost.
 function cheaperOfKind(own: readonly PiModel[], anchor: PiModel): PiModel | null {
   const ceiling = priceOf(anchor)
   if (ceiling === null) return null
+
   const reach = EFFORTS.indexOf(strongest(anchor))
-  let cheapest: PiModel | null = null
+  const isCandidate = (model: PiModel): boolean => thinks(model) && kindOf(model) === kindOf(anchor) && EFFORTS.indexOf(strongest(model)) >= reach
+
+  let cheapest: { model: PiModel; price: number } | null = null
   for (const model of own) {
     const price = priceOf(model)
-    if (price === null || price >= ceiling || !thinks(model) || kindOf(model) !== kindOf(anchor) || EFFORTS.indexOf(strongest(model)) < reach) continue
+    if (price === null || price >= ceiling || !isCandidate(model)) continue
     // A tie keeps the one Pi lists first.
-    if (!cheapest || price < priceOf(cheapest)!) cheapest = model
+    if (!cheapest || price < cheapest.price) cheapest = { model, price }
   }
-  return cheapest
+  return cheapest?.model ?? null
+}
+
+/** A model at a thinking level, moved to the nearest one the model has. */
+function pickedAt(model: PiModel, effort: Effort): Picked {
+  return {
+    model: qualifiedId(model),
+    name: model.name,
+    effort: clampEffort({ efforts: effortsOf(model.thinking) }, effort),
+  }
 }
 
 /** hobkin's model and each tier, from the models Pi can use now. Null when Pi reaches no provider it lists a model for. */
 export function pickFirstModels(state: ModelsState): FirstPick | null {
   const found = preferred(state)
   if (!found) return null
-  const { provider, own } = found
-  const { defaultModel } = provider
-  const anchor = own.find((model) => model.id === defaultModel) ?? own.find(thinks) ?? own[0]!
-  const fast = cheaperOfKind(own, anchor) ?? anchor
 
-  const at = (model: PiModel, effort: Effort): Picked => ({ model: qualifiedId(model), name: model.name, effort: clampEffort({ efforts: effortsOf(model.thinking) }, effort) })
-  const levels: Record<TierId, Picked> = { fast: at(fast, 'low'), mid: at(anchor, 'medium'), high: at(anchor, 'high'), max: at(anchor, strongest(anchor)) }
+  const { provider, own } = found
+  const anchor = own.find((model) => model.id === provider.defaultModel) ?? own.find(thinks) ?? own[0]
+  const fast = cheaperOfKind(own, anchor) ?? anchor
 
   return {
     provider: { id: provider.id, name: provider.name },
-    lead: at(anchor, 'medium'),
-    tiers: Object.fromEntries(TIER_IDS.map((tier) => [tier, levels[tier]])) as Record<TierId, Picked>,
+    lead: pickedAt(anchor, 'medium'),
+    tiers: {
+      fast: pickedAt(fast, 'low'),
+      mid: pickedAt(anchor, 'medium'),
+      high: pickedAt(anchor, 'high'),
+      max: pickedAt(anchor, strongest(anchor)),
+    },
   }
 }

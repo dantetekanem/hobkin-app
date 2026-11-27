@@ -39,11 +39,22 @@ const COPILOT_MODELS = [
   model('github-copilot', 'gpt-6.1-sol', 'GPT-6.1 Sol', ['low', 'medium', 'high', 'xhigh', 'max'], [2, 10]),
 ]
 
-const picked = (state: ModelsState) => {
+/** A pick as `provider/id level` for hobkin and each tier, so a whole pick reads on a few lines. */
+const said = ({ model, effort }: { model: string; effort: string }) => `${model} ${effort}`
+
+function picked(state: ModelsState) {
   const pick = pickFirstModels(state)
   if (!pick) return null
-  const said = ({ model, effort }: { model: string; effort: string }) => `${model} ${effort}`
-  return { provider: pick.provider.id, lead: said(pick.lead), fast: said(pick.tiers.fast), mid: said(pick.tiers.mid), high: said(pick.tiers.high), max: said(pick.tiers.max) }
+
+  const { fast, mid, high, max } = pick.tiers
+  return {
+    provider: pick.provider.id,
+    lead: said(pick.lead),
+    fast: said(fast),
+    mid: said(mid),
+    high: said(high),
+    max: said(max),
+  }
 }
 
 test("one subscription: hobkin and its tiers start on Pi's default for it, fast on the cheapest model of its kind, each thinking a little more", () => {

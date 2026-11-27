@@ -68,7 +68,6 @@ test("a new home gets hobkin's model and every tier from the account, the chat's
       max: { model: 'openai-codex/gpt-6.1-sol', effort: 'max' },
     },
   })
-  assert.equal(answer.set, true)
   assert.ok(answer.set)
   assert.deepEqual(answer.provider, { id: 'openai-codex', name: 'OpenAI Codex' })
   assert.deepEqual(answer.lead, { model: 'openai-codex/gpt-6.1-sol', name: 'GPT-6.1 Sol', effort: 'medium' })
