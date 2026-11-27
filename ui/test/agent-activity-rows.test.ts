@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { RunChild } from '../../shared/protocol/snapshot.ts'
 import type { TeamsAgent } from '../../shared/protocol/teams.ts'
 import type { ModelChoice } from '../../shared/tiers/tiers.ts'
-import { activityAgents, activityHeader, activityLine, elapsedText, helperStays, shownRows, stepAgent, tokenCount, tokensText } from '../src/features/teams/activity.ts'
+import { activityAgents, activityHeader, activityLine, elapsedText, helperStays, shownRows, stepAgent, tokenCount } from '../src/features/teams/activity.ts'
 import type { ShownTeamsAgent } from '../src/features/teams/rules.ts'
 
 const NOW = 1_800_000_000_000
@@ -48,22 +48,36 @@ test("a running teams agent reads as pi-extended-teams' activity row: model and 
 
   assert.deepEqual(teamsRow(scout), {
     name: 'scout',
-    runsOn: 'gpt-6-luna/max',
+    model: 'gpt-6-luna',
+    level: 'max',
     tier: 'read-review',
     elapsed: '1m05s',
-    tokens: '26k tok (10%)',
+    context: { tokens: '26k', share: 10 },
     doing: 'Tracing the redirect',
+    ownWords: true,
     tone: 'live',
   })
 })
 
-test('a running teams agent without its own words says its tool or phase, and with neither that it runs', () => {
+test('a running teams agent without its own words says what it was asked, else its tool or phase, else that it runs', () => {
   // A model the window does not know gives no share of its context.
-  const quiet = teams('quiet', 'running', { model: 'anthropic/claude-x', tokens: 900, phase: 'grep' })
-  const bare = teams('bare', 'running', { startedAt: undefined })
+  const quiet = teams('quiet', 'running', { model: 'anthropic/claude-x', tokens: 900, phase: 'grep', task: 'Find one silly fact\nabout wombats' })
+  const tooling = teams('tooling', 'running', { task: '', phase: 'grep' })
+  const bare = teams('bare', 'running', { task: '', startedAt: undefined })
 
-  assert.deepEqual(teamsRow(quiet), { name: 'quiet', runsOn: 'claude-x', tier: '', elapsed: '1m05s', tokens: '900 tok', doing: 'grep', tone: 'live' })
-  assert.deepEqual(teamsRow(bare), { name: 'bare', runsOn: '', tier: '', elapsed: '', tokens: '', doing: 'running', tone: 'live' })
+  assert.deepEqual(teamsRow(quiet), {
+    name: 'quiet',
+    model: 'claude-x',
+    level: '',
+    tier: '',
+    elapsed: '1m05s',
+    context: { tokens: '900' },
+    doing: 'Find one silly fact',
+    ownWords: false,
+    tone: 'live',
+  })
+  assert.equal(teamsRow(tooling).doing, 'grep')
+  assert.deepEqual(teamsRow(bare), { name: 'bare', model: '', level: '', tier: '', elapsed: '', context: null, doing: 'running', ownWords: false, tone: 'live' })
 })
 
 test('an agent no longer running says how it stands, and its time stops where it ended', () => {
@@ -85,18 +99,25 @@ test("a helper's row has what hobkin keeps of it: its model, level and tier, and
   // A legacy row keeps the times hobkin saw; an owned helper has none, so its row counts no time.
   const legacy = helper('old', 'stopped', { id: undefined, startedAt: NOW - 3_000, endedAt: NOW - 1_000 })
 
-  assert.deepEqual(helperRow(running), { name: 'reader', runsOn: 'gpt-6-luna/high', tier: 'mid', elapsed: '', tokens: '', doing: 'running · read', tone: 'live' })
-  assert.deepEqual(helperRow(legacy), { name: 'old', runsOn: '', tier: '', elapsed: '2s', tokens: '', doing: 'never reported', tone: 'quiet' })
+  assert.deepEqual(helperRow(running), {
+    name: 'reader',
+    model: 'gpt-6-luna',
+    level: 'high',
+    tier: 'mid',
+    elapsed: '',
+    context: null,
+    doing: 'running · read',
+    ownWords: false,
+    tone: 'live',
+  })
+  assert.deepEqual(helperRow(legacy), { name: 'old', model: '', level: '', tier: '', elapsed: '2s', context: null, doing: 'never reported', ownWords: false, tone: 'quiet' })
   assert.equal(helperRow(helper('next', 'queued', { queuePosition: 2 })).doing, 'queued · #2')
   assert.equal(helperRow(helper('x', 'failed')).tone, 'bad')
 })
 
-test('times, token counts and context shares are written as pi-extended-teams writes them', () => {
+test('times and token counts are written as pi-extended-teams writes them', () => {
   assert.deepEqual([0, 999, 38_000, 65_000, 3_599_000, 3_600_000, 7_500_000, -5].map(elapsedText), ['0s', '0s', '38s', '1m05s', '59m59s', '1h00m', '2h05m', '0s'])
   assert.deepEqual([0, 980, 7_140, 26_300, 999_499, 1_250_000].map(tokenCount), ['0', '980', '7.1k', '26k', '999k', '1.3M'])
-  assert.equal(tokensText(26_300, 272_000), '26k tok (10%)')
-  assert.equal(tokensText(26_300, undefined), '26k tok')
-  assert.equal(tokensText(undefined, 272_000), '')
 })
 
 test('the heading counts what is out, then what failed or was lost, as the activity header does', () => {

@@ -34,7 +34,7 @@ import { imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls
 import { useNow } from '@/features/chat/use-now.ts'
 import { PageHeader, PartFrame } from '@/features/hobkins/PageHeader.tsx'
 import { SubagentActivity } from '@/features/teams/SubagentActivity.tsx'
-import { openNavigator } from '@/features/teams/use-activity.ts'
+import { openNavigator, useHasSubagents } from '@/features/teams/use-activity.ts'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
 import { agentsFrom } from '@/lib/host/frame.ts'
 import { runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
@@ -473,6 +473,7 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
   const sendNote = useAgentThreads((threads) => threads.send)
   const live = useHasHost()
   const images = useAgentImageInput(agentId, !finished)
+  const withAgents = useHasSubagents(agentId)
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   /** What a /model or /effort line did, under the box. */
@@ -616,9 +617,10 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
       </form>
       {/* Its agents and what each is doing, under the input as pi-extended-teams draws them (046). */}
       <SubagentActivity agentId={agentId} hue={hue} name={name} />
-      {/* Always there, so the box does not move when words come and go. Its schedules are a line under its header (056). */}
-      <div className="relative mt-1 flex min-h-6 items-start gap-3 px-3">
-        <div className="min-w-0 flex-1 py-1 text-[11px] leading-4">
+      {/* Always there, so the box does not move when words come and go, except under the agents' rows: an empty line
+          there was only a gap at the page's foot (the user, 2026-11-27). Its schedules are a line under its header (056). */}
+      <div className={cn('relative flex items-start gap-3 px-3', !withAgents && 'mt-1 min-h-6')}>
+        <div className="min-w-0 flex-1 text-[11px] leading-4 [&:not(:empty)]:py-1">
           {problem || images.problem ? (
             <p role="alert" className="text-bad-fg">
               {problem ?? images.problem}

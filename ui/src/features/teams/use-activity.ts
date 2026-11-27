@@ -35,6 +35,9 @@ export function openNavigator(agent: string, { at, from }: { at?: string; from?:
 
 export const closeNavigator = () => useNavigator.setState({ open: null })
 
+/** Whether `agent`'s strip draws any agents now. Under its input, they take the place of its empty status line. */
+export const useHasSubagents = (agent: string): boolean => useNavigator((state) => (state.rows[agent]?.length ?? 0) > 0)
+
 export const moveNavigator = (at: string) => useNavigator.setState((state) => (state.open ? { open: { ...state.open, at } } : state))
 
 const keyOf = (child: RunChild) => child.id ?? child.name

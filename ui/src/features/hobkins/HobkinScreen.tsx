@@ -66,7 +66,7 @@ import {
 } from './conversation.ts'
 import { AgentPromptEditor } from '@/features/chat/PromptEditor.tsx'
 import { SubagentActivity } from '@/features/teams/SubagentActivity.tsx'
-import { openNavigator } from '@/features/teams/use-activity.ts'
+import { openNavigator, useHasSubagents } from '@/features/teams/use-activity.ts'
 import { ContinueButton, imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
 import { CONTINUE_WORDS, waitingRows, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
 import { useTalkControls } from '@/features/work/use-talk-controls.ts'
@@ -838,6 +838,7 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
   // Images pasted or dropped on the box go with the words, as in the main input.
   const agent = hobkinAgentId(id)
   const images = useAgentImageInput(agent, true)
+  const withAgents = useHasSubagents(agent)
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   /** What a /model or /effort line did, under the box. */
@@ -1005,9 +1006,10 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
       </form>
       {/* Its agents and what each is doing, under the box as pi-extended-teams draws them (SubagentActivity, 046). */}
       <SubagentActivity agentId={agent} hue={hueOf(id)} name={name} />
-      {/* Always there, so the box does not move when words come and go. Its schedules are a line under its header (056). */}
-      <div className="relative mt-1 flex min-h-6 items-start gap-3 px-3">
-        <div className="min-w-0 flex-1 py-1 text-[11px] leading-4">
+      {/* Always there, so the box does not move when words come and go, except under the agents' rows: an empty line
+          there was only a gap at the page's foot (the user, 2026-11-27). Its schedules are a line under its header (056). */}
+      <div className={cn('relative flex items-start gap-3 px-3', !withAgents && 'mt-1 min-h-6')}>
+        <div className="min-w-0 flex-1 text-[11px] leading-4 [&:not(:empty)]:py-1">
           {problem || images.problem ? (
             <p role="alert" className="text-bad-fg">
               {problem ?? images.problem}

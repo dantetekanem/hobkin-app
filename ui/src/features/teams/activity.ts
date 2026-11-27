@@ -71,36 +71,40 @@ export function tokenCount(count: number): string {
   return `${(count / 1_000_000).toFixed(1)}M`
 }
 
-/** "26k tok (10%)": what its context holds, and its share of the model's window when the window knows the model. */
-export function tokensText(tokens: number | undefined, context: number | undefined): string {
-  if (tokens === undefined) return ''
-  const share = context ? ` (${Math.round((tokens / context) * 100)}%)` : ''
-  return `${tokenCount(tokens)} tok${share}`
-}
-
-/** One row's words, each part empty when hobkin does not know it. */
+/** One row's parts, each empty when hobkin does not know it. */
 export interface ActivityLine {
   name: string
-  /** Its model's own id and its level, "gpt-6-luna/max". */
-  runsOn: string
+  /** Its model's own id, without its provider: "gpt-6-luna". */
+  model: string
+  /** Its thinking level: "max". */
+  level: string
   /** Its tier, a teams tier such as "read-review" or one of hobkin's. */
   tier: string
   /** How long it has been out, or how long it ran once it ended. */
   elapsed: string
-  tokens: string
-  /** What it is doing, in its own words while it runs, or how it stands. */
+  /** What its context holds, "26k", and its share of the model's window in percent when the window knows the model. */
+  context: { tokens: string; share?: number } | null
+  /** What it is doing: its own words while it runs, else what it was asked, its tool or phase, or how it stands. */
   doing: string
+  /** `doing` is the agent's own words, what it last said it is doing. */
+  ownWords: boolean
   /** `live` while it runs, `waiting` while it waits, `bad` once it failed, `quiet` otherwise. */
   tone: 'live' | 'waiting' | 'bad' | 'quiet'
 }
 
 const TONE: Record<Standing, ActivityLine['tone']> = { out: 'live', waiting: 'waiting', lost: 'quiet', failed: 'bad', ended: 'quiet' }
 
-/** The model's own id after its provider, with its level: "gpt-6-luna/max". */
-function shortRunsOn(model: string | undefined, thinking: string | undefined): string {
-  const id = model ? model.slice(model.lastIndexOf('/') + 1) : ''
-  return [id, thinking].filter(Boolean).join('/')
+/** The model's own id after its provider: "openai-codex/gpt-6-luna" is "gpt-6-luna". */
+const modelId = (model: string | undefined): string => (model ? model.slice(model.lastIndexOf('/') + 1) : '')
+
+/** What its context holds, and its share of the model's window when the window knows how big that is. */
+function contextOf(tokens: number | undefined, window: number | undefined): ActivityLine['context'] {
+  if (tokens === undefined) return null
+  return window ? { tokens: tokenCount(tokens), share: Math.round((tokens / window) * 100) } : { tokens: tokenCount(tokens) }
 }
+
+/** The first line of what it was asked, or nothing when it was asked nothing hobkin saw. */
+const firstAsked = (task: string): string => task.split('\n').map((line) => line.trim()).find(Boolean) ?? ''
 
 /** Out, it counts to now; ended, to its end. A time hobkin did not see gives none. */
 function spanText(startedAt: number | undefined, endedAt: number | undefined, out: boolean, now: number): string {
@@ -108,9 +112,9 @@ function spanText(startedAt: number | undefined, endedAt: number | undefined, ou
   return startedAt !== undefined && end !== undefined ? elapsedText(end - startedAt) : ''
 }
 
-/** What a teams agent is doing, or how it stands, in a few words. */
+/** What a teams agent is doing, or how it stands, in a few words. Running and silent, what it was asked says more than its phase. */
 function teamsDoing(agent: ShownTeamsAgent): string {
-  if (agent.state === 'running') return agent.progress ?? agent.phase ?? 'running'
+  if (agent.state === 'running') return agent.progress ?? (firstAsked(agent.task) || agent.phase) ?? 'running'
   if (agent.state === 'unknown') return 'unknown · no report came'
   if ((agent.state === 'failed' || agent.state === 'done') && agent.summary) return `${agent.state} · ${agent.summary}`
   return agent.state
@@ -124,15 +128,17 @@ export function activityLine(agent: ActivityAgent, now: number, choices: readonl
 function teamsLine(agent: ShownTeamsAgent, now: number, choices: readonly ModelChoice[]): ActivityLine {
   const standing = TEAMS_STANDING[agent.state]
   const out = standing === 'out' || standing === 'waiting'
-  const context = agent.model ? choices.find((choice) => choice.id === agent.model)?.context : undefined
+  const window = agent.model ? choices.find((choice) => choice.id === agent.model)?.context : undefined
   return {
     name: agent.name,
-    runsOn: shortRunsOn(agent.model, agent.thinking),
+    model: modelId(agent.model),
+    level: agent.thinking ?? '',
     tier: agent.modelSlot ?? '',
     // One whose end hobkin never saw has no time to count to.
     elapsed: standing === 'lost' ? '' : spanText(agent.startedAt, agent.endedAt, out, now),
-    tokens: tokensText(agent.tokens, context),
+    context: contextOf(agent.tokens, window),
     doing: teamsDoing(agent),
+    ownWords: agent.state === 'running' && agent.progress !== undefined,
     tone: TONE[standing],
   }
 }
@@ -143,11 +149,13 @@ function helperLine(helper: RunChild, now: number): ActivityLine {
   const out = standing === 'out' || standing === 'waiting'
   return {
     name: helper.name,
-    runsOn: shortRunsOn(helper.model, helper.thinking),
+    model: modelId(helper.model),
+    level: helper.thinking ?? '',
     tier: helper.modelSlot ?? '',
     elapsed: spanText(helper.startedAt, helper.endedAt, out, now),
-    tokens: '',
+    context: null,
     doing: childLine(helper),
+    ownWords: false,
     tone: TONE[standing],
   }
 }

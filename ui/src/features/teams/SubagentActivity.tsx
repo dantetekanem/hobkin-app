@@ -1,3 +1,4 @@
+import { Cpu, Gauge, Layers3, PencilLine, ScanSearch, Timer, type LucideIcon } from 'lucide-react'
 import { memo, useLayoutEffect, useRef, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog.tsx'
@@ -9,7 +10,7 @@ import { describeChild } from '@/features/work/child-summary.ts'
 import { cn } from '@/lib/utils.ts'
 import { activityHeader, activityLine, agentName, shownRows, stepAgent, stillOut, type ActivityAgent, type ActivityLine } from './activity.ts'
 import { describeTeamsAgent, type ShownTeamsAgent } from './rules.ts'
-import { faceHue, TeamsAgentBody } from './TeamsAgentBody.tsx'
+import { faceHue, TeamsAgentBody, TeamsFace } from './TeamsAgentBody.tsx'
 import { closeNavigator, moveNavigator, openNavigator, useNavigator, useSubagents, type NavigatorOpen } from './use-activity.ts'
 
 interface SubagentActivityProps {
@@ -26,9 +27,9 @@ interface SubagentActivityProps {
 /**
  * An agent's agents under its input, as pi-extended-teams draws them under Pi's editor (046-teams-layer). The user,
  * 2026-11-27: "behind the input, showing a quick status update, tokens used, how long is running, if press down i can
- * see more in the screen like floating ... not the pill". A heading with how many are out, then one row each: its name,
- * the model and level it runs on, its tier, how long it has been out, what its context holds and what it is doing. Down
- * from the agent's empty input, or a click on a row, opens the navigator floating over the page.
+ * see more in the screen like floating ... not the pill". A heading with how many are out, then one row each: its face
+ * and name, what it is doing, and chips for the model and level it runs on, its tier, how long it has been out and what
+ * its context holds. Down from the agent's empty input, or a click on a row, opens the navigator floating over the page.
  *
  * Its pi-extended-teams agents are shown and never controlled; hobkin's own helpers share the list as they shared the
  * header's lines. An agent with none draws nothing. It sits in the input's part, so it draws again only when what it
@@ -73,7 +74,7 @@ function usePublishedRows(agentId: string, agents: readonly ActivityAgent[]) {
   }, [agentId])
 }
 
-/** An agent's own color, as its face is tinted: its name and its dot. */
+/** An agent's own color, as its face is tinted: its name. */
 const tint = (hue: number): CSSProperties => ({ color: `oklch(var(--agent-l, 0.62) 0.11 ${hue})` })
 
 /** Each agent keeps its face's hue by its name, so it keeps its color as it moves in the list. */
@@ -82,50 +83,151 @@ const agentHue = (pageHue: number, agent: ActivityAgent) => faceHue(pageHue, age
 /** Everything a row knows, for a hover and a screen reader. */
 function describe(agent: ActivityAgent, line: ActivityLine): string {
   const told = agent.kind === 'teams' ? describeTeamsAgent(agent.teams, Date.now()) : describeChild(agent.helper)
-  return line.tokens ? `${told}; context ${line.tokens}` : told
+  if (!line.context) return told
+  const share = line.context.share === undefined ? '' : `, ${line.context.share}% of its window`
+  return `${told}; its context holds ${line.context.tokens} tokens${share}`
 }
 
-const DOING: Record<ActivityLine['tone'], string> = {
-  live: 'text-foreground',
-  waiting: 'text-muted-foreground',
-  bad: 'text-bad-fg',
-  quiet: 'text-muted-foreground',
-}
+/*
+ * Each chip of a row has one width on every row, as a pull request's card has on the GitHub page, so the same part
+ * lines up down the list and nothing moves as the clock ticks. Each width fits the part's longest value: "claude-sonnet-
+ * 5-5 · xhigh", "write-critical", "59m59s", "999k · 100%". The names share a column as wide as the longest, up to 10rem.
+ * The model and the tier give way first when the page is narrow.
+ */
+const MODEL_WIDTH = 'w-44'
+const TIER_WIDTH = 'w-[7.75rem]'
+const TIME_WIDTH = 'w-[4.75rem]'
+const CONTEXT_WIDTH = 'w-[6.5rem]'
 
-/** Its standing at a glance: a dot that breathes while it runs, a ring while it waits, red once it failed. */
-function Dot({ tone, hue }: { tone: ActivityLine['tone']; hue: number }) {
+/** A chip of a row, drawn as the GitHub page draws a stack's layer: an icon and its words in a rounded pill. */
+const CHIP =
+  'inline-flex h-[22px] shrink-0 items-center gap-1 overflow-hidden rounded-full bg-surface-2 px-2 font-heading text-[11.5px] font-medium whitespace-nowrap tabular-nums [&_svg]:size-3 [&_svg]:shrink-0'
+
+/** One part as a chip, or its empty place when hobkin does not know it, so the parts after it stay in line. */
+function Chip({ icon: Icon, width, shown, className, children }: { icon: LucideIcon; width: string; shown: boolean; className?: string; children: ReactNode }) {
+  if (!shown) return <span aria-hidden="true" className={cn('shrink-0', width, className)} />
   return (
-    <span
-      aria-hidden="true"
-      style={tone === 'live' || tone === 'waiting' ? tint(hue) : undefined}
+    <span className={cn(CHIP, width, className)}>
+      <Icon aria-hidden="true" className="text-muted-foreground" />
+      <span className="min-w-0 truncate">{children}</span>
+    </span>
+  )
+}
+
+/** A teams tier says what kind of work it is: reading or writing. One of hobkin's tiers is only a level. */
+function tierIcon(tier: string): LucideIcon {
+  if (tier.startsWith('read')) return ScanSearch
+  if (tier.startsWith('write')) return PencilLine
+  return Layers3
+}
+
+/** pi-extended-teams warns at 75% and 90% of the window. */
+function contextTone(share: number | undefined): string {
+  if (share === undefined || share < 75) return ''
+  return share < 90 ? 'text-warn-fg' : 'text-bad-fg'
+}
+
+/** The chips at the row's right, each at its one width. */
+function Chips({ line }: { line: ActivityLine }) {
+  const share = line.context?.share
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      <Chip icon={Cpu} width={MODEL_WIDTH} shown={line.model !== ''} className="hidden @3xl:inline-flex">
+        {line.model}
+        {line.level ? <span className="text-muted-foreground"> · {line.level}</span> : null}
+      </Chip>
+      <Chip icon={tierIcon(line.tier)} width={TIER_WIDTH} shown={line.tier !== ''} className="hidden @2xl:inline-flex">
+        {line.tier}
+      </Chip>
+      <Chip icon={Timer} width={TIME_WIDTH} shown={line.elapsed !== ''}>
+        {line.elapsed}
+      </Chip>
+      <Chip icon={Gauge} width={CONTEXT_WIDTH} shown={line.context !== null} className={contextTone(share)}>
+        {line.context?.tokens}
+        {share !== undefined ? <span className={contextTone(share) || 'text-muted-foreground'}> · {share}%</span> : null}
+      </Chip>
+    </span>
+  )
+}
+
+/** Its face, as hobkin draws an agent: a running one moves, and an ended one wears its mark. */
+function AgentFace({ agent, hue }: { agent: ActivityAgent; hue: number }) {
+  if (agent.kind === 'teams') return <TeamsFace agent={agent.teams} hue={hue} size={16} />
+  return <ChildHood child={agent.helper} hue={agentHue(hue, agent)} size={16} />
+}
+
+/** Its own words read plainly; what it was asked, its tool or its standing read quieter, and a failure in red. */
+function doingTone(line: ActivityLine): string {
+  if (line.tone === 'bad') return 'text-bad-fg'
+  return line.ownWords ? 'text-foreground' : 'text-muted-foreground'
+}
+
+interface RowProps {
+  agent: ActivityAgent
+  line: ActivityLine
+  hue: number
+  /** The one the navigator shows. */
+  current?: boolean
+  rowRef?: RefObject<HTMLButtonElement | null>
+  onSelect: (from: HTMLElement) => void
+}
+
+/** One agent: its face and name, what it is doing, and its chips. A click opens it in the navigator. */
+function AgentRow({ agent, line, hue, current = false, rowRef, onSelect }: RowProps) {
+  return (
+    <button
+      ref={rowRef}
+      type="button"
+      aria-current={current || undefined}
+      title={describe(agent, line)}
+      onClick={(event) => onSelect(event.currentTarget)}
       className={cn(
-        'size-1.5 shrink-0 self-center rounded-full',
-        tone === 'live' && 'aa-running bg-current',
-        tone === 'waiting' && 'border border-current',
-        tone === 'bad' && 'bg-bad',
-        tone === 'quiet' && 'bg-muted-foreground/50',
+        'col-span-full grid h-7 grid-cols-subgrid items-center rounded-lg px-1.5 text-left text-[12.5px] outline-none transition-colors duration-[140ms] ease-[ease] hover:bg-tone-1 focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
+        current && 'bg-tone-2 hover:bg-tone-2',
       )}
-    />
+    >
+      <AgentFace agent={agent} hue={hue} />
+      <span className="max-w-40 truncate font-medium" style={tint(agentHue(hue, agent))}>
+        {line.name}
+      </span>
+      <span className={cn('min-w-0 truncate', doingTone(line))}>{line.doing}</span>
+      <Chips line={line} />
+    </button>
   )
 }
 
-/** The tree's branch before a row, as pi-extended-teams draws it. */
-function Branch({ last }: { last: boolean }) {
-  return (
-    <span aria-hidden="true" className="shrink-0 font-mono text-[11px] text-muted-foreground/60">
-      {last ? '└─' : '├─'}
-    </span>
-  )
+interface RowsProps {
+  agents: readonly ActivityAgent[]
+  hue: number
+  label: string
+  chosen?: string
+  chosenRow?: RefObject<HTMLButtonElement | null>
+  onSelect: (at: string, from: HTMLElement) => void
 }
 
-/** The words after the name: what it runs on, its tier, time and context, muted, then what it is doing. */
-function LineWords({ line }: { line: ActivityLine }) {
-  const meta = [line.runsOn, line.tier, line.elapsed, line.tokens].filter(Boolean).join(' · ')
+/** The rows, each on the clock: only they tick, once a second while one is out. */
+function AgentRows({ agents, hue, label, chosen, chosenRow, onSelect }: RowsProps) {
+  const models = useModelChoices()
+  const now = useNow(agents.some(stillOut), 1000)
   return (
-    <span className="min-w-0 flex-1 truncate">
-      {meta ? <span className="text-muted-foreground tabular-nums">{meta} · </span> : null}
-      <span className={DOING[line.tone]}>{line.doing}</span>
-    </span>
+    // One grid for every row: faces, names, what each is doing, then the chips, each in its own column.
+    <ul aria-label={label} className="grid grid-cols-[auto_minmax(0,max-content)_minmax(0,1fr)_auto] gap-x-2.5 gap-y-px">
+      {agents.map((agent) => {
+        const current = agent.id === chosen
+        return (
+          <li key={agent.id} className="col-span-full grid grid-cols-subgrid">
+            <AgentRow
+              agent={agent}
+              line={activityLine(agent, now, models)}
+              hue={hue}
+              current={current}
+              rowRef={current ? chosenRow : undefined}
+              onSelect={(from) => onSelect(agent.id, from)}
+            />
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -137,70 +239,28 @@ interface StripProps {
   className?: string
 }
 
-/** The heading and the rows, as pi-extended-teams' activity widget reads: ten rows at most, the rest counted. Exported for still renders. */
+/** The heading and the rows, as pi-extended-teams' activity widget reads: ten rows at most, the rest in the navigator. Exported for still renders. */
 export function ActivityStrip({ agents, hue, keys, onOpen, className }: StripProps) {
-  const models = useModelChoices()
-  // Only the strip ticks, once a second while one is out.
-  const now = useNow(agents.some(stillOut), 1000)
   const { rows, more } = shownRows(agents)
-
   return (
-    <section aria-label="Agent activity" className={cn('px-3 pt-2 text-[12px] leading-[19px]', className)}>
-      <p className="flex min-w-0 items-baseline gap-2">
-        <span className="shrink-0 font-medium">Agent activity</span>
-        <span className="min-w-0 truncate text-muted-foreground tabular-nums">
-          {activityHeader(agents)}
-          {keys ? ' · ↓ navigate' : ''}
-        </span>
-      </p>
-      <ul aria-label="Its agents, running ones first">
-        {rows.map((agent, index) => (
-          <li key={agent.id}>
-            <ActivityRow agent={agent} line={activityLine(agent, now, models)} hue={agentHue(hue, agent)} last={!more && index === rows.length - 1} onOpen={(from) => onOpen(agent.id, from)} />
-          </li>
-        ))}
-        {more ? (
-          <li className="flex items-baseline gap-1.5 text-muted-foreground">
-            <Branch last />… {more} more {more === 1 ? 'agent' : 'agents'}
-          </li>
+    <section aria-label="Agent activity" className={cn('@container pt-1.5', className)}>
+      <p className="flex h-6 items-center gap-2 px-1.5 text-[12px]">
+        <span className="font-medium">Agent activity</span>
+        <span className="text-muted-foreground tabular-nums">{activityHeader(agents)}</span>
+        {keys ? (
+          <span className="ml-auto flex items-center gap-1 text-[11.5px] text-muted-foreground">
+            <Kbd className="h-4 min-w-4 px-1 text-[10.5px]">↓</Kbd>
+            navigate
+          </span>
         ) : null}
-      </ul>
+      </p>
+      <AgentRows agents={rows} hue={hue} label="Its agents, running ones first" onSelect={onOpen} />
+      {more ? (
+        <p className="flex h-6 items-center px-1.5 text-[12px] text-muted-foreground">
+          {more} more {more === 1 ? 'agent' : 'agents'} in the navigator
+        </p>
+      ) : null}
     </section>
-  )
-}
-
-/** One agent under the input. A click opens the navigator on it. */
-function ActivityRow({ agent, line, hue, last, onOpen }: { agent: ActivityAgent; line: ActivityLine; hue: number; last: boolean; onOpen: (from: HTMLElement) => void }) {
-  return (
-    <button
-      type="button"
-      title={describe(agent, line)}
-      onClick={(event) => onOpen(event.currentTarget)}
-      className="flex w-full min-w-0 items-baseline gap-1.5 rounded-md text-left outline-none transition-colors duration-[140ms] ease-[ease] hover:bg-surface-2 focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
-    >
-      <Branch last={last} />
-      <Dot tone={line.tone} hue={hue} />
-      <span className="shrink-0 font-medium" style={tint(hue)}>
-        {line.name}
-      </span>
-      <LineWords line={line} />
-    </button>
-  )
-}
-
-/** The chosen agent's line in the navigator, ticking while it is out. */
-function DetailLine({ agent, hue }: { agent: ActivityAgent; hue: number }) {
-  const models = useModelChoices()
-  const now = useNow(stillOut(agent), 1000)
-  const line = activityLine(agent, now, models)
-  return (
-    <p className="flex min-w-0 items-baseline gap-1.5">
-      <Dot tone={line.tone} hue={hue} />
-      <span className="shrink-0 font-medium" style={tint(hue)}>
-        {line.name}
-      </span>
-      <LineWords line={line} />
-    </p>
   )
 }
 
@@ -244,10 +304,10 @@ interface NavigatorProps {
 }
 
 /**
- * pi-extended-teams' agent navigation, floating over the page: every agent, the chosen one marked, its line and the
- * keys, then what hobkin has of its work, followed at the newest unless the user scrolls up. Up and Down walk the
- * agents, Up from the first and Escape go back to the input, Left and Right go round, Page Up and Page Down scroll and
- * End follows again. Read only: there is no input and no stop, as hobkin never reaches the agents it shows.
+ * pi-extended-teams' agent navigation, floating over the page: every agent's row, the one shown marked, the keys, then
+ * what hobkin has of its work, followed at the newest unless the user scrolls up. Up and Down walk the agents, Up from
+ * the first and Escape go back to the input, Left and Right go round, Page Up and Page Down scroll and End follows
+ * again. Read only: there is no input and no stop, as hobkin never reaches the agents it shows.
  */
 function AgentNavigator({ agents, open, hue, name }: NavigatorProps) {
   const chosen = open ? (agents.find((agent) => agent.id === open.at) ?? agents[0]) : undefined
@@ -359,7 +419,7 @@ function AgentNavigator({ agents, open, hue, name }: NavigatorProps) {
 }
 
 /** The navigator's box, floating over the page. */
-export const NAVIGATOR = 'z-[60] flex h-[min(86dvh,860px)] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 text-[12.5px] sm:max-w-[860px]'
+export const NAVIGATOR = 'z-[60] flex h-[min(86dvh,860px)] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 text-[12.5px] sm:max-w-[960px]'
 
 interface PanelProps {
   agents: readonly ActivityAgent[]
@@ -372,41 +432,34 @@ interface PanelProps {
   onScroll?: (scroller: HTMLElement) => void
 }
 
-const CHOICE = 'flex w-full items-baseline gap-2 rounded-md px-1 text-left outline-none hover:bg-surface-2 focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]'
-
 /** What the navigator holds, top to bottom. Exported for still renders, which draw it without the dialog around it. */
 export function NavigatorPanel({ agents, chosen, hue, name, title, chosenRow, body, onScroll }: PanelProps) {
   return (
     <>
-      <header className="shrink-0 px-4 pt-3 pb-2">
-        {title}
-        <ul aria-label="Agents" className="scroll-quiet mt-1.5 max-h-[28dvh] overflow-y-auto">
-          <li>
-            <button type="button" onClick={closeNavigator} className={cn(CHOICE, 'text-muted-foreground')}>
-              <span aria-hidden="true" className="w-4 shrink-0 text-center">
-                ↑
-              </span>
-              {name}
-            </button>
-          </li>
-          {agents.map((agent) => (
-            <li key={agent.id}>
-              <AgentChoice agent={agent} hue={agentHue(hue, agent)} current={agent.id === chosen.id} ref={agent.id === chosen.id ? chosenRow : undefined} />
-            </li>
-          ))}
-        </ul>
+      <header className="@container shrink-0 px-3 pt-3 pb-2">
+        <div className="px-1.5">{title}</div>
+        <button
+          type="button"
+          onClick={closeNavigator}
+          className="mt-1 flex h-7 w-full items-center gap-2.5 rounded-lg px-1.5 text-left text-[12.5px] text-muted-foreground outline-none transition-colors duration-[140ms] ease-[ease] hover:bg-tone-1 focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
+        >
+          <span aria-hidden="true" className="w-4 shrink-0 text-center">
+            ↑
+          </span>
+          {name}
+        </button>
+        <div className="scroll-quiet max-h-[30dvh] overflow-y-auto">
+          <AgentRows agents={agents} hue={hue} label="Agents" chosen={chosen.id} chosenRow={chosenRow} onSelect={(at) => moveNavigator(at)} />
+        </div>
       </header>
-      <div className="shrink-0 border-t border-border px-4 py-2">
-        <DetailLine agent={chosen} hue={agentHue(hue, chosen)} />
-        <p className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-muted-foreground">
-          {NAVIGATOR_KEYS.map(({ key, does }) => (
-            <span key={does} className="flex items-center gap-1">
-              <Kbd>{key}</Kbd>
-              {does}
-            </span>
-          ))}
-        </p>
-      </div>
+      <p className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-border px-4 py-2 text-[11.5px] text-muted-foreground">
+        {NAVIGATOR_KEYS.map(({ key, does }) => (
+          <span key={does} className="flex items-center gap-1">
+            <Kbd>{key}</Kbd>
+            {does}
+          </span>
+        ))}
+      </p>
       <div
         ref={body}
         tabIndex={0}
@@ -422,20 +475,5 @@ export function NavigatorPanel({ agents, chosen, hue, name, title, chosenRow, bo
       </div>
       {chosen.kind === 'teams' ? <p className="shrink-0 border-t border-border px-4 py-2 text-[11.5px] text-muted-foreground">{sourceNote(chosen.teams)}</p> : null}
     </>
-  )
-}
-
-/** One agent in the navigator's list, marked with an arrow while it is the one shown. A click shows it. */
-function AgentChoice({ agent, hue, current, ref }: { agent: ActivityAgent; hue: number; current: boolean; ref?: RefObject<HTMLButtonElement | null> }) {
-  const color = current ? tint(hue) : undefined
-  return (
-    <button ref={ref} type="button" aria-current={current} onClick={() => moveNavigator(agent.id)} className={cn(CHOICE, current && 'bg-surface-2')}>
-      <span aria-hidden="true" className="w-4 shrink-0 text-center" style={color}>
-        {current ? '→' : ''}
-      </span>
-      <span className={current ? 'font-medium' : undefined} style={color}>
-        {agentName(agent)}
-      </span>
-    </button>
   )
 }
