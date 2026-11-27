@@ -59,6 +59,29 @@ test("on a new home the setup's account step sets hobkin's model and tiers from 
   assert.deepEqual(opened, [], 'nothing asked for a browser')
 })
 
+test("a provider connected later, outside the setup, puts a new home on Pi's default for it", async (t) => {
+  const server = await fakeModelServer(t, (request) => ({ text: `Reply from ${request.model}.` }))
+  const agent = piFolderFor(t, server.baseUrl, { providers: ['deepseek'] })
+  process.env.PI_CODING_AGENT_DIR = agent
+  const root = join(temporaryDirectory(t), 'home')
+  const { piModelAccess } = await import('../src/model-access.ts')
+  const pi = await piModelAccess({ authPath: join(agent, 'auth.json'), modelsPath: join(agent, 'models.json'), modelsStorePath: join(agent, 'models-store.json') })
+  const host = await hostFor(t, { root, live: true, access: async () => pi, openUrl: () => {} })
+  const client = await Client.connect(host)
+  await client.live()
+
+  const set = await client.run<FirstModels>('tiers.first', { provider: 'deepseek' })
+
+  // Every level is medium on a new home, and V4 Pro thinks off, high or max, so each moves up to high.
+  const config = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8'))
+  const onDefault = { model: 'deepseek/deepseek-v4-pro', effort: 'high' }
+  assert.ok(set.set)
+  assert.deepEqual(config.main, { cwd: root, ...onDefault })
+  assert.deepEqual(config.background, { harness: 'pi', ...onDefault })
+  assert.deepEqual(config.tiers, { fast: onDefault, mid: onDefault, high: onDefault, max: onDefault })
+  assert.deepEqual(await client.run<FirstModels>('tiers.first', { provider: 'deepseek' }), { set: false, why: 'chosen' })
+})
+
 test('the scripted host sets nothing', async (t) => {
   const host = await hostFor(t)
   const client = await Client.connect(host)
