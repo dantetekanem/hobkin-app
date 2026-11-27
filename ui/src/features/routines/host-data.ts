@@ -7,6 +7,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> => value !==
 const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string')
 const isTime = (value: unknown): value is string => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
 const isDate = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value))
+/** How a routine names its template, as hobkin's loader holds it: the template's id, then its version. */
+const TEMPLATE_KEY = /^[a-z0-9]+(?:-[a-z0-9]+)*@[1-9]\d*$/
 
 /** The host validates files; this boundary rejects shapes the screen cannot safely draw. */
 function isRoutine(row: unknown): row is Routine {
@@ -36,6 +38,7 @@ function isRoutine(row: unknown): row is Routine {
   }
   if (row.cadence === 'monthly' && !(typeof row.day === 'number' && Number.isInteger(row.day) && row.day >= 1 && row.day <= 31)) return false
   if (row.cadence === 'once' && !(isDate(row.date) && /^\d{4}-\d{2}-\d{2}$/.test(row.date))) return false
+  if (row.template !== undefined && !(typeof row.template === 'string' && TEMPLATE_KEY.test(row.template))) return false
   if (row.nextRun !== undefined) {
     if (!isRecord(row.nextRun) || typeof row.nextRun.state !== 'string') return false
     if (!(row.nextRun.at === null || isDate(row.nextRun.at))) return false

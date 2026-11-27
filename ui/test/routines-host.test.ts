@@ -247,3 +247,12 @@ test("on a host the templates come from hobkin, once for each home, and a row th
   assert.equal(asked, 1)
   routinesHost.templates = real
 })
+
+test('a routine keeps the template it names, and one named another way is reported, not drawn', () => {
+  hello()
+  snapshot([{ ...routine, template: 'job-openings@1' }, { ...routine, id: 'odd', template: 'job openings' }])
+
+  assert.equal(data().routines[0]?.template, 'job-openings@1')
+  assert.equal(data().routines.length, 1)
+  assert.equal(data().errors.length, 1)
+})

@@ -47,6 +47,8 @@ export interface Routine {
   /** The file, as an absolute path. */
   path: string
   prompt: string
+  /** The template it was made from, as `<id>@<version>`, when it names one (044-goal-first-setup). */
+  template?: string
 }
 
 /** A file the loader could not use. The valid routines still load. */
