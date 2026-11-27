@@ -22,15 +22,18 @@ import type { ListedAgent, ShellFields } from '../protocol/snapshot.ts'
 import type { AgentScheduleRuns } from '../protocol/schedules.ts'
 import {
   COMPUTER_KINDS,
+  GOALS,
   PROFILE_TEXT_MAX,
   PROJECTS_MAX,
   SETUP_ANSWER_MAX,
   SETUP_ANSWERS_MAX,
   SETUP_ASK_MAX,
+  SETUP_CARDS_MAX,
   type PiSetup,
   type ProjectsFound,
   type SetupNeeds,
   type SetupSaved,
+  type SetupWatchers,
   type SetupWorkDone,
   type UserProfile,
 } from '../protocol/setup.ts'
@@ -153,6 +156,8 @@ const proofRunId = Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$' })
 const commit = Type.String({ pattern: '^[0-9a-f]{7,64}$' })
 /** A folder on this Mac, written out in full, as `setup.projects` lists them. */
 const absolutePath = Type.String({ minLength: 2, maxLength: 1024, pattern: '^/' })
+/** A routine template's name, as its file is named: lowercase words joined by dashes. */
+const templateId = Type.String({ minLength: 1, maxLength: 80, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' })
 /** A routine by hobkin's id for it, and a time of day as its files write one (hobkin's `src/cli/schedules.mjs`). */
 const routineId = Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,79}$' })
 const clock = Type.String({ pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' })
@@ -537,9 +542,35 @@ export const COMMANDS = {
           { maxItems: SETUP_ANSWERS_MAX },
         ),
         projects: Type.Array(Type.Object({ name: words(255), path: absolutePath, git: Type.Boolean() }, { additionalProperties: false }), { maxItems: PROJECTS_MAX }),
+        goals: Type.Optional(Type.Array(oneOf(GOALS), { maxItems: GOALS.length, uniqueItems: true })),
+        cards: Type.Optional(
+          Type.Array(
+            Type.Object(
+              {
+                id: templateId,
+                version: Type.Integer({ minimum: 1 }),
+                title: words(200),
+                mark: oneOf(['kept', 'dropped'] as const),
+                changes: Type.Object(
+                  { recurrence: Type.Optional(words(600)), skips: Type.Optional(Type.String({ maxLength: 600 })), answer: Type.Optional(words(600)) },
+                  { additionalProperties: false },
+                ),
+              },
+              { additionalProperties: false },
+            ),
+            { maxItems: SETUP_CARDS_MAX },
+          ),
+        ),
       },
       { additionalProperties: false },
     ),
+  },
+  'setup.watchers': {
+    description:
+      "Read the routine cards the setup offers for the goals the person picked: for each goal in the goals' order, its starters and the rest of the templates that name it, each template once, as hobkin's own goalCards reads its templates and the user's own. Each card says what it watches, where it looks, how often, what is worth telling, what it leaves out, what it gives and what closes an item. It only reads.",
+    runs: 'host',
+    args: Type.Object({ goals: Type.Array(oneOf(GOALS), { maxItems: GOALS.length, uniqueItems: true }) }, { additionalProperties: false }),
+    hobkin: true,
   },
   'setup.saved': {
     description: 'Read what the setup saved the last time it ran, from client/setup.json in hobkin\'s home, or null when it never saved anything. It only reads.',
@@ -1645,6 +1676,7 @@ export interface CommandResults {
   'setup.save': SetupSaved
   'setup.saved': SetupSaved | null
   'setup.work': SetupWorkDone
+  'setup.watchers': SetupWatchers
   /** The run that started, by its id. */
   'workflow.run': { run: string }
   'workflow.enable': { id: string; enabled: boolean }

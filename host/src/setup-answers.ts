@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { SETUP_FACTS_MAX, SETUP_TEXT_MAX, writeSetupFacts, type SetupFact } from 'hobkin/src/cli/setup-facts.mjs'
-import { COMPUTER_KINDS, type ProjectFolder, type SetupAnswer, type SetupAnswers, type SetupSaved } from '#shared/protocol/setup.ts'
+import { COMPUTER_KINDS, GOALS, type ProjectFolder, type SetupAnswer, type SetupAnswers, type SetupCardPick, type SetupSaved } from '#shared/protocol/setup.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
 
 /**
@@ -25,15 +25,29 @@ export function oneLine(text: string, most: number): string {
   return `${(whole || room).replace(/[\s,;:]+$/, '')}…`
 }
 
+const named = (cards: readonly SetupCardPick[]) => cards.map(({ id, version, title }) => `${title} (${id}@${version})`).join(', ')
+
 /**
  * The answers as hobkin's facts: each question in the words it was asked with, and what the user said. Whose
- * computer this is stays out, since hobkin's profile already says it in front of the same directions.
+ * computer this is stays out, since hobkin's profile already says it in front of the same directions. The goals come
+ * first, and the routines kept and turned down last (044-goal-first-setup): the answers make room for them.
  */
-export function factsOf({ answers }: Pick<SetupAnswers, 'answers'>): SetupFact[] {
-  return answers
-    .map(({ ask, answer }) => ({ about: oneLine(ask, SETUP_TEXT_MAX), said: oneLine(answer, SETUP_TEXT_MAX) }))
+export function factsOf({ answers, goals = [], cards = [] }: Pick<SetupAnswers, 'answers' | 'goals' | 'cards'>): SetupFact[] {
+  const kept = cards.filter(({ mark }) => mark === 'kept')
+  const dropped = cards.filter(({ mark }) => mark === 'dropped')
+  const first: SetupFact[] = goals.length ? [{ about: 'What are you working toward right now?', said: goals.join(', ') }] : []
+  const last: SetupFact[] = [
+    ...(kept.length ? [{ about: 'Routines kept in the setup', said: named(kept) }] : []),
+    ...(dropped.length ? [{ about: 'Routine templates turned down in the setup', said: named(dropped) }] : []),
+  ]
+  const answered = answers.map(({ ask, answer }) => ({ about: ask, said: answer }))
+  const flat = ({ about, said }: SetupFact): SetupFact => ({ about: oneLine(about, SETUP_TEXT_MAX), said: oneLine(said, SETUP_TEXT_MAX) })
+
+  const told = [...first, ...answered]
+    .map(flat)
     .filter(({ about, said }) => about && said)
-    .slice(0, SETUP_FACTS_MAX)
+    .slice(0, SETUP_FACTS_MAX - last.length)
+  return [...told, ...last.map(flat)]
 }
 
 const isText = (value: unknown): value is string => typeof value === 'string'
@@ -45,17 +59,25 @@ const isProject = (value: unknown): value is ProjectFolder => {
   const { name, path, git } = (value ?? {}) as Record<string, unknown>
   return isText(name) && isText(path) && typeof git === 'boolean'
 }
+const isCard = (value: unknown): value is SetupCardPick => {
+  const { id, version, title, mark, changes } = (value ?? {}) as Record<string, unknown>
+  const changed = typeof changes === 'object' && changes !== null && Object.values(changes).every(isText)
+  return isText(id) && Number.isInteger(version) && isText(title) && (mark === 'kept' || mark === 'dropped') && changed
+}
+const isGoal = (value: unknown) => GOALS.some((goal) => goal === value)
 
 /** What the app saved, or null when it never saved anything or the file is not one it wrote. */
 export function readSetupSaved(root: string): SetupSaved | null {
   try {
     const saved = JSON.parse(readFileSync(fileIn(root), 'utf8')) as Record<string, unknown> | null
     if (saved?.version !== 1) return null
-    const { computer, answers, projects, savedAt } = saved
+    // A file from before goals and cards has none of them.
+    const { computer, answers, projects, goals = [], cards = [], savedAt } = saved
     const kind = COMPUTER_KINDS.find((one) => one === computer) ?? null
     if ((computer !== null && !kind) || !isText(savedAt)) return null
     if (!Array.isArray(answers) || !answers.every(isAnswer) || !Array.isArray(projects) || !projects.every(isProject)) return null
-    return { computer: kind, answers, projects, savedAt }
+    if (!Array.isArray(goals) || !goals.every(isGoal) || !Array.isArray(cards) || !cards.every(isCard)) return null
+    return { computer: kind, answers, projects, goals, cards, savedAt }
   } catch {
     // No file yet, or one that cannot be read: the setup starts with empty fields, and nothing else depends on it.
     return null
@@ -63,8 +85,8 @@ export function readSetupSaved(root: string): SetupSaved | null {
 }
 
 /** Saves both copies, hobkin's first: when it refuses, nothing is written at all and its words say why. */
-export function saveSetup(root: string, { computer, answers, projects }: SetupAnswers, now = new Date()): SetupSaved {
-  const saved: SetupSaved = { computer: computer ?? null, answers, projects, savedAt: now.toISOString() }
+export function saveSetup(root: string, { computer, answers, projects, goals = [], cards = [] }: SetupAnswers, now = new Date()): SetupSaved {
+  const saved: SetupSaved = { computer: computer ?? null, answers, projects, goals, cards, savedAt: now.toISOString() }
   try {
     writeSetupFacts(root, factsOf(saved))
   } catch (error) {

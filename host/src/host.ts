@@ -25,6 +25,7 @@ import { directionsHandlers } from './directions.ts'
 import { projectsHandlers } from './projects-folder.ts'
 import { setupAnswerHandlers } from './setup-answers.ts'
 import { setupWorkHandlers } from './setup-work.ts'
+import { setupWatcherHandlers } from './setup-watchers.ts'
 import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
 import { IntegrationHost, type IntegrationModule } from './integration-host.ts'
 import { ToolCallWatcher } from './tool-calls.ts'
@@ -721,6 +722,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...projectsHandlers(),
     // The setup's answers, the first context: the app's own copy, and hobkin's facts in front of its directions.
     ...setupAnswerHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root) }),
+    // The routine cards for the goals picked in the setup, read from hobkin's templates and the user's own (044).
+    ...setupWatcherHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root) }),
     // The folder and projects picked in the setup, handed to work mode as the Work screen's actions are: through
     // hobkin's own work functions while it is open here, then its state read again so Work shows them.
     ...setupWorkHandlers({ root: () => hobkin().runtime.directory, refresh: () => hobkin().refresh() }),

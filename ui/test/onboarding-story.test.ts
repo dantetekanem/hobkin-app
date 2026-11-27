@@ -718,7 +718,7 @@ test('the projects picked are sent by their paths, in the order they were picked
 })
 
 test('run again, what was saved before is where a field starts, and what was answered this time comes first', () => {
-  const earlier: SetupSaved = { computer: 'personal', answers: [{ id: 'projects-folder', ask: 'Where?', answer: '~/Code' }], projects: [], savedAt: '2026-11-13T10:00:00.000Z' }
+  const earlier: SetupSaved = { computer: 'personal', answers: [{ id: 'projects-folder', ask: 'Where?', answer: '~/Code' }], projects: [], goals: [], cards: [], savedAt: '2026-11-13T10:00:00.000Z' }
 
   assert.equal(startingReply(none, earlier, 'projects-folder'), '~/Code')
   assert.equal(startingReply({ ...none, replies: { 'projects-folder': '~/src' } }, earlier, 'projects-folder'), '~/src')

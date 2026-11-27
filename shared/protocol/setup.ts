@@ -146,6 +146,75 @@ export interface SetupAnswer {
   answer: string
 }
 
+/**
+ * What the person is working toward, asked in the setup (044-goal-first-setup), in the order its questions are asked
+ * and its cards shown. hobkin's runtime has the same list (`TEMPLATE_GOALS`), and a host test holds the two equal.
+ */
+export const GOALS = ['job', 'business', 'project', 'life', 'code'] as const
+export type Goal = (typeof GOALS)[number]
+
+/** What a routine made from a template gives the person. */
+export const TEMPLATE_GIVES = ['report', 'action', 'critical', 'follow-up'] as const
+export type TemplateGift = (typeof TEMPLATE_GIVES)[number]
+
+/** A routine template as a card in the setup, as hobkin's `goalCards` reads it. A part a template leaves out is null or empty. */
+export interface TemplateCard {
+  id: string
+  version: number
+  source: 'hobkin' | 'yours'
+  title: string
+  /** What it watches. */
+  summary: string
+  /** Where it looks. */
+  needs: string[]
+  recurrence: string
+  /** What is worth telling. */
+  tells: string | null
+  /** What it leaves out unless the person says otherwise. */
+  skips: string | null
+  gives: TemplateGift[]
+  /** What closes an item. */
+  closes: string | null
+  /** It reads the person's own accounts. */
+  private: boolean
+  /** The template's own question, for what it needs to know. */
+  asks: string | null
+  effort: 'low' | 'medium' | 'high'
+}
+
+/** One picked goal's cards: the ones it starts with, and the rest that name it. Each template is one card in all of them. */
+export interface GoalCards {
+  goal: Goal
+  starters: TemplateCard[]
+  more: TemplateCard[]
+}
+
+/** What `setup.watchers` answers: the cards of each goal asked for, in the goals' order. */
+export interface SetupWatchers {
+  goals: GoalCards[]
+}
+
+/** What the person changed on a card before keeping or dropping it. Each is left out while it says what the template says. */
+export interface SetupCardChanges {
+  recurrence?: string
+  /** Empty leaves nothing out. */
+  skips?: string
+  /** The answer to the template's own question. */
+  answer?: string
+}
+
+/** A card the person kept or turned down in the setup, by its template and version, with their changes. One left alone is not kept. */
+export interface SetupCardPick {
+  id: string
+  version: number
+  title: string
+  mark: 'kept' | 'dropped'
+  changes: SetupCardChanges
+}
+
+/** The most cards one save keeps, kept and dropped together. More than any goals' cards. */
+export const SETUP_CARDS_MAX = 80
+
 /** What the setup saves after each answer. Each save replaces the one before. */
 export interface SetupAnswers {
   /** Whose computer this is. Left out while it was not said. */
@@ -153,6 +222,10 @@ export interface SetupAnswers {
   answers: SetupAnswer[]
   /** The projects picked, with where each is and whether it is a git repository, as `setup.projects` found them. */
   projects: ProjectFolder[]
+  /** What the person is working toward. Left out by a window from before goals. */
+  goals?: Goal[]
+  /** The cards kept and turned down. Left out by a window from before cards. */
+  cards?: SetupCardPick[]
 }
 
 /** What the app keeps of the setup in `client/setup.json` in hobkin's home, so a setup run again starts from it. */
@@ -160,6 +233,8 @@ export interface SetupSaved {
   computer: ComputerKind | null
   answers: SetupAnswer[]
   projects: ProjectFolder[]
+  goals: Goal[]
+  cards: SetupCardPick[]
   /** When it was saved, as an ISO time. */
   savedAt: string
 }

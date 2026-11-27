@@ -3,7 +3,7 @@ import { readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { readSetupFacts, SETUP_FACTS_MAX, SETUP_TEXT_MAX } from 'hobkin/src/cli/setup-facts.mjs'
-import type { SetupAnswers, SetupSaved } from '#shared/protocol/setup.ts'
+import type { SetupAnswers, SetupCardPick, SetupSaved } from '#shared/protocol/setup.ts'
 import { runCommand } from '../src/commands.ts'
 import { factsOf, oneLine, readSetupSaved, setupAnswerHandlers } from '../src/setup-answers.ts'
 import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
@@ -41,7 +41,7 @@ test("the setup's answers are kept twice: whole in the app's own file, and as ho
   const file = join(root, 'client', 'setup.json')
   assert.equal(statSync(file).mode & 0o777, 0o600, 'only the user can read it')
   assert.deepEqual(readSetupSaved(root), saved)
-  assert.deepEqual({ ...saved, savedAt: 'now' }, { computer: 'personal', answers: answered.answers, projects: answered.projects, savedAt: 'now' }, 'the paths and git marks of the projects are kept')
+  assert.deepEqual({ ...saved, savedAt: 'now' }, { computer: 'personal', answers: answered.answers, projects: answered.projects, goals: [], cards: [], savedAt: 'now' }, 'the paths and git marks of the projects are kept')
   assert.ok(Date.parse(saved.savedAt) > 0)
 
   // hobkin's own copy, which it puts in front of its directions: each question in its own words, and the answer.
@@ -101,6 +101,34 @@ test('the facts are one line each, never empty, and no more than hobkin keeps', 
   assert.deepEqual(factsOf({ answers: [{ id: 'q', ask: 'Q?', answer: ' \n ' }] }), [], 'an answer that is only space is no fact')
 })
 
+test('the goals and the kept and dropped cards are kept whole in the app\'s file and as three of hobkin\'s facts', async (t) => {
+  const root = temporaryDirectory(t)
+  const cards: SetupCardPick[] = [
+    { id: 'job-openings', version: 1, title: 'Roles that fit', mark: 'kept', changes: { recurrence: 'Every weekday morning', skips: '' } },
+    { id: 'deadlines-ahead', version: 2, title: 'Deadlines ahead', mark: 'kept', changes: {} },
+    { id: 'interviews', version: 1, title: 'Interviews', mark: 'dropped', changes: {} },
+  ]
+  const many = Array.from({ length: SETUP_FACTS_MAX }, (_, index) => ({ id: `q${index}`, ask: `Question ${index}?`, answer: `Answer ${index}` }))
+
+  const saved = await saveOn(root)({ answers: many, projects: [], goals: ['job', 'project'], cards })
+
+  assert.deepEqual(readSetupSaved(root), saved)
+  assert.deepEqual(saved.goals, ['job', 'project'])
+  assert.deepEqual(saved.cards, cards, 'whole, with the changes')
+
+  const facts = readSetupFacts(root).facts
+  assert.equal(facts.length, SETUP_FACTS_MAX, 'the answers make room for the three')
+  const said = (about: RegExp) => facts.find((fact) => about.test(fact.about))?.said ?? ''
+  assert.match(said(/working toward/), /job.*project/)
+  assert.match(said(/kept/), /job-openings@1.*deadlines-ahead@2/)
+  assert.doesNotMatch(said(/kept/), /interviews/)
+  assert.match(said(/turned down/), /interviews@1/)
+
+  // Without goals or cards, only the answers are facts.
+  await saveOn(root)(answered)
+  assert.equal(readSetupFacts(root).facts.length, answered.answers.length)
+})
+
 test('what was saved reads back, and a file that is missing or broken reads as nothing saved', (t) => {
   const root = temporaryDirectory(t)
   assert.equal(readSetupSaved(root), null)
@@ -110,6 +138,10 @@ test('what was saved reads back, and a file that is missing or broken reads as n
     writeFileSync(join(root, 'client', 'setup.json'), broken)
     assert.equal(readSetupSaved(root), null, broken)
   }
+
+  // A file from before goals and cards reads with none of them.
+  writeFileSync(join(root, 'client', 'setup.json'), '{"version":1,"computer":null,"answers":[],"projects":[],"savedAt":"2026-11-14T00:00:00.000Z"}')
+  assert.deepEqual(readSetupSaved(root), { computer: null, answers: [], projects: [], goals: [], cards: [], savedAt: '2026-11-14T00:00:00.000Z' })
 })
 
 test('through the host: the setup saves and reads back its answers', async (t) => {

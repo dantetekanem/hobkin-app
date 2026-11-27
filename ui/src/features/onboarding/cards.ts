@@ -1,4 +1,4 @@
-import type { SetupAnswer } from '#shared/protocol/setup.ts'
+import type { GoalCards, SetupAnswer, SetupCardChanges, TemplateCard, TemplateGift } from '#shared/protocol/setup.ts'
 import { GOAL_WORDS, type Goal } from './goals.ts'
 
 /**
@@ -7,41 +7,10 @@ import { GOAL_WORDS, type Goal } from './goals.ts'
  * run first. Pure rules only. See _specs/044-goal-first-setup.
  */
 
-/** What a routine made from a template gives the person. */
-export const GIFTS = ['report', 'action', 'critical', 'follow-up'] as const
-export type Gift = (typeof GIFTS)[number]
-
-/** A routine template as a card, as hobkin's `goalCards` reads it. A template of the person's own may lack a part: null or empty. */
-export interface Card {
-  id: string
-  version: number
-  source: 'hobkin' | 'yours'
-  title: string
-  /** What it watches. */
-  summary: string
-  /** Where it looks. */
-  needs: string[]
-  recurrence: string
-  /** What is worth telling. */
-  tells: string | null
-  /** What it leaves out unless the person says otherwise. */
-  skips: string | null
-  gives: Gift[]
-  /** What closes an item. */
-  closes: string | null
-  /** It reads the person's own accounts. */
-  private: boolean
-  /** The template's own question, for what it needs to know. */
-  asks: string | null
-  effort: 'low' | 'medium' | 'high'
-}
-
-/** One picked goal's cards: the ones it starts with, and the rest that name it. */
-export interface GoalCards {
-  goal: Goal
-  starters: Card[]
-  more: Card[]
-}
+/** A routine template as a card, and one goal's cards, as `setup.watchers` reads them from hobkin's `goalCards`. */
+export type Card = TemplateCard
+export type Gift = TemplateGift
+export type { GoalCards }
 
 /** The most cards kept across every goal. Every run spends the subscription, and two or three are enough to start. */
 export const KEPT_MAX = 5
@@ -50,13 +19,7 @@ export const KEPT_MAX = 5
 export const templateKey = ({ id, version }: Pick<Card, 'id' | 'version'>): string => `${id}@${version}`
 
 /** What the person changed on a card. Each is left out while it says what the template says. */
-export interface CardChanges {
-  recurrence?: string
-  /** Empty leaves nothing out. */
-  skips?: string
-  /** The answer to the template's own question. */
-  answer?: string
-}
+export type CardChanges = SetupCardChanges
 
 /** Each card the person kept or dropped, and their changes, by template id. A card left alone is in neither. */
 export interface CardPicks {

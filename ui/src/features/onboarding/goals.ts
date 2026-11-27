@@ -1,3 +1,4 @@
+import { GOALS, type Goal } from '#shared/protocol/setup.ts'
 import { QUESTIONS, type Question } from './questions.ts'
 
 /**
@@ -6,9 +7,8 @@ import { QUESTIONS, type Question } from './questions.ts'
  * See _specs/044-goal-first-setup.
  */
 
-/** The goals, in the order their questions are asked and their cards are shown. hobkin's runtime has the same list (`TEMPLATE_GOALS`). */
-export const GOALS = ['job', 'business', 'project', 'life', 'code'] as const
-export type Goal = (typeof GOALS)[number]
+/** The goals, in the order their questions are asked and their cards are shown, as the setup protocol lists them. */
+export { GOALS, type Goal }
 
 interface GoalWords {
   /** Its bubble in the goals question. */
