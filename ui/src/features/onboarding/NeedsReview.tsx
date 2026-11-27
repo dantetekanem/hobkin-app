@@ -244,8 +244,8 @@ export function NeedsReview({ onSignIn, onBusy, children, listClassName }: Needs
   }
 
   /** Starts the program's sign-in, shows what to do, and reads the Mac again once the program says it ended. */
-  const signIn = async (need: SetupNeed, name: ProgramSignIn['name']) => {
-    const mine = ++attempt.current
+  const startSignIn = async (need: SetupNeed, name: ProgramSignIn['name']) => {
+    const thisAttempt = ++attempt.current
     let prompt: ProgramSignIn
     try {
       prompt = await runCommand('setup.sign-in-program', { name })
@@ -258,8 +258,10 @@ export function NeedsReview({ onSignIn, onBusy, children, listClassName }: Needs
     }
     setSigningIn({ id: need.id, prompt })
 
-    const end = await runCommand('setup.sign-in-program-wait', { name }).catch((error: unknown) => ({ signedIn: false, message: reasonOf(error) }))
-    if (mine !== attempt.current) return
+    const lostHost = (error: unknown) => ({ signedIn: false, message: reasonOf(error) })
+    const end = await runCommand('setup.sign-in-program-wait', { name }).catch(lostHost)
+    if (thisAttempt !== attempt.current) return
+
     setSigningIn(null)
     if (!end.signedIn && end.message) failedOn(need, Error(end.message))
     await read()
@@ -273,7 +275,7 @@ export function NeedsReview({ onSignIn, onBusy, children, listClassName }: Needs
     setFixing(need.id)
     setTrouble(null)
     onBusy?.(true)
-    if (how.kind === 'sign-in-program') return signIn(need, how.name)
+    if (how.kind === 'sign-in-program') return startSignIn(need, how.name)
     try {
       if (how.kind === 'install-program') {
         const { finished } = await runCommand('setup.install-program', { name: how.name })

@@ -73,6 +73,28 @@ export function signInPage(printed: string, sites: readonly string[]): string | 
   }
 }
 
+/** What the user does next, once the program has printed all of it: its page, and gh's code too. Null until then. */
+function promptIn(printed: string, name: SignInProgram): ProgramSignIn | null {
+  const way = WAYS[name]
+  const url = signInPage(printed, way.sites)
+  const code = GH_CODE.exec(printed.replace(ESCAPES, ''))?.[1] ?? null
+  if (!url || (way.needsCode && !code)) return null
+
+  return {
+    name,
+    url,
+    code: way.needsCode ? code : null,
+    pastes: way.pastes,
+  }
+}
+
+/** Why a sign-in ended without signing in, then the program's last lines, without the one-time code, which is spent. */
+function lastWords(why: string, said: string): string {
+  const lines = lastLines(said).filter((line) => !GH_CODE.test(line))
+  const printed = lines.length ? `\n${lines.join('\n')}` : ''
+  return scrubText(`${why}${printed}`)
+}
+
 interface Running {
   child: SignInChild
   ended: Promise<ProgramSignInEnd>
@@ -106,15 +128,14 @@ export class ProgramSignIns {
 
     const way = WAYS[name]
     const child = this.spawn(file, way.args, { ...(this.options.env?.() ?? process.env), ...QUIET })
-    let printed = ''
-    let said = ''
-    let answer: ((prompt: ProgramSignIn) => void) | null = null
-    let refuse: ((error: Error) => void) | null = null
+    let showPrompt: (prompt: ProgramSignIn) => void = () => {}
+    let refusePrompt: (error: Error) => void = () => {}
     const prompted = new Promise<ProgramSignIn>((resolve, reject) => {
-      answer = resolve
-      refuse = reject
+      showPrompt = resolve
+      refusePrompt = reject
     })
 
+    // Why it ended without a sign-in, unless something more particular stops it first.
     let why = `${NAMES[name]} did not sign in.`
     const stopAfter = (ms: number, words: string) =>
       setTimeout(() => {
@@ -124,41 +145,41 @@ export class ProgramSignIns {
     const promptMs = this.options.promptMs ?? PROMPT_MS
     const signInMs = this.options.signInMs ?? SIGN_IN_MS
     const promptTimer = stopAfter(promptMs, `${NAMES[name]} did not say how to sign in within ${Math.round(promptMs / 1000)} seconds, so it was stopped.`)
-    const endTimer = stopAfter(signInMs, `The sign-in waited ${Math.round(signInMs / 60_000)} minutes for you, so it was stopped. Press Sign in to start again.`)
+    const signInTimer = stopAfter(signInMs, `The sign-in waited ${Math.round(signInMs / 60_000)} minutes for you, so it was stopped. Press Sign in to start again.`)
 
-    const read = (chunk: Buffer | string, where: 'stdout' | 'stderr') => {
-      const text = String(chunk)
-      said += text
-      if ((where === 'stderr') !== way.onStderr) return
-      printed += text
-      const url = signInPage(printed, way.sites)
-      const code = GH_CODE.exec(printed.replace(ESCAPES, ''))?.[1] ?? null
-      if (!url || (way.needsCode && !code)) return
+    // Everything it says, for its last words, and the one stream where it says what to do.
+    let said = ''
+    child.stdout?.on('data', (chunk) => (said += String(chunk)))
+    child.stderr?.on('data', (chunk) => (said += String(chunk)))
+    let printed = ''
+    const promptStream = way.onStderr ? child.stderr : child.stdout
+    promptStream?.on('data', (chunk) => {
+      printed += String(chunk)
+      const prompt = promptIn(printed, name)
+      if (!prompt) return
+
       clearTimeout(promptTimer)
-      answer?.({ name, url, code: way.needsCode ? code : null, pastes: way.pastes })
-    }
-    child.stdout?.on('data', (chunk) => read(chunk, 'stdout'))
-    child.stderr?.on('data', (chunk) => read(chunk, 'stderr'))
+      showPrompt(prompt)
+    })
 
     const ended = new Promise<ProgramSignInEnd>((resolve) => {
-      let done = false
-      const finish = (signedIn: boolean) => {
-        if (done) return
-        done = true
+      let over = false
+      const end = (signedIn: boolean) => {
+        if (over) return
+        over = true
         clearTimeout(promptTimer)
-        clearTimeout(endTimer)
+        clearTimeout(signInTimer)
         if (this.running.get(name)?.child === child) this.running.delete(name)
-        // Its last words, without the one-time code, which is spent by then.
-        const lines = lastLines(said).filter((line) => !GH_CODE.test(line))
-        const message = signedIn ? null : scrubText(`${why}${lines.length ? `\n${lines.join('\n')}` : ''}`)
+
+        const message = signedIn ? null : lastWords(why, said)
         // A program that signed in before it said anything to do has nothing left for the user.
-        refuse?.(signedIn ? new Unavailable(`${NAMES[name]} is signed in.`) : Error(message ?? why))
+        refusePrompt(signedIn ? new Unavailable(`${NAMES[name]} is signed in.`) : Error(message ?? why))
         resolve({ signedIn, message })
       }
-      child.on('exit', (code) => finish(code === 0))
+      child.on('exit', (code) => end(code === 0))
       child.on('error', (error) => {
         why = `${NAMES[name]} could not start its sign-in: ${error.message}`
-        finish(false)
+        end(false)
       })
     })
     this.running.set(name, { child, ended })
@@ -169,8 +190,11 @@ export class ProgramSignIns {
   paste(name: SignInProgram, code: string): void {
     const running = this.running.get(name)
     if (!running || !WAYS[name].pastes) throw new Unavailable(`No ${NAMES[name]} sign-in is waiting for a code. Press Sign in again.`)
+
     const line = code.trim()
-    if (!line || line.length > SIGN_IN_CODE_MAX || /[\r\n\0]/.test(line)) throw new Unavailable('That is not a code to paste. Copy the whole code from the page, then paste it.')
+    const oneLine = line !== '' && line.length <= SIGN_IN_CODE_MAX && !/[\r\n\0]/.test(line)
+    if (!oneLine) throw new Unavailable('That is not a code to paste. Copy the whole code from the page, then paste it.')
+
     running.child.stdin?.write(`${line}\n`)
   }
 
