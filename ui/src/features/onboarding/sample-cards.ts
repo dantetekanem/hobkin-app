@@ -281,11 +281,16 @@ const SAMPLE: Record<Goal, { starters: Card[]; more: Card[] }> = {
 /** The sample's cards for the goals picked, each card once: under the first picked goal that has it, as hobkin's own do. */
 export function sampleGoalCards(goals: readonly Goal[]): GoalCards[] {
   const shown = new Set<string>()
-  const fresh = (cards: readonly Card[]) =>
-    cards.filter(({ id }) => {
-      if (shown.has(id)) return false
-      shown.add(id)
-      return true
-    })
-  return GOALS.filter((goal) => goals.includes(goal)).map((goal) => ({ goal, starters: fresh(SAMPLE[goal].starters), more: fresh(SAMPLE[goal].more) }))
+  const notShownYet = (cards: readonly Card[]): Card[] => {
+    const fresh = cards.filter(({ id }) => !shown.has(id))
+    for (const { id } of fresh) shown.add(id)
+    return fresh
+  }
+
+  const picked = GOALS.filter((goal) => goals.includes(goal))
+  return picked.map((goal) => ({
+    goal,
+    starters: notShownYet(SAMPLE[goal].starters),
+    more: notShownYet(SAMPLE[goal].more),
+  }))
 }

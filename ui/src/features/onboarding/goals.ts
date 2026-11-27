@@ -42,6 +42,7 @@ export function goalsOf(picked: readonly string[]): GoalsPicked {
   const own = picked.filter((label) => !GOAL_BUBBLES.includes(label))
   const named = new Set(GOALS.filter((goal) => picked.includes(GOAL_WORDS[goal].bubble)))
   if (own.length) named.add('project')
+
   return { goals: GOALS.filter((goal) => named.has(goal)), own }
 }
 
@@ -67,8 +68,10 @@ const PRIVATE_GOALS: readonly Goal[] = ['job', 'business', 'life']
 export const asksComputer = (goals: readonly Goal[]): boolean => goals.some((goal) => PRIVATE_GOALS.includes(goal))
 
 /** The email question's second bubble: commits count only for someone who writes code. */
-export const emailWhy = (goals: readonly Goal[]): string =>
-  `It tells me which ${goals.includes('code') ? 'commits, mail and accounts' : 'mail and accounts'} are yours, and which are someone else's.`
+export function emailWhy(goals: readonly Goal[]): string {
+  const whose = goals.includes('code') ? 'commits, mail and accounts' : 'mail and accounts'
+  return `It tells me which ${whose} are yours, and which are someone else's.`
+}
 
 /** A question answered in the person's own words, in a field. Its id is kept with the answer, so it never changes. */
 export interface TypedQuestion {
@@ -87,8 +90,18 @@ const TYPED: Partial<Record<Goal, TypedQuestion>> = {
     ask: 'What kind of job are you after, and where? Name the companies or job boards I should watch, if you have some.',
     placeholder: 'A role, a place, companies or job boards',
   },
-  business: { kind: 'typed', id: 'business', ask: 'Tell me about the business in a line. What do you sell, and to whom?', placeholder: 'What you sell, and to whom' },
-  project: { kind: 'typed', id: 'project', ask: "What's the project, and is there a date it has to be done by?", placeholder: 'The project, and its date' },
+  business: {
+    kind: 'typed',
+    id: 'business',
+    ask: 'Tell me about the business in a line. What do you sell, and to whom?',
+    placeholder: 'What you sell, and to whom',
+  },
+  project: {
+    kind: 'typed',
+    id: 'project',
+    ask: "What's the project, and is there a date it has to be done by?",
+    placeholder: 'The project, and its date',
+  },
 }
 
 /** Code asks 025's own questions, as they were: where the projects live, which ones, and validation. */
@@ -97,7 +110,9 @@ const CODE_QUESTIONS: readonly Question[] = CODE_QUESTION_IDS.flatMap((id) => QU
 
 /** The questions of the goals picked, in the goals' order. Life asks none: its cards are clear enough. */
 export function goalQuestions(goals: readonly Goal[]): GoalQuestion[] {
-  return GOALS.filter((goal) => goals.includes(goal)).flatMap((goal): GoalQuestion[] => {
+  const picked = GOALS.filter((goal) => goals.includes(goal))
+
+  return picked.flatMap((goal): GoalQuestion[] => {
     if (goal === 'code') return [...CODE_QUESTIONS]
     const typed = TYPED[goal]
     return typed ? [typed] : []

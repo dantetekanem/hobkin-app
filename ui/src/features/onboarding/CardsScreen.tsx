@@ -52,6 +52,43 @@ function cardSize(area: CardsArea, wide: boolean): { width: number; height: numb
 
 const typingIn = (target: EventTarget) => target instanceof HTMLElement && target.matches('input, textarea')
 
+const LANDED = 'translateY(0px) scale(1)'
+/** The cards come up over the hill one after another, this far apart in seconds. */
+const ARRIVE_STEP = 0.06
+
+/**
+ * How a card comes and goes. It rises into place after the ones before it, or only fades in when held still. A card
+ * before the first in view fades out and is then gone, so it is never drawn over hobkin.
+ */
+function cardMotion({ before, place, still }: { before: boolean; place: number; still: boolean }) {
+  const wait = place * ARRIVE_STEP
+  return {
+    initial: { opacity: 0, transform: still ? LANDED : 'translateY(40px) scale(0.96)' },
+    animate: {
+      opacity: before ? 0 : 1,
+      transform: LANDED,
+      ...(before ? { transitionEnd: { visibility: 'hidden' as const } } : { visibility: 'visible' as const }),
+      transition: {
+        transform: { ...spring.rise, delay: wait },
+        opacity: before ? tween.exit : { ...tween.enter, delay: wait },
+      },
+    },
+    exit: { opacity: 0, transition: tween.exit },
+  }
+}
+
+/** The place of the card an element is in, or null outside every card. */
+function cardIndexOf(element: Element): number | null {
+  const place = element.closest<HTMLElement>('[data-card]')?.dataset.card
+  return place === undefined ? null : Number(place)
+}
+
+/** Which of a card's buttons an element is, Keep when it is none of them. */
+function cardButtonOf(element: Element): CardButton {
+  const named = element.closest<HTMLElement>('[data-card-button]')?.dataset.cardButton
+  return CARD_BUTTONS.find((button) => button === named) ?? 'keep'
+}
+
 /**
  * One goal's routine cards, over the hill beside hobkin. Keep, Change and Drop on each card, More for this goal, and
  * Done with the count beside it. As many cards as fit stand side by side, and the next one's edge shows after them.
@@ -74,7 +111,8 @@ export function CardsScreen({ group, picks, onPicks, work, area, wide, onDone, o
   const step = size.width + GAP
   // How many stand side by side. The one after them shows its edge.
   const fit = wide ? Math.max(1, Math.floor((area.width + GAP) / step)) : 1
-  const start = Math.max(0, Math.min(first, cards.length - fit))
+  const lastStart = Math.max(0, cards.length - fit)
+  const start = Math.min(first, lastStart)
   const moves = cards.length > fit
 
   const buttonOf = (index: number, button: CardButton) => row.current?.querySelector<HTMLElement>(`[data-card="${index}"] [data-card-button="${button}"]`)
@@ -85,7 +123,10 @@ export function CardsScreen({ group, picks, onPicks, work, area, wide, onDone, o
   }, [group.goal])
 
   /** Brings a card into view, moving the row as little as it takes. */
-  const show = (index: number) => setFirst(index < start ? index : index >= start + fit ? index - fit + 1 : start)
+  const show = (index: number) => {
+    if (index < start) setFirst(index)
+    else if (index >= start + fit) setFirst(index - fit + 1)
+  }
 
   const keep = (id: string) => {
     const { picks: next, full: refused } = keepCard(picks, id)
@@ -101,32 +142,41 @@ export function CardsScreen({ group, picks, onPicks, work, area, wide, onDone, o
 
   /** Left and Right: the same button of the card before or after, brought into view. */
   const move = (from: HTMLElement, by: -1 | 1): boolean => {
-    const card = from.closest<HTMLElement>('[data-card]')
-    if (!card) return false
-    const next = Number(card.dataset.card) + by
+    const index = cardIndexOf(from)
+    if (index === null) return false
+
+    const next = index + by
     if (next < 0 || next >= cards.length) return true
-    const button = (from.closest<HTMLElement>('[data-card-button]')?.dataset.cardButton ?? 'keep') as CardButton
+
     show(next)
-    ;(buttonOf(next, button) ?? buttonOf(next, CARD_BUTTONS[0]))?.focus({ preventScroll: true })
+    const target = buttonOf(next, cardButtonOf(from)) ?? buttonOf(next, 'keep')
+    target?.focus({ preventScroll: true })
     return true
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
+    const held = event.metaKey || event.ctrlKey || event.altKey
+    if (event.defaultPrevented || held || event.nativeEvent.isComposing) return
     const target = event.target as HTMLElement
+
     if (event.key === 'Escape') {
       event.preventDefault()
       if (changing) setChanging(null)
       else onBack()
-    } else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !event.shiftKey && !typingIn(target)) {
-      if (move(target, event.key === 'ArrowLeft' ? -1 : 1)) event.preventDefault()
+      return
     }
+
+    const sideways = event.key === 'ArrowLeft' || event.key === 'ArrowRight'
+    if (!sideways || event.shiftKey || typingIn(target)) return
+    if (move(target, event.key === 'ArrowLeft' ? -1 : 1)) event.preventDefault()
   }
 
   /** A card not wholly in view is brought into view by a click, before any of its buttons can be pressed. */
   const onClickCapture = (event: MouseEvent<HTMLDivElement>) => {
-    const index = Number((event.target as HTMLElement).closest<HTMLElement>('[data-card]')?.dataset.card ?? NaN)
-    if (Number.isNaN(index) || (index >= start && index < start + fit)) return
+    const index = cardIndexOf(event.target as Element)
+    const inView = index !== null && index >= start && index < start + fit
+    if (index === null || inView) return
+
     event.preventDefault()
     event.stopPropagation()
     show(index)
@@ -134,12 +184,15 @@ export function CardsScreen({ group, picks, onPicks, work, area, wide, onDone, o
 
   /** A sideways swipe on a trackpad moves one card. */
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (!moves || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return
+    const sideways = Math.abs(event.deltaX) > Math.abs(event.deltaY)
     const now = Date.now()
-    if (now < swipe.current.until) return
+    if (!moves || !sideways || now < swipe.current.until) return
+
     swipe.current.sum += event.deltaX
     if (Math.abs(swipe.current.sum) < SWIPE.distance) return
-    setFirst(Math.max(0, Math.min(cards.length - fit, start + Math.sign(swipe.current.sum))))
+
+    const next = start + Math.sign(swipe.current.sum)
+    setFirst(Math.max(0, Math.min(lastStart, next)))
     swipe.current = { sum: 0, until: now + SWIPE.rest }
   }
 
@@ -151,7 +204,8 @@ export function CardsScreen({ group, picks, onPicks, work, area, wide, onDone, o
     requestAnimationFrame(() => buttonOf(index, 'keep')?.focus({ preventScroll: true }))
   }
 
-  const landed = 'translateY(0px) scale(1)'
+  // As wide as the cards that fit side by side, whatever this goal has, so Done never moves.
+  const barWidth = wide ? Math.min(area.width, fit * step - GAP) : area.width
 
   return (
     <motion.div
@@ -177,10 +231,9 @@ export function CardsScreen({ group, picks, onPicks, work, area, wide, onDone, o
       >
         <AnimatePresence initial>
           {cards.map((card, index) => {
-            // Cards before the first in view step out of the way, so nothing stands over hobkin.
+            // Cards before the first in view step out of the way. The more arrive in their own turn, after the starters.
             const before = index < start
-            // The cards come up over the hill one after another. Held still, they only fade in.
-            const wait = (index >= group.starters.length ? index - group.starters.length : index) * 0.06
+            const place = index < group.starters.length ? index : index - group.starters.length
             return (
               <motion.div
                 key={card.id}
@@ -189,15 +242,7 @@ export function CardsScreen({ group, picks, onPicks, work, area, wide, onDone, o
                 aria-hidden={before || undefined}
                 data-before={before || undefined}
                 onFocusCapture={() => show(index)}
-                initial={{ opacity: 0, transform: still ? landed : 'translateY(40px) scale(0.96)' }}
-                animate={{
-                  opacity: before ? 0 : 1,
-                  transform: landed,
-                  // Gone once faded, so a card that stepped out of the way is never drawn over hobkin.
-                  ...(before ? { transitionEnd: { visibility: 'hidden' as const } } : { visibility: 'visible' as const }),
-                  transition: { transform: { ...spring.rise, delay: wait }, opacity: before ? tween.exit : { ...tween.enter, delay: wait } },
-                }}
-                exit={{ opacity: 0, transition: tween.exit }}
+                {...cardMotion({ before, place, still })}
               >
                 <RoutineCard
                   card={card}
@@ -228,24 +273,23 @@ export function CardsScreen({ group, picks, onPicks, work, area, wide, onDone, o
         </AnimatePresence>
       </motion.div>
 
-      {/* As wide as the cards that fit side by side, whatever this goal has, so Done never moves. */}
-      <div className="mt-4 flex shrink-0 items-center gap-2" style={{ height: BAR - 16, width: wide ? Math.min(area.width, fit * step - GAP) : area.width }}>
+      <div className="mt-4 flex shrink-0 items-center gap-2" style={{ height: BAR - 16, width: barWidth }}>
         {/* The arrows keep their place, and show only while there are more cards than fit. */}
         <div className={cn('flex items-center gap-1', !moves && 'invisible')}>
           <Button size="icon-lg" variant="outline" aria-label="Cards before" disabled={!moves || start === 0} tabIndex={-1} onClick={() => setFirst(start - 1)} className="bg-card/60">
             <ChevronLeft aria-hidden="true" />
           </Button>
-          <Button size="icon-lg" variant="outline" aria-label="Cards after" disabled={!moves || start >= cards.length - fit} tabIndex={-1} onClick={() => setFirst(start + 1)} className="bg-card/60">
+          <Button size="icon-lg" variant="outline" aria-label="Cards after" disabled={!moves || start >= lastStart} tabIndex={-1} onClick={() => setFirst(start + 1)} className="bg-card/60">
             <ChevronRight aria-hidden="true" />
           </Button>
         </div>
-        {group.more.length && !moreShown ? (
+        {group.more.length > 0 && !moreShown ? (
           <Button size="lg" variant="ghost" onClick={openMore} className="text-[13.5px]">
             More for this goal
           </Button>
         ) : null}
         {wide ? (
-          <span className="ml-auto flex items-center gap-1 text-[12px] whitespace-nowrap text-muted-foreground" aria-hidden="true">
+          <span className="ml-auto flex items-center gap-1 rounded-full bg-card/60 py-1 pr-2.5 pl-1.5 text-[12px] whitespace-nowrap text-muted-foreground" aria-hidden="true">
             <Kbd>←</Kbd>
             <Kbd>→</Kbd>
             <span className="ml-0.5">between cards</span>

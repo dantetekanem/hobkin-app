@@ -100,17 +100,19 @@ export interface CardRow {
  */
 export function cardRows(card: Card, changes: CardChanges, { work }: { work: boolean }): CardRow[] {
   const skips = changes.skips ?? card.skips
-  const rows: (CardRow | null)[] = [
-    card.summary ? { part: 'watches', label: 'Watches', text: card.summary } : null,
-    card.needs.length ? { part: 'looks', label: 'Looks at', text: capital(listed(card.needs)) } : null,
-    { part: 'often', label: 'How often', text: changes.recurrence ?? card.recurrence },
-    card.tells ? { part: 'tells', label: 'Tells you when', text: card.tells } : null,
-    skips === null ? null : { part: 'skips', label: 'Leaves out', text: skips || 'Nothing' },
-    changes.answer ? { part: 'said', label: 'You said', text: changes.answer } : null,
-    card.gives.length ? { part: 'gives', label: 'You get', text: `${capital(listed(card.gives.map((gift) => GIFT_WORDS[gift])))}.` } : null,
-    work && card.private ? { part: 'private', label: '', text: 'It reads your own accounts, on a work computer.' } : null,
-  ]
-  return rows.filter((row) => row !== null)
+  const gifts = card.gives.map((gift) => GIFT_WORDS[gift])
+  const rows: CardRow[] = []
+
+  if (card.summary) rows.push({ part: 'watches', label: 'Watches', text: card.summary })
+  if (card.needs.length) rows.push({ part: 'looks', label: 'Looks at', text: capital(listed(card.needs)) })
+  rows.push({ part: 'often', label: 'How often', text: changes.recurrence ?? card.recurrence })
+  if (card.tells) rows.push({ part: 'tells', label: 'Tells you when', text: card.tells })
+  if (skips !== null) rows.push({ part: 'skips', label: 'Leaves out', text: skips || 'Nothing' })
+  if (changes.answer) rows.push({ part: 'said', label: 'You said', text: changes.answer })
+  if (gifts.length) rows.push({ part: 'gives', label: 'You get', text: `${capital(listed(gifts))}.` })
+  if (work && card.private) rows.push({ part: 'private', label: '', text: 'It reads your own accounts, on a work computer.' })
+
+  return rows
 }
 
 export type ChangePart = 'often' | 'skips' | 'answer'
@@ -128,33 +130,42 @@ export function changeFields(card: Card, changes: CardChanges): ChangeField[] {
     { part: 'often', label: 'How often', start: changes.recurrence ?? card.recurrence },
     { part: 'skips', label: 'Leaves out', start: changes.skips ?? card.skips ?? '' },
   ]
-  return card.asks ? [...fields, { part: 'answer', label: card.asks, start: changes.answer ?? '' }] : fields
+  if (card.asks) fields.push({ part: 'answer', label: card.asks, start: changes.answer ?? '' })
+  return fields
 }
 
 /** The most one changed field may hold. */
 export const CHANGE_MAX = 600
 
 /** What is wrong with a changed field, in hobkin's words, or null when it can be kept. */
-export const checkChange = (text: string): string | null => (text.trim().length > CHANGE_MAX ? `That is a lot. Keep it under ${CHANGE_MAX} characters.` : null)
+export function checkChange(text: string): string | null {
+  if (text.trim().length <= CHANGE_MAX) return null
+  return `That is a lot. Keep it under ${CHANGE_MAX} characters.`
+}
 
 const without = <T>(record: Readonly<Record<string, T>>, id: string): Record<string, T> => {
   const { [id]: _gone, ...rest } = record
   return rest
 }
 
+/** The picks with a card kept, dropped, or left alone again (null). */
+function marked(picks: CardPicks, id: string, mark: 'kept' | 'dropped' | null): CardPicks {
+  const marks = mark ? { ...picks.marks, [id]: mark } : without(picks.marks, id)
+  return { ...picks, marks }
+}
+
 const keptCount = (picks: CardPicks) => Object.values(picks.marks).filter((mark) => mark === 'kept').length
 
 /** Keep, pressed: a card is kept, or let go when it already was. A sixth is not kept, and `full` says why nothing happened. */
 export function keepCard(picks: CardPicks, id: string): { picks: CardPicks; full: boolean } {
-  if (picks.marks[id] === 'kept') return { picks: { ...picks, marks: without(picks.marks, id) }, full: false }
+  if (picks.marks[id] === 'kept') return { picks: marked(picks, id, null), full: false }
   if (keptCount(picks) >= KEPT_MAX) return { picks, full: true }
-  return { picks: { ...picks, marks: { ...picks.marks, [id]: 'kept' } }, full: false }
+  return { picks: marked(picks, id, 'kept'), full: false }
 }
 
 /** Drop, pressed: a card is turned down, a kept one too. Undo on a dropped card leaves it alone again. */
 export function dropCard(picks: CardPicks, id: string): CardPicks {
-  if (picks.marks[id] === 'dropped') return { ...picks, marks: without(picks.marks, id) }
-  return { ...picks, marks: { ...picks.marks, [id]: 'dropped' } }
+  return marked(picks, id, picks.marks[id] === 'dropped' ? null : 'dropped')
 }
 
 /** Save in Change: what the fields hold, trimmed, kept where it differs from the template. The card stays kept, dropped or alone. */
@@ -162,12 +173,14 @@ export function changeCard(picks: CardPicks, card: Card, edits: Record<ChangePar
   const often = edits.often.trim()
   const skips = edits.skips.trim()
   const answer = edits.answer.trim()
-  const changes: CardChanges = {
-    ...(often && often !== card.recurrence ? { recurrence: often } : {}),
-    ...(skips !== (card.skips ?? '') ? { skips } : {}),
-    ...(card.asks && answer ? { answer } : {}),
-  }
-  return { ...picks, changes: Object.keys(changes).length ? { ...picks.changes, [card.id]: changes } : without(picks.changes, card.id) }
+
+  const changes: CardChanges = {}
+  if (often && often !== card.recurrence) changes.recurrence = often
+  if (skips !== (card.skips ?? '')) changes.skips = skips
+  if (card.asks && answer) changes.answer = answer
+
+  const changed = Object.keys(changes).length > 0
+  return { ...picks, changes: changed ? { ...picks.changes, [card.id]: changes } : without(picks.changes, card.id) }
 }
 
 /** Every card on offer, in the order they are shown: each goal's starters, then its more. */
@@ -196,11 +209,12 @@ export function cardsLines(goal: Goal, first: boolean): string[] {
 function cardSaid(card: Card, changes: CardChanges | undefined): string[] {
   const named = `- ${templateKey(card)}, "${card.title}"`
   if (!changes) return [`${named}, as the template has it.`]
-  const said = [
-    changes.recurrence !== undefined && `How often: ${changes.recurrence}`,
-    changes.skips !== undefined && `Leaves out: ${changes.skips || 'nothing'}`,
-    changes.answer !== undefined && `To "${card.asks}" I said: ${changes.answer}`,
-  ].filter((line) => line !== false)
+
+  const said: string[] = []
+  if (changes.recurrence !== undefined) said.push(`How often: ${changes.recurrence}`)
+  if (changes.skips !== undefined) said.push(`Leaves out: ${changes.skips || 'nothing'}`)
+  if (changes.answer !== undefined) said.push(`To "${card.asks}" I said: ${changes.answer}`)
+
   return [`${named}, with my changes:`, ...said.map((line) => `  ${line}`)]
 }
 
@@ -226,16 +240,20 @@ export function writeRequest({ goals, answers, cards, picks, checks }: WriteRequ
   const all = cardsInOrder(cards)
   const kept = keptCards(all, picks)
   if (!kept.length) return null
-  const dropped = droppedCards(all, picks)
-  const working = goals.length ? `I'm working toward ${listed(goals.map((goal) => GOAL_WORDS[goal].said))}.` : 'I named no goal.'
-  const told = answers.filter(({ answer }) => answer.trim()).map(({ ask, answer }) => `- ${ask}\n  ${answer.trim()}`)
+
+  const goalsNamed = goals.map((goal) => GOAL_WORDS[goal].said)
+  const working = goals.length ? `I'm working toward ${listed(goalsNamed)}.` : 'I named no goal.'
+  const told = answers
+    .filter(({ answer }) => answer.trim())
+    .map(({ ask, answer }) => `- ${ask}\n  ${answer.trim()}`)
+  const turnedDown = droppedCards(all, picks).map((card) => `${templateKey(card)} ("${card.title}")`)
 
   return [
     `I just went through the setup in the app. ${working}`,
     ...(told.length ? ['Here is what I answered there:', ...told] : []),
     'These are the cards I kept, each by its template and version. Write one routine for each, from its template:',
     ...kept.flatMap((card) => cardSaid(card, picks.changes[card.id])),
-    ...(dropped.length ? [`I turned down these cards, so do not offer them again unless I ask: ${dropped.map((card) => `${templateKey(card)} ("${card.title}")`).join(', ')}.`] : []),
+    ...(turnedDown.length ? [`I turned down these cards, so do not offer them again unless I ask: ${turnedDown.join(', ')}.`] : []),
     ...(checks ? [CHECKS] : []),
     'Run `hobkin setup`, and follow the "From the app\'s setup" section of the guide it names.',
     'Turn each routine on, since I said yes on its card. Ask me before you connect anything. Run none of them.',
@@ -260,9 +278,11 @@ export interface Written {
  * message went, by the same id, was not written now.
  */
 export function routinesWritten(kept: readonly Card[], routines: readonly NamedRoutine[], before: readonly NamedRoutine[]): Written[] {
-  const there = new Set(before.map(({ id, template }) => `${id} ${template ?? ''}`))
+  const naming = ({ id, template }: NamedRoutine) => `${id} ${template ?? ''}`
+  const namedBefore = new Set(before.map(naming))
+
   return kept.flatMap((card) => {
-    const routine = routines.find(({ id, template }) => template === templateKey(card) && !there.has(`${id} ${template}`))
+    const routine = routines.find((one) => one.template === templateKey(card) && !namedBefore.has(naming(one)))
     return routine ? [{ card, routine }] : []
   })
 }
@@ -305,12 +325,12 @@ export function writingOver(state: Writing, now: number): boolean {
 /** What hobkin says it wrote, in one bubble: all, some, or none of the kept cards. */
 export function routinesSaid(kept: number, written: number): string {
   if (written <= 0) return `I couldn't write ${kept === 1 ? 'it' : 'them'} just now. We'll pick this up in our chat.`
-  if (written >= kept) {
-    if (kept === 1) return "Done. I wrote it, and it's in Routines."
-    return `Done. I wrote ${kept === 2 ? 'both' : `all ${few(kept)}`}, and they're in Routines.`
-  }
+  if (kept === 1) return "Done. I wrote it, and it's in Routines."
+  if (written >= kept) return `Done. I wrote ${kept === 2 ? 'both' : `all ${few(kept)}`}, and they're in Routines.`
+
   const left = kept - written
-  const rest = left === 1 ? (kept === 2 ? 'the other one' : 'the last one') : `the other ${few(left)}`
+  let rest = `the other ${few(left)}`
+  if (left === 1) rest = kept === 2 ? 'the other one' : 'the last one'
   return `I wrote ${few(written)} of the ${few(kept)}. We'll finish ${rest} in our chat.`
 }
 
@@ -322,8 +342,11 @@ const EFFORT_ORDER: readonly Card['effort'][] = ['low', 'medium', 'high']
  */
 export function firstRunOf(written: readonly Written[], smart: boolean): NamedRoutine | null {
   if (!smart) return null
+
+  const effortRank = ({ card }: Written) => EFFORT_ORDER.indexOf(card.effort)
   const on = written.filter(({ routine }) => routine.enabled)
-  const lowest = on.reduce<Written | null>((best, next) => (best && EFFORT_ORDER.indexOf(best.card.effort) <= EFFORT_ORDER.indexOf(next.card.effort) ? best : next), null)
+  // A stable sort, so of equal effort the first in card order comes first.
+  const [lowest] = on.toSorted((left, right) => effortRank(left) - effortRank(right))
   return lowest?.routine ?? null
 }
 

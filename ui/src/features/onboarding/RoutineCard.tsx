@@ -1,15 +1,17 @@
 import { Check, Lock } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { cardRows, changeFields, checkChange, FULL_LINE, type Card, type CardChanges, type ChangePart } from './cards.ts'
+import { cardRows, changeFields, checkChange, FULL_LINE, type Card, type CardChanges, type ChangeField, type ChangePart } from './cards.ts'
 import './story.css'
 
 /** A card's three buttons, by their place in its footer. Left and Right keep the same place on the next card. */
 export const CARD_BUTTONS = ['keep', 'change', 'drop'] as const
 export type CardButton = (typeof CARD_BUTTONS)[number]
+
+type Edits = Record<ChangePart, string>
 
 interface RoutineCardProps {
   card: Card
@@ -26,7 +28,7 @@ interface RoutineCardProps {
   onKeep: () => void
   onChange: () => void
   onDrop: () => void
-  onSave: (edits: Record<ChangePart, string>) => void
+  onSave: (edits: Edits) => void
   onCancel: () => void
   width: number
   height: number
@@ -34,6 +36,18 @@ interface RoutineCardProps {
 }
 
 const FIELD = 'w-full rounded-xl border border-white/45 bg-card/70 px-3 text-[13.5px] text-foreground outline-none transition-[border-color] duration-[160ms] placeholder:text-muted-foreground/70 focus-visible:border-ring dark:border-white/15'
+
+/** The rows and the fields swap in place: a fade, with a small lift only when things may move. */
+const swapIn = (still: boolean) => ({
+  initial: { opacity: 0, transform: still ? 'translateY(0px)' : 'translateY(4px)' },
+  animate: { opacity: 1, transform: 'translateY(0px)', transition: tween.enter },
+  exit: { opacity: 0, transition: tween.exit },
+})
+
+function editsFrom(fields: readonly ChangeField[]): Edits {
+  const start = (part: ChangePart) => fields.find((field) => field.part === part)?.start ?? ''
+  return { often: start('often'), skips: start('skips'), answer: start('answer') }
+}
 
 /**
  * One routine as a pane of glass: its title, then what it watches, where it looks, how often, when it tells, what it
@@ -44,46 +58,40 @@ const FIELD = 'w-full rounded-xl border border-white/45 bg-card/70 px-3 text-[13
 export function RoutineCard({ card, index, mark, changes, work, full, changing, onKeep, onChange, onDrop, onSave, onCancel, width, height, still }: RoutineCardProps) {
   const titleId = useId()
   const fields = changeFields(card, changes)
-  const [edits, setEdits] = useState<Record<ChangePart, string>>(() => editsFrom(fields))
+  const [edits, setEdits] = useState<Edits>(() => editsFrom(fields))
   const [problem, setProblem] = useState<string | null>(null)
   const changeButton = useRef<HTMLButtonElement | null>(null)
   const opened = useRef(false)
-  // The fields come in once the rows have faded, so the first one takes the keyboard as it is drawn. Stable, so typing never moves it.
-  const focusOnArrival = useCallback((field: HTMLInputElement | null) => field?.focus({ preventScroll: true }), [])
 
   // Change opens on what was saved last. Closed, the keyboard goes back to Change.
   useEffect(() => {
     if (changing) {
       setEdits(editsFrom(changeFields(card, changes)))
       setProblem(null)
-    } else if (opened.current) changeButton.current?.focus({ preventScroll: true })
+    } else if (opened.current) {
+      changeButton.current?.focus({ preventScroll: true })
+    }
     opened.current = changing
     // When Change opens or closes.
   }, [changing])
 
-  const save = (event?: FormEvent) => {
-    event?.preventDefault()
-    const wrong = Object.values(edits).map(checkChange).find((said) => said !== null)
-    if (wrong) return setProblem(wrong)
-    onSave(edits)
+  const edit = (part: ChangePart, text: string) => {
+    setEdits((now) => ({ ...now, [part]: text }))
+    setProblem(null)
   }
 
-  // As in the setup's other fields, Enter keeps what is written, and Shift+Enter starts a new line. Escape is the screen's.
-  const onFieldKeys = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-    event.preventDefault()
-    save()
+  const save = () => {
+    const wrong = Object.values(edits).map(checkChange).find((said) => said !== null)
+    if (wrong) {
+      setProblem(wrong)
+      return
+    }
+    onSave(edits)
   }
 
   const kept = mark === 'kept'
   const dropped = mark === 'dropped'
   const note = changing ? problem : full ? FULL_LINE : null
-  // The rows and the fields swap in place: a fade, with a small lift only when things may move.
-  const swap = {
-    initial: { opacity: 0, transform: still ? 'translateY(0px)' : 'translateY(4px)' },
-    animate: { opacity: 1, transform: 'translateY(0px)', transition: tween.enter },
-    exit: { opacity: 0, transition: tween.exit },
-  }
 
   return (
     <article
@@ -99,7 +107,10 @@ export function RoutineCard({ card, index, mark, changes, work, full, changing, 
         </h3>
         {card.source === 'yours' ? <span className="mt-0.5 shrink-0 rounded-full bg-card/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Yours</span> : null}
         {/* The mark's place is kept, so the title never moves when the card is kept. */}
-        <span aria-hidden="true" className={cn('flex size-6 shrink-0 items-center justify-center rounded-full transition-opacity duration-200', kept ? 'bg-primary text-primary-foreground opacity-100' : 'opacity-0')}>
+        <span
+          aria-hidden="true"
+          className={cn('flex size-6 shrink-0 items-center justify-center rounded-full transition-opacity duration-200', kept ? 'bg-primary text-primary-foreground opacity-100' : 'opacity-0')}
+        >
           <Check className="size-3.5" strokeWidth={3} />
         </span>
       </header>
@@ -107,62 +118,9 @@ export function RoutineCard({ card, index, mark, changes, work, full, changing, 
       <div className="tale-card-dims scroll-quiet relative mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
         <AnimatePresence mode="wait" initial={false}>
           {changing ? (
-            <motion.form key="fields" {...swap} onSubmit={save} noValidate className="flex flex-col gap-2.5" aria-label={`Change ${card.title}`}>
-              {fields.map((field, at) => {
-                const id = `${titleId}-${field.part}`
-                const value = edits[field.part]
-                const set = (text: string) => {
-                  setEdits((now) => ({ ...now, [field.part]: text }))
-                  setProblem(null)
-                }
-                return (
-                  <label key={field.part} htmlFor={id} className="flex flex-col gap-1">
-                    <span className="text-[12px] leading-snug font-medium text-muted-foreground">{field.label}</span>
-                    {field.part === 'often' ? (
-                      <input
-                        ref={at === 0 ? focusOnArrival : undefined}
-                        id={id}
-                        type="text"
-                        value={value}
-                        onChange={(event) => set(event.target.value)}
-                        onKeyDown={onFieldKeys}
-                        autoComplete="off"
-                        spellCheck={false}
-                        className={cn(FIELD, 'h-9')}
-                      />
-                    ) : (
-                      <textarea
-                        id={id}
-                        value={value}
-                        rows={2}
-                        onChange={(event) => set(event.target.value)}
-                        onKeyDown={onFieldKeys}
-                        placeholder={field.part === 'skips' ? 'Nothing' : 'Your answer'}
-                        spellCheck={false}
-                        className={cn(FIELD, 'resize-none py-2 leading-snug')}
-                      />
-                    )}
-                  </label>
-                )
-              })}
-            </motion.form>
+            <CardFields key="fields" title={card.title} fields={fields} edits={edits} onEdit={edit} onSave={save} still={still} />
           ) : (
-            <motion.dl key="rows" {...swap} className="grid grid-cols-[76px_1fr] gap-x-3 gap-y-2 text-[13px] leading-snug">
-              {cardRows(card, changes, { work }).map((row) =>
-                row.part === 'private' ? (
-                  <div key={row.part} className="col-span-2 flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
-                    <dt className="sr-only">On this computer</dt>
-                    <Lock className="size-3.5 shrink-0" aria-hidden="true" />
-                    <dd>{row.text}</dd>
-                  </div>
-                ) : (
-                  <div key={row.part} className="contents">
-                    <dt className="pt-px text-[12px] font-medium text-muted-foreground">{row.label}</dt>
-                    <dd className="min-w-0 text-foreground">{row.text}</dd>
-                  </div>
-                ),
-              )}
-            </motion.dl>
+            <CardRows key="rows" card={card} changes={changes} work={work} still={still} />
           )}
         </AnimatePresence>
       </div>
@@ -177,7 +135,7 @@ export function RoutineCard({ card, index, mark, changes, work, full, changing, 
       <div className="mt-3 grid grid-cols-3 gap-1.5">
         {changing ? (
           <>
-            <Button data-card-button="keep" size="lg" onClick={() => save()}>
+            <Button data-card-button="keep" size="lg" onClick={save}>
               Save
             </Button>
             <Button ref={changeButton} data-card-button="change" size="lg" variant="outline" onClick={onCancel}>
@@ -204,7 +162,95 @@ export function RoutineCard({ card, index, mark, changes, work, full, changing, 
   )
 }
 
-function editsFrom(fields: ReturnType<typeof changeFields>): Record<ChangePart, string> {
-  const start = (part: ChangePart) => fields.find((field) => field.part === part)?.start ?? ''
-  return { often: start('often'), skips: start('skips'), answer: start('answer') }
+/** What the card says, a row for each part it has. A private card's line on a work computer spans the card. */
+function CardRows({ card, changes, work, still }: { card: Card; changes: CardChanges; work: boolean; still: boolean }) {
+  return (
+    <motion.dl {...swapIn(still)} className="grid grid-cols-[76px_1fr] gap-x-3 gap-y-2 text-[13px] leading-snug">
+      {cardRows(card, changes, { work }).map((row) =>
+        row.part === 'private' ? (
+          <div key={row.part} className="col-span-2 flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+            <dt className="sr-only">On this computer</dt>
+            <Lock className="size-3.5 shrink-0" aria-hidden="true" />
+            <dd>{row.text}</dd>
+          </div>
+        ) : (
+          <div key={row.part} className="contents">
+            <dt className="pt-px text-[12px] font-medium text-muted-foreground">{row.label}</dt>
+            <dd className="min-w-0 text-foreground">{row.text}</dd>
+          </div>
+        ),
+      )}
+    </motion.dl>
+  )
+}
+
+interface CardFieldsProps {
+  title: string
+  fields: readonly ChangeField[]
+  edits: Edits
+  onEdit: (part: ChangePart, text: string) => void
+  onSave: () => void
+  still: boolean
+}
+
+/**
+ * Change, in place of the rows: How often in a line, Leaves out and the template's own question in a few. The first
+ * field takes the keyboard as the fields come in. Enter saves, as in the setup's other fields, and Shift+Enter starts
+ * a new line. Escape is the cards screen's.
+ */
+function CardFields({ title, fields, edits, onEdit, onSave, still }: CardFieldsProps) {
+  const idBase = useId()
+  const first = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    first.current?.focus({ preventScroll: true })
+  }, [])
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    onSave()
+  }
+
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+    event.preventDefault()
+    onSave()
+  }
+
+  return (
+    <motion.form {...swapIn(still)} onSubmit={onSubmit} noValidate aria-label={`Change ${title}`} className="flex flex-col gap-2.5">
+      {fields.map((field) => {
+        const id = `${idBase}-${field.part}`
+        return (
+          <label key={field.part} htmlFor={id} className="flex flex-col gap-1">
+            <span className="text-[12px] leading-snug font-medium text-muted-foreground">{field.label}</span>
+            {field.part === 'often' ? (
+              <input
+                ref={first}
+                id={id}
+                type="text"
+                value={edits.often}
+                onChange={(event) => onEdit('often', event.target.value)}
+                onKeyDown={onKeyDown}
+                autoComplete="off"
+                spellCheck={false}
+                className={cn(FIELD, 'h-9')}
+              />
+            ) : (
+              <textarea
+                id={id}
+                value={edits[field.part]}
+                rows={2}
+                onChange={(event) => onEdit(field.part, event.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder={field.part === 'skips' ? 'Nothing' : 'Your answer'}
+                spellCheck={false}
+                className={cn(FIELD, 'resize-none py-2 leading-snug')}
+              />
+            )}
+          </label>
+        )
+      })}
+    </motion.form>
+  )
 }

@@ -19,6 +19,7 @@ import {
   writingOver,
   type Card,
   type CardPicks,
+  type CardRow,
   type GoalCards,
   type NamedRoutine,
   type Writing,
@@ -80,24 +81,27 @@ test('each picked goal asks its own question in the goals\' order, life asks non
 })
 
 test('a card has the parts its template gives, in order', () => {
+  const partsOf = (rows: CardRow[]) => rows.map(({ part }) => part)
   const full = card('job-openings', { needs: ['web access'], gives: ['report', 'critical'], private: true })
-  assert.deepEqual(
-    cardRows(full, {}, { work: false }).map(({ part }) => part),
-    ['watches', 'looks', 'often', 'tells', 'skips', 'gives'],
-  )
+
+  assert.deepEqual(partsOf(cardRows(full, {}, { work: false })), ['watches', 'looks', 'often', 'tells', 'skips', 'gives'])
   // On a work computer a private card says so on a line of its own, last.
-  assert.deepEqual(cardRows(full, {}, { work: true }).map(({ part }) => part).at(-1), 'private')
-  assert.equal(cardRows(card('money'), {}, { work: true }).some(({ part }) => part === 'private'), false, 'only a private card says it')
+  assert.equal(partsOf(cardRows(full, {}, { work: true })).at(-1), 'private')
+  assert.equal(partsOf(cardRows(card('money'), {}, { work: true })).includes('private'), false, 'only a private card says it')
 
   // A template of the person's own that lacks a part leaves its row out.
   const theirs = card('my-check', { source: 'yours', needs: [], tells: null, skips: null, gives: [] })
-  assert.deepEqual(cardRows(theirs, {}, { work: false }).map(({ part }) => part), ['watches', 'often'])
+  assert.deepEqual(partsOf(cardRows(theirs, {}, { work: false })), ['watches', 'often'])
 
   // The person's changes are what the rows say, and an answer to the template's own question shows under Leaves out.
-  const changed = cardRows(card('email', { asks: 'Whose mail should it leave out?' }), { recurrence: 'Every evening', skips: 'Mail from school.', answer: 'My sister\'s.' }, { work: false })
+  const email = card('email', { asks: 'Whose mail should it leave out?' })
+  const changes = { recurrence: 'Every evening', skips: 'Mail from school.', answer: 'My sister\'s.' }
+
+  const changed = cardRows(email, changes, { work: false })
+
   assert.equal(changed.find(({ part }) => part === 'often')?.text, 'Every evening')
   assert.equal(changed.find(({ part }) => part === 'skips')?.text, 'Mail from school.')
-  assert.deepEqual(changed.map(({ part }) => part), ['watches', 'looks', 'often', 'tells', 'skips', 'said', 'gives'])
+  assert.deepEqual(partsOf(changed), ['watches', 'looks', 'often', 'tells', 'skips', 'said', 'gives'])
 })
 
 test('a card is kept, changed or dropped, at most five are kept, and one left alone is neither written nor turned down', () => {
@@ -245,10 +249,11 @@ test('the first run offered is the written routine with the lowest effort, and o
 })
 
 test('on sample data each card shows once, under the first picked goal that has it, and only picked goals come back', () => {
-  const groups = sampleGoalCards(['life', 'project'])
-  assert.deepEqual(groups.map(({ goal }) => goal), ['project', 'life'])
-  const ids = groups.flatMap(({ starters, more }) => [...starters, ...more].map(({ id }) => id))
+  const [project, life] = sampleGoalCards(['life', 'project'])
+
+  assert.deepEqual([project?.goal, life?.goal], ['project', 'life'])
+  const ids = [project!, life!].flatMap(({ starters, more }) => [...starters, ...more].map(({ id }) => id))
   assert.equal(new Set(ids).size, ids.length)
-  assert.ok(groups[0]!.starters.some(({ id }) => id === 'deadlines-ahead'))
-  assert.equal(groups[1]!.starters.length, 2, 'life shows two cards when the project has Deadlines ahead')
+  assert.ok(project!.starters.some(({ id }) => id === 'deadlines-ahead'))
+  assert.equal(life!.starters.length, 2, 'life shows two cards when the project has Deadlines ahead')
 })
