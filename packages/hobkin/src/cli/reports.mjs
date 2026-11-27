@@ -54,8 +54,8 @@ export function runReport(result) {
   return `${report}${failure}${restarted}`;
 }
 
-// Background reports open with a triage line (prompts/background.md).
-const nothingNewLine = /^(?:\*\*)?nothing new\.?(?:\*\*)?$/i;
+// Background reports open with a triage line (prompts/background.md). The nothing-new line's period may sit inside its bold or after it.
+const nothingNewLine = /^(?:\*\*)?nothing new\.?(?:\*\*)?\.?$/i;
 const talkBackLine = /^(?:\*\*)?(critical|useful|blocked)(?:\*\*)?:(?:\*\*)?\s+(.+)$/i;
 const nextLine = /^(?:\*\*)?next(?:\*\*)?:(?:\*\*)?\s+(.+)$/i;
 const LONGEST_NEXT = 300;

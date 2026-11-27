@@ -34,7 +34,7 @@ test('the triage of a long report reads only its first lines, and says what read
     const run = { status: 'completed', result: { text } };
     const [first, next] = everyLine(text);
     const triage = reportTriage(run);
-    if (/^(?:\*\*)?nothing new\.?(?:\*\*)?$/i.test(first)) assert.deepEqual(triage, { level: 'nothing' }, JSON.stringify(text));
+    if (/^(?:\*\*)?nothing new\.?(?:\*\*)?\.?$/i.test(first)) assert.deepEqual(triage, { level: 'nothing' }, JSON.stringify(text));
     else if (!/^(?:\*\*)?(critical|useful|blocked)(?:\*\*)?:(?:\*\*)?\s+(.+)$/i.test(first)) assert.equal(triage, null, JSON.stringify(text));
     else assert.equal(triage.next ?? null, next?.match(/^(?:\*\*)?next(?:\*\*)?:(?:\*\*)?\s+(.+)$/i)?.[1].replace(/\*\*$/, '').trim().slice(0, 300) ?? null, JSON.stringify(text));
     assert.equal(String.prototype.split, split);
@@ -52,6 +52,11 @@ test('the triage of a long report reads only its first lines, and says what read
 test('a report with no Next line asks for no call, wherever the word appears later', () => {
   assert.deepEqual(triaged('Useful: The bank wrote.\n\nDetails.\n\nNext: not this one.'), { level: 'useful', message: 'The bank wrote.' });
   assert.deepEqual(triaged('Nothing new.\n\nNext: not this one.'), { level: 'nothing' });
+});
+
+test('the nothing-new line may put its period inside the bold or after it', () => {
+  for (const text of ['**Nothing new.**', '**Nothing new**.\n\nChecked 14 feeds.']) assert.deepEqual(triaged(text), { level: 'nothing' }, JSON.stringify(text));
+  assert.equal(triaged('**Nothing new**..'), null);
 });
 
 test('ordinary Markdown is saved whole in a private file and read ahead of legacy text', t => {
