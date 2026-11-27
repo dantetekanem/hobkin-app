@@ -39,6 +39,7 @@ import {
   type ProjectsFound,
   type SetupNeeds,
   type SetupSaved,
+  type SetupTelemetry,
   type SetupWatchers,
   type SetupWorkDone,
   type UserProfile,
@@ -629,6 +630,14 @@ export const COMMANDS = {
       "Set up the TLA+ tools proof checks run on, as `hobkin proof setup` does: on a Mac without Java 11 or newer, the pinned Java runtime into tools/java in hobkin's home, then the pinned TLC into tools/tla and, on an Apple-silicon Mac, the pinned TLAPS proof system into tools/tlaps, each kept only when its pinned checksum matches. What is there already is kept. Answers with whether the tools are ready and hobkin's one line. A failed setup is an answer, not an error.",
     runs: 'host',
     args: nothing,
+    outside: true,
+  },
+  // The setup's question about usage counts: nothing goes until the user says yes (025-onboarding).
+  'setup.telemetry': {
+    description:
+      "Keep the user's answer to the setup's question about usage counts. Yes lets hobkin send them to hobkin's server: fixed words and counts, never a message, a name or a path. No keeps them on this Mac. A live host on the real home saves it as hobkin's own setting; any other host only keeps the answer with the setup's. Answers with whether usage counts go from this home now.",
+    runs: 'host',
+    args: Type.Object({ upload: Type.Boolean() }, { additionalProperties: false }),
     outside: true,
   },
   // The setup's review installs and signs in for the user, so no one needs Terminal (025-onboarding).
@@ -1712,6 +1721,7 @@ export interface CommandResults {
   'setup.install-node': PiSetup
   /** Whether the TLA+ tools are ready, and what hobkin said, in a line. */
   'setup.install-proof-tools': { ok: boolean; message: string }
+  'setup.telemetry': SetupTelemetry
   'setup.install-program': ProgramInstalled
   'setup.sign-in-program': ProgramSignIn
   'setup.sign-in-program-code': { ok: true }
