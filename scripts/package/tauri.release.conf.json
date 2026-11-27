@@ -13,7 +13,6 @@
       "../dist/package/node/": "node/"
     },
     "macOS": {
-      "signingIdentity": "-",
       "minimumSystemVersion": "13.5"
     }
   },

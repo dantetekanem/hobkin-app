@@ -1,76 +1,58 @@
 import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { CHIPS, FEED, releaseNames, updateFeed, type Chip } from './feed.ts'
+import { CHIPS, DOWNLOADS, FEED, releaseNames, updateFeed, type Chip } from './feed.ts'
 
 /**
- * Gathers what the finished `tauri build`s made into `dist/release/`, under the names the files are published with,
+ * Gathers what `build.ts` made for each chip into `dist/release/`, under the names the files are published with,
  * and writes the updater's feed beside them. Run it after the builds:
  *
  *   node scripts/package/release.ts "What changed in this version."
  *
- * The version is the one the built apps carry, not the one in package.json, which may have moved on since the build.
- * A chip that was not built is left out, and says so. It uploads nothing: hobkin-api's `docs/operations.md` says how
- * the folder's files reach the server.
+ * `build.ts` copies a chip's DMG, updater archive and signature to `dist/built/<chip>/` only once they are signed,
+ * notarized, stapled and checked, so nothing else can reach a release. A chip that was not built is left out, and
+ * says so. It uploads nothing: every file goes to the downloads folder the release config's updater endpoint names.
  */
 
 const repo = path.resolve(import.meta.dirname, '../..')
-const target = path.join(repo, 'src-tauri/target')
+const built = path.join(repo, 'dist/built')
 const out = path.join(repo, 'dist/release')
 const notes = process.argv[2] ?? ''
 
-/**
- * Where each chip's build leaves its bundle, and the chip's name in the DMG Tauri writes. Apple silicon is built
- * without `--target` on this Mac, so its bundle is not under a folder named for the chip.
- */
-const BUILDS: Record<Chip, { bundle: string; dmgChip: string }> = {
-  aarch64: { bundle: path.join(target, 'release/bundle'), dmgChip: 'aarch64' },
-  x86_64: { bundle: path.join(target, 'x86_64-apple-darwin/release/bundle'), dmgChip: 'x64' },
-}
-
 interface Built {
   version: string
+  commit: string
   dmg: string
   archive: string
   signature: string
 }
 
-/** The version a built app carries, from its Info.plist. */
-function versionIn(bundle: string): string | null {
-  const plist = path.join(bundle, 'macos', 'hobkin.app', 'Contents', 'Info.plist')
-  if (!existsSync(plist)) return null
-  return /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/.exec(readFileSync(plist, 'utf8'))?.[1] ?? null
-}
-
-/** What one chip's build made, or null when it was not built. The archive and its signature need `createUpdaterArtifacts`. */
+/** What `build.ts` left for one chip, or null when that chip was not built. */
 function builtFor(chip: Chip): Built | null {
-  const { bundle, dmgChip } = BUILDS[chip]
-  const version = versionIn(bundle)
-  if (!version) return null
+  const folder = path.join(built, chip)
+  const record = path.join(folder, 'build.json')
+  if (!existsSync(record)) return null
+  const { version, commit, dmg, notarized } = JSON.parse(readFileSync(record, 'utf8')) as { version: string; commit: string; dmg: string; notarized?: boolean }
+  if (notarized !== true) throw Error(`The ${chip} build of ${version} was not notarized, so it cannot go out.`)
 
-  const built = {
-    version,
-    dmg: path.join(bundle, 'dmg', `hobkin_${version}_${dmgChip}.dmg`),
-    archive: path.join(bundle, 'macos', 'hobkin.app.tar.gz'),
-    signature: path.join(bundle, 'macos', 'hobkin.app.tar.gz.sig'),
-  }
-  for (const file of [built.dmg, built.archive, built.signature]) {
+  const files = { version, commit, dmg: path.join(folder, dmg), archive: path.join(folder, 'hobkin.app.tar.gz'), signature: path.join(folder, 'hobkin.app.tar.gz.sig') }
+  for (const file of [files.dmg, files.archive, files.signature]) {
     if (!existsSync(file)) throw Error(`The ${chip} build of ${version} is not whole: ${file} is missing.`)
   }
-  return built
+  return files
 }
 
 const builds = new Map<Chip, Built>()
 for (const chip of CHIPS) {
-  const built = builtFor(chip)
-  if (built) builds.set(chip, built)
+  const found = builtFor(chip)
+  if (found) builds.set(chip, found)
   else console.log(`No ${chip} build was found, so it is left out.`)
 }
 
-const versions = new Set([...builds.values()].map((built) => built.version))
-if (versions.size > 1) throw Error(`The builds are of different versions (${[...versions].join(', ')}). Build every chip from the same commit.`)
-const [version] = versions
-if (!version) throw Error('No build was found. Run the release build first.')
+const versions = new Set([...builds.values()].map((found) => `${found.version} at ${found.commit}`))
+if (versions.size > 1) throw Error(`The builds are of different versions or commits (${[...versions].join(', ')}). Build every chip from the same commit.`)
+const [{ version } = { version: '' }] = builds.values()
+if (!version) throw Error('No build was found. Run build.ts for each chip first.')
 
 // Only now is the old folder replaced, so a run that fails above leaves the last release's files where they were.
 rmSync(out, { recursive: true, force: true })
@@ -79,11 +61,11 @@ mkdirSync(out, { recursive: true })
 const published: string[] = []
 const signatures: Partial<Record<Chip, string>> = {}
 
-for (const [chip, built] of builds) {
+for (const [chip, found] of builds) {
   const names = releaseNames(version, chip)
-  copyFileSync(built.dmg, path.join(out, names.dmg))
-  copyFileSync(built.archive, path.join(out, names.archive))
-  signatures[chip] = readFileSync(built.signature, 'utf8')
+  copyFileSync(found.dmg, path.join(out, names.dmg))
+  copyFileSync(found.archive, path.join(out, names.archive))
+  signatures[chip] = readFileSync(found.signature, 'utf8')
   published.push(names.dmg, names.archive)
 }
 
@@ -96,4 +78,4 @@ for (const name of [...published, FEED]) {
   const sha256 = createHash('sha256').update(readFileSync(file)).digest('hex')
   console.log(`${name}  ${megabytes} MB  sha256 ${sha256}`)
 }
-console.log(`\nVersion ${version}, in ${out}. Upload the other files first, and ${FEED} last.`)
+console.log(`\nVersion ${version}, in ${out}. Upload them to ${DOWNLOADS}/: the other files first, and ${FEED} last.`)
