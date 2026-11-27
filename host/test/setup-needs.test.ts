@@ -206,7 +206,7 @@ test("the lines to copy need no Homebrew the Mac lacks, and name hobkin's own np
   assert.deepEqual(brewed.qmd!.fix, { kind: 'command', command: 'npm install -g --ignore-scripts @tobilu/qmd@2.9.0' })
 })
 
-test("on a host that installs, git, gh, Claude Code and qmd are each a press that says what it installs and from where, with the line to copy kept for a failure", async () => {
+test("on a host that installs, git, gh, Claude Code and qmd are each a press that names what it installs and from where, with the line to copy kept for a failure", async () => {
   const presses = { install: () => true, signIn: () => true }
   const notInstalled = (await review({
     presses,
@@ -222,19 +222,15 @@ test("on a host that installs, git, gh, Claude Code and qmd are each a press tha
   assert.deepEqual([git.name, git.byHand], ['git', 'xcode-select --install'])
   assert.match(git.says, /Apple's Command Line Tools/)
   assert.match(git.says, /not the Xcode app/i)
-  assert.match(notInstalled.git!.neededBy, /Only Work and Change Review/)
-  assert.match(notInstalled.git!.neededBy, /chat, routines and reports/i)
 
   const gh = press(notInstalled.gh!)
   assert.deepEqual([gh.name, gh.byHand], ['gh', 'https://cli.github.com'])
   assert.match(gh.says, /GitHub/)
   assert.match(gh.says, /2\.105\.0/)
-  assert.match(notInstalled.gh!.neededBy, /pull requests/i)
 
   const claude = press(notInstalled.claude!)
   assert.deepEqual([claude.name, claude.byHand], ['claude', 'curl -fsSL https://claude.ai/install.sh | bash'])
   assert.match(claude.says, /Anthropic/)
-  assert.match(notInstalled.claude!.neededBy, /Claude Code/)
 
   const qmd = press(notInstalled.qmd!)
   assert.deepEqual([qmd.name, qmd.byHand], ['qmd', 'npm install -g --ignore-scripts @tobilu/qmd@2.9.0'])

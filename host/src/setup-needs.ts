@@ -118,12 +118,12 @@ type Need = Pick<SetupNeed, 'id' | 'group' | 'name' | 'neededBy'>
 const NODE: Need = { id: 'node', group: 'run', name: 'Node', neededBy: 'Pi runs on it' }
 const PI: Need = { id: 'pi', group: 'run', name: 'Pi', neededBy: 'The chat, agents and checks' }
 const SIGN_IN: Need = { id: 'sign-in', group: 'run', name: 'Model sign-in', neededBy: 'Every model hobkin runs' }
-const GIT: Need = { id: 'git', group: 'code', name: 'git', neededBy: 'Only Work and Change Review use it. Chat, routines and reports run without it.' }
-const GH: Need = { id: 'gh', group: 'code', name: 'GitHub CLI', neededBy: 'Only pull requests in Work and Change Review use it.' }
+const GIT: Need = { id: 'git', group: 'code', name: 'git', neededBy: 'Work and Change Review' }
+const GH: Need = { id: 'gh', group: 'code', name: 'GitHub CLI', neededBy: 'Pull requests in Work and Review' }
 const TLA: Need = { id: 'tla', group: 'features', name: 'TLA+ tools', neededBy: 'Checks of state machine models' }
 const SEARCH: Need = { id: 'agentic-search', group: 'features', name: 'agentic-search', neededBy: "Change Review's search facts" }
-const CLAUDE: Need = { id: 'claude', group: 'features', name: 'Claude Code', neededBy: 'Only agents you set to run on Claude Code use it. The rest run on Pi.' }
-const QMD: Need = { id: 'qmd', group: 'optional', name: 'qmd', neededBy: "Agents search hobkin's memory and notes with it. Without it they read the files." }
+const CLAUDE: Need = { id: 'claude', group: 'features', name: 'Claude Code', neededBy: 'Agents set to run on it' }
+const QMD: Need = { id: 'qmd', group: 'optional', name: 'qmd', neededBy: 'Memory search for agents' }
 
 /** What each press installs, and from where, in the words its row shows. */
 const SAYS = {
