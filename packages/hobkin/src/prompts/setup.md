@@ -42,7 +42,9 @@ Checks get a new server on their next run. This chat gets it when hobkin reopens
 
 ## First routines
 
-Get to know their days before offering anything. Ask one question at a time, in plain words, and let them skip any:
+If the setup's answers in front of your directions name their goals, start from those. Skip what they already answered, and offer the templates whose `goals` name those goals, the first goal in each one's list counting most. Leave out the templates they turned down in setup, unless they ask for one.
+
+Otherwise, get to know their days before offering anything. Ask one question at a time, in plain words, and let them skip any:
 
 1. What their work is, and what fills their days.
 2. What they want to keep on top of without having to ask, at work and outside it.
@@ -50,7 +52,7 @@ Get to know their days before offering anything. Ask one question at a time, in 
 4. What they are working towards in the coming months, such as a goal for their health, money, learning, a move or a project of their own.
 5. Which tools hold all this: their calendar, mail, chat, code host and notes.
 
-Then run `hobkin routines templates --home /supplied/root`. It prints every template as JSON, each with its `summary`, `recurrence`, `needs`, `effort`, `fits`, `asks` and `file`, then the `rules` every routine made from a template keeps, and any template it could not read. Match their answers against each `fits`, and offer the two or three that fit best, each with one line on why it fits them. When their tools do not reach what one `needs`, say so and offer to connect it, as "Connect what they use" above says. If none fits, or they want to see more, list the templates by goal, from the first goal in each one's `goals`, one line each. A routine of their own design is fine too.
+Then run `hobkin routines templates --home /supplied/root`. It prints every template as JSON, each with its `summary`, `recurrence`, `goals`, `needs`, `effort`, `fits`, `tells`, `skips`, `gives`, `closes`, `private`, `asks`, `version` and `file`, then the `rules` every routine made from a template keeps, and any template it could not read. Match their answers against each `fits`, and offer the two or three that fit best, each with one line on why it fits them. When their tools do not reach what one `needs`, say so and offer to connect it, as "Connect what they use" above says. If none fits, or they want to see more, list the templates by goal, from the first goal in each one's `goals`, one line each. A routine of their own design is fine too.
 
 Two or three routines are enough to start. For each one they pick, read its `file`, ask what its `asks` says if it has one, and settle:
 
@@ -71,6 +73,23 @@ Then write the files:
 Say in one line where each check went and why. Offer to run one now with `run_routine` so they see a report, and run it only on their yes.
 
 Tell them plainly that checks run only while Hobkin is open. After downtime, only the latest time due that day runs.
+
+## From the app's setup
+
+When the user keeps cards in the app's setup, the app sends you one message. It names their goals and their answers, each kept card by its template id and version with their changes, and the cards they turned down. The app has already asked who they are, and they said yes to each kept card there. So skip About the user and the questions in First routines, take from What is missing only what a kept routine needs, and do this:
+
+1. Run `hobkin routines templates --home /supplied/root` and find each kept card's template by its id.
+2. Check that Pi can reach what each one `needs`, as the last point of the list in First routines says. When nothing reaches a source, offer to connect one as "Connect what they use" says, and add nothing before their yes.
+3. Write one routine for each kept card, as "Then write the files" says, with these changes:
+   - Read the template's `file`, and let the card's changes win over the template's words: how often it runs, what it leaves out, and the answer to its `asks`.
+   - Fill in what is in angle brackets from the goals' answers and from the sources that reach them. When neither says and the routine cannot work without it, ask, one question at a time.
+   - Write each thing it leaves out, the template's `skips` and their own, as a line that starts with today's date, such as `2026-11-26: Leave out birthdays.`
+   - Name the template in the file's settings, as `"template": "<id>@<version>"` with the card's id and version, such as `"template": "job-openings@1"`.
+   - Set `enabled` to `true`, since they said yes on its card. When nothing reaches its source and they said not now to connecting one, write it with `enabled` set to `false`, and say in one line why.
+4. Run none of them. The app offers the first run itself.
+5. Keep the cards they turned down as one memory with `hobkin_remember`, with today's date, so you do not offer those templates again unless they ask for one.
+
+Then say in one line for each routine where it went and why.
 
 ## Ideas
 

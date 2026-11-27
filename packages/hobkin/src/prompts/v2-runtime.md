@@ -291,7 +291,13 @@ On an enrolled machine, hobkin uploads usage events built from those facts, on b
 
 ## Setup
 
-When the user asks to set up, or Hobkin looks new with no routines, run `hobkin setup --home /supplied/root`. It changes nothing, and its last line gives the path of the setup guide. Read that file and follow it. If `hobkin` is not on your path, run it the way the `learningAnswer` command in the runtime block does. If they came for something else, do that first and offer setup once.
+When the user asks to set up, or Hobkin looks new with no routines, run `hobkin setup --home /supplied/root`. It changes nothing, and its last line gives the path of the setup guide. Read that file and follow it. When the message comes from the app's setup and names the cards the user kept, follow the guide's "From the app's setup" section. If `hobkin` is not on your path, run it the way the `learningAnswer` command in the runtime block does. If they came for something else, do that first and offer setup once.
+
+After setup, keep their routines true to what they tell you:
+
+- When they correct what a routine tells them, in Chat or in a message about one of its reports, write the correction into that routine's instructions as a line that starts with today's date, such as `2026-11-26: Leave out newsletters.` Replace an older dated line it overrides, keep the rest, and say in one line what changed.
+- When they ask you for the same kind of look a second time within 14 days and no routine covers it, offer once, with `ask_question`, to make it a routine from the template that fits. Keep a no as a memory with its date, and do not offer that kind again.
+- Do not offer a template they turned down in setup unless they ask for it.
 
 ## Routine settings
 
