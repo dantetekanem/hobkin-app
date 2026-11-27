@@ -1,9 +1,10 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { setTelemetryUpload, telemetryUploadEnabled } from 'hobkin/src/cli/config.mjs'
+import { telemetryUploadEnabled } from 'hobkin/src/cli/config.mjs'
 import { SETUP_FACTS_MAX, SETUP_TEXT_MAX, writeSetupFacts, type SetupFact } from 'hobkin/src/cli/setup-facts.mjs'
 import { COMPUTER_KINDS, GOALS, type ProjectFolder, type SetupAnswer, type SetupAnswers, type SetupCardPick, type SetupSaved, type SetupTelemetry } from '#shared/protocol/setup.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
+import { savesUsage, setUsageUpload, type UsageHere } from './usage-upload.ts'
 
 /**
  * The first context (025-onboarding): what the user answered in the setup, kept twice. The app keeps it whole in
@@ -120,25 +121,20 @@ export function saveSetup(root: string, { computer, answers, projects, goals = [
   return saved
 }
 
-/** Where the usage answer may change hobkin's setting: only a live host on the real home, the one the user runs. */
-interface TelemetryHere {
-  live: boolean
-  real: boolean
-}
-
 /**
  * The answer to the setup's question about usage counts (025-onboarding). A live host on the real home saves it as
  * hobkin's own setting, which nothing changes until the user answers. Any other host leaves the setting alone. Either
  * keeps the answer with the setup's, and says whether usage counts go from this home now.
  */
-export function keepTelemetryAnswer(root: string, upload: boolean, { live, real }: TelemetryHere, now = new Date()): SetupTelemetry {
-  if (live && real) setTelemetryUpload(root, upload)
+export function keepTelemetryAnswer(root: string, upload: boolean, here: UsageHere, now = new Date()): SetupTelemetry {
+  const saves = savesUsage(here)
+  if (saves) setUsageUpload(root, upload)
 
   const before = readSetupSaved(root)
   const base = before ?? { computer: null, answers: [], projects: [], goals: [], cards: [] }
   writeSaved(root, { ...base, telemetry: upload, savedAt: now.toISOString() })
 
-  return { upload: live && real && telemetryUploadEnabled(root) }
+  return { upload: saves && telemetryUploadEnabled(root) }
 }
 
 export interface SetupAnswerOptions {
