@@ -17,8 +17,8 @@ You can let a coding agent such as Claude Code or Codex do the steps below. Past
 ```text
 Install hobkin from https://github.com/dantetekanem/hobkin-client on this Mac and start it.
 1. Check each tool, and install only the ones that are missing, each with its official installer:
-   - Xcode Command Line Tools: check with `xcode-select -p`. If missing, run `xcode-select --install`,
-     tell me to press Install in the window that opens, and wait until it finishes.
+   - Apple's Command Line Tools (not the Xcode app): check with `xcode-select -p`. If missing, run
+     `xcode-select --install`, tell me to press Install in the window that opens, and wait until it finishes.
    - Node 22.19 or newer: check with `node -v`. If missing or older, install it from https://nodejs.org.
    - pnpm 11: check with `pnpm -v`. If missing, run `npm install -g pnpm@11`.
    - Rust: check with `cargo -V`. If missing, install it with rustup (https://rustup.rs),
@@ -33,12 +33,12 @@ Or do it yourself:
 
 1. Install the tools hobkin is built with. Skip any you already have; the second column checks.
 
-   | Tool | Check | Install |
-   | --- | --- | --- |
-   | Xcode Command Line Tools | `xcode-select -p` | `xcode-select --install` |
-   | Node 22.19 or newer | `node -v` | https://nodejs.org, or `brew install node` |
-   | pnpm 11 | `pnpm -v` | `npm install -g pnpm@11` |
-   | Rust | `cargo -V` | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`, then open a new terminal |
+   | Tool | Why hobkin needs it | Check | Install |
+   | --- | --- | --- | --- |
+   | Apple's Command Line Tools (not the Xcode app) | `git`, to clone the code, and Apple's compiler and macOS SDK, which Rust uses to build the Mac window | `xcode-select -p` | `xcode-select --install` |
+   | Node 22.19 or newer | Runs hobkin's host and builds its interface | `node -v` | https://nodejs.org, or `brew install node` |
+   | pnpm 11 | Installs the exact package versions in the lockfiles | `pnpm -v` | `npm install -g pnpm@11` |
+   | Rust | Builds the Mac window (Tauri) | `cargo -V` | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`, then open a new terminal |
 
 2. Get the code and its packages:
 
