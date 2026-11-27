@@ -5,14 +5,14 @@
   "kind": "work",
   "status": "doing",
   "depends": ["002-host", "003-chat", "008-review-code", "020-settings"],
-  "updated": "2026-11-25"
+  "updated": "2026-11-27"
 }
 ---
 # Links and local files
 
 ## Outcome
 
-A link clicked in the Mac window opens in the system's default browser. A local file path in the chat, in a report or in agent activity, written as `/Users/x/notes.md` or `~/Poetry/x/README.md`, shows as a link. Clicking it opens a sheet over the blurred window: a Markdown file rendered as the chat renders it, any other text as code, an image drawn to fit the sheet with its size in pixels and bytes, and any other binary or very large file with a plain reason it is not shown. The sheet has a button that opens the file in the Mac's default app, as does ⌘-click on the link. Escape closes it. A report links a path in its code blocks too, and in inline code among other words.
+A link clicked in the Mac window opens in the system's default browser. A local file path in the chat, in a report or in agent activity, written as `/Users/x/notes.md` or `~/Poetry/x/README.md`, shows as a link. Clicking it opens a sheet over the blurred window: a Markdown file rendered as the chat renders it, any other text as code, an image drawn to fit the sheet with its size in pixels and bytes, and any other binary or very large file with a plain reason it is not shown. The sheet has a button that opens the file in the Mac's default app, as does ⌘-click on the link. Escape closes it. A report links a path in its code blocks too, and in inline code among other words. A picture of a local file in a message or a report, written `![what it shows](/full/path)`, draws where it is: an image file as the picture, and an `.html` file as the page it makes, still. A picture at an address on the network stays its words, linked.
 
 ## Decisions
 
@@ -26,13 +26,15 @@ A link clicked in the Mac window opens in the system's default browser. A local 
 - One catcher for the whole app (`ui/src/features/viewer/catch.ts`, mounted by `LinkLayer` in `App.tsx`) listens for clicks on the document, after the page's own handlers. A file link opens the viewer. With ⌘ held and a host connected it opens in its default app through `file.open`, and a file the host does not open, such as one that is not there, opens the viewer, which says why. In the Mac window with a host connected, an `http`, `https`, `mailto` or `slack` link calls `system.open`. In a browser tab, or with no host, the link works as a link does. The GitHub rows keep their own handler, which runs first.
 - Paths in text are found only when they start with `~/` or with a top-level Mac folder (`/Users`, `/Volumes`, `/private`, `/tmp`, `/var`, `/opt`, `/etc`, `/usr`, `/home`, `/Applications`, `/Library`, `/System`, `/Developer`), so `and/or` and `/api/users` stay words. In a link's own destination any full path or `~/` path counts. An inline code span that is exactly one path is linked. In the chat and agent activity code blocks are left alone. The work is a remark plugin in the chat's Markdown (`ui/src/features/viewer/paths.ts`), so agent activity that uses that renderer gets it too.
 - A report draws its own Markdown (`ReportMarkdown.tsx`: the reader, its short version and its folds, a catch-up, and a project's run guide). It takes the same remark plugin, and a rehype plugin from the same file (`rehypeCodePaths`) links each path inside a code block's lines and inside an inline code with other words, with the same detection. A report's link to a file, or its picture of one, opens the viewer like the chat's. A path relative to a project is not linked: a report carries no project folder (its source is `work.<slug>.<lane>`, and the window knows no folder for a slug).
+- A picture of a local file draws in place (`ui/src/features/viewer/shown-file.ts`, used by the chat's Markdown and the report's), so an agent can show a screenshot, a chart or a mockup when seeing it answers better than words (the user, 2026-11-27: "the agent can (and should) render images for me in the main screen, or even pieces of iframe ... not always, but it can"). The file is read with `file.read` once the picture comes near the view, once however many pictures of it ask, and what it showed is kept for a minute (32 million characters at most), since the file may be written again. Until it is read, and when it cannot be, the picture is its words linked to the file, as before. An image draws through an `<img>`, at most 28rem tall, and a click opens the viewer. An `.html` file draws in a frame from `srcdoc`, never from an address: sandboxed with no script, forms or popups, inert, its content policy first (`default-src 'none'`, with only `data:` images, fonts and media and its own styles), and every `<link>` element taken out, because a link can look up or reach a host no policy stops. The frame is as tall as its page, 560px at most, with the picture's words under it linked to the file. A picture at an address is never fetched: an address a message chose could tell someone the message was read. The agents are told in `durable.md` and `session-job.md`.
 - Code is drawn through `highlight.ts` (Shiki). A file over 5000 lines is drawn plain, so coloring never stalls the window.
 - Motion: the sheet rises and the blur fades in, the header and the content land one after another. Under Still, or a Mac that asks for less, only fades remain (`useStill`).
 
 ## Out of scope
 
-- Relative links inside a viewed Markdown file, line numbers in a path (`file.ts:12`), `file://` links, images in a viewed Markdown file, editing, zooming an image, and file types the viewer can neither read as text nor draw as an image (HEIC, TIFF, PDF and others).
+- Relative links inside a viewed Markdown file, line numbers in a path (`file.ts:12`), `file://` links, a picture with a relative path, editing, zooming an image, and file types the viewer can neither read as text nor draw as an image (HEIC, TIFF, PDF and others).
 - Opening a program from a link.
+- A framed page that runs scripts, takes clicks or loads from the network: the canvas shows those (`035-canvas-drawings`, `036-canvas-browser`). Pictures and pages at an address.
 
 ## Acceptance
 
@@ -50,6 +52,9 @@ A link clicked in the Mac window opens in the system's default browser. A local 
 - A12. The viewer draws an image to fit the sheet, with its name, its size in pixels and bytes, and the open in default app button. The sheet has the same size and header while the image loads as once it is drawn.
 - A13. A report shows a full or `~/` path as a file link in its words, in inline code and in a code block's lines, in its folds too. Web links, report links and words that only look like paths do not change.
 - A14. ⌘-click on a file link opens the file in its default app when a host is connected, and the viewer otherwise.
+- A15. A picture of a local image file draws in the message once its file is read, and a click on it opens the viewer. Until then, and when the file cannot be read, it is its words linked to the file. A file is read once however many pictures of it ask, and what it showed is kept for a while.
+- A16. A picture of a local `.html` file draws the page in a frame that runs no script and takes its page from `srcdoc`. The page is sealed first: its policy comes before anything of its own and lets nothing load from an address, and it keeps no `<link>` element.
+- A17. A picture at an address on the network is its words, linked. Nothing is fetched because a message said so.
 
 ## Proof
 
@@ -67,6 +72,9 @@ A link clicked in the Mac window opens in the system's default browser. A local 
 - A12. check: a still render (no browser) of the sheet with a wide JPEG and a tall PNG, dark and light, and of the same sheet while the file is read: the image fits, the caption reads "1920 × 1200 px · 959 KB", and the header sits in the same place in both. Clicking an image path in the live window needs a host restart and was not seen.
 - A13. `ui/test/report-paths.test.ts` › "a report links every local path: in its words, in inline code and in a code block line, full or from ~/", › "a report keeps web links, report links and words that only look like paths as they were" and › "a fold's label and inside link paths the same way"
 - A14. `ui/test/report-paths.test.ts` › "⌘-click on a file opens it in its app when a host can, and a plain click opens the sheet"
+- A15. `ui/test/shown-file.test.ts` › "a picture of a local file draws in the message once its file is read, and opens the viewer on a click", › "a file shows in a conversation as a picture, as a still page, or as the link it was", › "a file is read once for every picture of it, and what it showed is kept for a while" and › "a file that cannot be read shows as the link it was, and is not asked for again at once"
+- A16. `ui/test/shown-file.test.ts` › "a picture of a local page draws it in a frame that runs nothing, with its words linked to the file", › "a page is sealed before it is framed: its policy comes first and lets nothing load from the network" and › "a sealed page keeps no link element, which could look up or reach a host the page chose". The picture and the frame were not seen in a window, and the frame's seal was not tried in WebKit.
+- A17. `ui/test/shown-file.test.ts` › "a picture at an address on the network is still only its words: nothing is fetched because a message said so" and `ui/test/markdown.test.ts` › "renders markdown and neutralizes html"
 
 ## Steps
 
@@ -77,6 +85,7 @@ A link clicked in the Mac window opens in the system's default browser. A local 
 - [x] S5 (A11, A12). Images: known by their bytes in `file.read`, drawn in the sheet.
 - [x] S6 (A13, A14). Paths in reports, their code included, and ⌘-click to the default app.
 - [x] S7 (A1, A7). `slack:` addresses open the Slack app.
+- [x] S8 (A15, A16, A17). Pictures of local files draw in messages and reports: an image, or an `.html` page in a sealed frame.
 
 ## Open questions
 

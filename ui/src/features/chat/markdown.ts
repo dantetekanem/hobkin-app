@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { stillVariants } from '../../app/still-rule.ts'
 import { spring, tween } from '../../lib/motion.ts'
 import { localPathOf, remarkFilePaths } from '../viewer/paths.ts'
+import { ShownFile } from '../viewer/shown-file.ts'
 import { keepSlackLinks } from '../viewer/slack-links.ts'
 import { Fence } from './CopyBlock.ts'
 import { drawnOnce } from './markdown-kept.ts'
@@ -12,8 +13,9 @@ import { blockScan, type Definition } from './stream-buffer.ts'
 
 /**
  * Markdown as the conversation and the prompt editor draw it. What a model writes is never markup of ours:
- * raw HTML shows as the text it is, a link keeps only a safe address, and a picture is never fetched, because
- * an address a message chose could tell someone the message was read.
+ * raw HTML shows as the text it is, a link keeps only a safe address, and a picture is never fetched from an
+ * address, because an address a message chose could tell someone the message was read. A picture of a file on
+ * this Mac does draw: the host reads it, and nothing leaves the Mac (`viewer/shown-file.ts`).
  *
  * This file has no JSX so the tests can render it with Node alone.
  */
@@ -75,10 +77,11 @@ const inline: Components = {
       className: LINK,
     })
   },
-  // A picture shows as its words, linked to where it is. Nothing loads until the user opens it.
+  // A picture of a file on this Mac draws in the message, read by the host (`shown-file.ts`). One at an address shows
+  // as its words, linked to where it is: nothing loads from the network until the user opens it.
   img: ({ alt, src }) => {
     const file = typeof src === 'string' ? localPathOf(src) : null
-    if (file) return createElement('a', { href: '#', 'data-file': file, title: file, className: 'underline decoration-border-strong underline-offset-2' }, alt || 'image')
+    if (file) return createElement(ShownFile, { path: file, words: alt })
     return createElement('a', { href: typeof src === 'string' ? src : undefined, target: '_blank', rel: 'noopener noreferrer', className: 'underline decoration-border-strong underline-offset-2' }, alt || 'image')
   },
 }

@@ -2,14 +2,16 @@ import { createContext, memo, useContext, useMemo, type ComponentProps } from 'r
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { localPathOf, rehypeCodePaths, remarkFilePaths } from '../viewer/paths.ts'
+import { ShownFile } from '../viewer/shown-file.ts'
 import { keepSlackLinks } from '../viewer/slack-links.ts'
 import { foldsOf, type ReportPart } from './folds.ts'
 import { reportLinkOf } from './report-link.ts'
 
 /**
  * A report's Markdown, set for reading. What a run wrote is never markup of ours: raw HTML shows as the text it
- * is, a link keeps only a safe address and opens outside the app, and a picture is never fetched, because an
- * address a report chose could tell someone it was read. A link to another report (`report-link.ts`) opens it in
+ * is, a link keeps only a safe address and opens outside the app, and a picture is never fetched from an address,
+ * because an address a report chose could tell someone it was read. A picture of a file on this Mac does draw, read
+ * by the host (`viewer/shown-file.ts`). A link to another report (`report-link.ts`) opens it in
  * the reader instead. A local file path, in its words or its code, is a link the app's catcher opens in the file
  * sheet (`viewer/paths.ts`, `viewer/catch.ts`). The one HTML it draws is a fold, `<details>` with its
  * `<summary>` (`folds.ts`), whose inside is Markdown under these same rules.
@@ -80,10 +82,11 @@ const components: Components = {
     </div>
   ),
   a: Link,
-  // A picture shows as its words, linked to where it is. Nothing loads until the user opens it.
+  // A picture of a file on this Mac draws in the report, as in the chat (`shown-file.ts`). One at an address shows as
+  // its words, linked to where it is: nothing loads from the network until the user opens it.
   img: ({ alt, src }) => {
     const file = typeof src === 'string' ? localPathOf(src) : null
-    if (file) return <a href="#" data-file={file} title={file} className={LINK}>{alt || 'image'}</a>
+    if (file) return <ShownFile path={file} words={alt} />
     return (
       <a href={typeof src === 'string' ? src : undefined} target="_blank" rel="noopener noreferrer" className={LINK}>
         {alt || 'image'}
