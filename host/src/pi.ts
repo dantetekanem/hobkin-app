@@ -38,6 +38,8 @@ export interface PiModel {
   type?: string
   reasoning?: boolean
   contextWindow?: number
+  /** Dollars per million tokens. Pi gives zeros for a model it knows no price of. */
+  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }
 }
 
 export interface PiModelRuntime {

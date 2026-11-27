@@ -47,13 +47,21 @@ export function defaultModelOf(defaults: Readonly<Record<string, string>>, catal
   return id && catalog.getModels(provider).some((model) => model.id === id) ? id : undefined
 }
 
+/** Pi's price for a model, in and out. Pi says zero for both when it knows none, and that is left out. */
+function priceOf({ cost }: PiModel): ModelChoice['cost'] {
+  const [input, output] = [cost?.input ?? 0, cost?.output ?? 0]
+  return Number.isFinite(input) && Number.isFinite(output) && input + output > 0 ? { input, output } : undefined
+}
+
 export function modelChoiceOf(model: PiModel, thinking: string[]): ModelChoice {
+  const cost = priceOf(model)
   return {
     id: model.id,
     provider: model.provider,
     name: model.name,
     thinking,
     contextWindow: Number.isFinite(model.contextWindow) ? (model.contextWindow as number) : null,
+    ...(cost ? { cost } : {}),
   }
 }
 
