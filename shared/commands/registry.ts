@@ -436,9 +436,9 @@ export const COMMANDS = {
   },
   'tiers.first': {
     description:
-      "Set hobkin's own model and its four tiers from the account Pi reaches, once, as the first-run setup finds or signs in to one: only while hobkin's config names no model for the chat, the checks or any tier, so a choice already made is never overwritten. Answers what it set, or why it set nothing.",
+      "Set hobkin's own model, the checks' and its four tiers from the account Pi reaches, once: only while hobkin's config names no model for the chat, the checks or any tier, so a choice already made is never overwritten. Without `provider`, by the first-run setup's rule, as its account step finds or signs in to an account. With the `provider` that connected later, on Pi's default model for it, each keeping its thinking level. Answers what it set, or why it set nothing.",
     runs: 'host',
-    args: nothing,
+    args: Type.Object({ provider: Type.Optional(Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,63}$' })) }, { additionalProperties: false }),
     outside: true,
   },
   'claude-code.read': {
