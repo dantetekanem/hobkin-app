@@ -2,10 +2,12 @@
  * Stages what the host needs to run inside the Mac app into dist/package/, from scratch each time:
  *
  *   node scripts/package/stage.ts [--time <ISO time>] [--client <dir> --client-commit <sha>] [--runtime <dir> --runtime-commit <sha>]
+ *                                 [--chip aarch64|x86_64] [--node <official node binary>]
  *
  *   app/             the host's files, found by following its imports from host/src/main.ts, a package.json for
- *                    them, and node_modules: the host's own packages, and hobkin with its own node_modules (Pi)
- *   node/bin/node    the official Node binary the hobkin checkout already downloaded
+ *                    them, and node_modules: the host's own packages, and hobkin with its own node_modules (Pi).
+ *                    Prebuilt native modules for another platform or the other Mac chip are left out.
+ *   node/bin/node    the official Node binary for the chip: `--node`, or the one the hobkin checkout downloaded
  *   manifest.json    what went in, from which commits, and how big each part is
  *
  * By default the client's files come from this repository's working tree and hobkin's from the checkout
@@ -13,8 +15,9 @@
  * staged from committed states while others edit the working trees. What is not a tracked source file still comes
  * from the real checkouts: see `realSources` in the report this prints.
  *
- * The Tauri build copies dist/package into the app as resources. `check.ts` proves that a copy of it runs alone.
- * Packages come from the pnpm store with --offline, so staging never reaches the network.
+ * The Tauri build copies dist/package into the app as resources. `sign.ts` signs its Mach-O files, and `check.ts`
+ * proves that a copy of it runs alone. Packages come from the pnpm store with --offline, so staging never reaches the
+ * network: an Intel Node is downloaded beforehand (`build.ts`) and named with `--node`.
  */
 import { spawnSync, type SpawnSyncOptions } from 'node:child_process'
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -36,7 +39,9 @@ import {
   type StagedCommit,
   type StagedFrom,
 } from './rules.ts'
-import { bytesUnder, entriesUnder, isInside, linksUnder, megabytes } from './tree.ts'
+import { coversChip, foreignPlatformFolder, type BinaryFormat } from './binaries.ts'
+import type { Chip } from './feed.ts'
+import { bytesUnder, entriesUnder, formatOf, isInside, linksUnder, megabytes } from './tree.ts'
 
 const REPO = resolve(import.meta.dirname, '..', '..')
 const OUT = join(REPO, 'dist', 'package')
@@ -251,31 +256,56 @@ function stageRuntime(runtime: string, installSources: Readonly<Record<string, s
   return { version: manifest.version, packages }
 }
 
-/** Every native module under the staged packages has a darwin-arm64 build, the only Mac the package is for. */
-function checkNativeModules(): string[] {
-  const natives = [...entriesUnder(MODULES)].filter(({ path, stat }) => stat.isFile() && path.endsWith('.node')).map(({ path }) => relative(MODULES, path))
-  const owners = new Set(natives.map((path) => path.split('/native/')[0]!.split('/prebuilds/')[0]!))
-  const arm = natives.filter((path) => path.includes('darwin-arm64'))
-  for (const owner of owners) {
-    if (!arm.some((path) => path.startsWith(`${owner}/`))) throw Error(`${owner} has native modules, but none built for darwin-arm64.`)
-  }
-  for (const path of arm) {
-    const { stdout } = run('file', ['-b', join(MODULES, path)])
-    if (!/arm64/.test(stdout)) throw Error(`${path} is not an arm64 library: ${stdout.trim()}`)
-  }
-  return arm
+interface NativeCode {
+  /** Mach-O files kept, all for the chip. `sign.ts` signs each of them. */
+  kept: string[]
+  /** Machine code for another platform or the other chip, left out. */
+  dropped: string[]
+  /** Machine code for another platform outside a folder named for it, kept since no rule says nothing loads it. */
+  unplaced: string[]
 }
 
-/** The Node binary the real hobkin checkout downloaded, copied alone, once it proves to be a standalone official build. */
-function stageNode(source: string): string {
+/**
+ * Leaves out the packages' machine code for another platform or the other Mac chip, and proves what is left runs on
+ * the chip: every Mach-O file is built for it, and every package with native modules keeps one for it.
+ */
+function stageNativeCode(chip: Chip): NativeCode {
+  const natives = [...entriesUnder(APP)]
+    .filter(({ stat }) => stat.isFile())
+    .map(({ path }) => ({ path: relative(APP, path), format: formatOf(path) }))
+    .filter((native): native is { path: string; format: BinaryFormat } => native.format !== null)
+  const owner = (path: string) => path.split('/native/')[0]!.split('/prebuilds/')[0]!
+  const owners = new Set(natives.filter(({ path }) => path.endsWith('.node')).map(({ path }) => owner(path)))
+  const code: NativeCode = { kept: [], dropped: [], unplaced: [] }
+  for (const { path, format } of natives) {
+    if (foreignPlatformFolder(path, chip)) {
+      rmSync(join(APP, path))
+      code.dropped.push(path)
+    } else if (format === 'mach-o') {
+      const archs = run('lipo', ['-archs', join(APP, path)]).stdout
+      if (!coversChip(archs, chip)) throw Error(`${path} is built for ${archs.trim()}, not for ${chip}, and no platform folder says it may be left out.`)
+      code.kept.push(path)
+    } else code.unplaced.push(path)
+  }
+  for (const name of owners) {
+    if (!code.kept.some((path) => path.endsWith('.node') && owner(path) === name)) throw Error(`${name} has native modules, but none built for ${chip}.`)
+  }
+  return code
+}
+
+/** The official Node binary for the chip, copied alone, once it proves to be a standalone official build. */
+function stageNode(source: string, chip: Chip): string {
   const signature = spawnSync('codesign', ['-dv', '--verbose=2', source], { encoding: 'utf8' })
-  const problems = nodeBinaryProblems({
-    file: run('file', [source]).stdout,
-    libraries: run('otool', ['-L', source]).stdout,
-    // codesign describes a signature on stderr.
-    signature: `${signature.stdout}${signature.stderr}`,
-  })
-  if (problems.length) throw Error(`The Node binary in hobkin's checkout cannot be carried in the app:\n- ${problems.join('\n- ')}`)
+  const problems = nodeBinaryProblems(
+    {
+      file: run('file', [source]).stdout,
+      libraries: run('otool', ['-L', source]).stdout,
+      // codesign describes a signature on stderr.
+      signature: `${signature.stdout}${signature.stderr}`,
+    },
+    chip,
+  )
+  if (problems.length) throw Error(`The Node binary ${source} cannot be carried in the app:\n- ${problems.join('\n- ')}`)
   mkdirSync(dirname(NODE_OUT), { recursive: true })
   copyFileSync(source, NODE_OUT)
   chmodSync(NODE_OUT, 0o755)
@@ -314,7 +344,7 @@ function stage(args: readonly string[]): void {
   const client = sourceFolder(options.client, REPO, ['package.json', 'pnpm-lock.yaml', ENTRY], '--client')
   const runtime = sourceFolder(options.runtime, realRuntime, RUNTIME_PARTS, '--runtime')
   const installSources = runtimeInstallSources(runtime, realRuntime)
-  const nodeSource = realpathSync(join(realRuntime, 'node_modules', 'node', 'bin', 'node'))
+  const nodeSource = realpathSync(options.node ?? join(realRuntime, 'node_modules', 'node', 'bin', 'node'))
   const appCommit = stagedCommit(REPO, options.client)
   const runtimeCommit = stagedCommit(realRuntime, options.runtime)
 
@@ -335,15 +365,16 @@ function stage(args: readonly string[]): void {
   dropBookkeeping(join(RUNTIME_OUT, 'node_modules'))
   const links = linksUnder(OUT)
   if (links.length) throw Error(`The staged tree still holds links:\n- ${links.join('\n- ')}`)
-  const natives = checkNativeModules()
+  const natives = stageNativeCode(options.chip)
 
-  const nodeVersion = stageNode(nodeSource)
+  const nodeVersion = stageNode(nodeSource, options.chip)
   const sizes = { app: bytesUnder(APP), node: bytesUnder(join(OUT, 'node')) }
   const manifest = packageManifest({
     createdAt,
     app: { name: root.name, version: root.version, ...appCommit },
     runtime: { name: 'hobkin', version: hobkin.version, ...runtimeCommit },
     node: { version: nodeVersion },
+    chip: options.chip,
     sizes,
   })
   writeFileSync(join(OUT, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
@@ -359,9 +390,11 @@ function stage(args: readonly string[]): void {
     ['node', sizes.node, ''],
     ['total', sizes.app + sizes.node, ''],
   ]
-  console.log(`Staged ${relative(REPO, OUT)} for ${root.name} ${root.version} at ${shortCommit(manifest.app)}, hobkin ${hobkin.version} at ${shortCommit(manifest.runtime)}, Node ${nodeVersion}.`)
+  console.log(`Staged ${relative(REPO, OUT)} for ${root.name} ${root.version} on ${options.chip} at ${shortCommit(manifest.app)}, hobkin ${hobkin.version} at ${shortCommit(manifest.runtime)}, Node ${nodeVersion}.`)
   for (const [name, bytes, detail] of parts) console.log(`  ${name.padEnd(24)} ${megabytes(bytes).padStart(9)}  ${detail}`.trimEnd())
-  console.log(`  darwin-arm64 native modules: ${natives.join(', ') || 'none'}`)
+  console.log(`  Mach-O files for ${options.chip}: node/bin/node${natives.kept.map((path) => `, app/${path}`).join('')}`)
+  console.log(`  left out, for another platform or chip: ${natives.dropped.map((path) => `app/${path}`).join(', ') || 'nothing'}`)
+  if (natives.unplaced.length) console.warn(`warning: machine code for another platform outside a platform folder, kept: ${natives.unplaced.join(', ')}`)
   console.log(`  client files from ${client}`)
   console.log(`  hobkin files from ${runtime}`)
   console.log(`  hobkin install files: ${Object.entries(installSources).map(([name, path]) => `${name} from ${dirname(path)}`).join(', ')}`)

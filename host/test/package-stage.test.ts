@@ -95,12 +95,13 @@ test('writes the app package.json with only what the host imports, pinned', () =
   })
 })
 
-test('the manifest says what went in, and takes its time from the caller', () => {
+test('the manifest says what went in and for which chip, and takes its time from the caller', () => {
   const manifest = packageManifest({
     createdAt: '2026-11-13T22:00:00.000Z',
     app: { name: 'hobkin-client', version: '0.1.19', commit: '39edb41', source: 'archive', uncommittedFiles: null },
     runtime: { name: 'hobkin', version: '0.1.6', commit: 'e8cdbc1', source: 'checkout', uncommittedFiles: 33 },
     node: { version: '26.3.1' },
+    chip: 'x86_64',
     sizes: { node: 144511152, app: 2000 },
   })
   assert.deepEqual(manifest, {
@@ -109,23 +110,37 @@ test('the manifest says what went in, and takes its time from the caller', () =>
     app: { name: 'hobkin-client', version: '0.1.19', commit: '39edb41', source: 'archive', uncommittedFiles: null },
     runtime: { name: 'hobkin', version: '0.1.6', commit: 'e8cdbc1', source: 'checkout', uncommittedFiles: 33 },
     node: { version: '26.3.1' },
+    chip: 'x86_64',
     sizes: { app: 2000, node: 144511152 },
   })
   assert.throws(() => packageManifest({ ...manifest, createdAt: 'yesterday' }), /createdAt/)
 })
 
 test('a folder to stage from comes with the commit it holds', () => {
-  assert.deepEqual(stageArguments([]), { time: null, client: null, runtime: null })
+  assert.deepEqual(stageArguments([]), { time: null, client: null, runtime: null, chip: 'aarch64', node: null })
   assert.deepEqual(stageArguments(['--runtime', '/tmp/hobkin-at', '--runtime-commit', 'e8cdbc1', '--time', '2026-11-13T22:00:00Z']), {
     time: '2026-11-13T22:00:00.000Z',
     client: null,
     runtime: { dir: '/tmp/hobkin-at', commit: 'e8cdbc1' },
+    chip: 'aarch64',
+    node: null,
   })
   assert.throws(() => stageArguments(['--client', '/tmp/client-at']), /--client and --client-commit go together/)
   assert.throws(() => stageArguments(['--client-commit', '39edb41']), /--client and --client-commit go together/)
   assert.throws(() => stageArguments(['--client', '--client-commit', '39edb41']), /--client needs a value/)
   assert.throws(() => stageArguments(['--time', 'soon']), /ISO time/)
   assert.throws(() => stageArguments(['--check']), /Unknown option/)
+})
+
+test('a stage is for one Mac chip, and can carry a Node the caller downloaded for it', () => {
+  assert.deepEqual(stageArguments(['--chip', 'x86_64', '--node', '/tmp/node-x64/bin/node']), {
+    time: null,
+    client: null,
+    runtime: null,
+    chip: 'x86_64',
+    node: '/tmp/node-x64/bin/node',
+  })
+  assert.throws(() => stageArguments(['--chip', 'x64']), /--chip is aarch64 or x86_64/)
 })
 
 const OFFICIAL = {
@@ -139,12 +154,15 @@ const OFFICIAL = {
   signature: ['Authority=Developer ID Application: Node.js Foundation (HX7739G8FX)', 'Authority=Apple Root CA', 'TeamIdentifier=HX7739G8FX'].join('\n'),
 }
 
-test('accepts only a standalone official arm64 Node', () => {
-  assert.deepEqual(nodeBinaryProblems(OFFICIAL), [])
-  assert.equal(nodeBinaryProblems({ ...OFFICIAL, file: '/x/node: Mach-O 64-bit executable x86_64' }).length, 1)
+test("accepts only a standalone official Node for the stage's chip", () => {
+  assert.deepEqual(nodeBinaryProblems(OFFICIAL, 'aarch64'), [])
+  const intel = { ...OFFICIAL, file: '/x/node: Mach-O 64-bit executable x86_64' }
+  assert.deepEqual(nodeBinaryProblems(intel, 'x86_64'), [])
+  assert.match(nodeBinaryProblems(intel, 'aarch64').join('\n'), /not an arm64 executable/)
+  assert.match(nodeBinaryProblems(OFFICIAL, 'x86_64').join('\n'), /not an x86_64 executable/)
   const homebrew = { ...OFFICIAL, libraries: `${OFFICIAL.libraries}\n\t/opt/homebrew/opt/icu4c/lib/libicui18n.77.dylib (compatibility version 77.0.0)` }
-  assert.match(nodeBinaryProblems(homebrew).join('\n'), /\/opt\/homebrew/)
-  assert.equal(nodeBinaryProblems({ ...OFFICIAL, signature: 'Signature=adhoc\nTeamIdentifier=not set' }).length, 1)
+  assert.match(nodeBinaryProblems(homebrew, 'aarch64').join('\n'), /\/opt\/homebrew/)
+  assert.equal(nodeBinaryProblems({ ...OFFICIAL, signature: 'Signature=adhoc\nTeamIdentifier=not set' }, 'aarch64').length, 1)
 })
 
 test('finds a user folder in a staged file, but not a placeholder one', () => {

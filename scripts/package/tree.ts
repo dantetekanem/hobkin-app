@@ -1,6 +1,7 @@
-/** Reading a staged tree: its files, its size, and the links that would make it depend on the Mac it was built on. */
-import { lstatSync, readdirSync, readlinkSync, type Stats } from 'node:fs'
+/** Reading a staged tree: its files, its size, its machine code, and the links that would make it depend on the Mac it was built on. */
+import { closeSync, lstatSync, openSync, readdirSync, readlinkSync, readSync, type Stats } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
+import { binaryFormat, type BinaryFormat } from './binaries.ts'
 
 /** Every entry under a folder, depth first. Links are listed, never followed. */
 export function* entriesUnder(root: string): Generator<{ path: string; stat: Stats }> {
@@ -42,3 +43,19 @@ export function linksUnder(root: string): string[] {
 
 /** A byte count people can read. */
 export const megabytes = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(1)} MB`
+
+/** The kind of machine code a file holds, from its first bytes, or null when it holds none. */
+export function formatOf(path: string): BinaryFormat | null {
+  const head = new Uint8Array(8)
+  const file = openSync(path, 'r')
+  try {
+    return binaryFormat(head.subarray(0, readSync(file, head, 0, 8, 0)))
+  } finally {
+    closeSync(file)
+  }
+}
+
+/** Every Mach-O file under a folder, as paths from it. Links are not followed. */
+export function machOFilesUnder(root: string): string[] {
+  return [...entriesUnder(root)].filter(({ path, stat }) => stat.isFile() && formatOf(path) === 'mach-o').map(({ path }) => relative(root, path))
+}

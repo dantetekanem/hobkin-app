@@ -2,6 +2,7 @@
  * The rules that decide what goes into the packaged host, kept apart from the file system so a test can pin them.
  * `stage.ts` and `check.ts` do the reading, copying and running.
  */
+import { CHIPS, type Chip } from './feed.ts'
 
 /** What one source file asks for at run time. */
 export interface References {
@@ -167,9 +168,14 @@ export interface StageArguments {
   client: StagedFrom | null
   /** Where hobkin's files come from, or null for the checkout `node_modules/hobkin` links to. */
   runtime: StagedFrom | null
+  /** The Mac chip the stage is for. Native modules for any other platform or chip are left out. */
+  chip: Chip
+  /** The official Node binary to carry, or null for the one the hobkin checkout downloaded. */
+  node: string | null
 }
 
-export const STAGE_USAGE = 'Usage: node scripts/package/stage.ts [--time <ISO time>] [--client <dir> --client-commit <sha>] [--runtime <dir> --runtime-commit <sha>]'
+export const STAGE_USAGE =
+  'Usage: node scripts/package/stage.ts [--time <ISO time>] [--client <dir> --client-commit <sha>] [--runtime <dir> --runtime-commit <sha>] [--chip aarch64|x86_64] [--node <official node binary>]'
 
 /**
  * The stage's arguments. A folder and its commit come together: a folder made by `git archive` has no history to
@@ -180,7 +186,7 @@ export function stageArguments(args: readonly string[]): StageArguments {
   const rest = [...args]
   while (rest.length) {
     const flag = rest.shift()!
-    if (!['--time', '--client', '--client-commit', '--runtime', '--runtime-commit'].includes(flag)) throw Error(`Unknown option: ${flag}\n${STAGE_USAGE}`)
+    if (!['--time', '--client', '--client-commit', '--runtime', '--runtime-commit', '--chip', '--node'].includes(flag)) throw Error(`Unknown option: ${flag}\n${STAGE_USAGE}`)
     const value = rest.shift()
     if (!value || value.startsWith('--')) throw Error(`${flag} needs a value.\n${STAGE_USAGE}`)
     values.set(flag, value)
@@ -194,7 +200,15 @@ export function stageArguments(args: readonly string[]): StageArguments {
     if (dir === undefined || commit === undefined) throw Error(`--${name} and --${name}-commit go together: the folder, and the commit it holds.\n${STAGE_USAGE}`)
     return { dir, commit }
   }
-  return { time: time === null ? null : new Date(time).toISOString(), client: source('client'), runtime: source('runtime') }
+  const chip = values.get('--chip') ?? 'aarch64'
+  if (!CHIPS.includes(chip as Chip)) throw Error(`--chip is ${CHIPS.join(' or ')}, not ${chip}.`)
+  return {
+    time: time === null ? null : new Date(time).toISOString(),
+    client: source('client'),
+    runtime: source('runtime'),
+    chip: chip as Chip,
+    node: values.get('--node') ?? null,
+  }
 }
 
 /** Which commit a part was staged from. */
@@ -212,6 +226,8 @@ export interface PackageManifest {
   app: { name: string; version: string } & StagedCommit
   runtime: { name: string; version: string } & StagedCommit
   node: { version: string }
+  /** The Mac chip the package runs on. */
+  chip: Chip
   /** Bytes in each top-level folder of the package. */
   sizes: Record<string, number>
 }
@@ -228,6 +244,7 @@ export function packageManifest(input: Omit<PackageManifest, 'format'>): Package
     app: { name: input.app.name, version: input.app.version, ...stagedCommit(input.app) },
     runtime: { name: input.runtime.name, version: input.runtime.version, ...stagedCommit(input.runtime) },
     node: { version: input.node.version },
+    chip: input.chip,
     sizes,
   }
 }
@@ -243,10 +260,11 @@ export interface NodeBinaryFacts {
 const NODE_TEAM = 'HX7739G8FX'
 const SYSTEM_LIBRARY = /^(\/usr\/lib\/|\/System\/)/
 
-/** Why a Node binary cannot be carried in the app, or nothing when it is a standalone official arm64 build. */
-export function nodeBinaryProblems({ file, libraries, signature }: NodeBinaryFacts): string[] {
+/** Why a Node binary cannot be carried in the app, or nothing when it is a standalone official build for the chip. */
+export function nodeBinaryProblems({ file, libraries, signature }: NodeBinaryFacts, chip: Chip): string[] {
   const problems: string[] = []
-  if (!/Mach-O 64-bit executable arm64/.test(file)) problems.push(`it is not an arm64 executable: ${file.trim()}`)
+  const arch = chip === 'aarch64' ? 'arm64' : 'x86_64'
+  if (!new RegExp(`Mach-O 64-bit executable ${arch}$`).test(file.trim())) problems.push(`it is not an ${arch} executable: ${file.trim()}`)
   // The first line of `otool -L` is the binary's own path. Every other line is a library it loads.
   const outside = libraries
     .split('\n')
