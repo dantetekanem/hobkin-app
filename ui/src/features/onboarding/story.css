@@ -245,3 +245,18 @@
 @media (prefers-reduced-motion: reduce) {
   :root:not([data-motion="lively"]) .tale-bob { animation: none; }
 }
+
+/*
+ * A routine card of the setup (`RoutineCard.tsx`), a pane of the same glass. Kept, its edge lights in the sun's
+ * color. Dropped, what it says dims, and its buttons stay clear so Undo reads.
+ */
+.tale-card { transition: box-shadow 220ms var(--ease-out); }
+.tale-card[data-mark="kept"] {
+  box-shadow:
+    inset 0 1px 0 var(--glass-shine),
+    0 0 0 1.5px color-mix(in oklab, var(--hb-sun) 85%, transparent),
+    var(--glass-shade),
+    0 0 48px -10px color-mix(in oklab, var(--hb-sun) 58%, transparent);
+}
+.tale-card .tale-card-dims { transition: opacity 220ms var(--ease-out); }
+.tale-card[data-mark="dropped"] .tale-card-dims { opacity: 0.45; }

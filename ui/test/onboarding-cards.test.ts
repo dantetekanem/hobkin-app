@@ -24,6 +24,7 @@ import {
   type Writing,
 } from '../src/features/onboarding/cards.ts'
 import { asksComputer, GOAL_WORDS, GOALS, goalQuestions, goalsOf, projectStart } from '../src/features/onboarding/goals.ts'
+import { sampleGoalCards } from '../src/features/onboarding/sample-cards.ts'
 
 /** A card as `setup.watchers` gives it, with every part a template of hobkin's has. */
 const card = (id: string, over: Partial<Card> = {}): Card => ({
@@ -241,4 +242,13 @@ test('the first run offered is the written routine with the lowest effort, and o
   assert.equal(firstRunOf(pairs, false), null, 'not on the scripted host, nor on sample data')
   assert.equal(firstRunOf([], true), null)
   assert.equal(firstRunOf([pairs[1]!], true), null)
+})
+
+test('on sample data each card shows once, under the first picked goal that has it, and only picked goals come back', () => {
+  const groups = sampleGoalCards(['life', 'project'])
+  assert.deepEqual(groups.map(({ goal }) => goal), ['project', 'life'])
+  const ids = groups.flatMap(({ starters, more }) => [...starters, ...more].map(({ id }) => id))
+  assert.equal(new Set(ids).size, ids.length)
+  assert.ok(groups[0]!.starters.some(({ id }) => id === 'deadlines-ahead'))
+  assert.equal(groups[1]!.starters.length, 2, 'life shows two cards when the project has Deadlines ahead')
 })
