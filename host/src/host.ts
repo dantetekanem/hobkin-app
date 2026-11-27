@@ -152,6 +152,11 @@ export interface HostOptions {
   /** Run gh's and Claude Code's own sign-ins from the setup's review. Only the entry passes them, for a live host. */
   programSignIns?: ProgramSignIns
   /**
+   * The setup's reads and installs as a simulated new Mac answers them (`simulate-new-mac.ts`), in place of the host's
+   * own. Only the entry passes them, for --simulate-new-mac on the scripted model.
+   */
+  simulation?: HostHandlers
+  /**
    * gh for Change Review: it reads pull requests, and a live host posts a verdict the user confirmed. Without it a
    * pull request reads as the sample change and nothing is posted. The entry passes it for --live and --github.
    */
@@ -910,6 +915,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...workflowHandlers({ app: hobkin }),
     'history.list': () => history.list(),
     'history.open': ({ id }) => history.open(id),
+    // Last, so a simulated new Mac answers the setup in place of this one.
+    ...options.simulation,
   }
 
   const hello = (): HelloMessage => ({
