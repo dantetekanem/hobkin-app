@@ -273,8 +273,15 @@ function answer(name: string, args: Record<string, unknown>): unknown {
 // ---------------------------------------------------------------------------------------------------------------
 // The change reviews behind the seed's grades.
 
-/** Each graded finished change by its review id (`reviewIdOf` in `shared/review/ids.ts`): the commit graded, when, and whether a score is under its floor. */
-const graded = new Map<string, { head: string; at: string; held: boolean }>()
+/** A graded finished change: the commit graded, when, and whether a score is under its floor. */
+interface Graded {
+  head: string
+  at: string
+  held: boolean
+}
+
+/** Each graded finished change by its review id (`reviewIdOf` in `shared/review/ids.ts`). */
+const graded = new Map<string, Graded>()
 /** The `review.status` commands on their way to the host for a graded change, by command id. */
 const askedStatus = new Map<string, string>()
 
@@ -283,22 +290,44 @@ function noteGraded(work: { finished?: FinishedGroup[] } | null): void {
   if (!work?.finished) return
   graded.clear()
   for (const change of work.finished.flatMap(({ changes }) => changes)) {
-    if (change.scoring && change.head) graded.set(`change:${change.slug}:${change.item}`, { head: change.head, at: change.at ?? new Date(NOW).toISOString(), held: change.scoring.floors.length > 0 })
+    if (!change.scoring || !change.head) continue
+    graded.set(`change:${change.slug}:${change.item}`, {
+      head: change.head,
+      at: change.at ?? new Date(NOW).toISOString(),
+      held: change.scoring.floors.length > 0,
+    })
   }
 }
 
 /** A finished change review at the commit graded: nothing found that breaks, so safe to deploy, with one part shown by no test when a score is under its floor. */
-function reviewed({ head, at, held }: { head: string; at: string; held: boolean }): AssessmentStatus {
-  return { state: 'ready', head, summary: { level: held ? 'mid' : 'safe', critical: false, needsYou: 0, worthALook: held ? 1 : 0, safe: held ? 4 : 5, storyBy: 'model', at, deploy: 'safe' } }
+function reviewed({ head, at, held }: Graded): AssessmentStatus {
+  return {
+    state: 'ready',
+    head,
+    summary: {
+      level: held ? 'mid' : 'safe',
+      critical: false,
+      needsYou: 0,
+      worthALook: held ? 1 : 0,
+      safe: held ? 4 : 5,
+      storyBy: 'model',
+      at,
+      deploy: 'safe',
+    },
+  }
 }
 
+/** The host's answer to a `review.status` asked for a graded change, with its change review when the change is still at the commit graded. */
 function withReview(message: Message): Message {
   const about = askedStatus.get(String(message.id))
   if (!about) return message
   askedStatus.delete(String(message.id))
+
   const known = graded.get(about)
   const value = message.value as { head?: string | null } | undefined
-  if (message.ok && known && value && (value.head ?? known.head) === known.head) message.value = { ...value, assessment: reviewed(known) }
+  if (!message.ok || !known || !value) return message
+  const atCommitGraded = (value.head ?? known.head) === known.head
+  if (atCommitGraded) message.value = { ...value, assessment: reviewed(known) }
   return message
 }
 
@@ -317,7 +346,8 @@ export const overlay = {
   /** What goes on to the host, or null when the answer came from here. */
   fromPage(text: string): string | null {
     const message = JSON.parse(text) as { type: string; id?: string; name?: string; args?: Record<string, unknown> }
-    if (message.type === 'command' && message.name === 'review.status' && graded.has(String(message.args?.id))) askedStatus.set(String(message.id), String(message.args!.id))
+    const asksAboutGraded = message.type === 'command' && message.name === 'review.status' && graded.has(String(message.args?.id))
+    if (asksAboutGraded) askedStatus.set(String(message.id), String(message.args?.id))
     if (message.type !== 'command' || !aboutFake(message.args ?? {})) return text
     const value = answer(message.name!, message.args ?? {})
     setTimeout(() => deliver(JSON.stringify({ type: 'result', id: message.id, ok: true, value })), 5)

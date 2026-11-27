@@ -138,11 +138,21 @@ interface Item {
   finished?: { files: Record<string, string>; summary: string; proof: string; hoursAgo: number; review?: Omit<Review, 'head'> }
 }
 
+type Score = [score: number, evidence: string]
+
+const scoreOf = ([score, evidence]: Score) => ({ score, evidence })
+
 /** Five scores in hobkin's order: coverage, proof, deploy and data, visibility, rollback. */
-const scored = (kind: Review['kind'], ...rows: [score: number, evidence: string][]): Omit<Review, 'head'> => {
-  const [coverage, proof, safety, visibility, rollback] = rows.map(([score, evidence]) => ({ score, evidence }))
-  return { kind, scores: { coverage: coverage!, proof: proof!, safety: safety!, visibility: visibility!, rollback: rollback! } }
-}
+const scored = (kind: Review['kind'], ...[coverage, proof, safety, visibility, rollback]: [Score, Score, Score, Score, Score]): Omit<Review, 'head'> => ({
+  kind,
+  scores: {
+    coverage: scoreOf(coverage),
+    proof: scoreOf(proof),
+    safety: scoreOf(safety),
+    visibility: scoreOf(visibility),
+    rollback: scoreOf(rollback),
+  },
+})
 
 /**
  * What hobkin's study of each project wrote, and its looks are recent, so the queue holds the projects' own work and
@@ -338,6 +348,9 @@ const PROJECTS: { slug: string; level: 'critical' | 'important' | 'casual'; prio
 /** The grades to record once the survey has read each branch's commit: hobkin takes them only for the commit it last read. */
 const toGrade: { slug: string; id: string; review: Omit<Review, 'head'>; branch: string; path: string; at: number }[] = []
 
+/** A time this many hours before the seed's now, as hobkin stamps its state. */
+const stamp = (hoursAgo: number) => new Date(NOW - hoursAgo * HOUR).toISOString()
+
 function seedWork() {
   for (const [index, project] of PROJECTS.entries()) {
     const path = join(CODE, project.slug)
@@ -348,8 +361,16 @@ function seedWork() {
     const notes = paths(HOME, project.slug).project
     mkdirSync(join(notes, '..'), { recursive: true })
     writeFileSync(notes, `# ${project.slug}\n\n${project.studied}\n`)
-    const stamp = (hoursAgo: number) => new Date(NOW - hoursAgo * HOUR).toISOString()
-    writeState(HOME, project.slug, { lastLookAt: stamp(0.1), lastLensAt: stamp(0.1), lensIndex: 3, newCommits: 0, lastMachinesAt: stamp(30), lastMachinesTlcAt: stamp(30), lastSignalsAt: stamp(2), lastIdeasAt: stamp(1) })
+    writeState(HOME, project.slug, {
+      lastLookAt: stamp(0.1),
+      lastLensAt: stamp(0.1),
+      lensIndex: 3,
+      newCommits: 0,
+      lastMachinesAt: stamp(30),
+      lastMachinesTlcAt: stamp(30),
+      lastSignalsAt: stamp(2),
+      lastIdeasAt: stamp(1),
+    })
     for (const [at, item] of project.items.entries()) {
       const filed = fileItem(HOME, project.slug, { key: item.key, kind: item.kind, title: item.title, brief: item.brief, impact: item.impact, effort: item.effort }, NOW - (30 - at) * HOUR)
       updateItem(HOME, project.slug, filed.id, { grade: item.grade }, NOW - (29 - at) * HOUR)
@@ -366,7 +387,10 @@ function seedWork() {
       git(path, 'checkout', '-q', 'main')
       const finishedAt = NOW - item.finished.hoursAgo * HOUR
       updateItem(HOME, project.slug, filed.id, { state: 'branch', branch, summary: item.finished.summary, proof: item.finished.proof }, finishedAt)
-      if (item.finished.review) toGrade.push({ slug: project.slug, id: filed.id, review: item.finished.review, branch, path, at: finishedAt + HOUR / 4 })
+      if (item.finished.review) {
+        // Its change review finished a quarter of an hour after the change did.
+        toGrade.push({ slug: project.slug, id: filed.id, review: item.finished.review, branch, path, at: finishedAt + HOUR / 4 })
+      }
       // Its description, as the agent that made it writes one. Without it, hobkin would send an agent to write it.
       const description = prFile(HOME, project.slug, filed.id)
       mkdirSync(join(description, '..'), { recursive: true })
@@ -390,7 +414,10 @@ function seedWork() {
  * and the ones rated 8 or more offer Merge. The last one finished has no review yet.
  */
 function gradeFinished() {
-  for (const { slug, id, review, branch, path, at } of toGrade) recordGrades(HOME, slug, id, { ...review, head: git(path, 'rev-parse', branch) }, at)
+  for (const { slug, id, review, branch, path, at } of toGrade) {
+    const head = git(path, 'rev-parse', branch)
+    recordGrades(HOME, slug, id, { ...review, head }, at)
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
