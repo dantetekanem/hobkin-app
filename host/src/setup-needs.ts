@@ -143,20 +143,26 @@ interface Lines {
 function pathForLine(path: string, home: string): string {
   const inHome = path.startsWith(`${home}/`)
   const rest = inHome ? path.slice(home.length + 1) : path
-  const quoted = /^[\w./-]+$/.test(rest) ? rest : `'${rest.replaceAll("'", "'\\''")}'`
+  const plain = /^[\w./-]+$/.test(rest)
+  const quoted = plain ? rest : `'${rest.replaceAll("'", "'\\''")}'`
   return inHome ? `~/${quoted}` : quoted
 }
 
 /**
- * The host's PATH is the login shell's, so Terminal finds what it finds, but for hobkin's own Node. Its npm, and the
- * install scripts npm runs, start `node` from the PATH, so the line puts that Node's folder first.
+ * The words that start the npm found. The host's PATH is the login shell's, so Terminal finds the same npm, but for
+ * hobkin's own. That npm, and the install scripts it runs, start `node` from the PATH, so its folder goes first.
  */
+function npmWords(npm: string | null, ownNode: string | undefined, home: string): string | null {
+  if (!npm) return null
+  if (ownNode && dirname(npm) === ownNode) return `PATH=${pathForLine(ownNode, home)}:"$PATH" npm`
+  return 'npm'
+}
+
 function linesOn(find: (name: string) => string | null, ownNode: string | undefined, home: string): Lines {
-  const npm = find('npm')
-  let npmLine: string | null = null
-  if (npm && ownNode && dirname(npm) === ownNode) npmLine = `PATH=${pathForLine(ownNode, home)}:"$PATH" npm`
-  else if (npm) npmLine = 'npm'
-  return { homebrew: find('brew') !== null, npm: npmLine }
+  return {
+    homebrew: find('brew') !== null,
+    npm: npmWords(find('npm'), ownNode, home),
+  }
 }
 
 /** Without Homebrew, the official installers, which need nothing else. */
@@ -170,7 +176,7 @@ function piInstall(pi: PiSetup | null): SetupFix | null {
   return null
 }
 
-/** A program npm installs: by the npm Terminal finds, or hobkin's own by its path, or once there is an npm. */
+/** A program npm installs: through the npm found, or with no npm, hobkin's own Node first where it has one. */
 function npmInstall(pi: PiSetup | null, lines: Lines, name: string): SetupFix {
   if (lines.npm) return command(`${lines.npm} install -g ${name}`)
   if (pi?.canInstallNode) return { kind: 'install', what: 'node' }
