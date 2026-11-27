@@ -259,6 +259,7 @@ test('with its first models set, hobkin says in one more bubble, after the other
     set: true,
     provider: { id: 'openai-codex', name: 'OpenAI Codex' },
     lead: sol('medium'),
+    checks: sol('medium'),
     tiers: { fast: at('gpt-6-luna', 'GPT-6 Luna', 'low'), mid: sol('medium'), high: sol('high'), max: sol('max') },
   }
   const before: Facts = { ...bare, connected: ['OpenAI Codex'], claude: true }
