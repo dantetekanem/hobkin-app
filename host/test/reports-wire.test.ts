@@ -6,7 +6,7 @@ const row = (id: string, body: string) => ({ id, title: id, body, outcome: 'comp
 
 test('the reports the window is sent leave out the ones that found nothing new', () => {
   const sent = toWire({
-    reports: [row('a', 'Nothing new.'), row('b', 'Useful: Rates dropped.'), row('c', '**nothing new**'), row('d', 'Nothing new. But the deploy is late.')],
+    reports: [row('a', 'Nothing new.'), row('b', 'Useful: Rates dropped.'), row('c', '**nothing new**'), row('d', 'Nothing new. But the deploy is late.'), row('e', 'Nothing new.\n\nChecked 14 feeds.')],
     schedules: [{ id: 'check', lastRun: { at: '2026-11-24T08:00:00Z', outcome: 'completed' } }],
   }).values
   assert.deepEqual((sent.reports as { id: string }[]).map(({ id }) => id), ['b', 'd'])

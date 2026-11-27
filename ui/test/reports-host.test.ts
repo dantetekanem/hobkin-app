@@ -31,7 +31,7 @@ afterEach(() => {
 
 test('reports that found nothing new are neither listed nor unread, so only real ones count', () => {
   hello()
-  snapshot([report, { ...report, id: 'local:recap:2', body: 'Nothing new.' }, { ...report, id: 'local:recap:3', body: '**nothing new**' }])
+  snapshot([report, { ...report, id: 'local:recap:2', body: 'Nothing new.' }, { ...report, id: 'local:recap:3', body: '**nothing new**' }, { ...report, id: 'local:recap:4', body: 'Nothing new.\n\nChecked 14 feeds.' }])
   assert.deepEqual(ids(), [report.id])
   assert.equal(useReports.getState().inbox.reports.filter(({ id }) => !useReports.getState().inbox.read.has(id)).length, 1)
 })
