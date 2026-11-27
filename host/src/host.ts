@@ -43,6 +43,7 @@ import { piModelRunner } from './review/agent.ts'
 import { mainImage } from './message-images.ts'
 import { readJobSession } from './job-session.ts'
 import { olderStepsHandlers } from './older-steps.ts'
+import { teamsReportHandlers } from './teams-report.ts'
 import { removeHostFile, runningHost, writeHostFile } from './host-file.ts'
 import { Integrations, type McpSource } from './integrations.ts'
 import { piMcpSourceFor } from './integrations-pi.ts'
@@ -918,6 +919,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     'agent.session': ({ report }) => readJobSession({ data: () => hobkin().runtime.directory, snapshot: () => ({ reports: owner.snapshot?.reports, completedJobReports: owner.snapshot?.completedJobReports }), state: () => hobkin().runtime.state() }, report),
     // A run's steps its feed let go, and a tool's whole output, read back from its saved session (052 S18).
     ...olderStepsHandlers({ data: () => hobkin().runtime.directory, state: () => hobkin().runtime.state() }),
+    ...teamsReportHandlers(),
     // An integration's workflows: the user's press, and turning one on or off.
     ...workflowHandlers({ app: hobkin }),
     'history.list': () => history.list(),

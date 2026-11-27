@@ -89,8 +89,17 @@ export type Step =
   | (Base & { kind: 'change'; change: Change })
   | (Base & { kind: 'looks'; looks: Look[] })
   | (Base & { kind: 'tool'; name: string; summary: string; state: CallState; output: string; failure?: string })
-  /** A report one of the agent's own agents sent back (`AGENT_REPORT`): who sent it, whether it went well, its summary and the report. */
-  | (Base & { kind: 'report'; from: string; ok: boolean; summary: string; text: string })
+  /**
+   * A report one of the agent's own agents sent back (`AGENT_REPORT`): who sent it, whether it went well, its summary and
+   * the report. One that came back in a group has no report in the step, only the teams session and file it is kept in.
+   */
+  | (Base & { kind: 'report'; from: string; ok: boolean; summary: string; text: string; file?: ReportFile })
+
+/** Where teams keeps a report: its session's folder and the file's name (`teams.report`). */
+export interface ReportFile {
+  team: string
+  file: string
+}
 
 /** A message the user sent to the agent while it worked. */
 export interface Note {
@@ -456,7 +465,10 @@ function buildStep(group: Group, carried: Carried, ended: boolean, options: Read
     case 'report': {
       const args = argsOf(first)
       const from = firstText(args, 'name') || 'An agent'
-      return { step: { kind: 'report', key, entries, from, ok: first.state !== 'failed', summary: firstText(args, 'summary') ?? '', text: first.output ?? '' } }
+      const team = firstText(args, 'team')
+      const file = firstText(args, 'file')
+      const kept = team && file ? { file: { team, file } } : {}
+      return { step: { kind: 'report', key, entries, from, ok: first.state !== 'failed', summary: firstText(args, 'summary') ?? '', text: first.output ?? '', ...kept } }
     }
     case 'codemode': {
       // Each call is built as its own step is, so a call that did not change is the step it was.

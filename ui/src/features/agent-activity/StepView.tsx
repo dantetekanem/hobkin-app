@@ -14,6 +14,7 @@ import { ChangeDiff } from './ChangeDiff.tsx'
 import { CodeText, MoreButton } from './CodeText.tsx'
 import { BOX } from './boxes.ts'
 import { CodemodeCall } from './CodemodeCall.tsx'
+import { useKeptReport, type KeptReport } from './kept-report.ts'
 import { codemodeOf, codemodeText, codemodeWarning, codemodeWords, type CodemodeWords } from './codemode.ts'
 import { cutOf, cutWords, type CutState } from './cut-output.ts'
 import { liveIf } from './glow.ts'
@@ -138,6 +139,13 @@ function StepBody({ step, timeOf, ended }: { step: Step; timeOf: TimeOf; ended: 
   }
 }
 
+/** What an opened report says while its words are not there: being read, or its summary and why there is no more. */
+function withoutReport(kept: KeptReport, summary: string): string {
+  if (kept.state === 'reading') return 'Reading its report…'
+  if (kept.state === 'missing') return summary ? `${summary} (teams no longer keeps the whole report)` : 'teams no longer keeps its report.'
+  return summary || 'It sent no report.'
+}
+
 /**
  * A report one of the agent's own agents sent back, as the conversation draws it (the user, 2026-11-27: "when an agent
  * finishes, a message should be rendered in the main screen with the handoff/feedback/whatever, so i can click and
@@ -146,9 +154,11 @@ function StepBody({ step, timeOf, ended }: { step: Step; timeOf: TimeOf; ended: 
 function AgentReport({ step }: { step: Extract<Step, { kind: 'report' }> }) {
   const whole = useWhole(step.key)
   const block = useBlock('other', step.key)
-  const text = whole.text ?? step.text
-  const opens = Boolean(text.trim())
+  const opens = Boolean(step.text.trim() || step.file || step.summary)
   const open = opens && block.open
+  // One that came back in a group has its report read from where teams keeps it, as its row opens.
+  const kept = useKeptReport(step.file, open && !step.text.trim())
+  const text = whole.text ?? (step.text || (kept.state === 'read' ? kept.text : ''))
   return (
     <div className="flex flex-col gap-1">
       <FoldRow icon={MessageSquareText} open={open} onToggle={opens ? block.toggle : undefined} failed={!step.ok}>
@@ -158,7 +168,7 @@ function AgentReport({ step }: { step: Extract<Step, { kind: 'report' }> }) {
       </FoldRow>
       {open ? (
         <div className="ml-[22px] max-w-[88%] rounded-2xl bg-surface-2 px-3.5 py-2.5 text-[14px] leading-relaxed break-words">
-          <GrowingMarkdown text={text} whole />
+          {text ? <GrowingMarkdown text={text} whole /> : <p className="text-muted-foreground">{withoutReport(kept, step.summary)}</p>}
           <CutNote whole={whole} />
         </div>
       ) : null}

@@ -144,6 +144,36 @@ test("a report one of the run's agents sent back is a step of its own: who sent 
   assert.equal(entries[2].text, 'Another custom note', 'any other message shown to the user stays words');
 });
 
+test("agents that came back as one group each get a report step from the group's index, once, with where their report is kept", () => {
+  const feed = new JobActivity();
+  const team = 'session-01a21f24-9e6c';
+  const member = (name, status, extra = {}) => ({
+    name, status, runId: `run-${name}`, summary: `${name} summary`, outcome: 'succeeded', effectiveOutcome: 'succeeded',
+    report: { id: `report:${name}`, path: `/Users/someone/.pi/agent/reports/${team}/${name}.md` }, ...extra,
+  });
+  const wake = members => ({
+    role: 'custom', customType: 'pi-extended-teams-wake', display: false,
+    content: `Completion group index:\n${JSON.stringify({ version: 1, groupId: 'group:abc', kind: 'settled', members })}\nUse the referenced full reports as needed.`,
+    details: { completionGroup: { teamName: team, groupId: 'group:abc', deliveryId: 'delivery:1' } },
+  });
+  const arrive = message => {
+    feed.accept({ type: 'message_start', message });
+    feed.accept({ type: 'message_end', message });
+  };
+
+  arrive(wake([member('logic-lab', 'reported'), member('graph-lab', 'running')]));
+  arrive(wake([member('logic-lab', 'reported'), member('graph-lab', 'failed', { outcome: 'failed', effectiveOutcome: 'failed', report: { path: '/etc/passwd' } })]));
+  arrive({ role: 'custom', customType: 'pi-extended-teams-wake', display: false, content: 'Something else entirely' });
+
+  const entries = feed.snapshot();
+  assert.deepEqual(entries.map(({ name, state }) => ({ name, state })), [
+    { name: 'agent_report', state: 'completed' },
+    { name: 'agent_report', state: 'failed' },
+  ], 'one step per agent that finished, never twice, and none for one still running');
+  assert.deepEqual(JSON.parse(entries[0].input), { name: 'logic-lab', ok: true, summary: 'logic-lab summary', team, file: 'logic-lab.md' });
+  assert.deepEqual(JSON.parse(entries[1].input), { name: 'graph-lab', ok: false, summary: 'graph-lab summary' }, 'a report kept anywhere but its team folder names no file');
+});
+
 test('compact RPC reconciles text and tool snapshots without duplicating streamed output', () => {
   const feed = new JobActivity();
   feed.accept({ type: 'message_start', message: { role: 'assistant' } });

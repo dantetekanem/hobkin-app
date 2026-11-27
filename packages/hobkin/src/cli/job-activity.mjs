@@ -19,6 +19,37 @@ export const MOST_STEPS = 200;
  */
 export const AGENT_REPORT = 'agent_report';
 const isAgentReport = message => message?.role === 'custom' && message.customType === 'pi-extended-teams-report';
+/**
+ * Agents spawned as one group come back in one hidden message, the group's index (`pi-extended-teams-wake`): each member
+ * with how it stands, its summary and where teams keeps its report. Each one that finished gets a report step of its own.
+ */
+const isGroupWake = message => message?.role === 'custom' && message.customType === 'pi-extended-teams-wake';
+const GROUP_INDEX = 'Completion group index:';
+// A member still out has not finished, so it has no step yet (teams' unsettled slots, as `teams-agents.mjs` reads them).
+const UNSETTLED = new Set(['pending', 'queued', 'running']);
+// teams' session folders and the report files it writes in them (`writeStandaloneReport`), and nothing else.
+const TEAM = /^session-[A-Za-z0-9_-]{1,200}$/;
+const REPORT_FILE = /^[A-Za-z0-9_-]{1,120}\.md$/;
+
+/** The members a group's index lists, or none for a wake that holds no index. */
+function groupMembers(content) {
+  const text = outputText(content);
+  if (!text.startsWith(GROUP_INDEX)) return [];
+  const line = text.split('\n').find(part => part.startsWith('{'));
+  try {
+    const members = JSON.parse(line ?? '').members;
+    return Array.isArray(members) ? members.filter(member => member && typeof member === 'object') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The name of a member's report file, when teams keeps it in the group's own folder, where the window may read it. */
+function reportFile(member, team) {
+  const path = typeof member.report?.path === 'string' ? member.report.path : '';
+  const file = path.slice(path.lastIndexOf('/') + 1);
+  return team && REPORT_FILE.test(file) && path.endsWith(`/reports/${team}/${file}`) ? file : undefined;
+}
 /** How much of a tool's output a run's feed keeps: all of a shorter one, else its start and its end, each half of this. */
 export const MOST_OUTPUT = 8192;
 const LEFT_OUT = '\n…\n';
@@ -244,7 +275,10 @@ export class JobActivity {
         if (part?.type === 'text_end') this.text(part.contentIndex, part.content);
       }
     } else if (event.type === 'message_end') {
-      if (!this.hidden && this.visibleMessage(event.message) && isAgentReport(event.message)) {
+      if (isGroupWake(event.message)) {
+        // Hidden from the agent's words, but each agent it says finished is a step of its own.
+        this.groupReports(event.message);
+      } else if (!this.hidden && this.visibleMessage(event.message) && isAgentReport(event.message)) {
         this.report(event.message);
       } else if (!this.hidden
         && this.visibleMessage(event.message)) {
@@ -285,6 +319,24 @@ export class JobActivity {
       summary: typeof details.summary === 'string' ? details.summary : '',
     };
     this.tool(`report-${this.message}`, AGENT_REPORT, input.ok ? 'completed' : 'failed', input, message.content);
+  }
+
+  /**
+   * Each agent of a group that finished, as its own report step. A group that wakes once per member lists the ones
+   * before it again: a member's step is keyed by its run, so it is written again in place, never twice.
+   */
+  groupReports(message) {
+    const teamName = message.details?.completionGroup?.teamName;
+    const team = typeof teamName === 'string' && TEAM.test(teamName) ? teamName : undefined;
+    for (const member of groupMembers(message.content)) {
+      if (typeof member.status !== 'string' || UNSETTLED.has(member.status)) continue;
+      const name = typeof member.name === 'string' && member.name ? member.name : 'An agent';
+      const outcome = member.effectiveOutcome ?? member.outcome;
+      const ok = member.status === 'reported' && outcome !== 'failed' && outcome !== 'cancelled';
+      const file = reportFile(member, team);
+      const input = { name, ok, summary: typeof member.summary === 'string' ? member.summary : '', ...(file ? { team, file } : {}) };
+      this.tool(`report-${member.runId ?? member.slotId ?? name}`, AGENT_REPORT, ok ? 'completed' : 'failed', input);
+    }
   }
 
   visibleMessage(message) {

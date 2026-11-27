@@ -31,6 +31,28 @@ test("a report one of the agent's agents sent back is a step of its own: who sen
   )
 })
 
+test("an agent that came back in a group has no report of its own in the step, only where teams keeps it", () => {
+  const member: ActivityEntry = {
+    id: 'tool:report-run-1',
+    kind: 'tool',
+    name: AGENT_REPORT,
+    state: 'completed',
+    input: JSON.stringify({ name: 'logic-lab', ok: true, summary: '24 of 24 told apart', team: 'session-abc', file: 'logic-lab.md' }),
+  }
+  const alone = report('2', 'scout', 'completed', 'Found it', 'Body')
+
+  const [grouped, single] = stepsOf([member, alone])
+
+  assert.ok(grouped?.kind === 'report' && single?.kind === 'report')
+  assert.deepEqual({ from: grouped.from, summary: grouped.summary, text: grouped.text, file: grouped.file }, {
+    from: 'logic-lab',
+    summary: '24 of 24 told apart',
+    text: '',
+    file: { team: 'session-abc', file: 'logic-lab.md' },
+  })
+  assert.equal(single.file, undefined, 'a report that came whole names no file')
+})
+
 test("the agent's line says whose report came in last, not that a tool was used", () => {
   const entries = [report('2', 'scout', 'completed', 'Found it', 'Body')]
 

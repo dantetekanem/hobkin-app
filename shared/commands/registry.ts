@@ -1399,6 +1399,18 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ job: words(256), id: words(512) }, { additionalProperties: false }),
   },
+  'teams.report': {
+    description:
+      "Read the whole report one of a run's pi-extended-teams agents wrote, from the file teams keeps it in (`~/.pi/agent/reports/<session>/<file>`), for a report step whose agent came back in a group. Only a teams session's folder and a report file's name are taken. Read-only.",
+    runs: 'host',
+    args: Type.Object(
+      {
+        team: Type.String({ pattern: '^session-[A-Za-z0-9_-]{1,200}$', maxLength: 208 }),
+        file: Type.String({ pattern: '^[A-Za-z0-9_-]{1,120}\\.md$', maxLength: 123 }),
+      },
+      { additionalProperties: false },
+    ),
+  },
   'agent.list': {
     description:
       "List the agents and routines that work or wait now, as the window's agents list has them: each with its run's id, title, state, model and thinking level, its tier and work item when it has them, and `onClaudeCode` for one whose model only Claude Code's settings change. hobkin's own conversation is not in it, and the durable hobkins are in `hobkin.list`. Read-only.",
@@ -1900,6 +1912,8 @@ export interface CommandResults {
   'activity.before': OlderSteps
   /** Null when the session saved no such tool result. */
   'activity.output': WholeOutput | null
+  /** Null when teams keeps no such report. */
+  'teams.report': { text: string } | null
   /** The run hobkin started. */
   'routine.run': { run: string }
   'routine.templates': RoutineTemplatesList
