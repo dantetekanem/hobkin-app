@@ -6,7 +6,7 @@ const answers: Answers = { replies: {} }
 const withHost: Facts = { pi: null, connected: ['OpenAI Codex'], claude: false, smart: false, asked: null, host: true }
 const noHost: Facts = { ...withHost, host: false }
 
-const noAccount: Answers = { ...answers, account: 'later', goals: ['code'] }
+const noAccount: Answers = { ...answers, goals: ['code'] }
 const noAccountFacts: Facts = { ...withHost, connected: [] }
 
 test('with a host, the usage question comes after the account and the routines and before the review, however the story got there', () => {
