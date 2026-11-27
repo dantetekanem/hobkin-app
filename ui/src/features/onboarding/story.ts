@@ -298,9 +298,10 @@ function piWords(pi: PiSetup | null): string[] {
  * then the packages. It asks nothing, since the press was the answer.
  */
 function installingWords(pi: PiSetup | null): string {
-  const missing = piNeeds(pi)
-  if (pi && (missing === 'pi' || missing === 'version')) return !pi.canInstall && pi.canInstallNode ? 'Installing Node now, then Pi.' : `Installing Pi ${pi.pinned} now.`
-  return 'Adding the packages now.'
+  if (!pi || !piBlocks(pi)) return 'Adding the packages now.'
+
+  const nodeFirst = !pi.canInstall && pi.canInstallNode
+  return nodeFirst ? 'Installing Node now, then Pi.' : `Installing Pi ${pi.pinned} now.`
 }
 
 /** How a question is asked: typed, picked from bubbles, or chosen between two. */
@@ -495,7 +496,11 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
         },
       }
     case 'pi':
-      return { mood: 'surprised', lines: facts.installing ? [installingWords(facts.pi)] : piWords(facts.pi), ask: { kind: 'pi' } }
+      return {
+        mood: 'surprised',
+        lines: facts.installing ? [installingWords(facts.pi)] : piWords(facts.pi),
+        ask: { kind: 'pi' },
+      }
     case 'pi-ready':
       return { mood: 'celebrating', lines: ['Pi is ready!'] }
     case 'pi-later':

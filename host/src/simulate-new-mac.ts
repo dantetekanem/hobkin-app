@@ -283,7 +283,11 @@ export function simulatedNewMac({ root, real = false, delay = aMoment }: Simulat
   const keep = async (change: (now: HostTiers) => HostTiers) => {
     held = change(await tiersNow())
   }
-  const ownOf = ({ tiers }: TiersChange) => Object.fromEntries(Object.entries(tiers ?? {}).flatMap(([id, setting]) => (setting ? [[id, { ...setting, follows: null }]] : [])))
+  // A tier given a model of its own no longer follows the chat or the checks.
+  const ownOf = ({ tiers }: TiersChange) => {
+    const named = Object.entries(tiers ?? {}).flatMap(([id, setting]) => (setting ? [[id, { ...setting, follows: null }] as const] : []))
+    return Object.fromEntries(named)
+  }
   const firstModels = (provider?: string) =>
     setFirstModels(
       {

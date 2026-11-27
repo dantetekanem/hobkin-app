@@ -705,12 +705,14 @@ export function Storyteller() {
     if (ask.field.kind === 'reply') {
       const { question } = ask.field
       // A folder for the projects that is not on this Mac is said in hobkin's bubble, and the field asks again.
-      const isFolder = goalQuestions(answers.goals ?? []).some(({ id, kind }) => id === question && kind === 'folder')
-      if (value && isFolder && hasHost && !(await folderThere(value))) {
+      const asksFolder = goalQuestions(answers.goals ?? []).some(({ id, kind }) => id === question && kind === 'folder')
+      const looksForFolder = value !== '' && asksFolder && hasHost
+      if (looksForFolder && !(await folderThere(value))) {
         const at = useSetup.getState().tale.at
         setMissing((before) => ({ folder: value, at, tries: (before?.tries ?? 0) + 1 }))
         return null
       }
+
       setMissing(null)
       replied(question, value)
       return null

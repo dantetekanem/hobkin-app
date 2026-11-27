@@ -187,12 +187,23 @@ test('while the install runs hobkin says what it is doing, asking nothing, and t
   assert.equal(installing.lines.length, 1, 'one bubble, with the panel still up')
   assert.doesNotMatch(installing.lines[0]!, /\?/, 'while it runs it asks nothing')
   assert.deepEqual(installing.ask, { kind: 'pi' })
+
   // What it says follows what is being installed: hobkin's own Node first, then Pi, then the packages.
-  const withoutNode = { ...bare, pi: pi({ installed: false, version: null, matches: false, canInstall: false, canInstallNode: true, node: { found: false, version: null, installs: '26.1.0' } }), installing: true }
-  const withoutPi = { ...bare, pi: pi({ installed: false, version: null, matches: false }), installing: true }
-  assert.match(beatOf('pi', none, withoutNode).lines[0]!, /Node/)
-  assert.match(beatOf('pi', none, withoutPi).lines[0]!, /Pi 1\.5\.0/)
-  assert.notEqual(beatOf('pi', none, withoutPi).lines[0], installing.lines[0])
+  const nodeMissing = pi({
+    installed: false,
+    version: null,
+    matches: false,
+    canInstall: false,
+    canInstallNode: true,
+    node: { found: false, version: null, installs: '26.1.0' },
+  })
+  const piMissing = pi({ installed: false, version: null, matches: false })
+  const installingNode = beatOf('pi', none, { ...bare, pi: nodeMissing, installing: true }).lines[0]!
+  const installingPi = beatOf('pi', none, { ...bare, pi: piMissing, installing: true }).lines[0]!
+
+  assert.match(installingNode, /Node/)
+  assert.match(installingPi, /Pi 1\.5\.0/)
+  assert.notEqual(installingPi, installing.lines[0])
   assert.equal(beatAfter('pi', { ...none, pi: 'installed' }, bare), 'pi-ready')
 })
 
@@ -644,23 +655,28 @@ test('the folder, the projects and validation are asked only with code, and only
 
 test('a folder left empty passes the projects question, and one that is not on this Mac is said in the bubble with the field to type another', () => {
   const empty: Answers = { ...picked, replies: { 'projects-folder': '  ' } }
+
   assert.equal(beatAfter('q1', empty, hosted), 'cards-code', 'no folder is looked in, not even a usual one')
   assert.equal(tellOn({ at: 'q1', line: 0, trail: ['more'], ended: null }, 'answered', empty, hosted).at, 'cards-code')
   assert.equal(beatAfter('more', { ...picked, replies: {} }, hosted), 'q1', 'the folder itself is always asked')
 
+  const notThere: Facts = { ...hosted, folderMissing: '~/Projects' }
   const asked = beatOf('q1', picked, hosted)
-  const missing = beatOf('q1', picked, { ...hosted, folderMissing: '~/Projects' })
+  const missing = beatOf('q1', picked, notThere)
+
   assert.equal(missing.lines.length, 1, 'one bubble, so the field comes with it')
   assert.match(missing.lines[0]!, /~\/Projects/, 'it names the folder it could not find')
   assert.notDeepEqual(missing.lines, asked.lines)
   assert.deepEqual(missing.ask, asked.ask, 'the same field, to type another or skip')
-  assert.deepEqual(beatOf('q4', { ...picked, goals: ['code', 'project'] }, { ...hosted, folderMissing: '~/Projects' }).lines, beatOf('q4', { ...picked, goals: ['code', 'project'] }, hosted).lines, 'only the folder question says it')
+  const withProject: Answers = { ...picked, goals: ['code', 'project'] }
+  assert.deepEqual(beatOf('q4', withProject, notThere).lines, beatOf('q4', withProject, hosted).lines, 'only the folder question says it')
 })
 
 test('validation is asked only once projects were picked', () => {
-  const none: Answers = { ...picked, replies: { 'projects-folder': '~/Code', projects: '' } }
-  assert.equal(beatAfter('q2', none, hosted), 'cards-code', 'skipped, or none found')
-  assert.equal(beatAfter('q2', none, { ...hosted, host: false }), 'cards-code')
+  const nonePicked: Answers = { ...picked, replies: { 'projects-folder': '~/Code', projects: '' } }
+
+  assert.equal(beatAfter('q2', nonePicked, hosted), 'cards-code', 'skipped, or none found')
+  assert.equal(beatAfter('q2', nonePicked, { ...hosted, host: false }), 'cards-code')
   assert.equal(beatAfter('projects-said', picked, hosted), 'q3', 'picked: asked after what was done with them')
   assert.equal(beatAfter('q2', picked, { ...hosted, host: false }), 'q3')
   assert.deepEqual(walk({ ...picked, goals: ['code', 'project'], replies: {} }, hosted, 'more'), ['more', 'q1', 'q4', 'cards-code', 'cards-project', 'thanks', 'usage', 'needs', 'settings', 'tour'])
