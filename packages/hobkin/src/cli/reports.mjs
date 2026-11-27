@@ -100,8 +100,11 @@ const wentWrong = new Set(['failed', 'incomplete', 'interrupted']);
  * go wrong. It is no report, whoever started the run: nothing keeps, lists, counts or tells it. The window reads a report
  * the same way (`shared/reports/nothing-new.ts`).
  */
-export const saysNothingNew = ({ outcome, body }) => !wentWrong.has(outcome)
-  && nothingNewLine.test(trimmedLines(String(body ?? '').trim()).next().value);
+export const saysNothingNew = ({ outcome, body }) => {
+  if (wentWrong.has(outcome)) return false;
+  const firstLine = trimmedLines(String(body ?? '').trim()).next().value;
+  return nothingNewLine.test(firstLine);
+};
 
 /** A run that found nothing new. Its receipt, log line and counts stay, but no report is kept or shown. */
 export const isQuietRun = run => saysNothingNew({ outcome: run.status, body: run.result?.text });

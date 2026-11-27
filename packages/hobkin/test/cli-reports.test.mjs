@@ -55,7 +55,10 @@ test('a report with no Next line asks for no call, wherever the word appears lat
 });
 
 test('the nothing-new line may put its period inside the bold or after it', () => {
-  for (const text of ['**Nothing new.**', '**Nothing new**.\n\nChecked 14 feeds.']) assert.deepEqual(triaged(text), { level: 'nothing' }, JSON.stringify(text));
+  for (const text of ['**Nothing new.**', '**Nothing new**.\n\nChecked 14 feeds.']) {
+    assert.deepEqual(triaged(text), { level: 'nothing' }, JSON.stringify(text));
+  }
+
   assert.equal(triaged('**Nothing new**..'), null);
 });
 

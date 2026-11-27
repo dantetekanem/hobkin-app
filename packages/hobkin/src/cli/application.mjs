@@ -811,8 +811,8 @@ export class HobkinApplication {
     }
     const handedLines = handedOver.map(entry => inboxNotice(entry, this.now()));
     // A session that found nothing new has nothing to tell Chat. It is still marked posted below, and the main agent still hears it ended.
-    const sessionsSaid = sessionsEnded.filter(session => !saysNothingNew(session));
-    for (const notice of [...sessionsSaid.map(sessionNotice), ...cardActions.map(cardActionNotice), ...handedLines, ...clientLines.map(clientNotice)]) {
+    const sessionsWithNews = sessionsEnded.filter(session => !saysNothingNew(session));
+    for (const notice of [...sessionsWithNews.map(sessionNotice), ...cardActions.map(cardActionNotice), ...handedLines, ...clientLines.map(clientNotice)]) {
       if (noticeIds.has(notice.id)) continue;
       notices.push(notice);
       noticeIds.add(notice.id);
