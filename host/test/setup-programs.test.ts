@@ -10,6 +10,7 @@ import type { PiRun } from '../src/pi/install.ts'
 import type { NodeFetch } from '../src/pi/node.ts'
 import { CLAUDE_INSTALLER, installClaude, installCommandLineTools, installQmd, programSetup, QMD_VERSION } from '../src/setup/programs.ts'
 import { ProgramSignIns, signInPage, type SignInChild, type SignInSpawn } from '../src/setup/sign-in.ts'
+import { afterTest, Client, hostFor } from './support.ts'
 
 interface Ran { file: string; args: string[]; env: NodeJS.ProcessEnv; script?: string }
 
@@ -221,4 +222,30 @@ test('starting a sign-in again stops the one before, and the user who never fini
   assert.equal(end.signedIn, false)
   assert.match(end.message ?? '', /waited 0 minutes for you, so it was stopped/)
   assert.doesNotMatch(end.message ?? '', /WXYZ-1234/, 'the spent code is not repeated')
+})
+
+test("through the host: a scripted host offers no press and refuses every one, and hobkin's own client tool cannot run them", async (t) => {
+  const ran: string[] = []
+  const host = await hostFor(t, { installPrograms: { gh: async () => (ran.push('gh'), { finished: true }) } })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+
+  const commands = [
+    ['setup.install-program', { name: 'gh' }],
+    ['setup.sign-in-program', { name: 'gh' }],
+    ['setup.sign-in-program-code', { name: 'claude', code: 'abc' }],
+    ['setup.sign-in-program-wait', { name: 'gh' }],
+  ] as const
+  for (const [name, args] of commands) {
+    const refused = await client.command(name, args)
+    assert.equal(!refused.ok && refused.error.code, 'unavailable', name)
+    assert.match(!refused.ok ? refused.error.message : '', /scripted development host/, `${name} is the host's own refusal`)
+  }
+  assert.deepEqual(ran, [], 'nothing was installed')
+  // Only the four programs reach the host at all.
+  const unknown = await client.command('setup.install-program', { name: 'brew' } as never)
+  assert.equal(!unknown.ok && unknown.error.code, 'invalid-arguments')
+
+  const { COMMANDS } = await import('#shared/commands/registry.ts')
+  for (const [name] of commands) assert.equal(COMMANDS[name].outside, true, name)
 })

@@ -82,6 +82,9 @@ import { ReminderReader, reminderHandlers } from './reminders.ts'
 import { findTools, proofHandlers, ProofsKeeper } from './proofs.ts'
 import { proofToolsHandlers } from './setup-proof.ts'
 import { setupNeedsHandlers } from './setup-needs.ts'
+import { ghBuild } from './setup/gh.ts'
+import { programSetup, type ProgramInstallers } from './setup/programs.ts'
+import type { ProgramSignIns } from './setup/sign-in.ts'
 import { workHandlers } from './work.ts'
 import { workQueueHandlers } from './work-queue.ts'
 import { guideHandlers } from './work-guide.ts'
@@ -139,6 +142,13 @@ export interface HostOptions {
    * only the entry passes the real one (`setupProofTools`), for a live host, and a host without it sets up nothing.
    */
   installProofTools?: (home: string) => Promise<unknown>
+  /**
+   * Install git, gh, Claude Code and qmd from the setup's review (025-onboarding). They change the Mac, so only the
+   * entry passes them, for a live host, and a host without one offers the line to copy instead.
+   */
+  installPrograms?: ProgramInstallers
+  /** Run gh's and Claude Code's own sign-ins from the setup's review. Only the entry passes them, for a live host. */
+  programSignIns?: ProgramSignIns
   /**
    * gh for Change Review: it reads pull requests, and a live host posts a verdict the user confirmed. Without it a
    * pull request reads as the sample change and nothing is posted. The entry passes it for --live and --github.
@@ -322,6 +332,13 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   // The schedules agents keep for themselves (056-agent-schedules), read without trust on their way to the window.
   const agentSchedules = new AgentScheduleReader()
   const lookUpClaude = options.claudeStatus ?? (() => claudeStatus({ find: findClaude }))
+  // What the setup's review installs and signs in on a press. GitHub builds gh for a Mac's chips, and Apple's installer is a Mac's.
+  const programs = programSetup({
+    live,
+    installers: options.installPrograms ?? {},
+    installable: (name) => (name === 'gh' ? ghBuild() !== null : name !== 'git' || process.platform === 'darwin'),
+    signIns: options.programSignIns,
+  })
   const owner = new HomeOwner({
     root,
     live,
@@ -712,7 +729,9 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       proofTools: () => findTools(owner.app?.runtime.directory ?? resolveDataRoot(root)),
       claude: async () => ({ settings: claudeCode.read(), status: await lookUpClaude() }),
       ownNode: nodeBin(root),
+      presses: programs.offers,
     }),
+    ...programs.handlers,
     // A work computer's launcher, asked for and kept in the config (025-onboarding), then the main conversation starts behind it.
     'setup.launcher': async ({ command }) => {
       if (!live) throw new Unavailable('This is the scripted development host, so no launcher is kept. Start the host with --live to use one.')
@@ -991,6 +1010,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       closing ??= (async () => {
         questions.close()
         signIn.cancel()
+        options.programSignIns?.close()
         loadedIntegrations.close()
         mergedPulls?.close()
         backups.close()
