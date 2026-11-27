@@ -695,6 +695,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
           },
           tiers: () => owner.tiers(),
           selectModel: (model, effort) => owner.selectModel(model, effort),
+          selectChecks: (model, effort) => owner.selectChecks(model, effort),
           applyTiers: (change) => owner.applyTiers(change),
         })
       } catch (error) {
