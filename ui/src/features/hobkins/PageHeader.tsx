@@ -49,6 +49,12 @@ export function PartFrame({ children }: { children: ReactNode }) {
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
+/**
+ * The name's box. A durable hobkin's name is a button whose padding shows on hover, and a run's name, which cannot be
+ * renamed, sits in the same box: the two pages' names, the line under them and the rows below stand at the same pixels.
+ */
+const NAME_BOX = 'truncate rounded-lg px-2 py-0.5 -mx-2 text-left'
+
 interface PageHeaderProps {
   /** The agent, by the window's id for it: End and Control+X go by it. */
   agentId: string
@@ -169,15 +175,12 @@ export function PageHeader({ agentId, split, face, title, rename, line, lineTitl
                   onClick={() => beginRename(shownTitle)}
                   // In the split, where the page has the chat's width, a long name is cut only at the end of its room:
                   // the padding its hover shows passes the edge instead of taking room from the name.
-                  className={cn(
-                    'truncate rounded-lg px-2 py-0.5 -mx-2 text-left transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2',
-                    split ? 'max-w-[calc(100%+1rem)]' : 'max-w-full',
-                  )}
+                  className={cn(NAME_BOX, 'transition-colors duration-[160ms] ease-[ease] hover:bg-surface-2', split ? 'max-w-[calc(100%+1rem)]' : 'max-w-full')}
                 >
                   {shownTitle}
                 </button>
               ) : (
-                shownTitle
+                <span className={cn(NAME_BOX, 'block max-w-full')}>{shownTitle}</span>
               )}
             </h2>
           )}
