@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { sampleGitHub, type GitHubPull } from '../protocol.ts'
+import { learnCodeHosts } from '#shared/review/ids.ts'
 import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
 import { aiOf, pullReviewId, pullSections, startAiReview } from '../window/pull-reviews.ts'
 import { rowsOf } from '../../../ui/src/features/work/ai-reviews.ts'
@@ -76,6 +77,23 @@ test('review requested, your pull requests, and the others reviewed by AI, each 
   assert.deepEqual([cached!.title, cached!.repo, cached!.number, cached!.pull], ['Cache the session lookups', 'acme/web', 9, null])
   assert.deepEqual(cached!.size, { added: 64, removed: 12, files: 3 }, 'what the review read: lines added and removed, and files')
   assert.equal(sections.requested[1]!.size, null, 'a pull request that neither GitHub nor a review has counted has no size')
+})
+
+test('a pull request on another code host is never on the GitHub page, though its review is in the list: only github.com ones are', (t) => {
+  learnCodeHosts([{ name: 'delta', web: 'https://delta.example.invalid' }])
+  t.after(() => learnCodeHosts([]))
+  const rows = rowsOf({
+    reviews: [
+      review('pr:delta:acme/web/7', { updatedAt: ago(1) }),
+      review('change:web:a1', { kind: 'change', project: 'web', pr: 'https://delta.example.invalid/acme/web/pull/8', updatedAt: ago(2) }),
+      review('pr:acme/web/9', { updatedAt: ago(3) }),
+    ],
+  })
+
+  const sections = pullSections({ reviews: [pull('acme/web', 7)], pulls: [] }, rows, { most: Number.POSITIVE_INFINITY })
+
+  assert.deepEqual(sections.reviewed.map(({ id }) => id), ['pr:acme/web/9'], "the other host's pull request is not among the others reviewed")
+  assert.deepEqual(sections.requested.map(({ id, ai }) => [id, ai.state]), [['pr:acme/web/7', 'none']], "the github.com pull request of the same number does not take the other host's review")
 })
 
 test("a pull request GitHub lists shows GitHub's own count of its lines and files, newer than what its review read", () => {

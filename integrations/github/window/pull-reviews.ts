@@ -105,10 +105,19 @@ function reviewsOfPulls(rows: readonly ReviewRow[]): (id: string) => ReviewRow |
   }
 }
 
-/** The page's three lists. `rows` are every review that ran, newest first, as `rowsOf` gives them. */
+/** A review of a pull request on github.com. One on a code host the home names, such as GitLab or the user's own, is not GitHub's. */
+function onGitHub({ item }: ReviewRow): boolean {
+  const target = item.kind === 'pull' ? targetOfReviewId(item.id) : null
+  return target?.kind === 'pull' && !target.host
+}
+
+/**
+ * The page's three lists. `rows` are every review that ran, newest first, as `rowsOf` gives them. The others reviewed are
+ * only github.com's: a pull request on another code host opens as a review from Work, never from here.
+ */
 export function pullSections(lists: Pick<GitHubLists, 'reviews' | 'pulls'>, rows: readonly ReviewRow[], { most = RECENT_MOST, reviewError = null }: { most?: number; reviewError?: string | null } = {}): PullSections {
   const unavailable = reviewError !== null
-  const pulls = unavailable ? [] : rows.filter(({ item }) => item.kind === 'pull')
+  const pulls = unavailable ? [] : rows.filter(onGitHub)
   const reviewOf = reviewsOfPulls(unavailable ? [] : rows)
   const listed = new Set<string>()
 
