@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { homedir } from 'node:os'
 import { delimiter, dirname } from 'node:path'
 import { askWith, ghState, gitState, type Ask, type Asked } from 'hobkin/src/cli/setup.mjs'
 import type { ClaudeCodeSettings, ClaudeCodeStatus } from '#shared/protocol/claude-code.ts'
@@ -46,6 +47,10 @@ export interface SetupNeedsOptions {
   platform?: NodeJS.Platform
   /** The longest a reader handed in may take. */
   timeoutMs?: number
+  /** The `bin` folder of hobkin's own Node, whose npm Terminal does not find. */
+  ownNode?: string
+  /** The user's home, which a line to copy names as `~`. */
+  userHome?: string
 }
 
 /** gh and agentic-search are looked for where Change Review looks; the rest on the PATH, where the host runs them. */
@@ -127,30 +132,73 @@ const command = (line: string): SetupFix => ({ kind: 'command', command: line })
 const versionOf = (asked: Asked) => asked.text?.match(VERSION)?.[0] ?? null
 const atLeast = (version: string, least: string) => version.localeCompare(least, 'en', { numeric: true }) >= 0
 
-const INSTALL_NODE = command('brew install node')
+/** What a line to copy can count on in Terminal: Homebrew, and the words that start npm. */
+interface Lines {
+  homebrew: boolean
+  /** `npm`, hobkin's own npm with its folder first on the PATH, or null when this Mac has no npm. */
+  npm: string | null
+}
+
+/** A path as a line names it: `~` for the home, so no line holds the user's folder name, and quoted where it must be. */
+function pathForLine(path: string, home: string): string {
+  const inHome = path.startsWith(`${home}/`)
+  const rest = inHome ? path.slice(home.length + 1) : path
+  const quoted = /^[\w./-]+$/.test(rest) ? rest : `'${rest.replaceAll("'", "'\\''")}'`
+  return inHome ? `~/${quoted}` : quoted
+}
+
+/**
+ * The host's PATH is the login shell's, so Terminal finds what it finds, but for hobkin's own Node. Its npm, and the
+ * install scripts npm runs, start `node` from the PATH, so the line puts that Node's folder first.
+ */
+function linesOn(find: (name: string) => string | null, ownNode: string | undefined, home: string): Lines {
+  const npm = find('npm')
+  let npmLine: string | null = null
+  if (npm && ownNode && dirname(npm) === ownNode) npmLine = `PATH=${pathForLine(ownNode, home)}:"$PATH" npm`
+  else if (npm) npmLine = 'npm'
+  return { homebrew: find('brew') !== null, npm: npmLine }
+}
+
+/** Without Homebrew, the official installers, which need nothing else. */
+const nodeByHand = ({ homebrew }: Lines) => command(homebrew ? 'brew install node' : 'https://nodejs.org/en/download')
+const ghByHand = ({ homebrew }: Lines) => command(homebrew ? 'brew install gh' : 'https://cli.github.com')
+
+/** The setup's own install that brings Pi: Pi itself with npm, or first a Node of hobkin's own. Null when neither can run. */
+function piInstall(pi: PiSetup | null): SetupFix | null {
+  if (pi?.canInstall) return { kind: 'install', what: 'pi' }
+  if (pi?.canInstallNode) return { kind: 'install', what: 'node' }
+  return null
+}
+
+/** A program npm installs: by the npm Terminal finds, or hobkin's own by its path, or once there is an npm. */
+function npmInstall(pi: PiSetup | null, lines: Lines, name: string): SetupFix {
+  if (lines.npm) return command(`${lines.npm} install -g ${name}`)
+  if (pi?.canInstallNode) return { kind: 'install', what: 'node' }
+  return command(`npm install -g ${name}`)
+}
+
 const INSTALL_GIT = command('xcode-select --install')
 const SIGN_IN_FIX: SetupFix = { kind: 'sign-in' }
 const INSTALL_PROOF_TOOLS: SetupFix = { kind: 'install', what: 'proof-tools' }
 
-function nodeNeed(pi: PiSetup | null): SetupNeed {
+function nodeNeed(pi: PiSetup | null, lines: Lines): SetupNeed {
   const node = pi?.node
   if (!pi || !node) return missing(NODE, NO_ANSWER, command('node --version'))
 
   // hobkin's own Node comes with npm, so it stands in for a Node or an npm that is missing. It does not replace an old one.
-  const ownNode: SetupFix = pi.canInstallNode ? { kind: 'install', what: 'node' } : INSTALL_NODE
+  const ownNode: SetupFix = pi.canInstallNode ? { kind: 'install', what: 'node' } : nodeByHand(lines)
   const tooOld = !node.version || !atLeast(node.version, PI_NODE)
 
   if (!node.found) return missing(NODE, 'Not found', ownNode)
-  if (tooOld) return missing(NODE, `Needs ${PI_NODE} or newer`, INSTALL_NODE, node.version)
+  if (tooOld) return missing(NODE, `Needs ${PI_NODE} or newer`, nodeByHand(lines), node.version)
   if (!pi.canInstall) return missing(NODE, 'No npm beside it', ownNode, node.version)
   return found(NODE, node.version)
 }
 
-/** Under a launcher, Pi is what it starts, so only the launcher can change it. Otherwise npm installs it, or the user does. */
+/** Under a launcher, Pi is what it starts, so only the launcher can change it. Otherwise the setup installs it, or the user does. */
 function piFix(pi: PiSetup): SetupFix {
   if (pi.launcher) return command(`${pi.launcher} --version`)
-  if (pi.canInstall) return { kind: 'install', what: 'pi' }
-  return command(pi.installCommand)
+  return piInstall(pi) ?? command(pi.installCommand)
 }
 
 function piNeed(pi: PiSetup | null): SetupNeed {
@@ -164,9 +212,11 @@ function piNeed(pi: PiSetup | null): SetupNeed {
   return found(need, pi.version)
 }
 
-/** Pi installs one of its packages once Pi is here, and until then the user has its line. */
+/** Pi installs one of its packages once Pi is here. Until then the setup brings Pi, or the user has the package's line. */
 function packageFix(pi: PiSetup | null, name: string): SetupFix {
   if (pi?.installed) return { kind: 'install-package', name }
+  const bringPi = piInstall(pi)
+  if (bringPi) return bringPi
 
   const source = PI_PACKAGES.find((known) => known.name === name)?.source ?? name
   return command(`pi install ${source}`)
@@ -195,11 +245,11 @@ async function gitNeed(ask: Ask, which: (name: string) => string | null, platfor
   return missing(GIT, git.why === 'absent' ? 'Not installed' : 'Did not run', INSTALL_GIT)
 }
 
-async function ghNeed(ask: Ask): Promise<SetupNeed> {
+async function ghNeed(ask: Ask, lines: Lines): Promise<SetupNeed> {
   const [gh, versionSaid] = await Promise.all([ghState(ask), ask('gh', ['--version'])])
   const version = versionOf(versionSaid)
 
-  if (!gh.installed) return missing(GH, 'Not installed', command('brew install gh'))
+  if (!gh.installed) return missing(GH, 'Not installed', ghByHand(lines))
   if (!gh.signedIn) return missing(GH, 'Not signed in, or GitHub did not answer', command('gh auth login'), version)
   return found(GH, version)
 }
@@ -229,21 +279,30 @@ function claudeNeeds(claude: ClaudeCodeFound | null): SetupNeed[] {
 }
 
 /** Everything hobkin needs, read at once, in the order the review shows it. */
-export async function readSetupNeeds({ find = findDefault, exec = execDefault, platform = process.platform, timeoutMs = READER_MS, ...read }: SetupNeedsOptions): Promise<SetupNeeds> {
+export async function readSetupNeeds({
+  find = findDefault,
+  exec = execDefault,
+  platform = process.platform,
+  timeoutMs = READER_MS,
+  ownNode,
+  userHome = homedir(),
+  ...read
+}: SetupNeedsOptions): Promise<SetupNeeds> {
   const ask = askFor(find, exec)
+  const lines = linesOn(find, ownNode, userHome)
   const [pi, models, tools, claude, git, gh, search, qmd] = await Promise.all([
     settled(read.pi, timeoutMs),
     settled(read.models, timeoutMs),
     settled(read.proofTools, timeoutMs),
     settled(read.claude, timeoutMs),
     gitNeed(ask, find, platform),
-    ghNeed(ask),
+    ghNeed(ask, lines),
     ask(SEARCH.id, ['--version']),
     ask(QMD.id, ['--version']),
   ])
 
   const needs = [
-    nodeNeed(pi),
+    nodeNeed(pi, lines),
     piNeed(pi),
     signInNeed(models),
     git,
@@ -253,7 +312,7 @@ export async function readSetupNeeds({ find = findDefault, exec = execDefault, p
     // Pi keeps the program in its own folder with its package, where Change Review looks for it.
     programNeed(SEARCH, search, packageFix(pi, 'pi-agentic-search')),
     ...claudeNeeds(claude),
-    programNeed(QMD, qmd, command('npm install -g @tobilu/qmd')),
+    programNeed(QMD, qmd, npmInstall(pi, lines, '@tobilu/qmd')),
   ]
   return { needs }
 }

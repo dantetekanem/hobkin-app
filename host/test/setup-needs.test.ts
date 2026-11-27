@@ -26,6 +26,9 @@ const PROGRAMS: Record<string, string> = {
   'agentic-search': '/Users/someone/Library/pnpm/bin/agentic-search',
   qmd: '/opt/homebrew/bin/qmd',
   'xcode-select': '/usr/bin/xcode-select',
+  // Only looked for, never run.
+  brew: '/opt/homebrew/bin/brew',
+  npm: '/opt/homebrew/bin/npm',
 }
 
 /** What each program prints on a ready Mac, by the line that runs it. */
@@ -150,20 +153,24 @@ test("what is missing offers the setup's own install where it has one, and other
     models: async () => ({ providers: [{ id: 'openai-codex', name: 'OpenAI Codex', connected: false }] }),
     proofTools: () => ({ java: null, tlc: null, tlaps: null }),
     claude: async () => ({ settings: { enabled: true }, status: claudeStatus({ signedIn: false }) }),
-    programs: { 'agentic-search': null, qmd: null },
+    programs: { 'agentic-search': null, qmd: null, npm: null },
   })
 
   const gaps = Object.values(needs).filter((need) => !['git', 'gh'].includes(need.id))
   assert.ok(gaps.every((need) => !need.found && need.problem && need.fix))
   assert.deepEqual(needs.node!.fix, { kind: 'install', what: 'node' })
-  // No npm yet: Pi's line to run once Node is here, and the package through Pi once Pi is.
-  assert.deepEqual(needs.pi!.fix, { kind: 'command', command: 'npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.5.0' })
-  assert.deepEqual(needs['package:pi-coder']!.fix, { kind: 'command', command: 'pi install npm:pi-coder' })
+  // No npm yet: whatever needs npm or Pi starts with the Node hobkin installs for itself, since no line could run.
+  for (const id of ['pi', 'package:pi-coder', 'agentic-search', 'qmd']) assert.deepEqual(needs[id]!.fix, { kind: 'install', what: 'node' }, id)
   assert.deepEqual(needs['sign-in']!.fix, { kind: 'sign-in' })
   assert.deepEqual(needs.tla!.fix, { kind: 'install', what: 'proof-tools' })
-  assert.deepEqual(needs['agentic-search']!.fix, { kind: 'command', command: 'pi install npm:pi-agentic-search' })
   assert.deepEqual(needs.claude!.fix, { kind: 'command', command: 'claude auth login' })
-  assert.deepEqual(needs.qmd!.fix, { kind: 'command', command: 'npm install -g @tobilu/qmd' })
+
+  // Where hobkin can install no Node, the lines to run once Node is installed by hand.
+  const byHand = (await review({ pi: async () => ({ ...bareMac, canInstallNode: false }), programs: { 'agentic-search': null, qmd: null, npm: null } })).needs
+  assert.deepEqual(byHand.pi!.fix, { kind: 'command', command: 'npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.5.0' })
+  assert.deepEqual(byHand['package:pi-coder']!.fix, { kind: 'command', command: 'pi install npm:pi-coder' })
+  assert.deepEqual(byHand['agentic-search']!.fix, { kind: 'command', command: 'pi install npm:pi-agentic-search' })
+  assert.deepEqual(byHand.qmd!.fix, { kind: 'command', command: 'npm install -g @tobilu/qmd' })
 
   // With npm the window installs Pi, and with Pi the package.
   const oldPi = pi({ version: '0.9.0', matches: false, packages: [{ name: 'pi-coder', adds: '', installed: false }] })
@@ -173,6 +180,28 @@ test("what is missing offers the setup's own install where it has one, and other
   assert.deepEqual(installs['package:pi-coder']!.fix, { kind: 'install-package', name: 'pi-coder' })
   // The program comes with Pi's package, in Pi's own folder, where Change Review looks for it.
   assert.deepEqual(installs['agentic-search']!.fix, { kind: 'install-package', name: 'pi-agentic-search' })
+})
+
+test("the lines to copy need no Homebrew the Mac lacks, and name hobkin's own npm by its path", async () => {
+  const ownNode = '/Users/someone/.hobkin/client/node/bin'
+  const oldNode = pi({ node: { found: true, version: '22.9.0', installs: '22.19.0' } })
+
+  // A Mac without Homebrew, whose only npm is the one in hobkin's own Node.
+  const bare = (await review({ pi: async () => oldNode, ownNode, userHome: '/Users/someone', programs: { brew: null, gh: null, qmd: null, npm: `${ownNode}/npm` } })).needs
+  assert.deepEqual(bare.gh!.fix, { kind: 'command', command: 'https://cli.github.com' })
+  assert.deepEqual(bare.node!.fix, { kind: 'command', command: 'https://nodejs.org/en/download' })
+  // npm and the install scripts it runs start `node` from the PATH, and Terminal's has none, so hobkin's comes first.
+  assert.deepEqual(bare.qmd!.fix, { kind: 'command', command: 'PATH=~/.hobkin/client/node/bin:"$PATH" npm install -g @tobilu/qmd' })
+  assert.doesNotMatch(JSON.stringify(Object.values(bare)), /someone/, "never the user's home folder by name")
+  const spaced = '/Users/someone/My Homes/hobkin/client/node/bin'
+  const quoted = (await review({ ownNode: spaced, userHome: '/Users/someone', programs: { qmd: null, npm: `${spaced}/npm` } })).needs
+  assert.deepEqual(quoted.qmd!.fix, { kind: 'command', command: `PATH=~/'My Homes/hobkin/client/node/bin':"$PATH" npm install -g @tobilu/qmd` })
+
+  // With Homebrew, and an npm Terminal finds.
+  const brewed = (await review({ pi: async () => oldNode, ownNode, programs: { gh: null, qmd: null } })).needs
+  assert.deepEqual(brewed.gh!.fix, { kind: 'command', command: 'brew install gh' })
+  assert.deepEqual(brewed.node!.fix, { kind: 'command', command: 'brew install node' })
+  assert.deepEqual(brewed.qmd!.fix, { kind: 'command', command: 'npm install -g @tobilu/qmd' })
 })
 
 test('Node older than Pi needs, and Claude Code only while its agents are on', async () => {

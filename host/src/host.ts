@@ -709,6 +709,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       models: async () => handlers['models.list']!({}),
       proofTools: () => findTools(owner.app?.runtime.directory ?? resolveDataRoot(root)),
       claude: async () => ({ settings: claudeCode.read(), status: await lookUpClaude() }),
+      ownNode: nodeBin(root),
     }),
     // A work computer's launcher, asked for and kept in the config (025-onboarding), then the main conversation starts behind it.
     'setup.launcher': async ({ command }) => {
