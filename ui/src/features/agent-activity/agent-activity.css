@@ -67,6 +67,39 @@
 }
 
 /*
+ * The "…" after what a running agent is doing: three dots that light one after another, so the row shows it is working
+ * (SubagentActivity.tsx). Only their opacity moves. Held still, they stand lit.
+ */
+.aa-dots > span {
+  opacity: 0.25;
+  animation: aa-dot 1.2s ease-in-out infinite;
+}
+.aa-dots > span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.aa-dots > span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes aa-dot {
+  30% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 0.25;
+  }
+}
+:root[data-motion='still'] .aa-dots > span {
+  opacity: 1;
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion='lively']) .aa-dots > span {
+    opacity: 1;
+    animation: none;
+  }
+}
+
+/*
  * A line under an agent's header: its tasks, its helpers, its schedules (glow.ts says when each is live). Its border is
  * a faint, still ring in the line's own color (`--aa-glow`). While something on the line is live, a brighter ring with
  * a soft light inside it breathes the way the line's dots do, on the same keyframes and rhythm as `aa-running`, and

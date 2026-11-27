@@ -4,6 +4,8 @@ import type { RunChild } from '#shared/protocol/snapshot.ts'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { DialogTitle } from '@/components/ui/dialog.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
+// The moving dots after what a running agent is doing (`aa-dots`).
+import '@/features/agent-activity/agent-activity.css'
 import { useNow } from '@/features/chat/use-now.ts'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { ChildHood } from '@/features/work/ChildAgents.tsx'
@@ -163,10 +165,33 @@ function AgentFace({ agent, hue }: { agent: ActivityAgent; hue: number }) {
   return <ChildHood child={agent.helper} hue={agentHue(hue, agent)} size={16} />
 }
 
-/** Its own words read plainly; what it was asked, its tool or its standing read quieter, and a failure in red. */
+/**
+ * Its own words read a little softer than the page's text (the user, 2026-11-27: "a bit darker"); what it was asked, its
+ * tool or its standing read quieter, and a failure in red.
+ */
 function doingTone(line: ActivityLine): string {
   if (line.tone === 'bad') return 'text-bad-fg'
-  return line.ownWords ? 'text-foreground' : 'text-muted-foreground'
+  return line.ownWords ? 'text-foreground/80' : 'text-muted-foreground'
+}
+
+/**
+ * What it is doing. While it runs, three dots that light in turn end it (the user: "have an … animated at the end, so we
+ * see movement"). They stand where words cut short would end with "…", so a running row's words are cut plain.
+ */
+function Doing({ line }: { line: ActivityLine }) {
+  const running = line.tone === 'live'
+  return (
+    <span className={cn('col-start-3 flex min-w-0 items-baseline pr-1.5 pl-2.5', doingTone(line))}>
+      <span className={cn('min-w-0 truncate', running && '[text-overflow:clip]')}>{line.doing}</span>
+      {running ? (
+        <span aria-hidden="true" className="aa-dots shrink-0">
+          <span>.</span>
+          <span>.</span>
+          <span>.</span>
+        </span>
+      ) : null}
+    </span>
+  )
 }
 
 interface RowProps {
@@ -199,7 +224,7 @@ function AgentRow({ agent, line, hue, current = false, rowRef, onSelect }: RowPr
       <span className="col-start-2 max-w-[11.25rem] truncate pl-2.5 font-medium" style={tint(agentHue(hue, agent))}>
         {line.name}
       </span>
-      <span className={cn('col-start-3 min-w-0 truncate pr-1.5 pl-2.5', doingTone(line))}>{line.doing}</span>
+      <Doing line={line} />
       <Chips line={line} />
     </button>
   )

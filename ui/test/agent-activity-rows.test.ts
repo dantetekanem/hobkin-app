@@ -59,6 +59,17 @@ test("a running teams agent reads as pi-extended-teams' activity row: model and 
   })
 })
 
+test("a running agent's own words lose their trailing dots, since the row draws its own moving ones", () => {
+  const dotted = (progress: string) => teamsRow(teams('scout', 'running', { progress })).doing
+
+  assert.equal(dotted('Writing the report...'), 'Writing the report')
+  assert.equal(dotted('Writing the report…'), 'Writing the report')
+  assert.equal(dotted('Checked 3.5 files.'), 'Checked 3.5 files')
+  assert.equal(dotted('...'), '...', 'words that are only dots stay as they are')
+  // An agent no longer running keeps its words whole.
+  assert.equal(teamsRow(teams('scout', 'done', { endedAt: NOW, summary: 'Found it...' })).doing, 'done · Found it...')
+})
+
 test('a running teams agent without its own words says what it was asked, else its tool or phase, else that it runs', () => {
   // A model the window does not know gives no share of its context.
   const quiet = teams('quiet', 'running', { model: 'anthropic/claude-x', tokens: 900, phase: 'grep', task: 'Find one silly fact\nabout wombats' })

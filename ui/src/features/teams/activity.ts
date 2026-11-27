@@ -112,9 +112,15 @@ function spanText(startedAt: number | undefined, endedAt: number | undefined, ou
   return startedAt !== undefined && end !== undefined ? elapsedText(end - startedAt) : ''
 }
 
+/**
+ * Its own words without the dots they end with: a running row draws dots of its own that move. Words that are only dots
+ * stay as they are.
+ */
+const undotted = (words: string): string => words.replace(/[.…\s]+$/u, '') || words
+
 /** What a teams agent is doing, or how it stands, in a few words. Running and silent, what it was asked says more than its phase. */
 function teamsDoing(agent: ShownTeamsAgent): string {
-  if (agent.state === 'running') return agent.progress ?? (firstAsked(agent.task) || agent.phase) ?? 'running'
+  if (agent.state === 'running') return agent.progress !== undefined ? undotted(agent.progress) : ((firstAsked(agent.task) || agent.phase) ?? 'running')
   if (agent.state === 'unknown') return 'unknown · no report came'
   if ((agent.state === 'failed' || agent.state === 'done') && agent.summary) return `${agent.state} · ${agent.summary}`
   return agent.state
