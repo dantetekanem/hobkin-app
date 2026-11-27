@@ -27,6 +27,11 @@ const MARGIN_VIEWS = 1
 const MOST_EACH_WAY = 12
 /** The view's height before the list has read its own or kept one. */
 const FIRST_HEIGHT = 800
+/**
+ * Where TanStack takes a list that follows its newest row to be: past any end, so its range is the end's and its own
+ * write when it takes the scroller lands on the end the rows have once drawn, whatever their guessed heights said.
+ */
+const PAST_THE_END = 1e7
 
 export interface WindowedOptions<Row> {
   /** Whose rows these are: where the list was left and how tall its rows were are kept by it. */
@@ -83,11 +88,11 @@ function startOf(name: string, indexOf: (key: string) => number): { opening: Ope
   return { opening: openingOf(kept?.place, indexOf), seeded: seededSizes(kept, keptRect()) }
 }
 
-/** Where a list opens, in pixels: the row it was left reading and as far into it as it was, or its end in a view `height` tall. */
-function openingTop(rows: Rows, opening: Opening, height: number): number {
+/** Where a list opens, in pixels: the row it was left reading and as far into it as it was, or past its end, following it. */
+function openingTop(rows: Rows, opening: Opening): number {
   const row = opening.pinned ? undefined : rows.measurementsCache[opening.index]
   if (row && !opening.pinned) return row.start + opening.offset
-  return Math.max(0, rows.getTotalSize() - height)
+  return PAST_THE_END
 }
 
 /**
@@ -98,7 +103,10 @@ function openingTop(rows: Rows, opening: Opening, height: number): number {
 function shownAgain(rows: Rows | null, place: Place | undefined, indexes: ReadonlyMap<string, number>): FollowStart {
   const index = place && !place.pinned ? indexes.get(place.key) : undefined
   const row = index === undefined ? undefined : rows?.measurementsCache[index]
-  if (!rows || !row || !place || place.pinned) return { following: true, top: 0 }
+  if (!rows || !row || !place || place.pinned) {
+    if (rows) rows.scrollOffset = PAST_THE_END
+    return { following: true, top: 0 }
+  }
 
   const top = row.start + place.offset
   rows.scrollOffset = top
@@ -296,8 +304,11 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
     if (firstShow) return { following: opening.pinned, top: openTop.current }
     return shownAgain(self.current, keptList(name)?.place, indexesNow.current)
   }
-  const scroll = useFollow({ start: startFrom })
-  const following = useCurrent(scroll.pinned)
+  // TanStack's own writes and the drawing of rows in and out can leave the view off the end with nothing changing size:
+  // while it follows, follow.ts takes it back (`holdsEnd`).
+  const scroll = useFollow({ start: startFrom, holdsEnd: true })
+  const followsNow = scroll.following
+  const following = useMemo(() => ({ get current() { return followsNow() } }), [followsNow])
 
   // The rows kept drawn wherever the view is.
   const { opened, focused } = useHeldRows(scroll.content, keysNow)
@@ -345,15 +356,14 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
     paddingEnd: spacing.bottom,
     // The margin is in pixels, from the view's height (rangeExtractor).
     overscan: 0,
-    // TanStack keeps the row the user reads in place when rows come or go above it. It never follows the end itself.
-    anchorTo: 'end',
+    // TanStack keeps the row the user reads in place when rows come or go above it. It never follows the end itself, and
+    // while the list follows, it keeps nothing: rows let go of above would have it write the view off the end.
+    anchorTo: following.current ? 'start' : 'end',
     scrollEndThreshold: -1,
     initialRect: box ?? { width: 0, height: globalThis.innerHeight ?? FIRST_HEIGHT },
-    // Where it opens, worked out from the rows' kept or guessed heights the first time the list asks.
+    // Where it opens, the first time the list asks: at the row it was left reading, or past the end, following.
     initialOffset: () => {
-      const rows = self.current!
-      const height = rows.scrollRect?.height ?? box?.height ?? globalThis.innerHeight ?? FIRST_HEIGHT
-      openTop.current = openingTop(rows, opening, height)
+      openTop.current = openingTop(self.current!, opening)
       return openTop.current
     },
     // The heights kept from the last time, given only once: TanStack takes them again whenever it has no rows.

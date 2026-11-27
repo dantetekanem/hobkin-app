@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { followEnd, UNFOLD, type FollowControl, type FollowStart } from '../src/features/agent-activity/follow.ts'
+import { followEnd, UNFOLD, type FollowControl, type FollowOptions, type FollowStart } from '../src/features/agent-activity/follow.ts'
 import { tellUnfold } from '../src/features/agent-activity/unfold.ts'
 
 /** A ResizeObserver that calls back only for what it watches, when the test says a box changed size. */
@@ -22,7 +22,7 @@ class Sizes {
 const resized = (target: object) => Sizes.all.forEach((sizes) => sizes.watched.has(target) && sizes.callback())
 
 /** A transcript: the element that scrolls, the list of steps inside it, and how far down it is. Its scrolls are recorded with how they were asked for. */
-function transcript(height: number, client: number, start?: FollowStart) {
+function transcript(height: number, client: number, start?: FollowStart, options: Pick<FollowOptions, 'holdsEnd'> = {}) {
   const asked: string[] = []
   const box = Object.assign(new EventTarget(), {
     scrollTop: 0,
@@ -46,6 +46,7 @@ function transcript(height: number, client: number, start?: FollowStart) {
     Observer: Sizes,
     onPinned: (pinned) => pins.push(pinned),
     ...(start ? { start } : {}),
+    ...options,
   })
   const end = () => box.scrollHeight - box.clientHeight
   return { box, list, follow, pins, end, asked }
@@ -190,5 +191,34 @@ test('a start that follows opens at the newest step, as a transcript with no sta
   box.scrollHeight = 3200
   resized(list)
   assert.equal(box.scrollTop, end())
+  follow.dispose()
+})
+
+test('a windowed transcript that its own drawing moves off the end while it follows goes back to the end at once', () => {
+  const { box, follow, end } = transcript(3000, 600, undefined, { holdsEnd: true })
+  // WebKit leaves the view here as rows are drawn in and out around it, and nothing changes size to tell of it.
+  box.scrollTop = 900
+  follow.onScroll()
+  assert.equal(box.scrollTop, end())
+  assert.equal(follow.following, true)
+
+  // The user's own scroll up still reads up.
+  box.dispatchEvent(Object.assign(new Event('wheel'), { deltaY: -120 }))
+  box.scrollTop = 900
+  follow.onScroll()
+  assert.equal(box.scrollTop, 900)
+  assert.equal(follow.following, false)
+  follow.dispose()
+})
+
+test('a step the keyboard moved onto stays in view while the windowed transcript follows, as it does drawn whole', () => {
+  const { box, list, follow } = transcript(3000, 600, undefined, { holdsEnd: true })
+  const step = { closest: (selector: string) => (selector === '[data-step]' ? step : null) }
+  Object.assign(list, { ownerDocument: { activeElement: step }, contains: (node: unknown) => node === step })
+  // The newest step, taken from the talk box, is brought into view.
+  box.scrollTop = 2100
+  follow.onScroll()
+  assert.equal(box.scrollTop, 2100)
+  assert.equal(follow.following, true)
   follow.dispose()
 })

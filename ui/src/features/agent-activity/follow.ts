@@ -46,6 +46,13 @@ export interface FollowOptions {
   onPinned: (pinned: boolean) => void
   /** Where it starts. Without one, at the newest step, following it. */
   start?: FollowStart
+  /**
+   * A windowed transcript (windowed-list.tsx) is laid out again as its rows are drawn in and out, and WebKit can leave
+   * its view off the end as it does, with nothing changing size to tell of it (the Safari rig, 2026-11-26). With this,
+   * while it follows, a scroll off the end that is not the user's own goes back to the end at once. A step the keyboard
+   * moved onto is still brought into view, as in a transcript drawn whole.
+   */
+  holdsEnd?: boolean
 }
 
 export interface FollowControl {
@@ -60,13 +67,18 @@ export interface FollowControl {
 }
 
 /** Starts following the end of `element`, the box that scrolls, as `list`, the steps inside it, grows. */
-export function followEnd(element: HTMLElement, list: HTMLElement, { page, Observer, onPinned, start }: FollowOptions): FollowControl {
+export function followEnd(element: HTMLElement, list: HTMLElement, { page, Observer, onPinned, start, holdsEnd = false }: FollowOptions): FollowControl {
   let following = start?.following ?? true
   let lastTop = 0
   let dragging = false
   let held: ReturnType<typeof setTimeout> | undefined
 
   const atEnd = () => element.scrollHeight - element.scrollTop - element.clientHeight <= SLACK
+  // Whether the keyboard is on a step of the list: moving onto one brings it into view, and that is no drift.
+  const onStep = () => {
+    const active = list.ownerDocument?.activeElement
+    return Boolean(active && list.contains(active) && active.closest('[data-step]'))
+  }
   const pin = (value: boolean) => {
     following = value
     onPinned(value)
@@ -144,6 +156,7 @@ export function followEnd(element: HTMLElement, list: HTMLElement, { page, Obser
       unscrollSideways()
       if (reachedEnd && element.scrollTop > lastTop) following = true
       else if (dragging && element.scrollTop < lastTop) following = false
+      else if (holdsEnd && following && !dragging && !reachedEnd && !onStep()) toEnd()
       lastTop = element.scrollTop
       onPinned(following)
     },

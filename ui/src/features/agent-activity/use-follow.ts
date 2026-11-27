@@ -8,6 +8,8 @@ export interface Follow {
   content: RefObject<HTMLOListElement | null>
   /** True while the view follows the newest step. */
   pinned: boolean
+  /** Whether it follows now, read from the follower itself: up to date before the page draws again. */
+  following: () => boolean
   /** Goes to the newest step and follows it again. */
   jumpToLatest: () => void
   onScroll: () => void
@@ -17,9 +19,9 @@ export interface Follow {
  * Keeps an agent's exchange at its newest step while it grows, unless the user scrolled up to read (follow.ts). It goes
  * to the end at once, at most once a frame, when the page has laid out what changed. Nothing glides, and nothing is
  * read of the page while it draws. `start` says where it opens, each time it is drawn or shown again, as a kept page is:
- * where it was left reading, or at the newest step, as it opens without one.
+ * where it was left reading, or at the newest step, as it opens without one. `holdsEnd` is for a windowed list (follow.ts).
  */
-export function useFollow({ start }: { start?: () => FollowStart | undefined } = {}): Follow {
+export function useFollow({ start, holdsEnd = false }: { start?: () => FollowStart | undefined; holdsEnd?: boolean } = {}): Follow {
   const scroller = useRef<HTMLDivElement | null>(null)
   const content = useRef<HTMLOListElement | null>(null)
   const control = useRef<FollowControl | null>(null)
@@ -33,7 +35,7 @@ export function useFollow({ start }: { start?: () => FollowStart | undefined } =
     const list = content.current
     if (!element || !list) return
     const from = startFrom.current?.()
-    const follow = followEnd(element, list, { page: window, Observer: ResizeObserver, onPinned: setPinned, ...(from ? { start: from } : {}) })
+    const follow = followEnd(element, list, { page: window, Observer: ResizeObserver, onPinned: setPinned, holdsEnd, ...(from ? { start: from } : {}) })
     control.current = follow
     return () => {
       follow.dispose()
@@ -43,6 +45,9 @@ export function useFollow({ start }: { start?: () => FollowStart | undefined } =
 
   const onScroll = useCallback(() => control.current?.onScroll(), [])
   const jumpToLatest = useCallback(() => control.current?.jumpToLatest(), [])
+  const pinnedNow = useRef(pinned)
+  pinnedNow.current = pinned
+  const following = useCallback(() => control.current?.following ?? pinnedNow.current, [])
 
-  return { scroller, content, pinned, jumpToLatest, onScroll }
+  return { scroller, content, pinned, following, jumpToLatest, onScroll }
 }
