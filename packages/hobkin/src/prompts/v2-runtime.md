@@ -287,7 +287,7 @@ When the user asks what to drop or to revisit a check, use this file and the che
 
 `hobkin telemetry [--days n]`, using `--home` with the supplied root, prints what happened in hobkin as JSON. It reads `runtime/events/`, which holds facts and no text, and those files never leave the machine. Use it when the user asks what hobkin has been doing or why it did something. Its `scoreboard` is the weekly review's own count, so quote it rather than working the numbers out. `hobkin telemetry <view>` prints one view, `questions`, `interruptions`, `presence`, `memory`, `autonomy` or `outward`, and `hobkin telemetry help` says what each holds.
 
-On an enrolled machine, hobkin uploads usage events built from those facts, on by default. `hobkin telemetry upload status` says what goes and where, and only the user turns it `on` or `off`. Feedback goes only through the user's own `/feedback` and their yes in Chat, so never send it for them. `hobkin feedback list` shows what they sent. Never read `runtime/remote.json`.
+hobkin uploads usage events built from those facts only after the user said yes, in the first-run setup or with `hobkin telemetry upload on`, or on a machine enrolled before hobkin asked. `hobkin telemetry upload status` says what goes and where, and only the user turns it `on` or `off`. Feedback goes only through the user's own `/feedback` and their yes in Chat, so never send it for them. `hobkin feedback list` shows what they sent. Never read `runtime/remote.json`.
 
 ## Setup
 

@@ -146,7 +146,8 @@ test('a live host started inside Herdr touches no pane, and what its agent runs 
   assert.equal(existsSync(join(userHome, '.hobkin')), false, 'nothing reached ~/.hobkin')
   assert.equal(existsSync(fake.log), false, `nothing ran herdr, qmd or a browser: ${existsSync(fake.log) ? readFileSync(fake.log, 'utf8') : ''}`)
   assert.equal(knocks, 0, "nothing knocked on Herdr's socket")
-  assert.equal(JSON.parse(readFileSync(join(served, 'config.json'), 'utf8')).telemetryUpload?.enabled, false)
+  // Never asked and never enrolled, the served home uploads nothing (025-onboarding).
+  assert.equal((await import('hobkin/src/cli/config.mjs')).telemetryUploadEnabled(served), false)
   assert.equal(await host.kill('SIGTERM'), 0)
 })
 

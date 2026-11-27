@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { HobkinApplication } from '../src/cli/application.mjs';
-import { atomicJson, initialize, telemetryUploadEnabled } from '../src/cli/config.mjs';
+import { atomicJson, initialize, setTelemetryUpload, telemetryUploadEnabled } from '../src/cli/config.mjs';
 import { recordEvent } from '../src/cli/events.mjs';
 import { deliverFeedback, draftFromChat, sendApproved } from '../src/cli/feedback/outbox.mjs';
 import { credentialsFile, enroll, enrollment } from '../src/cli/remote/credentials.mjs';
@@ -83,6 +83,8 @@ test('the real home is ~/.hobkin or the folder HOBKIN_HOME names, by real path, 
 test('a test home the application opens with uploads on never enrolls, and nothing reaches the network', async t => {
   const root = home(t);
   const reached = replaceGlobalFetch(t);
+  // The user said yes, so only the guard on test homes stands between it and the network.
+  setTelemetryUpload(root, true);
   assert.equal(telemetryUploadEnabled(root), true);
 
   const app = await HobkinApplication.open(root, { createMain: fakePi(root).createMain, intervalMs: 3600000 });
@@ -119,6 +121,7 @@ test('a test home holding a key sends no usage and no feedback through the real 
 test('the real home enrolls with hobkin\'s server through the real fetch', async t => {
   const root = home(t);
   nameHobkinHome(t, root);
+  setTelemetryUpload(root, true);
   const reached = replaceGlobalFetch(t, fakeServer(reply(201, ISSUED)).fetch);
 
   await sendTelemetry(root, { now: () => NOW, sleep: async () => {} });

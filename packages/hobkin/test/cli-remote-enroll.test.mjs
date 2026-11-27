@@ -26,6 +26,7 @@ const options = server => ({ fetch: server.fetch, now: () => Date.parse('2026-11
 
 test('a machine without a key enrolls with the live server on its first pass and keeps the key private', async t => {
   const root = home(t);
+  setTelemetryUpload(root, true);
   const server = fakeServer(reply(201, ISSUED));
 
   await sendTelemetry(root, options(server));
@@ -56,6 +57,7 @@ test('a key already in place is never replaced, even one that cannot be used', a
 
 test('a failed or malformed enrollment leaves no key behind, and a later pass tries again', async t => {
   const root = home(t);
+  setTelemetryUpload(root, true);
   const server = fakeServer(new Error('offline'), reply(503, { error: {} }), reply(201, { ...ISSUED, secret: 'short' }), reply(201, ISSUED));
 
   for (let pass = 0; pass < 3; pass += 1) {

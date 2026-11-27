@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { HobkinApplication } from '../src/cli/application.mjs';
-import { atomicJson, initialize } from '../src/cli/config.mjs';
+import { atomicJson, initialize, setTelemetryUpload } from '../src/cli/config.mjs';
 import { recordEvent } from '../src/cli/events.mjs';
 import { main } from '../src/cli/main.mjs';
 import { transportEvent, transportId } from '../src/cli/telemetry/events.mjs';
@@ -263,6 +263,7 @@ test('off drops what waits and sends nothing, and on starts again from that mome
 
 test('a machine whose enrollment fails sends no usage events and writes nothing', async t => {
   const h = fixture(t, { enrolled: false });
+  setTelemetryUpload(h.root, true);
   new RemoteSender({ root: h.root, ...h.options(fakeServer(reply(503, { error: {} }))) });
   h.record('app_opened');
   const server = fakeServer(reply(503, { error: {} }));

@@ -7,6 +7,7 @@ import { validateLauncher } from './launcher.mjs';
 import { validateProviderExtensions } from './provider-extensions.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 import { readVersioned } from './file-version.mjs';
+import { enrollment } from './remote/credentials.mjs';
 import { validatePersona } from './persona.mjs';
 import { validateReview, validateTiers } from './tiers.mjs';
 import { changeSelection, normalizeSelection, validateResourceSelection, resolveResourcePolicy } from './resource-policy.mjs';
@@ -84,8 +85,18 @@ export const feedbackEnabled = root => settingNotOff(root, 'feedback');
 
 export const setFeedback = (root, enabled) => setSetting(root, 'feedback', enabled);
 
-/** Usage events go by themselves, from a machine enrolled with hobkin's server, until the user turns this off. */
-export const telemetryUploadEnabled = root => settingNotOff(root, 'telemetryUpload');
+/**
+ * Usage events go only once the user said yes, in the first-run setup or with `hobkin telemetry upload on`. A home
+ * never asked sends and enrolls nothing, unless it was enrolled with hobkin's server before hobkin asked: that one
+ * keeps sending, as it did, until the user says no. A configuration hobkin cannot read sends nothing.
+ */
+export function telemetryUploadEnabled(root) {
+  const config = savedConfig(root);
+  if (!config) return false;
+  const said = config.telemetryUpload?.enabled;
+  if (typeof said === 'boolean') return said;
+  return enrollment(resolveDataRoot(root)).enrolled;
+}
 
 export const setTelemetryUpload = (root, enabled) => setSetting(root, 'telemetryUpload', enabled);
 
