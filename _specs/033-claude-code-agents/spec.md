@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["011-work", "020-settings", "021-agent-rendering", "022-questions"],
-  "updated": "2026-11-21"
+  "updated": "2026-11-27"
 }
 ---
 # hobkin's other agents on Claude Code
@@ -25,7 +25,7 @@ hobkin's other agents, the Work runs, the jobs it delegates and its routines, ca
 - Permissions map onto `--permission-mode`: auto to `auto`, ask to `default`, edits to `acceptEdits`, all to `bypassPermissions`. Whatever Claude Code would ask the user about comes to the host, which asks on the question sheet: Allow, Don't allow, or the user's own words, which deny and tell Claude why.
 - AskUserQuestion: each of Claude's questions (it asks one to four) is a question on the sheet, from the run's title, with its header as the summary line, its options as the choices, and a field for the user's own words. A multi-select question takes one pick or the user's own list. The answers go back keyed by each question's text. A question put off, left two minutes on the sheet, or one that cannot be asked for ten minutes, tells Claude the user put it off and to go on with its best judgment and say what it assumed. A permission prompt in the same case is denied. So an agent never waits on a user who is away, and the sheet is never held from hobkin's own questions for long.
 - An agent's question is never dressed as one of hobkin's filed decisions, so it never shows a recommendation or a reason the agent did not give.
-- Talking: the agent canvas's talk box writes a user message into Claude's input. `--replay-user-messages` gives the note's receipt. A run ends at its first result: its input closes, Claude finishes whatever it had queued, and the process ending ends the run. A message after that is refused as it is for a Pi run that has finished.
+- Talking: the agent canvas's talk box writes a user message into Claude's input. `--replay-user-messages` gives the note's receipt. A run ends at its first result: its input closes, Claude finishes whatever it had queued, and the process ending ends the run. A message after that is refused as it is for a Pi run that has finished. Claude takes a message it was sent only once its turn has ended, however long that is, so a plain message or a follow-up waits for the whole turn. A message sent to interrupt (Control+Enter in the talk box) is forced instead (the user, 2026-11-27: "ctrl+enter should force steer a message", "should be suported for claude code too"): the harness writes Claude's `interrupt` control request and then the message, Claude ends the turn under way with a result of its own (`error_during_execution`) and takes the message next, about a second later. That result is not the run's end while the message is still to be taken, which Claude says by replaying it with the id it was sent with, so the run goes on taking messages until the turn the message starts ends. A message Claude never takes ends the wait after thirty seconds. What already waited stays Claude's and is taken with it. Alt+Up takes nothing back from Claude, which gives none of its queue back, and writes it nothing.
 - Activity: Claude's stream becomes the activity events Pi's runs produce, so the dock, the agent canvas and the blocks of `021-agent-rendering` draw it unchanged. Text streams in, tool calls show with their input and output, a failed Bash command keeps its exit code, and thinking never shows. Work inside Claude's own subagents (records with a `parent_tool_use_id`) is not drawn; the Agent call shows as one tool.
 - Usage: the run's session file gets a record in Pi's format: a header with Claude's session id, a line for each reply with its token usage, a line for each tool result. Work's daily budget, its stall check and its identity check read a Claude run as they read a Pi run. The cost is Claude Code's own estimate from its result.
 - Stop interrupts Claude and closes its input, sends SIGTERM if it has not gone within two seconds and SIGKILL at four. Force sends SIGTERM at once and SIGKILL a second later. Claude Code starts its shell commands in process groups of their own and ends them itself on SIGTERM, so a SIGKILL alone would leave a running command behind. A host that exits sends SIGTERM to each Claude run still going.
@@ -63,6 +63,7 @@ hobkin's other agents, the Work runs, the jobs it delegates and its routines, ca
 - A15. The tiers on Claude Code hold after the host restarts, a `claude-code.json` from before reads as none, and hobkin's client tool is refused when it tries to set one. (2026-11-21)
 - A16. A tier's model list offers the Claude Code group only when the host reports tiers on Claude Code and found Claude Code, and with Claude Code missing it says so and offers nothing. Choosing a Claude model keeps the tier's Pi model, and choosing a Pi model takes Claude Code off. The lead's list never offers it. When the group appears with the list open, nothing above it moves. (2026-11-21)
 - A17. A tier on Claude Code reads "Claude Code · " and its model, with its level, in the Models tile and on its card, and its card offers Claude Code's levels, low to max. (2026-11-21)
+- A18. A message sent to interrupt stops Claude's turn under way and is what it takes next, and the run goes on taking messages until the turn that message starts ends. A message sent any other way stops nothing. Taking back what waits writes Claude nothing and gives nothing back. (2026-11-27)
 
 ## Proof
 
@@ -83,6 +84,7 @@ hobkin's other agents, the Work runs, the jobs it delegates and its routines, ca
 - A15. `host/test/claude-code-settings.test.ts` › "settings hold across a restart and only the window changes them" (with a tier on Claude Code) and › "a file from before has no tier on Claude Code"
 - A16. `shared/test/tiers-claude-code.test.ts` › "the Claude Code group is offered only when the host keeps tiers on it and found Claude Code" and › "choosing a Claude model keeps the tier's Pi model, and a Pi model takes Claude Code off"; check: read the list against Pi's groups (the group comes last, so nothing above it moves).
 - A17. `shared/test/tiers-claude-code.test.ts` › "a tier on Claude Code reads so, with Claude Code's levels"; check: read the Models tile's rows and the card.
+- A18. `host/test/claude-code-harness.test.ts` › "a message sent to interrupt stops the turn under way and is what Claude takes next, and the run goes on taking messages", › "a message sent any other way does not stop the turn, and the first result still ends the taking of messages", › "an interrupting message Claude never takes does not hold the run open for good" and › "taking back what waits writes nothing to Claude, which keeps its own queue, and gives nothing back". Two runs of the real Claude Code 2.1.332 with the harness's flags and no tools (2026-11-27): an interrupt and a message written while it answered ended that turn at once and the message was answered a second later, and with the input left open two messages sent after it were taken once its turn ended. Control+Enter in the live window on a Claude Code agent was not seen.
 
 ## Steps
 
@@ -93,6 +95,7 @@ hobkin's other agents, the Work runs, the jobs it delegates and its routines, ca
 - [ ] S5 (A12, A13). The Subscriptions and Claude Code tiles.
 - [ ] S6 (A4, A6). One live run on the real Claude Code, with the user's go-ahead, since it spends their subscription.
 - [ ] S7 (A14, A15, A16, A17). Tiers on Claude Code: the host keeps them and routes by them, and the lightbox and the Models tile offer and show them (2026-11-21).
+- [x] S8 (A18). Control+Enter forces a message into a Claude Code agent's turn (2026-11-27).
 
 ## Open questions
 

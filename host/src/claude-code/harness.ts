@@ -45,9 +45,18 @@ export interface ClaudeChild {
   terminate(): void
 }
 
+/**
+ * How a message reaches a run that works, as hobkin's runner says it (`runner.mjs`), after the keys of the message box:
+ * Enter steers, Alt+Enter follows up, Control+Enter interrupts, and Alt+Up takes back what waits.
+ */
+export type SendHow = 'steer' | 'follow-up' | 'interrupt' | 'take-back'
+
+/** What a send answers: the message is Claude's to take, or what came back out of the queue. */
+export type Sent = { disposition: 'queued' } | { steering: string[]; followUp: string[] }
+
 export interface ClaudeHarnessOptions {
   onEvent?: (event: Record<string, unknown>) => void
-  onReady?: (send: (message: string, images?: ImageContent[]) => Promise<{ disposition: 'queued' }>) => void
+  onReady?: (send: (message: string | undefined, images?: ImageContent[], how?: SendHow) => Promise<Sent>) => void
   onControl?: (child: ClaudeChild) => void
   /** hobkin's data root: the turn's timings go in its event log. */
   metricsRoot?: string
@@ -75,6 +84,8 @@ export interface ClaudeRunSetup {
   killMs?: number
   /** After a force, how long Claude has to end its commands between SIGTERM and SIGKILL. */
   forceGraceMs?: number
+  /** After a turn an interrupting message stopped, how long Claude has to take that message before the run stops taking any. */
+  interruptTakeMs?: number
   askRetryMs?: number
   askGiveUpMs?: number
 }
@@ -311,7 +322,7 @@ export async function runClaudeHarness(request: ClaudeHarnessRequest, options: C
 async function runTurn(request: ClaudeHarnessRequest, options: ClaudeHarnessOptions, setup: ClaudeRunSetup, timing: TurnTiming): Promise<ClaudeHarnessResult> {
   const { onEvent = () => {}, onReady = () => {}, onControl = () => {} } = options
   // A stop ends the run within five seconds (A10): SIGTERM at two, SIGKILL at four.
-  const { settings, stopMs = 2000, killMs = 4000, forceGraceMs = 1000 } = setup
+  const { settings, stopMs = 2000, killMs = 4000, forceGraceMs = 1000, interruptTakeMs = 30_000 } = setup
   const result: ClaudeHarnessResult = {
     id: request.id,
     harness: 'claude',
@@ -352,6 +363,9 @@ async function runTurn(request: ClaudeHarnessRequest, options: ClaudeHarnessOpti
   const signalAll = setup.signalGroup ?? signalGroup
   const timers: NodeJS.Timeout[] = []
   const asking = new Map<string, AbortController>()
+  // The messages sent to interrupt a turn that Claude has not taken yet, by the id each went with, and the wait for them.
+  const interrupting = new Set<string>()
+  let untaken: NodeJS.Timeout | null = null
   let queue = Promise.resolve()
   let exited = false
   let inputOpen = true
@@ -452,16 +466,39 @@ async function runTurn(request: ClaudeHarnessRequest, options: ClaudeHarnessOpti
       .finally(() => asking.delete(id))
   }
 
+  /** Claude took a message, which it names by the id the message went with. */
+  const taken = (id: string) => {
+    if (!interrupting.delete(id) || interrupting.size) return
+    if (untaken) clearTimeout(untaken)
+    untaken = null
+  }
+  /**
+   * A turn ended. The first result ends the run's taking messages: with its input closed, Claude finishes what it queued
+   * and exits. The turn an interrupting message stopped ends with a result too, and that is not the run's end: Claude
+   * takes the message next, within about a second, and the run goes on taking messages until the turn it starts ends.
+   * A message Claude never takes ends the wait, so the run is not held open for good.
+   */
+  const turnEnded = () => {
+    if (!interrupting.size) return endInput()
+    if (untaken) return
+
+    untaken = later(() => {
+      interrupting.clear()
+      endInput()
+    }, interruptTakeMs)
+    timers.push(untaken)
+  }
+
   const take = (line: ClaudeRecord) => {
     timing.observe(line)
     if (line.type === 'control_request') return control(line)
     if (line.type === 'control_cancel_request') return asking.get(String(line.request_id))?.abort()
     if (line.type === 'control_response') return
+    if (line.type === 'user' && line.isReplay === true && typeof line.uuid === 'string') taken(line.uuid)
     const { events, lines } = stream.accept(line)
     record(lines)
     emit(events)
-    // The first result ends the run's taking messages. With its input closed, Claude finishes what it queued and exits.
-    if (line.type === 'result') endInput()
+    if (line.type === 'result') turnEnded()
   }
   if (child.stdout) {
     readLines(child.stdout, (text) => {
@@ -517,9 +554,19 @@ async function runTurn(request: ClaudeHarnessRequest, options: ClaudeHarnessOpti
     timing.prompted()
     takesMessages = true
     try {
-      onReady(async (message, images) => {
+      onReady(async (message, images, how = 'steer') => {
         if (!takesMessages) throw Object.assign(Error('That check has finished.'), { notQueued: true })
-        write(userMessage(message, sessionId, images))
+        // Alt+Up: Claude keeps what waits for it and gives none of it back, so nothing is written and nothing comes out.
+        if (how === 'take-back') return { steering: [], followUp: [] }
+
+        const said = userMessage(message ?? '', sessionId, images)
+        // Control+Enter: the turn under way stops for the message, which Claude takes next. Sent any other way, Claude
+        // takes a message only once its turn has ended, however long that is.
+        if (how === 'interrupt') {
+          interrupting.add(said.uuid)
+          write({ type: 'control_request', request_id: `hobkin-${randomUUID()}`, request: { subtype: 'interrupt' } })
+        }
+        write(said)
         return { disposition: 'queued' as const }
       })
     } catch {

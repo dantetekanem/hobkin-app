@@ -93,7 +93,7 @@ function launch(t: TestContext, { settings = SETTINGS, request = {}, setup = {},
   const spawned: { command: string; args: string[]; options: Line }[] = []
   const signals: string[] = []
   const events: Line[] = []
-  let send: ((message: string, images?: { type: 'image'; data: string; mimeType: string }[]) => Promise<{ disposition: 'queued' }>) | undefined
+  let send: Parameters<NonNullable<ClaudeHarnessOptions['onReady']>>[0] | undefined
   let child: ClaudeChild | undefined
   const run: ClaudeHarnessRequest = {
     id: RUN_ID,
@@ -273,6 +273,86 @@ test('a message reaches Claude and its receipt follows', async (t) => {
   const ended = await run.finished
   assert.equal(ended.status, 'completed')
   assert.equal(ended.text, 'Done, README included.')
+})
+
+const INTERRUPTED = { type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] }, parent_tool_use_id: null, session_id: RUN_ID }
+const interruptedTurn = () => result('', { subtype: 'error_during_execution', is_error: true })
+
+test('a message sent to interrupt stops the turn under way and is what Claude takes next, and the run goes on taking messages', async (t) => {
+  const run = launch(t)
+  await until(() => run.send(), 'the run to take messages')
+  run.fake.print(init())
+
+  await run.send()!('[hobkin-note:9a2c]\nStop. Do this instead.', undefined, 'interrupt')
+  await until(() => run.fake.written.length === 3, 'the interrupt and the message on stdin')
+  const [, interrupt, message] = run.fake.written
+  assert.deepEqual(interrupt, { type: 'control_request', request_id: interrupt!.request_id, request: { subtype: 'interrupt' } })
+  assert.deepEqual(withoutUuid(message!).message.content, [{ type: 'text', text: '[hobkin-note:9a2c]\nStop. Do this instead.' }])
+
+  // Claude ends the turn it was on with a result of its own. That is not the run's end: its message is still to come.
+  run.fake.print(INTERRUPTED, interruptedTurn())
+  await delay(30)
+  assert.equal(run.fake.inputClosed, false, 'the input stays open for the message that interrupted')
+  await run.send()!('And the changelog.')
+  await until(() => run.fake.written.length === 4, 'a message sent after it')
+
+  // Claude takes the message, named by the id it was sent with. The turn it starts ends the run's taking messages.
+  run.fake.print({ ...replay('[hobkin-note:9a2c]\nStop. Do this instead.'), uuid: message!.uuid })
+  await until(() => run.events.some((event) => event.type === 'message_end' && event.message.role === 'user'), 'the receipt')
+  run.fake.print(result('Did that instead.'))
+  await until(() => run.fake.inputClosed, 'the input to close')
+  run.fake.exit(0)
+  const ended = await run.finished
+  assert.equal(ended.status, 'completed')
+  assert.equal(ended.text, 'Did that instead.')
+})
+
+test('a message sent any other way does not stop the turn, and the first result still ends the taking of messages', async (t) => {
+  const run = launch(t)
+  await until(() => run.send(), 'the run to take messages')
+  run.fake.print(init())
+
+  await run.send()!('Also the README.', undefined, 'steer')
+  await run.send()!('And then the tests.', undefined, 'follow-up')
+  await until(() => run.fake.written.length === 3, 'both messages on stdin')
+  assert.deepEqual(run.fake.written.map((line) => line.type), ['user', 'user', 'user'], 'no interrupt goes with them')
+
+  run.fake.print(result('Done.'))
+  await until(() => run.fake.inputClosed, 'the input to close')
+  run.fake.exit(0)
+  assert.equal((await run.finished).status, 'completed')
+})
+
+test('an interrupting message Claude never takes does not hold the run open for good', async (t) => {
+  const run = launch(t, { setup: { interruptTakeMs: 40 } })
+  await until(() => run.send(), 'the run to take messages')
+  run.fake.print(init())
+  await run.send()!('Stop. Do this instead.', undefined, 'interrupt')
+
+  run.fake.print(INTERRUPTED, interruptedTurn())
+  await delay(10)
+  assert.equal(run.fake.inputClosed, false)
+  await until(() => run.fake.inputClosed, 'the input to close once Claude had its time to take the message')
+  run.fake.exit(0)
+  await run.finished
+})
+
+test('taking back what waits writes nothing to Claude, which keeps its own queue, and gives nothing back', async (t) => {
+  const run = launch(t)
+  await until(() => run.send(), 'the run to take messages')
+  run.fake.print(init())
+  await run.send()!('Also the README.')
+  await until(() => run.fake.written.length === 2, 'the message on stdin')
+
+  const back = await run.send()!(undefined, undefined, 'take-back')
+  await delay(20)
+  assert.deepEqual(back, { steering: [], followUp: [] })
+  assert.equal(run.fake.written.length, 2, 'no message, and none without words')
+
+  run.fake.print(result('Done.'))
+  await until(() => run.fake.inputClosed, 'the input to close')
+  run.fake.exit(0)
+  assert.equal((await run.finished).status, 'completed')
 })
 
 test('images the user attached go to Claude as image blocks, and the receipt counts them', async (t) => {
