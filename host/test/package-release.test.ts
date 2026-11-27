@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { DOWNLOADS, FEED, releaseNames, updateFeed } from '../../scripts/package/feed.ts'
+import { DOWNLOADS, downloadsFrom, FEED, releaseNames, updateFeed } from '../../scripts/package/feed.ts'
 
 test('a release is published under names that carry its version and, for Intel, its chip', () => {
   assert.deepEqual(releaseNames('0.1.19', 'aarch64'), {
@@ -27,7 +27,6 @@ test("the feed names the version and, for each chip built, where its archive is 
     },
   })
   assert.deepEqual(Object.keys(updateFeed({ ...published, signatures: { aarch64: 'c2ln' } }).platforms), ['darwin-aarch64'], 'a chip that was not built is left out')
-  assert.equal(DOWNLOADS, 'https://api.hobkin.dev/downloads')
 })
 
 test('a feed is never written for a version that is not three numbers, with an empty signature, or for no chip at all', () => {
@@ -37,4 +36,12 @@ test('a feed is never written for a version that is not three numbers, with an e
   assert.throws(() => releaseNames('../0.1.19', 'aarch64'), /version/)
   assert.throws(() => updateFeed({ ...good, signatures: { aarch64: '  ' } }), /signature/)
   assert.throws(() => updateFeed({ ...good, signatures: {} }), /no chip/)
+})
+
+test("the files are published beside the feed the release config's updater reads, its one endpoint", () => {
+  assert.equal(DOWNLOADS, 'https://hobkin.dev/downloads')
+  assert.equal(downloadsFrom({ plugins: { updater: { endpoints: ['https://downloads.example.invalid/hobkin/latest.json'] } } }), 'https://downloads.example.invalid/hobkin')
+  assert.throws(() => downloadsFrom({ plugins: { updater: { endpoints: ['https://example.invalid/feed.json'] } } }), /latest\.json/)
+  assert.throws(() => downloadsFrom({ plugins: { updater: { endpoints: ['https://a.example.invalid/latest.json', 'https://b.example.invalid/latest.json'] } } }), /one endpoint/)
+  assert.throws(() => downloadsFrom({}), /one endpoint/)
 })

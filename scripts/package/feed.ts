@@ -1,12 +1,27 @@
 /**
  * The names a release is published under, and the feed Tauri's updater reads to learn there is a newer one
- * (`latest.json`). Pure rules. The files are served from hobkin-api's `/downloads/<file>` (its `docs/operations.md`).
+ * (`latest.json`). Pure rules, and the one place the download address comes from: the updater endpoint in
+ * `tauri.release.conf.json`. Every file of a release is published in the folder that holds the feed.
  */
-
-export const DOWNLOADS = 'https://api.hobkin.dev/downloads'
+import releaseConfig from './tauri.release.conf.json' with { type: 'json' }
 
 /** The feed's file name. It is the one name that stays the same from version to version. */
 export const FEED = 'latest.json'
+
+interface UpdaterConfig {
+  plugins?: { updater?: { endpoints?: readonly string[] } }
+}
+
+/** The folder a release is published in: where the config's one updater endpoint finds the feed. */
+export function downloadsFrom(config: UpdaterConfig): string {
+  const endpoints = config.plugins?.updater?.endpoints ?? []
+  if (endpoints.length !== 1) throw Error(`The release config must name one endpoint for the updater, not ${endpoints.length}: the release is published beside it.`)
+  const [endpoint] = endpoints as [string]
+  if (!endpoint.endsWith(`/${FEED}`)) throw Error(`The updater endpoint must be the ${FEED} in the downloads folder, not ${endpoint}.`)
+  return endpoint.slice(0, -`/${FEED}`.length)
+}
+
+export const DOWNLOADS = downloadsFrom(releaseConfig)
 
 /** The chips the app is built for, as Rust and the updater name them: Apple silicon and Intel. */
 export type Chip = 'aarch64' | 'x86_64'
