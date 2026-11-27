@@ -24,6 +24,7 @@ import type { ReviewEntry } from '#shared/review/types.ts'
 import { blockAt, functionOwners } from '#shared/review/units.ts'
 import { LIFE_CYCLE, type Vicinity, type VicinityDefinition, type VicinityGuard, type VicinityLeft, type VicinityLink, type VicinityReach, type VicinityTest } from '#shared/review/vicinity.ts'
 import { withoutRefusedOption } from '../../../packages/change-review/src/scan.ts'
+import { piAgentFolder } from '../pi/install.ts'
 import { gitReader } from './git.ts'
 
 const exec = promisify(execFile)
@@ -40,8 +41,21 @@ const LEAST_SCAN_MS = 5_000
 const MOST_PER_SCAN = 20
 const MAX_OUTPUT = 32 * 1024 * 1024
 
-/** Where agentic-search is found when the app's PATH does not have it: pnpm's and Homebrew's folders. */
-const PLACES = [join(homedir(), 'Library', 'pnpm', 'bin'), join(homedir(), '.local', 'share', 'pnpm'), '/opt/homebrew/bin', '/usr/local/bin']
+/**
+ * Where agentic-search is found when the app's PATH does not have it: pnpm's and Homebrew's folders, then Pi's own
+ * package folder, where the first-run setup's pi-agentic-search install puts it (025-onboarding).
+ */
+export function agenticSearchPlaces({ home = homedir(), env = process.env }: { home?: string; env?: NodeJS.ProcessEnv } = {}): string[] {
+  return [
+    join(home, 'Library', 'pnpm', 'bin'),
+    join(home, '.local', 'share', 'pnpm'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    join(piAgentFolder(env, home), 'npm', 'node_modules', '.bin'),
+  ]
+}
+
+const PLACES = agenticSearchPlaces()
 
 export function findAgenticSearch({ path = process.env.PATH ?? '', places = PLACES }: { path?: string; places?: readonly string[] } = {}): string | null {
   for (const folder of [...path.split(delimiter), ...places]) {

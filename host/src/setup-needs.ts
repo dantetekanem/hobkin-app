@@ -164,15 +164,20 @@ function piNeed(pi: PiSetup | null): SetupNeed {
   return found(need, pi.version)
 }
 
-/** Each package hobkin's agents use. Pi installs one once Pi is here, and until then the user has its line. */
+/** Pi installs one of its packages once Pi is here, and until then the user has its line. */
+function packageFix(pi: PiSetup | null, name: string): SetupFix {
+  if (pi?.installed) return { kind: 'install-package', name }
+
+  const source = PI_PACKAGES.find((known) => known.name === name)?.source ?? name
+  return command(`pi install ${source}`)
+}
+
+/** Each package hobkin's agents use. */
 function packageNeeds(pi: PiSetup | null): SetupNeed[] {
   return (pi?.packages ?? []).map(({ name, adds, installed }) => {
     const need: Need = { id: `package:${name}`, group: 'features', name, neededBy: adds }
     if (installed) return found(need)
-
-    const source = PI_PACKAGES.find((known) => known.name === name)?.source ?? name
-    const fix: SetupFix = pi?.installed ? { kind: 'install-package', name } : command(`pi install ${source}`)
-    return missing(need, 'Not installed', fix)
+    return missing(need, 'Not installed', packageFix(pi, name))
   })
 }
 
@@ -206,10 +211,9 @@ function tlaNeed(tools: ProofTools | null): SetupNeed {
   return found(TLA)
 }
 
-/** A program asked its version: found when it answers, and fixed by the one line to install it. */
-async function programNeed(ask: Ask, need: Need, install: string): Promise<SetupNeed> {
-  const said = await ask(need.id, ['--version'])
-  if (said.failed) return missing(need, said.absent ? 'Not installed' : 'Did not run', command(install))
+/** A program that was asked its version: found when it answered, and otherwise fixed by `fix`. */
+function programNeed(need: Need, said: Asked, fix: SetupFix): SetupNeed {
+  if (said.failed) return missing(need, said.absent ? 'Not installed' : 'Did not run', fix)
   return found(need, versionOf(said))
 }
 
@@ -234,9 +238,8 @@ export async function readSetupNeeds({ find = findDefault, exec = execDefault, p
     settled(read.claude, timeoutMs),
     gitNeed(ask, find, platform),
     ghNeed(ask),
-    // Pi installs its packages in its own folder, so the package alone does not put the program on the PATH.
-    programNeed(ask, SEARCH, 'npm install -g pi-agentic-search'),
-    programNeed(ask, QMD, 'npm install -g @tobilu/qmd'),
+    ask(SEARCH.id, ['--version']),
+    ask(QMD.id, ['--version']),
   ])
 
   const needs = [
@@ -247,9 +250,10 @@ export async function readSetupNeeds({ find = findDefault, exec = execDefault, p
     gh,
     ...packageNeeds(pi),
     tlaNeed(tools),
-    search,
+    // Pi keeps the program in its own folder with its package, where Change Review looks for it.
+    programNeed(SEARCH, search, packageFix(pi, 'pi-agentic-search')),
     ...claudeNeeds(claude),
-    qmd,
+    programNeed(QMD, qmd, command('npm install -g @tobilu/qmd')),
   ]
   return { needs }
 }

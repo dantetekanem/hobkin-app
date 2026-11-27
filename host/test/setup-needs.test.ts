@@ -161,16 +161,18 @@ test("what is missing offers the setup's own install where it has one, and other
   assert.deepEqual(needs['package:pi-coder']!.fix, { kind: 'command', command: 'pi install npm:pi-coder' })
   assert.deepEqual(needs['sign-in']!.fix, { kind: 'sign-in' })
   assert.deepEqual(needs.tla!.fix, { kind: 'install', what: 'proof-tools' })
-  assert.deepEqual(needs['agentic-search']!.fix, { kind: 'command', command: 'npm install -g pi-agentic-search' })
+  assert.deepEqual(needs['agentic-search']!.fix, { kind: 'command', command: 'pi install npm:pi-agentic-search' })
   assert.deepEqual(needs.claude!.fix, { kind: 'command', command: 'claude auth login' })
   assert.deepEqual(needs.qmd!.fix, { kind: 'command', command: 'npm install -g @tobilu/qmd' })
 
   // With npm the window installs Pi, and with Pi the package.
   const oldPi = pi({ version: '0.9.0', matches: false, packages: [{ name: 'pi-coder', adds: '', installed: false }] })
-  const installs = (await review({ pi: async () => oldPi })).needs
+  const installs = (await review({ pi: async () => oldPi, programs: { 'agentic-search': null } })).needs
   assert.deepEqual(installs.pi!.fix, { kind: 'install', what: 'pi' })
   assert.equal(installs.pi!.version, '0.9.0')
   assert.deepEqual(installs['package:pi-coder']!.fix, { kind: 'install-package', name: 'pi-coder' })
+  // The program comes with Pi's package, in Pi's own folder, where Change Review looks for it.
+  assert.deepEqual(installs['agentic-search']!.fix, { kind: 'install-package', name: 'pi-agentic-search' })
 })
 
 test('Node older than Pi needs, and Claude Code only while its agents are on', async () => {
