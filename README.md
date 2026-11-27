@@ -39,7 +39,7 @@ hobkin is in early release and runs on macOS. Windows and Linux aren't supported
 
    The first start builds the Mac shell, which takes a few minutes.
 
-4. Follow the setup. The first time the app opens, hobkin checks this Mac and offers to install what's missing: its own copy of Node, Pi, the Pi packages its agents use, and the TLA+ tools. Nothing installs until you press Install. Then you connect a model. Settings › Check this Mac runs the same check at any time.
+4. Follow the setup. The first time the app opens, hobkin checks this Mac and offers to install what's missing: its own copy of Node, Pi and the Pi packages its agents use, each when you press Install. The TLA+ tools set themselves up in the background. Then you connect a model. Settings › Check this Mac runs the same check at any time.
 
 ## A tour
 
