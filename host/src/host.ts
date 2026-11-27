@@ -683,8 +683,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         throw new Unavailable(error instanceof Error ? error.message : String(error))
       }
     },
-    // The first-run setup's account step, once: hobkin's model and tiers from the account Pi reaches, on a home that never chose any.
-    'tiers.first': async () => {
+    // Once, on a home that never chose a model: hobkin's models from the account the setup found, or Pi's default for the provider connected later.
+    'tiers.first': async ({ provider }) => {
       if (owner.held) throw new Unavailable(whyNotLive(owner.state))
       if (!live) throw new Unavailable("The scripted model answers whatever is chosen, so nothing is saved. Start the host with --live to set hobkin's models.")
       try {
@@ -697,7 +697,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
           selectModel: (model, effort) => owner.selectModel(model, effort),
           selectChecks: (model, effort) => owner.selectChecks(model, effort),
           applyTiers: (change) => owner.applyTiers(change),
-        })
+        }, provider)
       } catch (error) {
         throw new Unavailable(error instanceof Error ? error.message : String(error))
       }
