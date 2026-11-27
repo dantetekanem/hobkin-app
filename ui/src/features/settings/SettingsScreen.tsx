@@ -43,6 +43,7 @@ import { AgentsStepper } from '@/features/work/AgentsStepper.tsx'
 import { play } from '@/features/sound/index.ts'
 import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, activeThemeLabel, budgetUse, formatTokens, stepBudget, type ActiveTheme, type BlockKind } from './rules.ts'
 import { useSettings, type FontSize, type Movement, type TypeFace } from './store.ts'
+import { usageSwitch, useUsageUpload } from './usage-upload.ts'
 
 /**
  * Settings, as hobkin's desk: each setting is a small living scene, and the scene is the control.
@@ -677,16 +678,19 @@ function WhatLeaves() {
   const feedback = useSettings((state) => state.feedback)
   const setUsageEvents = useSettings((state) => state.setUsageEvents)
   const setFeedback = useSettings((state) => state.setFeedback)
-  const count = Number(usageEvents) + Number(feedback)
+  // On the real home the switch is hobkin's own upload setting; elsewhere it stays the window's and says so.
+  const upload = useUsageUpload()
+  const usage = usageSwitch(upload.host, usageEvents)
+  const count = Number(usage.checked) + Number(feedback)
 
   return (
     <Tile name="What leaves this Mac" value={count === 0 ? 'Nothing' : count === 1 ? 'One thing' : 'Two things'} className="col-span-6 @max-[820px]:col-span-2">
       <div className="grid flex-1 grid-cols-2 items-start gap-x-8 gap-y-3 @max-[820px]:grid-cols-1">
         <SwitchRow
           label="Usage events"
-          checked={usageEvents}
-          onChange={setUsageEvents}
-          says="Which parts of hobkin were used and how runs ended, as counts and fixed words. Never a message, a report, a name or a path."
+          checked={usage.checked}
+          onChange={(on) => (usage.onHost ? void upload.apply(on) : setUsageEvents(on))}
+          says={upload.trouble ?? usage.says}
         />
         <SwitchRow
           label="Feedback"
