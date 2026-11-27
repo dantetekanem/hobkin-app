@@ -134,11 +134,11 @@ function shownAgain(rows: Rows | null, place: Place | undefined, indexes: Readon
 }
 
 /**
- * The rows' heights as measured, with the width each was measured at, and when a change of height moves the view. A
- * row measured at another width, or kept from the last time the list was drawn, is not known yet, so its first measure
- * keeps the view as a new row's does: if it starts above the view. One measured before moves the view only if it is all
- * above it and the user is not scrolling up. Nothing moves the view while the list follows its newest row: follow.ts
- * takes it to the end.
+ * The rows' heights as measured, with the width each was measured at, and when a change of height moves the view to
+ * keep what it shows in place. A row measured at another width, or kept from the last time the list was drawn, is not
+ * known yet, so its first measure keeps the view as a new row's does: if it starts above the view. One measured before
+ * keeps it only if it is all above it and the user is not scrolling up. The view is moved here, by as much as the row
+ * changed, from where it is. Nothing moves it while the list follows its newest row: follow.ts takes it to the end.
  */
 function useRowHeights(following: { readonly current: boolean }) {
   const measuredAt = useRef(new Map<string, number>())
@@ -161,12 +161,17 @@ function useRowHeights(following: { readonly current: boolean }) {
   }, [])
 
   const keepsView = useCallback(
-    (item: VirtualItem, _delta: number, rows: Rows) => {
+    (item: VirtualItem, delta: number, rows: Rows) => {
       if (following.current) return false
-      const top = rows.scrollOffset ?? 0
+      // From where the view is now, not from TanStack's own place: that is a frame old while the user scrolls, and a
+      // correction from it would undo the scroll they made since.
+      const element = rows.scrollElement
+      if (!element) return false
+      const top = element.scrollTop
       const known = lastMeasure.current?.key === item.key && lastMeasure.current.known
-      if (!known) return item.start < top
-      return item.end <= top && rows.scrollDirection !== 'backward'
+      const keeps = known ? item.end <= top && rows.scrollDirection !== 'backward' : item.start < top
+      if (keeps) element.scrollTop = top + delta
+      return false
     },
     [following],
   )
@@ -257,7 +262,9 @@ function useStepWalk<Row>(content: ListRef, { rows, keys, walkable, list }: Walk
 
 /**
  * Each drawn row is told its place in the list and measured, after every draw: TanStack watches it for changes in
- * height from then on, and lets go of the rows no longer drawn.
+ * height from then on, and lets go of the rows no longer drawn. A row drawn for the first time is measured here even
+ * while the user scrolls, when TanStack would wait for its ResizeObserver: the view is kept in place as the row takes its
+ * height before anything reads the page, not only just before it paints.
  */
 function useMeasuredRows(list: Rows, content: ListRef, pieces: readonly Piece[]) {
   useLayoutEffect(() => {
@@ -275,6 +282,7 @@ function useMeasuredRows(list: Rows, content: ListRef, pieces: readonly Piece[])
       const index = String(piece.index)
       if (child.getAttribute('data-index') !== index) child.setAttribute('data-index', index)
       list.measureElement(child)
+      if (list.isScrolling && !list.itemSizeCache.has(list.options.getItemKey(piece.index))) list.resizeItem(piece.index, list.options.measureElement(child, undefined, list))
     }
     list.measureElement(null)
   })
