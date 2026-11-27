@@ -278,7 +278,7 @@ test('zones: one block for each, in the order given, none overlapping another, a
   assert.ok(rects.get('spec')!.x + rects.get('spec')!.width <= code[0]!.x)
   // A node the review puts in no zone it lists stands in a block of its own, which no wire joins: under the zones of
   // the column where the change is.
-  assert.equal(positions.stray!.x, positions.render!.x)
+  assert.equal(positions.stray!.x, Math.min(...['render', 'link', 't-render', 't-link', 't-link-2'].map((id) => positions[id]!.x)))
   assert.ok(positions.stray!.y > rects.get('helper-tests')!.y + rects.get('helper-tests')!.height)
 
   // The same review always lays out the same way, in whole points, its first region at the origin.
@@ -288,7 +288,7 @@ test('zones: one block for each, in the order given, none overlapping another, a
   assert.equal(Math.min(...[...rects.values()].map((rect) => rect.y)), 0)
 })
 
-test('zones: a zone of tests sits under the code it mirrors, each test just left of what it covers, so its wire is short', () => {
+test('zones: a zone of tests sits under code that other zones wire into, each test just left of what it covers, so its wire is short', () => {
   const { zones, all, wires } = zoned()
   const positions = layoutZones(all, wires, zones)
   const rects = zoneRects(all, positions)
@@ -298,12 +298,59 @@ test('zones: a zone of tests sits under the code it mirrors, each test just left
   const [from, to] = [positions['t-link']!, positions.link!]
   assert.ok(from.x + NODE_SIZE.test.width < to.x, 't-link sits left of link, so its wire leaves a right pin into a left one')
   assert.ok(to.x - from.x < 2 * NODE_SIZE.test.width, 't-link sits near link')
-  // A test of code in the first column stands under it, so the zone's region starts where its code does, tests or none.
-  assert.equal(positions['t-render']!.x, positions.render!.x)
-  assert.ok(tests.x >= helpers.x)
+  // A test of code in the zone's first column stands left of the zone, so its wire still runs right.
+  assert.ok(positions['t-render']!.x + NODE_SIZE.test.width < positions.render!.x)
   assert.equal(overlaps(nodeRect('test', positions['t-link']!), nodeRect('test', positions['t-link-2']!)), false)
-  const untested = layoutZones(all.filter((entry) => entry.kind !== 'test'), wires, zones)
-  assert.equal(zoneRects(all, untested).get('helpers')!.x, helpers.x, "folding the zone's tests away leaves its heading where it was")
+})
+
+/** The user's picture (2026-11-26): a model's stored settings and the zone of the test that covers them, nothing else. */
+function storedSettings() {
+  const zones: LayoutZone[] = [
+    { id: 'settings', layer: 'model' },
+    { id: 'settings-tests', layer: 'test:model' },
+  ]
+  const all: ZoneNode[] = [
+    { id: 'stores', kind: 'code', zone: 'settings', change: 'modified' },
+    { id: 'rejects', kind: 'test', zone: 'settings-tests', change: 'added' },
+  ]
+  return { zones, all, wires: [wire('rejects', 'stores')] }
+}
+
+test('zones: a zone of tests stands left of the code it covers, on its row, when nothing else comes into that code', () => {
+  const { zones, all, wires } = storedSettings()
+  for (const flow of ['left-to-right', 'top-to-bottom'] as const) {
+    const positions = layoutZones(all, wires, zones, [], {}, flow)
+    const rects = zoneRects(all, positions)
+    const [tests, code] = [rects.get('settings-tests')!, rects.get('settings')!]
+    const [test, stores] = [positions.rejects!, positions.stores!]
+    if (flow === 'left-to-right') {
+      assert.equal(test.y, stores.y, 'the test on the row of what it covers')
+      assert.equal(tests.y, code.y, 'the two zones side by side')
+      assert.equal(tests.x + tests.width + ZONE_FRAME.gap, code.x, 'the tests just left of the code, a gap apart')
+    } else {
+      assert.equal(test.x, stores.x, 'the test in the column of what it covers')
+      assert.equal(tests.x, code.x, 'the two zones one over the other')
+      assert.ok(tests.y + tests.height + ZONE_FRAME.gap <= code.y, 'the tests just over the code')
+    }
+    const { source, target } = wirePins({ kind: 'test', position: test }, { kind: 'code', position: stores }, flow)
+    if (flow === 'left-to-right') assert.ok(source.x < target.x && source.y === target.y, 'a short straight wire, right pin to left pin')
+    else assert.ok(source.y < target.y && source.x === target.x, 'a short straight wire, bottom pin to top pin')
+  }
+})
+
+test('zones: no wire runs back, whichever way the graph reads', () => {
+  for (const { zones, all, wires } of [zoned(), twoWaysIn(), storedSettings()]) {
+    for (const flow of ['left-to-right', 'top-to-bottom'] as const) {
+      const positions = layoutZones(all, wires, zones, [], {}, flow)
+      assertNoOverlap(all, positions)
+      for (const edge of wires) {
+        const [from, to] = [all.find((entry) => entry.id === edge.from)!, all.find((entry) => entry.id === edge.to)!]
+        const { source, target } = wirePins({ kind: from.kind, position: positions[from.id]! }, { kind: to.kind, position: positions[to.id]! }, flow)
+        if (flow === 'left-to-right') assert.ok(source.x < target.x, `${edge.from} to ${edge.to} runs right`)
+        else assert.ok(source.y < target.y, `${edge.from} to ${edge.to} runs down`)
+      }
+    }
+  }
 })
 
 test('zones: zones a request reaches together stand one under the other, so no wire runs behind a zone it skips', () => {

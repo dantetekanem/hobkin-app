@@ -53,7 +53,7 @@ test('tests fold into one card for each subject, with their helper, and never st
   assert.equal(shape.covers[titled(pull, 'links a handle with dots and dashes').id], titled(pull, 'link_user_tags').id)
 })
 
-test('the graph reads the way a request goes, zone by zone, with each zone of tests under the code it covers', () => {
+test('the graph reads the way a request goes, zone by zone, with each zone of tests left of the code it covers', () => {
   const shape = arrange(pull)
   const at = (title: string) => shape.nodes.find((node) => node.title === title)!
   const x = (title: string) => at(title).position.x
@@ -70,17 +70,14 @@ test('the graph reads the way a request goes, zone by zone, with each zone of te
   const zoneOf = (title: string) => shape.zones.findIndex((zone) => zone.id === at(title).zone)
   for (const node of shape.nodes) assert.ok(shape.zones.some((zone) => zone.id === node.zone), `${node.title} is in a zone`)
   assert.ok(zoneOf('GET /posts/:id') < zoneOf('PostsController#show') && zoneOf('PostsController#show') < zoneOf('link_user_tags') && zoneOf('link_user_tags') < zoneOf('User.find_by_handles'))
-  // Tests are off the way: each card sits under the code of its subject's zone, just left of what it covers, or right
-  // under it when it is in the zone's first column.
-  for (const group of Object.values(shape.groups)) {
-    const card = shape.nodes.find((node) => node.id === group.id)!
-    const subject = shape.nodes.find((node) => node.id === group.subject)!
-    const code = shape.nodes.filter((node) => node.zone === subject.zone)
-    assert.ok(card.position.y > Math.max(...code.map((node) => node.position.y + nodeRect(node.kind, node.position).height)), `${card.title} sits under its subject's zone`)
-    const first = Math.min(...code.map((node) => node.position.x))
-    if (subject.position.x === first) assert.equal(card.position.x, subject.position.x, `${card.title} sits under ${subject.title}`)
-    else assert.ok(card.position.x + 288 < subject.position.x && card.position.x >= first, `${card.title} sits left of ${subject.title}`)
-  }
+  // Tests are off the way: each card stands left of what it covers, so its wire runs right.
+  const cardFor = (title: string) => shape.nodes.find((node) => node.id === Object.values(shape.groups).find((group) => group.subject === at(title).id)!.id)!
+  for (const title of ['link_user_tags', 'fetch_errors', 'report']) assert.ok(cardFor(title).position.x + 288 < x(title), `the tests for ${title} sit left of it`)
+  // The controllers call into the helper, so its tests sit under its zone. Nothing calls into the scripts: theirs stand
+  // on their rows.
+  const helper = shape.nodes.filter((node) => node.zone === at('link_user_tags').zone)
+  assert.ok(cardFor('link_user_tags').position.y > Math.max(...helper.map((node) => node.position.y + nodeRect(node.kind, node.position).height)))
+  for (const title of ['fetch_errors', 'report']) assert.equal(cardFor(title).position.y, at(title).position.y, `the tests for ${title} on its row`)
   // A changed node nothing wires stays among the rest: there is no block apart.
   assert.ok(!('apart' in shape))
   // Nothing overlaps, and the same review always lays out the same way.

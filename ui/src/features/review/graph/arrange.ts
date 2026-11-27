@@ -5,8 +5,8 @@
  * Tests fold into one card for each subject, the node they cover, with the test helpers they use. More single tests
  * than a few fold by their file. Each node is in a zone (`zones.ts`, spec 055), and the graph is laid out by zone from
  * what is drawn (`layoutZones`): one block for each, in the order a request passes them, so a request still reads from
- * where it enters through the code that leads to the change, the change and what it calls, with each zone of tests under
- * the code it mirrors. A changed node nothing wires stays in its place among the rest, and its card says so. A story
+ * where it enters through the code that leads to the change, the change and what it calls, with each zone of tests left
+ * of the code it mirrors. A changed node nothing wires stays in its place among the rest, and its card says so. A story
  * step that focused a folded test focuses its card. Pure, and the same review always comes out the same.
  */
 import { layoutZones, zoneDocks, type GraphFlow } from '#shared/review/layout.ts'
@@ -66,7 +66,7 @@ export interface Arranged {
   zones: GraphZone[]
   /** Each drawn node and each node of the review, by its id, to the id of its zone. */
   zoneOf: Record<string, string>
-  /** The code zone each zone of tests sits under, as the whole graph has it, kept when its nodes fold (`zoneDocks`). */
+  /** The code zone each zone of tests stands with, as the whole graph has it, kept when its nodes fold (`zoneDocks`). */
   docks: Record<string, string>
   /** Which way the graph reads: left to right, or top to bottom (spec 006). */
   flow: GraphFlow
