@@ -132,7 +132,7 @@ const SAYS = {
   ghSignIn: 'Signs gh in to your GitHub account in the browser, with a one-time code.',
   claude: "Installs Claude Code with Anthropic's own installer, from claude.ai.",
   claudeSignIn: 'Signs Claude Code in to your Claude account in the browser.',
-  qmd: `Installs qmd ${QMD_VERSION} from npm. Its search model downloads the first time it runs.`,
+  qmd: `Installs qmd ${QMD_VERSION} from npm. It downloads its search model on first use.`,
 }
 
 const NO_ANSWER = 'Did not answer'

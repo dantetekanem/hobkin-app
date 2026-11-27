@@ -173,9 +173,14 @@ function NeedRow(props: NeedRowProps) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
-          <span className="truncate font-heading text-[13.5px] font-medium">{need.name}</span>
+          {/* What is wrong gives way first, so the name always shows whole; its tooltip has it all. */}
+          <span className="max-w-full shrink-0 truncate font-heading text-[13.5px] font-medium">{need.name}</span>
           {need.version ? <span className="shrink-0 font-mono text-[11.5px] text-muted-foreground">{need.version}</span> : null}
-          {need.problem ? <span className={cn('truncate text-[12px] text-muted-foreground', NEEDED.includes(need.group) && 'text-destructive')}>· {need.problem}</span> : null}
+          {need.problem ? (
+            <span className={cn('min-w-0 truncate text-[12px] text-muted-foreground', NEEDED.includes(need.group) && 'text-destructive')} title={need.problem}>
+              · {need.problem}
+            </span>
+          ) : null}
         </div>
         <p className="line-clamp-2 text-[12px] leading-[16px] text-muted-foreground" title={about}>
           {about}
