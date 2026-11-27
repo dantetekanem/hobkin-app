@@ -37,13 +37,13 @@ export const JAVA_RUNTIME = {
 /**
  * The TLAPS setup installs into `tools/tlaps`: tlapm's 1.6.0-pre tarball, the only one with a macOS build, for Apple silicon
  * alone (https://github.com/tlaplus/tlapm/releases/tag/1.6.0-pre). It is relocatable and brings its backends (Z3, Zenon,
- * Isabelle, LS4). The pre-release is rebuilt in place, so the sha256 is the one GitHub listed for the build of 2026-11-26,
- * and a later build does not match it until the pin here is updated.
+ * Isabelle, LS4). Upstream rebuilds that pre-release in place, so hobkin keeps the build of 2026-11-26 on a pre-release of
+ * its own repository and checks it against this sha256 and size. A newer build goes on a new release with a new pin.
  */
 export const TLAPS = {
   version: '1.6.0-pre',
   builds: {
-    arm64: { url: 'https://github.com/tlaplus/tlapm/releases/download/1.6.0-pre/tlapm-1.6.0-pre-arm64-darwin.tar.gz', sha256: 'c82b5edf853359bf20fb0d7c177ac89b040939f9f829d4eaaf923f79c81a3826', bytes: 40986905 },
+    arm64: { url: 'https://github.com/dantetekanem/hobkin-client/releases/download/tlaps-1.6.0-pre-2026-11-26/tlapm-1.6.0-pre-arm64-darwin.tar.gz', sha256: 'c82b5edf853359bf20fb0d7c177ac89b040939f9f829d4eaaf923f79c81a3826', bytes: 40986905 },
   },
 };
 

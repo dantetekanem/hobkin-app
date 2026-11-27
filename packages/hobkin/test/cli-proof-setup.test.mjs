@@ -243,11 +243,12 @@ test('on an Intel Mac setup installs TLC and says in its one line that TLAPS has
   assert.doesNotMatch(said.message, /\n/);
 });
 
-test('the pinned TLAPS is the 1.6.0-pre Apple-silicon tarball, with the sha256 GitHub lists for it', () => {
+test("the pinned TLAPS is hobkin's own copy of the 1.6.0-pre Apple-silicon tarball, with its sha256 and size", () => {
   assert.equal(TLAPS.version, '1.6.0-pre');
   assert.deepEqual(Object.keys(TLAPS.builds), ['arm64']);
-  assert.equal(TLAPS.builds.arm64.url, 'https://github.com/tlaplus/tlapm/releases/download/1.6.0-pre/tlapm-1.6.0-pre-arm64-darwin.tar.gz');
-  assert.equal(TLAPS.builds.arm64.sha256, '1e8cc2fa6be352528d52611e1b77ad004e6ccd7f1264b119df17599179601e26');
+  assert.equal(TLAPS.builds.arm64.url, 'https://github.com/dantetekanem/hobkin-client/releases/download/tlaps-1.6.0-pre-2026-11-26/tlapm-1.6.0-pre-arm64-darwin.tar.gz');
+  assert.equal(TLAPS.builds.arm64.sha256, 'c82b5edf853359bf20fb0d7c177ac89b040939f9f829d4eaaf923f79c81a3826');
+  assert.equal(TLAPS.builds.arm64.bytes, 40986905);
 });
 
 test('the pinned Java runtime is a Temurin JRE build for each Mac chip, with its sha256', () => {
