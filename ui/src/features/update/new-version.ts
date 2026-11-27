@@ -10,7 +10,7 @@ export interface NewVersionDeps {
 
 /**
  * Tells `show` of a new version of hobkin the host found on GitHub (`077-new-version`): at once, and each time `every`
- * asks again. Each version shows once, and again when what Update can do about it changes. A read that fails shows
+ * asks again. Each version shows once, and again when what stands in the way of it changes. A read that fails shows
  * nothing, and the next ask tries again. Returns how to stop.
  */
 export function watchNewVersion({ read, show, every }: NewVersionDeps): () => void {
@@ -20,7 +20,7 @@ export function watchNewVersion({ read, show, every }: NewVersionDeps): () => vo
   const showIfNew = (status: VersionStatus) => {
     if (stopped) return
     if (!status.available || !status.newest) return
-    const notice = `${status.newest} ${status.blocked ?? ''}`
+    const notice = `${status.newest} ${status.inTheWay ?? ''}`
     if (notice === shownNotice) return
     shownNotice = notice
     show(status)

@@ -2,12 +2,14 @@ import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { VersionStatus, VersionUpdated } from '#shared/protocol/version.ts'
+import type { VersionStatus } from '#shared/protocol/version.ts'
+import { Unavailable, type HostHandlers } from './commands.ts'
+import { fill, oneAgentAtATime, readPromptFile } from './review/agent-prompt.ts'
 
 /**
- * A copy of hobkin run from its git repository, as the README installs it, hears of a newer version on GitHub and
- * updates itself on the user's word (`077-new-version`). A release build updates itself through the shell
- * (`src-tauri/src/updates.rs`), and its host is not a git checkout, so it never looks here.
+ * A copy of hobkin run from its git repository, as the README installs it, hears of a newer version on GitHub, and
+ * Update opens an agent that brings it up to date (`077-new-version`). A release build updates itself through the
+ * shell (`src-tauri/src/updates.rs`), and its host is not a git checkout, so it never looks here.
  *
  * A new version is a higher `version` in package.json on the default branch of the copy's origin. A merge without a
  * version bump is not one. A look fetches that one branch, which changes none of the copy's files.
@@ -21,10 +23,6 @@ export interface NewVersionOptions {
   repo: string
   /** Only a live host looks, so tests and throwaway homes never reach the network. */
   looks: boolean
-  /** The app starts this host again when it ends, so hobkin restarts into an update by itself (`code-age.ts`). */
-  restarts: boolean
-  /** What installs the copy's packages once it is at the new version. */
-  install?: readonly string[]
   run?: Run
   now?: () => number
 }
@@ -37,9 +35,6 @@ const LOOK_EVERY_MS = 6 * 60 * 60 * 1000
 /** A look that failed, such as one made offline, is made again sooner. */
 const FAILED_LOOK_MS = 30 * 60 * 1000
 const GIT_MS = 60_000
-const INSTALL_MS = 10 * 60_000
-/** It installs `packages/hobkin` and the app from their lockfiles, as the README's setup does. */
-const INSTALL = ['pnpm', 'run', 'bootstrap']
 /** Git never waits on a sign-in prompt that nobody sees. */
 const NO_PROMPTS = {
   GIT_TERMINAL_PROMPT: '0',
@@ -114,87 +109,48 @@ function versionOf(packageJson: string): string | null {
   return typeof version === 'string' && version.trim() ? version.trim() : null
 }
 
-/** The lines an error says, without the blank ones. */
-function linesOf(error: unknown): string[] {
+function firstLine(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  return message.split('\n').filter((line) => line.trim())
+  return message.split('\n').find((line) => line.trim())?.trim() ?? 'no reason given'
 }
-
-const firstLine = (error: unknown) => linesOf(error)[0]?.trim() ?? 'no reason given'
-const lastLines = (error: unknown) => linesOf(error).slice(-12).join('\n')
 
 /** One look at the default branch on origin: the version it found there, or why it found none. */
 type Look = { at: number; branch: string } & ({ newest: string; problem: null } | { newest: null; problem: string })
 
 export class NewVersion {
-  private readonly repo: string
+  readonly repo: string
   private readonly looks: boolean
-  private readonly restarts: boolean
-  private readonly install: readonly string[]
   private readonly run: Run
   private readonly now: () => number
   private last: Look | null = null
   private looking: Promise<Look> | null = null
-  private updating: Promise<VersionUpdated> | null = null
 
-  constructor({ repo, looks, restarts, install = INSTALL, run = runProgram, now = Date.now }: NewVersionOptions) {
+  constructor({ repo, looks, run = runProgram, now = Date.now }: NewVersionOptions) {
     this.repo = repo
     this.looks = looks
-    this.restarts = restarts
-    this.install = install
     this.run = run
     this.now = now
   }
 
-  /** This copy's version against the newest, looking again once the last look has stopped holding. */
-  async read(): Promise<VersionStatus> {
+  /** This copy's version against the newest, looking again once the last look has stopped holding, or now when `fresh`. */
+  async read({ fresh = false }: { fresh?: boolean } = {}): Promise<VersionStatus> {
     const current = this.current()
     const off = this.off()
     if (off) {
-      return { current, newest: null, available: false, blocked: null, problem: off, checkedAt: null }
+      return { current, newest: null, available: false, inTheWay: null, problem: off, checkedAt: null, branch: null }
     }
 
-    const look = await this.look({ fresh: false })
+    const look = await this.look({ fresh })
     const available = isNewer(look.newest, current)
     return {
       current,
       newest: look.newest,
       available,
-      blocked: available ? await this.blocked(look.branch) : null,
+      inTheWay: available ? await this.inTheWay(look.branch) : null,
       problem: look.problem,
       checkedAt: new Date(look.at).toISOString(),
+      branch: look.branch,
     }
-  }
-
-  /** Brings this copy up to the newest version, on the user's word: a fresh look, a fast-forward, and the install. */
-  update(): Promise<VersionUpdated> {
-    this.updating ??= this.updateNow().finally(() => {
-      this.updating = null
-    })
-    return this.updating
-  }
-
-  private async updateNow(): Promise<VersionUpdated> {
-    const off = this.off()
-    if (off) throw Error(off)
-    const look = await this.look({ fresh: true })
-    if (look.newest === null) throw Error(look.problem)
-
-    const current = this.current()
-    if (!isNewer(look.newest, current)) return { version: current ?? look.newest, restarts: this.restarts }
-    const blocked = await this.blocked(look.branch)
-    if (blocked) throw Error(blocked)
-
-    await this.git(['merge', '--ff-only', '--quiet', `origin/${look.branch}`])
-    const version = this.current() ?? look.newest
-    const [program, ...args] = this.install
-    try {
-      await this.run(program, args, { cwd: this.repo, timeoutMs: INSTALL_MS })
-    } catch (error) {
-      const byHand = `Run \`${this.install.join(' ')}\` in ${this.repo}, then restart hobkin.`
-      throw Error(`This copy is at ${version} now, but its packages did not install. ${byHand} The install said:\n${lastLines(error)}`)
-    }
-    return { version, restarts: this.restarts }
   }
 
   /** Why this host never looks, or null when it does. */
@@ -260,20 +216,68 @@ export class NewVersion {
     }
   }
 
-  /** Why Update can't fast-forward this copy to the branch, or null when it can. */
-  private async blocked(branch: string): Promise<string | null> {
+  /** What stands between this copy and a plain fast-forward to the branch, or null when nothing does. */
+  private async inTheWay(branch: string): Promise<string | null> {
     const onBranch = await this.git(['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => '')
-    if (onBranch !== branch) return `Update works only on ${branch}, and this copy is on ${onBranch || 'no branch'}.`
+    if (onBranch !== branch) return `This copy is on ${onBranch || 'no branch'}, not ${branch}.`
 
     const changed = await this.git(['status', '--porcelain', '--untracked-files=no'])
-    if (changed) return 'This copy has uncommitted changes, so Update leaves it alone.'
+    if (changed) return 'This copy has uncommitted changes.'
 
     const ahead = await this.git(['rev-list', '--count', `origin/${branch}..HEAD`])
-    if (ahead !== '0') return `This copy has commits that ${branch} on origin does not have, so Update leaves it alone.`
+    if (ahead !== '0') return `This copy has commits that ${branch} on origin does not have.`
     return null
   }
 
   private git(args: readonly string[]): Promise<string> {
     return this.run('git', args, { cwd: this.repo, timeoutMs: GIT_MS })
+  }
+}
+
+export interface VersionSeat {
+  versions: NewVersion
+  /** The app starts this host again when it ends, so hobkin restarts into an update by itself (`code-age.ts`). */
+  restarts: boolean
+  /** Starts a durable hobkin in `cwd` with `text` as its first message, on the tier for ordinary coding work. */
+  start: (hobkin: { cwd: string; title: string; text: string }) => Promise<{ id: string; run: string | null }>
+  /** Whether that hobkin is still there: not ended. */
+  exists: (hobkin: string) => Promise<boolean>
+}
+
+const template = readPromptFile(new URL('./new-version.md', import.meta.url))
+const FAST_FORWARD = 'nothing of its own is in the way, so a fast-forward should do.'
+
+/** The update agent's first message, with every place filled. */
+export function updatePrompt(status: VersionStatus & { newest: string; branch: string }, { repo, restarts }: { repo: string; restarts: boolean }): string {
+  return fill(template.main, {
+    newest: status.newest,
+    current: status.current ?? 'unknown: its package.json names no version',
+    repo,
+    branch: status.branch,
+    state: status.inTheWay ?? FAST_FORWARD,
+    restart: template.part(restarts ? 'kept' : 'not kept'),
+  })
+}
+
+/**
+ * `version.read`, and `version.update`, which opens one agent on the mid tier to bring the copy up to the newest
+ * version. While that agent is there, Update opens it again and starts no other.
+ */
+export function versionHandlers({ versions, restarts, start, exists }: VersionSeat): Pick<HostHandlers, 'version.read' | 'version.update'> {
+  const oneAtATime = oneAgentAtATime(exists)
+
+  const begin = async () => {
+    const status = await versions.read({ fresh: true })
+    if (status.problem) throw new Unavailable(status.problem)
+    if (!status.available || status.newest === null || status.branch === null) {
+      throw new Unavailable(`This copy is at ${status.current ?? 'an unknown version'}, the newest on GitHub.`)
+    }
+    const text = updatePrompt({ ...status, newest: status.newest, branch: status.branch }, { repo: versions.repo, restarts })
+    return start({ cwd: versions.repo, title: `Update hobkin to ${status.newest}`, text })
+  }
+
+  return {
+    'version.read': () => versions.read(),
+    'version.update': () => oneAtATime('update', begin),
   }
 }

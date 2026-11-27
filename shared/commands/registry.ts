@@ -17,7 +17,7 @@ import type { KeyHelp, ModelsState, ModelsUpdate } from '../protocol/models.ts'
 import { NUDGE_SCREENS } from '../protocol/nudge.ts'
 import { INTEGRATION_ID, type IntegrationManifest } from '../integration/manifest.ts'
 import type { SystemMetrics, UsageFacts } from '../protocol/system.ts'
-import type { VersionStatus, VersionUpdated } from '../protocol/version.ts'
+import type { UpdateAgent, VersionStatus } from '../protocol/version.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
 import type { ListedAgent, ShellFields } from '../protocol/snapshot.ts'
 import type { AgentScheduleRuns } from '../protocol/schedules.ts'
@@ -230,13 +230,13 @@ export const COMMANDS = {
     description: "Restart the host alone, on the user's word, so it loads the code on disk: hobkin closes cleanly, and the app starts a new host. The window stays open and connects again. Agents and reviews that are running stop.",
     runs: 'host', args: nothing,
   },
-  // A copy of hobkin run from git hears of a new version on GitHub, and Update brings it up to date (077-new-version).
+  // A copy of hobkin run from git hears of a new version on GitHub, and Update opens an agent that brings it up to date (077-new-version).
   'version.read': {
-    description: "Whether a new version of hobkin is out: this copy's version, the newest in package.json on the default branch of its origin on GitHub, and why Update can't bring this copy up to it, if it can't. It looks again once its last look is six hours old. A release build updates itself, so it answers with why it does not look.",
+    description: "Whether a new version of hobkin is out: this copy's version, the newest in package.json on the default branch of its origin on GitHub, and what stands between this copy and a plain fast-forward to it, such as uncommitted changes. It looks again once its last look is six hours old. A release build updates itself, so it answers with why it does not look.",
     runs: 'host', args: nothing, hobkin: true,
   },
   'version.update': {
-    description: "Bring this copy of hobkin up to the newest version, on the user's word: fast-forward it to the default branch of its origin, install its packages with `pnpm run bootstrap`, and hobkin restarts into it once nothing runs. It leaves alone a copy on another branch, with uncommitted changes, or with commits its origin does not have.",
+    description: "Update, on the user's word: open one agent on the mid tier, in this copy's folder, to bring it up to the newest version and install its packages. It asks the user before it touches a copy on another branch or with uncommitted changes. While that agent is there, Update opens it again and starts no other.",
     runs: 'host', args: nothing, outside: true,
   },
   // Local backup of hobkin's records in its home into timestamped zips outside it. Restore replaces the records, so it is the user's alone.
@@ -1706,7 +1706,7 @@ export interface CommandResults {
   'host.code': { startedAt: string; changed: number; newestAt: string | null }
   'host.restart': { ok: true }
   'version.read': VersionStatus
-  'version.update': VersionUpdated
+  'version.update': UpdateAgent
   'system.metrics': SystemMetrics
   'usage.facts': UsageFacts
   'backup.list': BackupState

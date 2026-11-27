@@ -3,16 +3,17 @@ import { test } from 'node:test'
 import type { VersionStatus } from '#shared/protocol/version.ts'
 import { watchNewVersion } from '../src/features/update/new-version.ts'
 
-const UNCOMMITTED = 'This copy has uncommitted changes, so Update leaves it alone.'
+const UNCOMMITTED = 'This copy has uncommitted changes.'
 
 function status(newest: string | null, change: Partial<VersionStatus> = {}): VersionStatus {
   return {
     current: '0.2.3',
     newest,
     available: newest !== null && newest !== '0.2.3',
-    blocked: null,
+    inTheWay: null,
     problem: null,
     checkedAt: '2026-11-27T12:00:00.000Z',
+    branch: 'main',
     ...change,
   }
 }
@@ -25,7 +26,7 @@ test('a new version is shown once for each version the host names, and reads sto
     async () => status('0.2.4'),
     async () => status('0.2.4'),
     async () => Promise.reject(new Error('Disconnected from hobkin.')),
-    async () => status('0.2.4', { blocked: UNCOMMITTED }),
+    async () => status('0.2.4', { inTheWay: UNCOMMITTED }),
     async () => status('0.2.5'),
   ]
   const shown: [string | null, string | null][] = []
@@ -33,8 +34,8 @@ test('a new version is shown once for each version the host names, and reads sto
   let stops = 0
   const stop = watchNewVersion({
     read: () => hostAnswers.shift()?.() ?? new Promise(() => {}),
-    show: ({ newest, blocked }) => {
-      shown.push([newest, blocked])
+    show: ({ newest, inTheWay }) => {
+      shown.push([newest, inTheWay])
     },
     every: (look) => {
       askAgain = look
@@ -59,7 +60,7 @@ test('a new version is shown once for each version the host names, and reads sto
       ['0.2.4', UNCOMMITTED],
       ['0.2.5', null],
     ],
-    'each version once, again when what Update can do changes, and a failed read shows nothing',
+    'each version once, again when what is in the way changes, and a failed read shows nothing',
   )
 
   let answerLate: (value: VersionStatus) => void = () => {}

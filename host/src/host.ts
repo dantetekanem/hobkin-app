@@ -35,7 +35,7 @@ import type { JobActivity } from '#shared/protocol/activity.ts'
 import { openablePath, readForViewer } from './files.ts'
 import { execFileSync } from 'node:child_process'
 import { hostCode, keptByApp, shouldRestart } from './code-age.ts'
-import { NewVersion, REPO } from './new-version.ts'
+import { NewVersion, REPO, versionHandlers } from './new-version.ts'
 import { MergedPulls } from './merged-pulls.ts'
 import { History } from './history.ts'
 import { Titles, titleHobkins } from './titles.ts'
@@ -259,8 +259,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   if (other) throw Error(`A host is already serving ${root} (process ${other.pid}).`)
   // The app keeps this host when it starts another once this one ends, so this one can restart onto newer code.
   const kept = options.dev === true && keptByApp(parentCommand())
-  // A copy run from git hears of a new version on GitHub, and Update brings it up to date (077-new-version).
-  const versions = new NewVersion({ repo: REPO, looks: live, restarts: kept })
+  // A copy run from git hears of a new version on GitHub (077-new-version).
+  const versions = new NewVersion({ repo: REPO, looks: live })
 
   const token = createToken()
   const turns = new TurnRelay()
@@ -794,8 +794,20 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       setTimeout(() => process.kill(process.pid, 'SIGTERM'), 150).unref()
       return { ok: true as const }
     },
-    'version.read': () => versions.read(),
-    'version.update': () => versions.update(),
+    // And Update: one agent on the mid tier brings the copy up to date, started the way hobkin.start starts one.
+    ...versionHandlers({
+      versions,
+      restarts: kept,
+      start: async ({ cwd, title, text }) => handlers['hobkin.start']!({ cwd, title, text, engine: { kind: 'tier', tier: 'mid' } }),
+      exists: async (id) => {
+        try {
+          await handlers['hobkin.read']!({ id })
+          return true
+        } catch {
+          return false
+        }
+      },
+    }),
     // Integrations changes Pi's configuration only on the user's word, through Pi's own code (023-integrations).
     'integrations.refresh': () => integrations.refresh(),
     'integrations.turn-off': ({ name }) => integrations.turnOff(name),

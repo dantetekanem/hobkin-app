@@ -6,18 +6,19 @@ export interface VersionStatus {
   newest: string | null
   /** The newest is higher than this copy's. */
   available: boolean
-  /** Why Update can't bring this copy up to the newest by itself, or null when it can. */
-  blocked: string | null
+  /** What stands between this copy and a plain fast-forward to the newest, such as uncommitted changes. Null when nothing does. */
+  inTheWay: string | null
   /** Why the last look found nothing: a host that is not live, a release build, an origin out of reach. Null when it worked. */
   problem: string | null
   /** When the last look finished, as an ISO time, or null before the first. */
   checkedAt: string | null
+  /** The default branch of the copy's origin, where the newest version is, once hobkin looked. */
+  branch: string | null
 }
 
-/** What Update did. */
-export interface VersionUpdated {
-  /** The version this copy is at now. */
-  version: string
-  /** hobkin restarts into it by itself once nothing runs. When false, the user restarts hobkin. */
-  restarts: boolean
+/** The agent Update opened to bring the copy up to date: a durable hobkin, already there when `already`. */
+export interface UpdateAgent {
+  hobkin: string
+  run: string | null
+  already: boolean
 }

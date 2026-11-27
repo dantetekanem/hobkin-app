@@ -1,6 +1,8 @@
-import { useEffect, type MouseEvent } from 'react'
+import { useEffect } from 'react'
 import { toast } from 'sonner'
+import { hobkinAgentId } from '#shared/protocol/hobkins.ts'
 import type { VersionStatus } from '#shared/protocol/version.ts'
+import { useView } from '@/app/view-store.ts'
 import { Toaster } from '@/components/ui/sonner.tsx'
 import { hostStore, runCommand } from '@/lib/host/client.ts'
 import { inMacWindow, updater } from '@/lib/native.ts'
@@ -12,44 +14,32 @@ import { watchUpdate } from './watch.ts'
  * shared toaster here would start showing them as a side effect of the updater.
  */
 const TOASTER = 'update'
-/** The notice of a new version on GitHub, for a copy run from git (077-new-version). Update changes it in place. */
+/** The notice of a new version on GitHub, for a copy run from git (077-new-version). */
 const NEW_VERSION = 'new-version'
 const ASK_EVERY_MS = 60 * 60 * 1000
 
-/** Update, from the notice: the copy moves to the new version and installs it, and the notice says how that went. */
-function update(newest: string) {
-  const sameNotice = { id: NEW_VERSION, toasterId: TOASTER, duration: Infinity, action: undefined }
-  toast.loading(`Updating to hobkin ${newest}…`, { ...sameNotice, description: 'Bringing this copy up to date and installing its packages.' })
-
+/** Update, from the notice: one agent on the mid tier brings the copy up to date, and the window opens it. */
+function update() {
   runCommand('version.update').then(
-    ({ version, restarts }) => {
-      const next = restarts ? 'hobkin restarts into it once nothing is running.' : 'Restart hobkin to load it.'
-      toast.success(`hobkin ${version} is installed.`, { ...sameNotice, description: next })
+    ({ hobkin }) => {
+      useView.getState().openAgentCanvas(hobkinAgentId(hobkin))
     },
     (error: unknown) => {
       const reason = error instanceof Error ? error.message : String(error)
-      toast.error('The update stopped.', { ...sameNotice, description: reason })
+      toast.error('The update did not start.', { id: NEW_VERSION, toasterId: TOASTER, duration: Infinity, description: reason })
     },
   )
 }
 
-function showNewVersion({ newest, blocked }: VersionStatus) {
+function showNewVersion({ newest, inTheWay }: VersionStatus) {
   if (!newest) return
-  const updateButton = {
-    label: 'Update',
-    onClick: (event: MouseEvent<HTMLButtonElement>) => {
-      // Sonner closes a notice after its action unless the click is prevented. This one turns into the update's progress.
-      event.preventDefault()
-      update(newest)
-    },
-  }
   toast(`New version available: hobkin ${newest}`, {
     id: NEW_VERSION,
     toasterId: TOASTER,
     duration: Infinity,
-    // A copy Update can't move says why, in place of the button.
-    description: blocked ?? undefined,
-    action: blocked ? undefined : updateButton,
+    description: inTheWay ? `${inTheWay} The agent that updates it asks you first.` : undefined,
+    // The notice closes, and the agent's own screen shows the update.
+    action: { label: 'Update', onClick: update },
   })
 }
 

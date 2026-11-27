@@ -62,7 +62,7 @@ Or do it yourself:
 
 ### Updates
 
-When a new version of hobkin is out on GitHub, the window says "New version available". Press Update, and hobkin brings your copy up to date, installs its packages, and restarts into it once nothing is running. If your copy is on another branch or has changes of its own, hobkin says so and leaves the update to you.
+When a new version of hobkin is out on GitHub, the window says "New version available". Press Update, and an agent brings your copy up to date and installs its packages, and hobkin restarts into it once nothing is running. If your copy is on another branch or has changes of its own, the agent asks you before it touches them.
 
 ## A tour
 
