@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import type { Review } from '#shared/review/types.ts'
+import { escapeReview } from '../src/features/review/entry.ts'
 import { pressKey } from '../src/features/review/keys.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
 import { createSession, type Session } from '../src/features/review/state/session.ts'
@@ -55,10 +56,12 @@ test('a move while the code is open keeps the reviewer where they went once Ente
   press(session, 'Enter')
   assert.deepEqual([session.getState().story.step, session.getState().code, session.getState().wire], [4, null, null])
 
-  // Opened again, Escape's path closes it the same way, and the next Enter opens it once more.
   press(session, 'Enter')
-  session.getState().closeCode()
+  let exits = 0
+  const escape = () => escapeReview(session.getState(), () => exits++)
+  escape()
   assert.equal(session.getState().code, null)
-  press(session, 'Enter')
-  assert.ok(session.getState().code)
+  assert.equal(exits, 0)
+  escape()
+  assert.equal(exits, 1)
 })

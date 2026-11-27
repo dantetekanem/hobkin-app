@@ -269,8 +269,7 @@ export function CodePanel({ height, windowHeight, units, ask }: {
   return (
     <motion.section
       ref={sheet}
-      // A sheet over the graph, with its own keys. The frame leaves the keys of a dialog to the dialog.
-      role="dialog"
+      // A region of the review, not a dialog: Escape belongs to the graph's layer handler.
       aria-label="Code"
       aria-hidden={!open}
       inert={!open}
