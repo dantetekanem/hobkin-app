@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { main } from '../src/cli/main.mjs';
-import { openDiff } from '../src/cli/work/controls.mjs';
 import {
   chooseProject, dropProject, fileItem, paths, prFile, proposeProject, readItems, readMode, readProject, readProjects, pendingCancels, recordTokens, updateItem, writeMode, writeOwnerView, writeState,
 } from '../src/cli/work/store.mjs';
@@ -368,23 +367,6 @@ test('there is nothing to review on an item with no branch, or one that is over'
 
   updateItem(root, 'api', id, { state: 'merged' });
   assert.match((await failure(root, 'review', 'api', id)).message, /merged/);
-});
-
-test('a diff says how to see it by hand, in the project\'s own folder', async t => {
-  const { root, checkout, id } = localPr(t);
-
-  const { message } = await openDiff(root, 'api', id);
-
-  assert.match(message, /\/diff main\.\.\.hobkin\/login/);
-  assert.ok(message.includes(checkout.split('/').at(-1)), message);
-});
-
-test('an item with no branch has no diff, and says so', async t => {
-  const root = home(t);
-  chooseProject(root, repository(root, 'api'), 'important');
-  const { id } = fileItem(root, 'api', item('Fix login'));
-
-  await assert.rejects(openDiff(root, 'api', id), /no branch/);
 });
 
 test('what a run left for the user stays listed on a done item, until the user marks it done', async t => {

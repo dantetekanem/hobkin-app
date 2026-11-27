@@ -206,14 +206,12 @@ test('in the Done walk, what the user did with a branch is recorded, and what fa
   await app.workAction('merge', slug, merged);
   await app.workAction('decline', slug, declined);
   await app.workAction('ask', slug, sentBack, 'a private note');
-  await app.workAction('diff', slug, sentBack);
   await assert.rejects(app.workAction('merge', slug, 'missing'));
   await app.close();
 
   assert.deepEqual(h.ofType('done_merged').map(event => [event.project, event.item]), [[slug, merged]]);
   assert.deepEqual(h.ofType('done_declined').map(event => event.item), [declined]);
   assert.deepEqual(h.ofType('done_sent_back').map(event => event.item), [sentBack]);
-  assert.deepEqual(h.ofType('done_diff').map(event => event.item), [sentBack]);
   assert.doesNotMatch(h.written(), /private note/);
 });
 

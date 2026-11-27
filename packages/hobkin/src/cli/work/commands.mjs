@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { resolveDataRoot } from '../migration/admission.mjs';
 import { adoptBranch } from './adopt.mjs';
 import {
-  addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, newProject, openDiff, pauseWork, publishItem, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
+  addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, newProject, pauseWork, publishItem, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow, trueOutcome, trustPattern,
 } from './controls.mjs';
 import { deployNow, recordDeployed } from './deploys.mjs';
@@ -39,7 +39,7 @@ Read, as JSON, with nothing running:
   running, queue                       agents at work; the plan and its waits
   items [project] [--state state]      state, grade, branch, PR, what is left
   ready                                what can land at its commit, and why not
-  pr, diff <project> <item>            a local PR; diff says how to open it in pi-coder
+  pr <project> <item>                  a local PR
   review [project item]                the last week; or ask to review that item
   search <text>                        by name, path, title, summary or error
   attention, offers                    what is left for the user; what can land
@@ -354,7 +354,6 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'items': return itemsView(root, args[0], state);
     case 'ready': return landingList(root);
     case 'pr': return prView(root, ...args);
-    case 'diff': return openDiff(root, ...args);
     case 'review': return args.length ? requestReview(root, args[0], args[1], QUEUED) : reviewView(root);
     case 'search': return searchView(root, args.join(' '));
     case 'attention': return attentionView(root);

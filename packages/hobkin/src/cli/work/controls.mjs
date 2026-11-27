@@ -466,17 +466,6 @@ export function setGrade(root, reference, id, word) {
   return reply(`"${item.title}" on ${nameOf(project)} is now ${grade}${auto ? ', the grade the queue gives it' : ''}. It takes its new place on the next tick.`);
 }
 
-/** Says how to see a branch the way a reviewer sees it, in the repository that holds it: a project's own folder, or the clone Hobkin keeps of a URL. Work mode opens no panes. */
-export async function openDiff(root, reference, id) {
-  const project = findProject(root, reference);
-  const { branch, title } = findItem(root, project, id);
-  if (!branch) throw Error(`"${title}" has no branch yet, so there is no diff to show.`);
-
-  const cwd = project.path ?? paths(root, project.slug).clone;
-  const range = `${await defaultBranch(cwd)}...${branch}`;
-  return reply(`To see it in pi-coder, run Pi in ${shortPath(cwd)} and type /diff ${range}.`, { range, cwd });
-}
-
 /**
  * The only way a review starts. `reviewAsked` is the user's word, so the item's next run is that review and no agent can set it. With work mode off or
  * paused a card's review of finished work goes to the main agent instead. No main agent hears a command, so `toMainAgent` is false there and it queues.

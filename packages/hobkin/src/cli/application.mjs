@@ -53,7 +53,7 @@ import { clientNotice, clientNoticesToPost, markClientNoticesPosted } from './cl
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { workStatus } from './work/commands.mjs';
-import { askAgent, declineItem, deleteItemBranch, fixRisk, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, pauseWork, publishItem, requestReview, resumeWork, riskStays, triggerRow } from './work/controls.mjs';
+import { askAgent, declineItem, deleteItemBranch, fixRisk, markDone, mergeItem, mergePullRequest, openPullRequest, pauseWork, publishItem, requestReview, resumeWork, riskStays, triggerRow } from './work/controls.mjs';
 import { addIssue } from './work/issues.mjs';
 import { mergeGroup } from './work/merge-group.mjs';
 import { filePickUp, retirePickUp } from './work/pick-up.mjs';
@@ -208,7 +208,7 @@ const HOBKIN_WAKE_RETRY_MS = 5 * 60000;
 // How many living jobs' replies one wake carries, so it stays well under what a message can hold. The rest go with the next.
 const JOBS_TOLD_MOST = 5;
 // The keys of the Done walk, which only the user presses.
-const WALK_EVENTS = { diff: 'done_diff', merge: 'done_merged', decline: 'done_declined', ask: 'done_sent_back' };
+const WALK_EVENTS = { merge: 'done_merged', decline: 'done_declined', ask: 'done_sent_back' };
 // A tick comes every second, and what is waiting rarely changes that fast.
 const PENDING_LOOK_MS = 30000;
 // A question nobody was there to see waits this long for them to come back, then joins Decisions without opening.
@@ -1871,7 +1871,6 @@ export class HobkinApplication {
       later: () => skipInQueue(root, slug),
       back: () => putBackInQueue(root, slug),
       retry: () => retryItem(root, slug, value),
-      diff: () => openDiff(root, slug, value),
       review: () => requestReview(root, slug, value),
       merge: () => mergeItem(root, slug, value, { ...extra, route: 'key' }),
       decline: () => declineItem(root, slug, value),
