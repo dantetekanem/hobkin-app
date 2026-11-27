@@ -164,7 +164,7 @@ test('a pull request that merged on another code host leaves GitHub alone: nothi
   await settle()
 
   assert.deepEqual(part.pulls?.()?.mine.map((p) => p.number), [4], 'the github.com pull request of the same number stays')
-  assert.equal(source.reads, before)
+  assert.equal(source.reads, before, 'GitHub is not read again, now or a little later')
   part.close?.()
 })
 
