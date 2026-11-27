@@ -1,6 +1,6 @@
 # Change Review: let the Reviewer read any code
 
-These instructions are for an agent working in /Users/someone/Poetry/hobkin-client. They were written on 2026-11-13 from the code at commit 39edb41 (the review code is the same as at 0f5e25b) and the uncommitted work in the checkout that day. Other sessions edit these repositories while you work, so check each anchor before you rely on it.
+These instructions are for an agent working in a checkout of hobkin-client. They were written on 2026-11-13 from the code at commit 39edb41 (the review code is the same as at 0f5e25b) and the uncommitted work in the checkout that day. Other sessions edit these repositories while you work, so check each anchor before you rely on it.
 
 The goal: the Reviewer is the model pass that rates every change. It should read whatever code it needs to find what breaks: files, search, callers and callees, the base side, history. The review's nodes become its starting map instead of its only view, and it gets Pi's skills like hobkin's other agents. Everything else about a review stays as it is.
 
@@ -195,7 +195,7 @@ Do not write tests that only check the wording of reviewer.md or review.md. Read
 
 ## Checks
 
-Run these from /Users/someone/Poetry/hobkin-client. Each test run has a timeout, so no process is left behind.
+Run these from the repository's root. Each test run has a timeout, so no process is left behind.
 
 ```sh
 node --test --test-timeout=60000 host/test/review-agent.test.ts host/test/review-reviewer-tools.test.ts host/test/review-reviewer-resources.test.ts host/test/review-hobkin.test.ts host/test/change-review-host.test.ts

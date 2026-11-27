@@ -30,7 +30,7 @@ import { descendants, kill, leftOver, processes, type Running } from './host/pro
 
 const argv = process.argv.slice(2)
 const value = (name: string, fallback: string) => (argv.includes(name) ? argv[argv.indexOf(name) + 1]! : fallback)
-const SCRATCH = '/private/tmp/claude-501/-Users-leonardopereira-Poetry-hobkin-client/bc0eba63-6ebe-43a5-98a4-c784d84508d6/scratchpad/077'
+const SCRATCH = join(tmpdir(), 'hobkin-agent-open')
 const reuse = value('--home', '')
 const keep = argv.includes('--keep')
 const seconds = Number(value('--seconds', '15'))

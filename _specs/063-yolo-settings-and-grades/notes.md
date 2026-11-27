@@ -1,6 +1,6 @@
 # Audit for spec 063: what stops YOLO mode, where grades come from
 
-Made on 2026-11-24, read-only. `[code]` was read in the code, `[inferred]` is reasoned from it, `[not seen]` could not be checked here. hobkin's files are in `/Users/someone/Poetry/hobkin/src/cli/work/` (called `hobkin` below, paths relative to that folder), the app's in `/Users/someone/Poetry/hobkin-client`. hobkin's checkout was on another session's branch and was only read. Nothing under `~/.hobkin` was read, so what the user's own project shows (nine changes waiting, three broken models) is taken from the user's words, not seen.
+Made on 2026-11-24, read-only. `[code]` was read in the code, `[inferred]` is reasoned from it, `[not seen]` could not be checked here. hobkin's files are in its `src/cli/work/` folder (called `hobkin` below, paths relative to that folder), then a separate checkout; the app's are in this repository. hobkin's checkout was on another session's branch and was only read. Nothing under `~/.hobkin` was read, so what the user's own project shows (nine changes waiting, three broken models) is taken from the user's words, not seen.
 
 ## 1. Every rule that can stop a merge
 

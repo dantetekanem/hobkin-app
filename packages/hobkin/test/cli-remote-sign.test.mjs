@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { canonicalInput, freshNonce, signedHeaders, signRequest } from '../src/cli/remote/sign.mjs';
 
-// A byte-for-byte copy of /Users/someone/Poetry/hobkin-api/docs/signature-v1.json, the server's own known-answer vector.
+// A byte-for-byte copy of hobkin-api's docs/signature-v1.json, the server's own known-answer vector.
 // Node generated it and the server's Ruby tests check it, so a changed copy fails here before it can drift from the server.
 const FIXTURE = new URL('./fixtures/hobkin-api/signature-v1.json', import.meta.url);
 const PINNED_SHA256 = '8c8e54c981e7496abc1634a2f04376bf54656922cf5e6166dbd01251799553f7';

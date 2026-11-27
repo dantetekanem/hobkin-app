@@ -2,7 +2,7 @@
 
 Written 2026-11-24. Read-only review of `ui/src/app/`, `ui/src/features/`, `ui/src/components/`, `ui/src/styles/` and specs 000, 019, 031, 044 and 053. The Work page's finished-changes lists and the Change Review screen belong to two other lanes and are left out.
 
-How to read the evidence. "Picture" means I rendered the screen with its sample data in the dark theme (server-rendered markup, the app's own CSS, `qlmanage` for the PNG) and looked at it. "Code" means I read it at the `file:line` given. "Inference" means I am reasoning from either. Pictures are in the scratchpad at `/private/tmp/claude-501/-Users-leonardopereira-Poetry-hobkin-client/06fa8baa-0be5-4ebc-a70b-509e98f38fc0/scratchpad/lanes/ux-c/` (`work-dark.html.png`, `actions-dark.html.png`, `github-dark.html.png`, `reports-dark.html.png`, `routines-dark.html.png`, `yolo-dark.html.png`, `settings-dark.html.png`).
+How to read the evidence. "Picture" means I rendered the screen with its sample data in the dark theme (server-rendered markup, the app's own CSS, `qlmanage` for the PNG) and looked at it. "Code" means I read it at the `file:line` given. "Inference" means I am reasoning from either. Pictures stayed in the review session's scratch folder and are not in the repository (`work-dark.html.png`, `actions-dark.html.png`, `github-dark.html.png`, `reports-dark.html.png`, `routines-dark.html.png`, `yolo-dark.html.png`, `settings-dark.html.png`).
 
 ## The short answer
 

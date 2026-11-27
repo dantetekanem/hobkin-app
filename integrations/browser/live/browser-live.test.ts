@@ -18,12 +18,12 @@ import { OWN_WINDOW_SECRET, startOwnWindow, startSite, type Site } from './site.
  *
  *   HOBKIN_BROWSER_LIVE=1 node --test integrations/browser/live/browser-live.test.ts
  *
- * The engine's binary comes from HOBKIN_BROWSER_BINARY, and Chrome for Testing from agent-browser's own folder in
+ * The engine's binary comes from HOBKIN_BROWSER_BINARY, or `agent-browser` on the PATH, and Chrome for Testing from agent-browser's own folder in
  * the user's home, which is only read: a Chrome that is not there is never downloaded by this file.
  */
 
 const LIVE = process.env.HOBKIN_BROWSER_LIVE === '1'
-const BINARY = process.env.HOBKIN_BROWSER_BINARY ?? '/Users/someone/Poetry/experiments/hobkin-canvas-browser/tool/node_modules/.bin/agent-browser'
+const BINARY = process.env.HOBKIN_BROWSER_BINARY ?? 'agent-browser'
 const BROWSERS = join(homedir(), '.agent-browser', 'browsers')
 // Names of their own, so no browser of the user's or of hobkin's is touched, and a short wait so a miss fails fast.
 const PREFIX = `hobkin-live-test-${process.pid}`

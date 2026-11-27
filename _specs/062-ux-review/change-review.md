@@ -56,7 +56,7 @@ What the pictures showed that the code does not say:
 - A rated review (sample PR) puts five rows of two-line evidence before the sentence on what the change does. A review with no rating puts two lines of apology there instead. Both sit above the point of the screen.
 - Evidence is a list of four lines whose meaning is already said above it. It sits between the comments and the verdict, which is the right place for a fact but the wrong place for a second telling.
 
-Things I could not render (graph, step card, dock, code panel, proof, finder): they need the canvas camera and a live window. They are reviewed from code only. I looked at the dark theme only. The pictures are in `/private/tmp/claude-501/-Users-leonardopereira-Poetry-hobkin-client/06fa8baa-0be5-4ebc-a70b-509e98f38fc0/scratchpad/lanes/ux-b/`.
+Things I could not render (graph, step card, dock, code panel, proof, finder): they need the canvas camera and a live window. They are reviewed from code only. I looked at the dark theme only. The pictures stayed in the review session's scratch folder and are not in the repository.
 
 Where the same question is answered more than once (code):
 

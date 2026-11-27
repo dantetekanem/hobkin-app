@@ -13,7 +13,7 @@ import { RemoteSender, runUploadCommand, sendTelemetry, uploadStatus } from '../
 import { fakePi } from './helpers/pi-session.mjs';
 import { credentialValues, fakeServer, provision, reply } from './fixtures/hobkin-api/fake-server.mjs';
 
-// A byte-for-byte copy of /Users/someone/Poetry/hobkin-api/docs/telemetry-v1.json, the server's catalog of what it takes.
+// A byte-for-byte copy of hobkin-api's docs/telemetry-v1.json, the server's catalog of what it takes.
 // Every event this client builds is checked against it, so a changed copy fails here before the client drifts from the server.
 const CATALOG = new URL('./fixtures/hobkin-api/telemetry-v1.json', import.meta.url);
 const PINNED_SHA256 = '682c45d4f20c83064f6d6ace94f9d146ca2c337b11a0d0341e71da060f1c784d';
