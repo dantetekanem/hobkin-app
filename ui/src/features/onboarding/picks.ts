@@ -39,6 +39,9 @@ export function ownOption(options: readonly string[], typed: string): string | n
   return words
 }
 
+/** How a cloud goes on: Continue once something is picked, and Skip, which passes the question, while nothing is. */
+export const cloudWayOn = (picked: readonly string[]): 'continue' | 'skip' => (picked.length > 0 ? 'continue' : 'skip')
+
 /** The picks as the answer that is kept, in the order they were picked. */
 export const pickedAnswer = (picked: readonly string[]): string => picked.join(', ')
 

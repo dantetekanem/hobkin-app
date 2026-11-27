@@ -5,9 +5,9 @@ import type { PendingQuestion } from '../../shared/protocol/question.ts'
 import type { PiSetup, ProjectFolder, SetupProjectOutcome, SetupProjectWhy, SetupSaved, SetupWorkDone } from '../../shared/protocol/setup.ts'
 import { codexProvider, connectedNames } from '../src/features/onboarding/accounts.ts'
 import { balance, GLOW, GROW, shadesFor } from '../src/features/onboarding/balance.ts'
-import { foldersPicked, matching, ownOption, pickedAnswer, picksOf, PICKS_SHOWN, shownOf, togglePick } from '../src/features/onboarding/picks.ts'
+import { cloudWayOn, foldersPicked, matching, ownOption, pickedAnswer, picksOf, PICKS_SHOWN, shownOf, togglePick } from '../src/features/onboarding/picks.ts'
 import { CODE_QUESTIONS, pickedSuggestions, startingReply, toggleSuggestion } from '../src/features/onboarding/questions.ts'
-import { setupAnswersOf } from '../src/features/onboarding/goals.ts'
+import { GOAL_BUBBLES, GOALS, goalsOf, setupAnswersOf } from '../src/features/onboarding/goals.ts'
 import { cardPicksOf, dropCard, keepCard, NO_PICKS, picksFrom, type Card, type CardPicks, type GoalCards } from '../src/features/onboarding/cards.ts'
 import {
   beatAfter,
@@ -539,6 +539,26 @@ test('many bubbles can be picked, a picked one can be let go, and the answer kee
   assert.deepEqual(picksOf('notes, my-blog, gone', ['my-blog', 'notes'], false), ['notes', 'my-blog'], 'coming back, only what is still there')
   assert.deepEqual(picksOf('Email, My bank', ['Email'], true), ['Email', 'My bank'], 'an own one is kept where own ones are taken')
   assert.deepEqual(picksOf(undefined, ['a'], true), [])
+})
+
+test('a cloud goes on by Continue once something is picked, and by Skip while nothing is', () => {
+  assert.equal(cloudWayOn([]), 'skip')
+  assert.equal(cloudWayOn(['notes']), 'continue')
+  assert.equal(cloudWayOn([...GOAL_BUBBLES]), 'continue', 'every bubble picked still goes on')
+})
+
+test('picking goals in the window moves the story on to what hobkin says back', async () => {
+  // The store reads the address as it loads, as the window does.
+  const page = globalThis as { location?: { search: string } }
+  page.location ??= { search: '' }
+  const { useSetup } = await import('../src/features/onboarding/store.ts')
+  useSetup.setState({ tale: { at: 'goals', line: 1, trail: ['email'], ended: null }, answers: none })
+
+  // What the cloud hands `pickedFor` in Storyteller.tsx, every bubble picked.
+  useSetup.getState().answer(goalsOf(GOAL_BUBBLES), bare)
+
+  assert.equal(useSetup.getState().tale.at, 'goals-said')
+  assert.deepEqual(useSetup.getState().answers.goals, [...GOALS])
 })
 
 test('typed words become a bubble of their own only where there is none by that name', () => {

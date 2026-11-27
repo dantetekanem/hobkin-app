@@ -2,10 +2,11 @@ import { Check } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button.tsx'
+import { Kbd } from '@/components/ui/kbd.tsx'
 import { play } from '@/features/sound/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { matching, ownOption, shownOf, togglePick } from './picks.ts'
+import { cloudWayOn, matching, ownOption, shownOf, togglePick } from './picks.ts'
 import './story.css'
 
 interface PickCloudProps {
@@ -39,7 +40,9 @@ const ARRIVE = { step: 0.012, atMost: 28 }
 /**
  * A cloud of small bubbles to pick from, as many as one likes, over the hill under hobkin. Typing narrows them to
  * what holds the typed words, and at most fifty show at once. Where the list takes new ones, Enter makes the typed
- * words a bubble of their own. Enter with nothing typed, or Done, keeps what was picked.
+ * words a bubble of their own. Once something is picked, Continue shows where Skip was, and it, Enter with nothing
+ * typed, or Done keeps what was picked. A bubble picked with the pointer gives the keyboard back to the field, so
+ * Enter goes on.
  */
 export function PickCloud({ label, options, state, note, initial, allowOwn, remark, top, onAnswer, still }: PickCloudProps) {
   const id = useId()
@@ -104,9 +107,11 @@ export function PickCloud({ label, options, state, note, initial, allowOwn, rema
                   <button
                     type="button"
                     aria-pressed={on}
-                    onClick={() => {
+                    onClick={(event) => {
                       play('tap')
                       setPicked((ones) => togglePick(ones, option))
+                      // A click by the pointer, not by a key on the bubble itself.
+                      if (event.detail > 0) field.current?.focus({ preventScroll: true })
                     }}
                     className={cn(PILL, on ? PILL_PICKED : PILL_OPEN)}
                   >
@@ -146,9 +151,19 @@ export function PickCloud({ label, options, state, note, initial, allowOwn, rema
           <p role={state === 'none' ? 'status' : undefined} className="max-w-[46ch] text-[12px] leading-snug text-foreground/80">
             {says}
           </p>
-          <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => onAnswer([])}>
-            Skip
-          </Button>
+          {/* Skip and Continue share one place, as wide and tall as Continue, so nothing moves when one takes the other's place. */}
+          <div className="flex h-9 min-w-[124px] shrink-0 items-center justify-end">
+            {cloudWayOn(picked) === 'continue' ? (
+              <Button type="button" size="lg" className="gap-2 px-4" onClick={() => onAnswer(picked)}>
+                Continue
+                <Kbd className="bg-foreground/10 text-primary-foreground">↵</Kbd>
+              </Button>
+            ) : (
+              <Button type="button" variant="ghost" size="sm" onClick={() => onAnswer([])}>
+                Skip
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </motion.form>
