@@ -37,6 +37,9 @@ const MOST_JSON_BYTES = 8 * 1024 * 1024;
 const SESSION_TAIL_BYTES = 256 * 1024;
 const MODEL_CHARS = 120;
 const LEVEL_CHARS = 20;
+const PROGRESS_CHARS = 200;
+// What a session hobkin could not read gives: no steps and no measure of its context.
+const NO_SESSION = Object.freeze({ steps: Object.freeze([]) });
 // A run never seen running in a refresh, and this old, has ended.
 const UNSEEN_MS = 30000;
 
@@ -282,6 +285,8 @@ export class TeamsAgents {
     const { state, phase } = this.standing(run, row, facts);
     const ended = state === 'done' || state === 'failed';
     const steps = facts?.steps.length ? facts.steps : undefined;
+    // What it says it is doing holds only while it runs. What its context holds stays, as its last measure.
+    const progress = state === 'running' ? facts?.runtime?.latestProgress : undefined;
     const messages = facts?.messages.length ? facts.messages : row.said.length ? row.said : undefined;
 
     return fields({
@@ -293,6 +298,8 @@ export class TeamsAgents {
       thinking: row.thinking ?? facts?.ranOn?.thinking,
       state,
       phase,
+      progress,
+      tokens: facts?.tokens,
       startedAt: row.startedAt,
       endedAt: ended ? timeOf(facts?.report?.createdAt) ?? row.endedAt : undefined,
       summary: facts?.report?.summary ?? row.summary,
@@ -420,9 +427,10 @@ export class TeamsAgents {
         runtime: ownRuntime ? fields({
           activeToolName: cut(runtime.activeToolName, 80),
           currentAction: cut(runtime.currentAction, 80),
+          latestProgress: cut(runtime.latestProgress, PROGRESS_CHARS),
           lastHeartbeatAt: runtime.lastHeartbeatAt,
         }) : undefined,
-        steps: runId ? await this.steps(join(dir, 'agent-sessions', row.name, runId)) : [],
+        ...(runId ? await this.session(join(dir, 'agent-sessions', row.name, runId)) : NO_SESSION),
         messages: messagesOf(row.name, runId, first.at, await inbox(row.name), await inbox('team-lead')),
       });
     }
@@ -452,21 +460,24 @@ export class TeamsAgents {
     }
   }
 
-  /** The last steps of the agent's own Pi session, from the end of its newest file, kept as hobkin keeps any agent's. */
-  async steps(dir) {
+  /**
+   * What the agent's own Pi session says, from the end of its newest file: its last steps, kept as hobkin keeps any
+   * agent's, and how many tokens its context held at its last whole response.
+   */
+  async session(dir) {
     try {
       const names = (await readdir(dir)).filter(name => name.endsWith('.jsonl')).sort();
-      if (!names.length) return [];
+      if (!names.length) return NO_SESSION;
       const path = join(dir, names.at(-1));
       this.touched?.add(path);
       const { size, mtimeMs } = await stat(path);
       const known = this.files.get(path);
       if (known?.size === size && known.mtimeMs === mtimeMs) return known.value;
-      const value = stepsOf(await tail(path, size), this.mostSteps);
+      const value = sessionOf(await tail(path, size), this.mostSteps);
       this.files.set(path, { size, mtimeMs, value });
       return value;
     } catch {
-      return [];
+      return NO_SESSION;
     }
   }
 
@@ -592,23 +603,48 @@ async function tail(path, size) {
   }
 }
 
-/** An agent's session lines as an agent's steps: its words and tool calls, never its thinking or a tool's details. */
-function stepsOf(text, most) {
+/** A usage figure from a session file: a positive count, or none. */
+const counted = value => (Number.isFinite(value) && value > 0 ? value : 0);
+
+/**
+ * The tokens a response's context held, as Pi counts them (`calculateContextTokens`): its total, or else its parts.
+ * A response cut short or failed measured nothing, so it gives none.
+ */
+function contextTokens(message) {
+  const usage = message.usage;
+  const cutShort = message.stopReason === 'aborted' || message.stopReason === 'error';
+  if (!usage || cutShort) return undefined;
+
+  const parts = counted(usage.input) + counted(usage.output) + counted(usage.cacheRead) + counted(usage.cacheWrite);
+  const tokens = counted(usage.totalTokens) || parts;
+  return tokens > 0 ? Math.round(tokens) : undefined;
+}
+
+/**
+ * An agent's session lines as an agent's steps, its words and tool calls, never its thinking or a tool's details; and
+ * the tokens its context held at its last whole response, as Pi's own footer counts them.
+ */
+function sessionOf(text, most) {
   let at;
+  let tokens;
   const feed = new JobActivity({ now: () => at });
   for (const line of text.split('\n')) {
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
     const message = entry?.type === 'message' ? entry.message : undefined;
     at = timeOf(entry?.timestamp);
-    if (message?.role === 'assistant') feed.accept({ type: 'message_end', message: { role: 'assistant', content: message.content } });
+    if (message?.role === 'assistant') {
+      tokens = contextTokens(message) ?? tokens;
+      feed.accept({ type: 'message_end', message: { role: 'assistant', content: message.content } });
+    }
     if (message?.role === 'toolResult') {
       feed.accept({ type: 'tool_execution_end', toolCallId: message.toolCallId, toolName: message.toolName, isError: message.isError === true, result: { content: message.content } });
     }
   }
-  return feed.snapshot().slice(-most).map(({ codemode, ...step }) => fields({
+  const steps = feed.snapshot().slice(-most).map(({ codemode, ...step }) => fields({
     ...step, text: step.text?.slice(0, 600), input: step.input?.slice(0, 400), output: step.output?.slice(0, 400),
   }));
+  return fields({ steps, tokens });
 }
 
 /** The messages between the run and this run of the agent: those to it in its inbox, and those from it in the run's. */

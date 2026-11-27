@@ -351,6 +351,52 @@ test("an agent's steps and messages come from its own session and the inboxes, c
   assert.deepEqual(plain.snapshot().r1[0].messages.map(({ by, text }) => [by, text]), [['run', 'Look at the session store'], ['agent', 'All done']]);
 });
 
+test("a running agent says its latest progress and how many tokens its context holds, from teams' own files", async t => {
+  const time = clock();
+  const dir = folder(t);
+  const at = session(dir, 'abc', { members: [member('scout', 10_100, 'run-1')] });
+  const transcript = join(at, 'agent-sessions', 'scout', 'run-1');
+  mkdirSync(transcript, { recursive: true });
+  const usage = (input, output, cacheRead, totalTokens) => ({ input, output, cacheRead, cacheWrite: 0, ...(totalTokens === undefined ? {} : { totalTokens }), cost: { total: 0 } });
+  const said = (timestamp, fields) => JSON.stringify({ type: 'message', id: timestamp, timestamp, message: { role: 'assistant', content: [{ type: 'text', text: 'Reading.' }], ...fields } });
+  const file = join(transcript, '2026-11-15T16-55-18-276Z_child.jsonl');
+  const write = (...lines) => writeFileSync(file, [JSON.stringify({ type: 'session', version: 3, id: 'child', timestamp: '2026-11-15T16:55:18.276Z', cwd: '/x' }), ...lines].join('\n') + '\n');
+  write(
+    said('2026-11-15T16:55:20.000Z', { usage: usage(19_000, 100, 0, 19_100), stopReason: 'toolUse' }),
+    said('2026-11-15T16:55:30.000Z', { usage: usage(900, 400, 25_000, 26_300), stopReason: 'toolUse' }),
+    // A response cut short measured nothing: the context is what the last whole one held.
+    said('2026-11-15T16:55:40.000Z', { usage: usage(0, 0, 0, 0), stopReason: 'aborted' }),
+  );
+  const runtime = progress => writeFileSync(join(at, 'runtime', 'scout.json'), JSON.stringify({
+    agentName: 'scout', lifecycleRunId: 'run-1', currentAction: 'working', lastHeartbeatAt: 10_200, latestProgress: progress, progressUpdatedAt: 10_150,
+  }));
+  runtime(`Tracing the redirect\u001b[31m through the session store${' and more'.repeat(40)}`);
+  const teams = layer(dir, time);
+  spawnScout(teams, time);
+  teams.snapshot(new Set(['r1']));
+  await teams.read();
+  const [scout] = teams.snapshot().r1;
+  assert.equal(scout.tokens, 26_300);
+  assert.match(scout.progress, /^Tracing the redirect through the session store and more/);
+  assert.ok(scout.progress.length <= 200, 'progress is cut to a line');
+
+  // A response with no total counts its parts.
+  write(said('2026-11-15T16:55:50.000Z', { usage: usage(1_000, 500, 30_000), stopReason: 'stop' }));
+  runtime('Writing the report');
+  await teams.read();
+  assert.deepEqual(view(teams.snapshot().r1, ['state', 'progress', 'tokens']), [{ state: 'running', progress: 'Writing the report', tokens: 31_500 }]);
+
+  // Ended, it keeps what its context held and no longer says what it is doing.
+  writeFileSync(join(at, 'reports.json'), JSON.stringify([stored('scout', 10_200, 40_000, 'run-1')]));
+  await teams.read();
+  assert.deepEqual(view(teams.snapshot().r1, ['state', 'progress', 'tokens']), [{ state: 'done', progress: undefined, tokens: 31_500 }]);
+
+  // Without teams' files there is neither.
+  const plain = layer(folder(t), time);
+  spawnScout(plain, time);
+  assert.deepEqual(view(plain.snapshot().r1, ['progress', 'tokens']), [{ progress: undefined, tokens: undefined }]);
+});
+
 test("reading teams' files writes nothing there", async t => {
   const time = clock();
   const dir = folder(t);

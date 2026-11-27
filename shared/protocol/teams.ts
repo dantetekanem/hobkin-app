@@ -35,6 +35,10 @@ export interface TeamsAgent {
   state: TeamsAgentState
   /** teams' phase or tool for a running agent, when its runtime file has one. */
   phase?: string
+  /** What a running agent last said it is doing (teams' `latestProgress`), up to 200 characters. */
+  progress?: string
+  /** The tokens its context held at its last whole response, read from its own session, as Pi's footer counts them. */
+  tokens?: number
   /** Milliseconds since the epoch: when hobkin saw it spawn, and when it reported or failed. */
   startedAt?: number
   endedAt?: number
