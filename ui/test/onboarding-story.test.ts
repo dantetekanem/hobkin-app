@@ -613,14 +613,14 @@ test('the folder, the projects and validation are asked only with code, and only
   const job: Answers = { ...picked, goals: ['job'], replies: { projects: 'storefront' } }
   assert.deepEqual(walk(job, hosted, 'more'), ['more', 'q1', 'cards-job', 'thanks', 'usage', 'needs', 'settings', 'tour'])
   assert.deepEqual(setupAnswersOf(job, [folderOf('storefront')], []).projects, [])
-  assert.equal(beatAfter('q2', { ...picked, replies: { projects: '  ' } }, hosted), 'q3', 'nothing picked, nothing to say')
+  assert.equal(beatAfter('q2', { ...picked, replies: { 'projects-folder': '~/Code', projects: '  ' } }, hosted), 'cards-code', 'nothing picked, nothing to say or validate')
   assert.equal(beatAfter('q2', picked, { ...hosted, host: false }), 'q3', 'with no host nothing was done, as in a browser tab on sample data')
 })
 
 test('a folder left empty passes the projects question, and one that is not on this Mac is said in the bubble with the field to type another', () => {
   const empty: Answers = { ...picked, replies: { 'projects-folder': '  ' } }
-  assert.equal(beatAfter('q1', empty, hosted), 'q3', 'no folder is looked in, not even a usual one')
-  assert.equal(tellOn({ at: 'q1', line: 0, trail: ['more'], ended: null }, 'answered', empty, hosted).at, 'q3')
+  assert.equal(beatAfter('q1', empty, hosted), 'cards-code', 'no folder is looked in, not even a usual one')
+  assert.equal(tellOn({ at: 'q1', line: 0, trail: ['more'], ended: null }, 'answered', empty, hosted).at, 'cards-code')
   assert.equal(beatAfter('more', { ...picked, replies: {} }, hosted), 'q1', 'the folder itself is always asked')
 
   const asked = beatOf('q1', picked, hosted)
@@ -630,6 +630,15 @@ test('a folder left empty passes the projects question, and one that is not on t
   assert.notDeepEqual(missing.lines, asked.lines)
   assert.deepEqual(missing.ask, asked.ask, 'the same field, to type another or skip')
   assert.deepEqual(beatOf('q4', { ...picked, goals: ['code', 'project'] }, { ...hosted, folderMissing: '~/Projects' }).lines, beatOf('q4', { ...picked, goals: ['code', 'project'] }, hosted).lines, 'only the folder question says it')
+})
+
+test('validation is asked only once projects were picked', () => {
+  const none: Answers = { ...picked, replies: { 'projects-folder': '~/Code', projects: '' } }
+  assert.equal(beatAfter('q2', none, hosted), 'cards-code', 'skipped, or none found')
+  assert.equal(beatAfter('q2', none, { ...hosted, host: false }), 'cards-code')
+  assert.equal(beatAfter('projects-said', picked, hosted), 'q3', 'picked: asked after what was done with them')
+  assert.equal(beatAfter('q2', picked, { ...hosted, host: false }), 'q3')
+  assert.deepEqual(walk({ ...picked, goals: ['code', 'project'], replies: {} }, hosted, 'more'), ['more', 'q1', 'q4', 'cards-code', 'cards-project', 'thanks', 'usage', 'needs', 'settings', 'tour'])
 })
 
 test('a line in the quiet line is up only while the story is at the beat it was said at', () => {

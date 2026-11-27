@@ -9,6 +9,8 @@ import type { SetupSaved } from '#shared/protocol/setup.ts'
 interface Asked {
   id: string
   ask: string
+  /** The id of a question that must have an answer before this one is asked. */
+  needs?: string
 }
 
 /**
@@ -36,8 +38,10 @@ const WHERE_PROJECTS_LIVE: Question = {
 
 const WHICH_PROJECTS: Question = { id: 'projects', ask: 'Which ones should I run? Pick as many as you like.', kind: 'projects', in: 'projects-folder' }
 
+/** Asked only with projects picked: with none there is nothing to validate. */
 const VALIDATION: Question = {
   id: 'validation',
+  needs: 'projects',
   ask: 'Should I set up validation for them? That is what I run before I call work done.',
   kind: 'yes',
   yes: 'Set it up',

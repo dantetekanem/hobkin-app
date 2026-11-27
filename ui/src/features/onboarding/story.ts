@@ -365,10 +365,10 @@ const cardsFrom = (answers: Answers, facts: Facts): BeatId => {
   return first ? cardsBeatOf(first) : 'thanks'
 }
 
-/** Whether a question is asked, for what was answered before it: the projects only once a folder was named. */
+/** Whether a question is asked, for what was answered before it: the projects only once a folder was named, validation only once projects were picked. */
 function isAsked(question: Question, replies: Answers['replies']): boolean {
-  if (question.kind === 'projects') return Boolean(replies[question.in]?.trim())
-  return true
+  const needs = question.kind === 'projects' ? question.in : question.needs
+  return needs === undefined || Boolean(replies[needs]?.trim())
 }
 
 /** The first of the goals' questions from the one at `index` on that is asked, or the cards when none is. */

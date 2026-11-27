@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "draft",
   "depends": ["025-onboarding", "010-routines", "012-reports-actions", "022-questions"],
-  "updated": "2026-11-26"
+  "updated": "2026-11-27"
 }
 ---
 # Goal-first setup
@@ -47,7 +47,7 @@ This takes over the questions half of `025-onboarding` on the user's word of 202
   - `business`: the business in a line, what it sells and to whom. Typed.
   - `project`: the project and the date it has to be done by. Typed.
   - `life`: none. Its cards are clear enough.
-  - `code`: the folder, the projects and validation, as 025 asks them, with the projects handed to work mode as 025 A63 to A65 say. These are asked only for code.
+  - `code`: the folder, the projects and validation, as 025 asks them, with the projects handed to work mode as 025 A63 to A65 say. These are asked only for code. Since 2026-11-27, after the lead's walk of the simulated new Mac, the projects are asked only once a folder was named, and validation only once projects were picked (`needs` in `questions.ts`).
 
 ### Whose computer this is
 
@@ -176,7 +176,7 @@ This takes over the questions half of `025-onboarding` on the user's word of 202
 - A10. Every template hobkin ships names its goals, what is worth telling, what it gives and what closes an item, and every starter exists and names its goal. A template of the user's own with a `group` and no `goals` still reads, under the goal its group maps to.
 - A11. hobkin ships Roles that fit, Applications and Interviews for a job search; Leads and customers, Runway and Competitors for a business; and Milestones and Blockers for a project. Each states who it fits, what it reads, how often, what is worth telling, what it gives and what closes an item, keeps a baseline so nothing unchanged is told twice, and never sends, applies or buys.
 - A12. After the cards, hobkin says once that it will check it can reach what the routines look at and ask before it connects anything. With no card kept, it says nothing of it, nothing is written, and the story goes to the thanks.
-- A13. With code picked, the folder, the projects and validation are asked and the picked projects go to Work as 025 A63 to A65 say. Without code, none of them is asked and nothing goes to Work.
+- A13. With code picked, the folder is asked, the projects once a folder was named, and validation once projects were picked, and the picked projects go to Work as 025 A63 to A65 say. Without code, none of them is asked and nothing goes to Work.
 - A14. `hobkin setup` lists git and gh as needed only once work mode has a folder or a project. Otherwise they are optional, with a line that says they are for code work.
 - A15. With a card kept and a real model, one message goes to main hobkin in the chat. It names the goals and their answers, each kept card by template id and version with the person's changes, and the cards turned down, and it points to the "From the app's setup" section of the guide `hobkin setup` names. It asks for one routine per kept card, each turned on, with nothing connected before the person's yes and nothing run. With no card kept, no message goes.
 - A16. Following that section, main hobkin writes one routine for each kept card. Its file names the template, its instructions start from the template's body with the brackets filled for the person, each exclusion is a line that starts with its date, the template rules are there, and it is turned on. A routine whose source nothing reaches is written turned off, with the reason said. None of them runs.
@@ -212,7 +212,7 @@ This takes over the questions half of `025-onboarding` on the user's word of 202
 - A10. `hobkin/test/cli-routine-templates.test.mjs` › "every shipped template names its goals, its bar, what it gives and what closes an item, and every starter names its goal" and "a template of the user's own with only a group reads under the goal its group maps to"
 - A11. `hobkin/test/cli-routine-templates.test.mjs` › "the job, business and project templates are there and read"; check: read each new template's header and body for its stake, sources, cadence, bar, output, closing rule, baseline and limits. Not seen.
 - A12. `ui/test/onboarding-story.test.ts` › "after the cards hobkin says it will check what they need, and with none kept the story goes to the thanks"
-- A13. `ui/test/onboarding-story.test.ts` › "the folder, the projects and validation are asked only with code, and only then do projects go to Work"
+- A13. `ui/test/onboarding-story.test.ts` › "the folder, the projects and validation are asked only with code, and only then do projects go to Work" and "validation is asked only once projects were picked"
 - A14. `hobkin/test/cli-setup.test.mjs` › "git and gh are needed only once work mode has a folder or a project"
 - A15. `ui/test/onboarding-cards.test.ts` › "the writing message names the goals, each kept card by template and version with its changes, the ones turned down and the guide's section, and none goes with nothing kept"
 - A16. check: on a scratch home with a real model, keep three cards and read the routine files main hobkin writes. Not seen: it needs a live model and the user's go-ahead (S10).
