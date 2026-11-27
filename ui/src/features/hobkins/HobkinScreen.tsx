@@ -65,6 +65,8 @@ import {
   type TurnActivity,
 } from './conversation.ts'
 import { AgentPromptEditor } from '@/features/chat/PromptEditor.tsx'
+import { SubagentActivity } from '@/features/teams/SubagentActivity.tsx'
+import { openNavigator } from '@/features/teams/use-activity.ts'
 import { ContinueButton, imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
 import { CONTINUE_WORDS, waitingRows, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
 import { useTalkControls } from '@/features/work/use-talk-controls.ts'
@@ -324,9 +326,9 @@ function Part({ id, split, prepared, sent, sending, recall }: PartProps) {
   return (
     <PartFrame>
       <Header id={id} hobkin={hobkin} state={state} mood={mood} split={split} />
-      {/* Its tasks, teams agents, helpers and loaded skills from all the turns hobkin holds, in sight above the
-          conversation, each opening over it: every agent's page has the same lines. */}
-      <AgentLines agentId={hobkinAgentId(id)} hue={hueOf(id)} name={hobkin?.title ?? 'This hobkin'} className="mx-[var(--page-gutter,10%)]" />
+      {/* Its tasks, schedules and loaded skills from all the turns hobkin holds, in sight above the conversation, each
+          opening over it: every agent's page has the same lines. Its agents are under its input (SubagentActivity). */}
+      <AgentLines agentId={hobkinAgentId(id)} hue={hueOf(id)} className="mx-[var(--page-gutter,10%)]" />
       <Conversation
         id={id}
         prepared={prepared}
@@ -975,6 +977,9 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
                 if (!split && focusAgentsDock()) event.preventDefault()
               } else if (event.key === 'ArrowUp' && !draft && !event.defaultPrevented) {
                 if (focusNewestStep(event.currentTarget) || (!split && focusAgentsDock())) event.preventDefault()
+              } else if (event.key === 'ArrowDown' && !draft && !event.defaultPrevented && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+                // Down from an empty box opens its agents' navigator, as in pi-extended-teams.
+                if (openNavigator(agent)) event.preventDefault()
               }
             }}
             rows={1}
@@ -998,6 +1003,8 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
           />
         </div>
       </form>
+      {/* Its agents and what each is doing, under the box as pi-extended-teams draws them (SubagentActivity, 046). */}
+      <SubagentActivity agentId={agent} hue={hueOf(id)} name={name} />
       {/* Always there, so the box does not move when words come and go. Its schedules are a line under its header (056). */}
       <div className="relative mt-1 flex min-h-6 items-start gap-3 px-3">
         <div className="min-w-0 flex-1 py-1 text-[11px] leading-4">

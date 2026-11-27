@@ -33,6 +33,8 @@ import { AgentPromptEditor } from '@/features/chat/PromptEditor.tsx'
 import { imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { PageHeader, PartFrame } from '@/features/hobkins/PageHeader.tsx'
+import { SubagentActivity } from '@/features/teams/SubagentActivity.tsx'
+import { openNavigator } from '@/features/teams/use-activity.ts'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
 import { agentsFrom } from '@/lib/host/frame.ts'
 import { runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
@@ -106,7 +108,7 @@ export function RunPart({ agentId }: { agentId: string }) {
         end={agent && !finished ? { ready: canEnd, why: RUN_END } : null}
         status={status}
       />
-      {agent ? <AgentLines agentId={agentId} hue={hue} name={agent.title} className="mx-[10%]" /> : null}
+      {agent ? <AgentLines agentId={agentId} hue={hue} className="mx-[10%]" /> : null}
       <Exchange agentId={agentId} hue={hue} question={question} waiting={waiting} idle={idle} />
     </PartFrame>
   )
@@ -591,6 +593,9 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
               } else if (event.key === 'ArrowUp' && !draft && !event.defaultPrevented) {
                 // Up from an empty input walks the agent's steps, newest first, or else goes to the agents list.
                 if (focusNewestStep(event.currentTarget) || (!finished && focusAgentsDock())) event.preventDefault()
+              } else if (event.key === 'ArrowDown' && !draft && !event.defaultPrevented && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+                // Down from an empty input opens its agents' navigator, as in pi-extended-teams.
+                if (openNavigator(agentId)) event.preventDefault()
               }
             }}
             rows={1}
@@ -609,6 +614,8 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
           />
         </div>
       </form>
+      {/* Its agents and what each is doing, under the input as pi-extended-teams draws them (046). */}
+      <SubagentActivity agentId={agentId} hue={hue} name={name} />
       {/* Always there, so the box does not move when words come and go. Its schedules are a line under its header (056). */}
       <div className="relative mt-1 flex min-h-6 items-start gap-3 px-3">
         <div className="min-w-0 flex-1 py-1 text-[11px] leading-4">

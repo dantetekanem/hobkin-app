@@ -34,7 +34,7 @@ export function childrenSummary(children: readonly RunChild[]): string {
   return `${helpersCount(children)} · ${childCounts(children)}`
 }
 
-/** The helpers line in an agent page's row: how many, "1 helper" or "3 helpers", as the agents line beside it says. How each stands is in the list it opens. */
+/** How many helpers, "1 helper" or "3 helpers", as their sum in the agents list begins. */
 export function helpersCount(children: readonly RunChild[]): string {
   if (children.length === 0) return ''
   return children.length === 1 ? '1 helper' : `${children.length} helpers`

@@ -56,28 +56,6 @@ export function stillRead(before: ReadonlySet<string>, agents: readonly ShownTea
   return reading
 }
 
-/** How many stand in each state, in the list's order: "1 running, 1 queued, 2 done". */
-export function teamsCounts(agents: readonly TeamsAgent[]): string {
-  return ORDER.flatMap((state) => {
-    const count = agents.filter((agent) => agent.state === state).length
-    return count ? [`${count} ${state}`] : []
-  }).join(', ')
-}
-
-/** "4 teams agents · 1 running, 1 queued, 2 done", or nothing when there are none. */
-export function teamsSummary(agents: readonly TeamsAgent[]): string {
-  if (agents.length === 0) return ''
-  return `${agents.length === 1 ? '1 teams agent' : `${agents.length} teams agents`} · ${teamsCounts(agents)}`
-}
-
-/**
- * The agents in one line, as the tasks line reads: how many, "1 agent" or "3 agents". Who is running shows in the list
- * under it; the user asked on 2026-11-24 for the line to stop at the count.
- */
-export function agentsCount(agents: readonly TeamsAgent[]): string {
-  return agents.length === 1 ? '1 agent' : `${agents.length} agents`
-}
-
 const FIRST_LINE = 96
 
 /** The first line of what it was asked, cut to fit a row. */

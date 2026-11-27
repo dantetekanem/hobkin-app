@@ -3,7 +3,9 @@ import { registerHooks } from 'node:module'
 import { after, mock, test } from 'node:test'
 import { createElement } from 'react'
 import type { HostMessage } from '../../shared/protocol/messages.ts'
+import type { RunChild } from '../../shared/protocol/snapshot.ts'
 import type { TeamsAgent } from '../../shared/protocol/teams.ts'
+import type { ActivityAgent } from '../src/features/teams/activity.ts'
 import { applyHostMessage } from '../src/lib/host/state.ts'
 import { mountCounting } from './render-count.ts'
 
@@ -17,8 +19,7 @@ const { HostConnection } = await import('../src/lib/host/connection.ts')
 mock.method(HostConnection.prototype, 'start', () => { throw new Error('Connection must stay stopped') })
 mock.method(HostConnection.prototype, 'command', async () => { throw new Error('Nothing here sends commands') })
 const { hostStore } = await import('../src/lib/host/client.ts')
-const { useDrop } = await import('../src/features/agent-activity/drop.ts')
-const { useTeamsAgents } = await import('../src/features/teams/use-teams-agents.ts')
+const { openNavigator, useNavigator, useSubagents } = await import('../src/features/teams/use-activity.ts')
 after(() => {
   mock.restoreAll()
   mock.timers.reset()
@@ -28,26 +29,43 @@ after(() => {
 let rev = 1
 const send = (message: HostMessage) => hostStore.setState((state) => applyHostMessage(state, message), true)
 const scout = (state: TeamsAgent['state']): TeamsAgent => ({ key: 'call:scout', name: 'scout', task: 'Find the bug', state, startedAt: 1, from: 'run', ...(state === 'done' ? { endedAt: 2 } : {}) })
-const agents = (state: TeamsAgent['state']): HostMessage => ({ type: 'state', rev: rev++, set: { teamsAgents: { worker: [scout(state)] } } })
+const reader = (state: RunChild['state']): RunChild => ({ id: 'h1', name: 'reader', state })
+const agents = (teams: TeamsAgent['state'], helper: RunChild['state']): HostMessage => ({
+  type: 'state', rev: rev++, set: { teamsAgents: { worker: [scout(teams)] }, jobChildren: { worker: [reader(helper)] } },
+})
 
 send({ type: 'hello', protocol: 1, home: '/fake/home', model: 'live', models: null, viewState: null, owner: { state: 'live', limits: { images: 4, imageBytes: 1 } }, signIn: { status: 'signed-in' } })
 send({ type: 'state', rev: rev++, reset: true, set: { runs: [{ id: 'worker', kind: 'background', state: 'running', title: 'Agent worker', cwd: '/fake/app' }], reports: [] } })
 
-test("the line's last agent stays in its open list once it finishes, marked done, and leaves when the list closes", async () => {
-  let shown: readonly TeamsAgent[] = []
+test('an agent the navigator shows stays in it once it finishes, marked as it ended, and leaves when the navigator closes', async () => {
+  let shown: readonly ActivityAgent[] = []
   const Probe = () => {
-    shown = useTeamsAgents(['worker'], { list: useDrop((state) => state.open === 'agents') })
+    shown = useSubagents('worker', useNavigator((state) => state.open?.agent === 'worker'))
     return null
   }
   const mounted = await mountCounting(() => createElement(Probe))
-  const states = () => shown.map((agent) => `${agent.name}:${agent.state}`)
+  const states = () => shown.map((agent) => (agent.kind === 'teams' ? `teams:${agent.teams.name}:${agent.teams.state}` : `helper:${agent.helper.name}:${agent.helper.state}`))
 
-  await mounted.change(() => send(agents('running')))
-  assert.deepEqual(states(), ['scout:running'])
-  await mounted.change(() => useDrop.getState().setOpen('agents', true))
-  await mounted.change(() => send(agents('done')))
-  assert.deepEqual(states(), ['scout:done'], 'what the user is reading does not vanish under them')
-  await mounted.change(() => useDrop.getState().setOpen('agents', false))
-  assert.deepEqual(states(), [], 'closed, a done agent leaves')
+  await mounted.change(() => send(agents('running', 'running')))
+  assert.deepEqual(states(), ['teams:scout:running', 'helper:reader:running'])
+  await mounted.change(() => useNavigator.setState({ open: { agent: 'worker', at: shown[0]!.id, from: null } }))
+  await mounted.change(() => send(agents('done', 'reported')))
+  assert.deepEqual(states(), ['teams:scout:done', 'helper:reader:reported'], 'what the user is reading does not vanish under them')
+  await mounted.change(() => useNavigator.setState({ open: null }))
+  assert.deepEqual(states(), [], 'closed, those that ended leave')
   await mounted.unmount()
+})
+
+test('Down opens the navigator only over an agent whose strip draws agents, on the first or the one asked for', () => {
+  useNavigator.setState({ open: null, rows: { worker: ['teams:a', 'helper:b'], idle: [] } })
+  assert.equal(openNavigator('idle'), false)
+  assert.equal(openNavigator('elsewhere'), false)
+  assert.equal(useNavigator.getState().open, null, 'nothing opens, so the key does what it did before')
+  assert.equal(openNavigator('worker'), true)
+  assert.deepEqual(useNavigator.getState().open, { agent: 'worker', at: 'teams:a', from: null })
+  assert.equal(openNavigator('worker', { at: 'helper:b' }), true)
+  assert.equal(useNavigator.getState().open?.at, 'helper:b')
+  assert.equal(openNavigator('worker', { at: 'gone' }), true)
+  assert.equal(useNavigator.getState().open?.at, 'teams:a', 'one no longer drawn opens on the first')
+  useNavigator.setState({ open: null, rows: {} })
 })

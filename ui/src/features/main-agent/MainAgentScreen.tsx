@@ -13,6 +13,7 @@ import { Arrivals } from '@/features/agent-activity/arrive.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { StepItem, stepHeight } from '@/features/agent-activity/StepView.tsx'
 import { AgentLines } from '@/features/agent-activity/AgentLines.tsx'
+import { SubagentActivity } from '@/features/teams/SubagentActivity.tsx'
 import { lastStepTime, mainTimeOf, type EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { useWindowedList, WindowedRows } from '@/features/agent-activity/windowed-list.tsx'
@@ -80,7 +81,7 @@ export function MainAgentScreen() {
       </Rise>
       {/* Outside the steps' scroller, so they stay in sight as the steps scroll, and their lists open over them. Every
           agent's page has the same lines. */}
-      <AgentLines agentId={MAIN_ACTIVITY} hue={HUE} name="hobkin" className="mx-[10%]" />
+      <AgentLines agentId={MAIN_ACTIVITY} hue={HUE} className="mx-[10%]" />
       {head === null ? (
         <Blank>Hobkin's mind needs hobkin to restart once: the running hobkin is older than this view and does not send its main agent's steps.</Blank>
       ) : !head.any ? (
@@ -88,6 +89,8 @@ export function MainAgentScreen() {
       ) : (
         <Exchange timeOf={timeOf} turnStart={turnStart} ended={!busy} cwd={cwd} word={busy && head.thinking ? (word ?? 'thinking') : null} sample={!live} />
       )}
+      {/* Its helpers at the page's foot, where an agent's input has them (046). The chat is its input, so no key opens them here. */}
+      <SubagentActivity agentId={MAIN_ACTIVITY} hue={HUE} name="hobkin" keys={false} className="mx-[10%] shrink-0 pb-4" />
     </div>
   )
 }

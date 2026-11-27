@@ -77,7 +77,7 @@ test('a run is summed up by how many it spawned and how each stands, what is sti
   assert.equal(childrenSummary([child('only', 'queued')]), '1 helper · 1 queued')
 })
 
-test('the helpers line in the row says only how many, as the agents line does', () => {
+test('the helpers count says only how many', () => {
   assert.equal(helpersCount([]), '', 'a run that spawned none says nothing')
   assert.equal(helpersCount([child('only', 'running')]), '1 helper')
   assert.equal(helpersCount([child('scout', 'reported'), child('fix', 'running'), child('review', 'queued')]), '3 helpers')

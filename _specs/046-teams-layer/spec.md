@@ -5,14 +5,14 @@
   "kind": "work",
   "status": "doing",
   "depends": ["010-routines", "021-agent-rendering", "034-durable-hobkins", "038-resources"],
-  "updated": "2026-11-25"
+  "updated": "2026-11-27"
 }
 ---
 # Seeing a run's pi-extended-teams agents
 
 ## Outcome
 
-A durable hobkin's turn or a routine run runs in its own Pi process, and the agent in it can start agents of its own with pi-extended-teams. The user sees those agents on the durable hobkin's page and on the routine run's screen: a quiet strip with each agent's name, what it was asked, how it stands, when it started to the second, and when it finished or failed, running ones first. Opening one shows, read only, what it was asked, its last steps and the messages between it and the run. hobkin only shows them. It never starts, stops, messages or owns them, and they never count as hobkin's helpers.
+A durable hobkin's turn or a routine run runs in its own Pi process, and the agent in it can start agents of its own with pi-extended-teams. The user sees those agents on the agent's page as pi-extended-teams shows them under Pi's editor: under the input, one row each with its name, the model and level it runs on, its tier, how long it has been out, what its context holds and what it is doing, running ones first. Down from the empty input opens a navigator floating over the page that shows, read only, what each was asked, its last steps and the messages between it and the run. hobkin only shows them. It never starts, stops, messages or owns them, and they never count as hobkin's helpers.
 
 ## Decisions
 
@@ -21,7 +21,7 @@ A durable hobkin's turn or a routine run runs in its own Pi process, and the age
 - The user, 2026-11-15: "i also need to see the agents running from a durable/routine agent screen", and then "i want it to support pi-extended-teams, as a visual layer". Asked how far it goes: "hobkin (app) doesnt but the agent can do everything, as pi does".
 - Display only in the app. The agent's own use of pi-extended-teams is unchanged and unrestricted: inside a run it keeps every tool and behavior it has in the user's own Pi (`spawn_agent`, `spawn_swarm_agents`, `send_message`, `read_inbox`, `get_agent_status`, stopping or waiting for its agents, and the rest). Nothing here filters, wraps, blocks or limits them. The layer only reads what the run's process already sends hobkin and what teams already writes to disk.
 - It shows agents only for a run that loads pi-extended-teams. `038-resources` decides what loads. The main chat loads nothing of Pi's, and a Claude Code run has no Pi, so neither shows anything.
-- Any run on an agent's screen gets the strip, so a delegated job or a Work run that starts teams agents shows them too.
+- Any run on an agent's screen gets the rows, so a delegated job or a Work run that starts teams agents shows them too.
 
 ### Kept apart from hobkin's helpers
 
@@ -36,9 +36,9 @@ A durable hobkin's turn or a routine run runs in its own Pi process, and the age
   - `config.json`: the team's name and `leadSessionId`, and its members while they run, each with its prompt, `joinedAt` and `lifecycleRunId`.
   - `lead-session.json`: the lead's `sessionId`.
   - `reports.json`: each run that reported, with its status, `startedAt`, `createdAt`, summary and `result.runId`.
-  - `runtime/<name>.json`: a running agent's phase (`currentAction`), its tool and its heartbeat.
+  - `runtime/<name>.json`: a running agent's phase (`currentAction`), its tool, its heartbeat and what it last said it is doing (`latestProgress`, kept to 200 characters).
   - `inboxes/<name>.json` and `inboxes/team-lead.json`: the messages between the run and each agent, with the run ids they were sent to and from.
-  - `agent-sessions/<name>/<run id>/*.jsonl`: the agent's own Pi session, which teams keeps for a day (`PRIVATE_AGENT_SESSION_RETENTION_MS`).
+  - `agent-sessions/<name>/<run id>/*.jsonl`: the agent's own Pi session, which teams keeps for a day (`PRIVATE_AGENT_SESSION_RETENTION_MS`). Its last response that measured anything gives the tokens its context held, as Pi's own footer counts them (`calculateContextTokens`: the total, or else input, output and cache reads and writes). A response cut short or failed measured nothing.
 - Plain reads only. hobkin takes none of teams' locks, writes nothing in its folders, calls none of its tools and sends it no event. A missing, unreadable or malformed file is skipped. A JSON file over 8 MB is not read, and of a session file only its last 256 KB is read.
 - The folder is the one teams writes: `.pi/teams` in the home of the user hobkin runs as. Tests give the reader a folder of their own and never read `~/.pi`.
 - Reads happen at most every 2 seconds: while a run that named the session is running, once more after it ends, and after that only while teams still lists one of its agents as running with a fresh heartbeat (a durable hobkin's process outlives its turn). An idle hobkin reads nothing. A file is parsed again only when its size or time changed.
@@ -51,25 +51,29 @@ A durable hobkin's turn or a routine run runs in its own Pi process, and the age
 
 ### What a row shows
 
-- A row: the name, the first line of what it was asked, its status, when it started to the second in the page's clock (`stamp.ts`), and when it finished or failed. A running or queued one says since when.
-- Where room is short, a chip: the name, its status and one time, since when it has been out or when it finished or failed. Its label, read on hover and by a screen reader, has the rest of a row, and the list behind "+N more" has every row whole.
+- Changed on 2026-11-27, the user's words: "i dont like the agents in a durable or temp new agent running in the top as a pill to open and see more. this is based on pi-extended-teams and i want it to behave the exactly same way, behind the input, showing a quick status update, tokens used, how long is running, if press down i can see more in the screen like floating, etc. same thing, not the pill". Until then the agents were a pill under the header with a list one click away, and a sheet for one agent.
+- Under the agent's input, as pi-extended-teams' activity widget under Pi's editor (`ui/src/features/teams/SubagentActivity.tsx`): a heading, "Agent activity" with how many are active, failed, unknown and done and "↓ navigate", then one row each on the tree's branches. A row: a dot for how it stands (breathing while it runs, a ring while it waits, red once it failed), its name in its face's color, the model's own id and its level ("gpt-6-luna/max"), its tier, how long it has been out ("38s", "1m05s", "1h05m") or how long it ran once it ended, what its context holds ("26k tok (10%)", with the share when the window knows the model's context window), and what it is doing: its own words while it runs, else its phase or tool, else how it stands with its report's summary. A part hobkin does not know is left out. Its hover has the rest: the first line of what it was asked and when it started and ended.
+- hobkin's own helpers share the list, as they shared the header's lines: their name, model, level and tier, and how they stand. hobkin measures no helper's tokens and keeps no times for an owned helper, so those parts are left out.
 - Statuses: `queued`; `running`, with teams' phase or tool when its runtime file has one; `done`, it reported, which does not say whether the work is right; `failed`, it could not start or it reported a failure; `unknown`, no report was seen and either the run has ended or teams no longer lists it, so hobkin cannot tell how it ended.
-- Running first, then queued and unknown, then failed and done. Within each, in the order they were spawned.
-- A done agent leaves a screen's teams strip; a failed or unknown one stays, since it may need the user. Changed on 2026-11-19, the user's words: "done sub-sub agents should disappear"; until then a done agent stayed in the strip with its end time.
-- What the user is reading does not leave under them. While the line's list or the sheet's list is open, every agent it showed stays in it, marked done once it finishes; while an agent's sheet is open, that agent stays. Once they close it, a done one leaves. Added on 2026-11-21, after the user's report that the agents "vanish" when clicked.
+- Running first, then queued, then unknown, then failed and done. Within each, teams agents before helpers, each in the order they were spawned.
+- A done agent leaves; a failed or unknown one stays, since it may need the user. The user's words on 2026-11-19: "done sub-sub agents should disappear". A helper that reported, completed or was cancelled leaves the same way.
+- What the user is reading does not leave under them: while the navigator is open, every agent it showed stays in it, marked as it ended. Once they close it, an ended one leaves. Added on 2026-11-21, after the user's report that the agents "vanish" when clicked.
+- Ten rows at most, then "… N more agents"; the navigator lists every one.
 - At most 24 rows for a run. hobkin keeps the rows of the 20 runs that ended last, so a finished run's screen and a waiting durable hobkin's page still show theirs until hobkin restarts.
 
-### Opening one
+### The navigator
 
-- A click or Enter on a row opens a read-only sheet over the page: the name, status and times, everything it was asked (up to 2,000 characters), its summary when it reported, and its last 16 steps, drawn as an agent's steps are (`021-agent-rendering`), from its own session file when teams kept one. Then up to 12 messages between it and the run, from teams' inboxes, or else from the run's own `send_message` calls and the agent's report. When none of these is there, it says hobkin has nothing of its work to show.
+- Down from the agent's empty input, or a click on a row, opens pi-extended-teams' agent navigation as a dialog floating over the page, on the first agent or the one clicked: "↑" with the agent's own name, then every agent with "→" on the one shown; the shown one's row and the keys; then, read only, everything it was asked (up to 2,000 characters), its summary when it reported, and its last 16 steps, drawn as an agent's steps are (`021-agent-rendering`), from its own session file when teams kept one, and up to 12 messages between it and the run, from teams' inboxes, or else from the run's own `send_message` calls and the agent's report. When none of these is there, it says hobkin has nothing of its work to show. Its foot says where hobkin read it from and that hobkin does not control these agents.
 - Its steps keep only what hobkin keeps of any agent (`JobActivity`): its words and each tool call with its input and output, cut short. Never its thinking or a tool's details.
-- The sheet has no input and no stop or send control. Escape or Close puts the keyboard back on the row.
+- Keys, as pi-extended-teams' own: Down and Up walk the agents, Up from the first and Escape close it with the keyboard back where it was, Left and Right go round, Page Up and Page Down scroll what it did, Home goes to its top and End follows the newest again. It follows the newest until the user scrolls up.
+- No input and no stop or send control: pi-extended-teams' `m`, `i` and `x` reach an agent, which hobkin never does (see "Out of scope").
+- With no agents, Down in the input does what it did before.
 
 ### Where it shows
 
-- An agent's page, a run's or a durable hobkin's, and hobkin's mind: one line under the header with the agent's other lines (`AgentLines.tsx`; every agent has the one page since 2026-11-25), with their faces, how many and who leads. A click opens every one in a list under it, as the tasks line does, and the line stays where it is, open or closed. A spawn call is a step, so a run with teams agents always shows its exchange and this line.
-- A durable hobkin's line reads every turn whose run hobkin still holds.
-- Quiet: small faces, names and times in muted text. Three at most, running ones first, and "+N more" opens the whole list in the sheet. The chips take `HelpersGlance`'s look, not its data.
+- Every agent's page has it under its input: a durable hobkin's and a run's. hobkin's mind has no input of its own (the chat is its input), so its agents show at the page's foot, opened by a click. The header's lines keep the tasks, schedules and loaded skills (`AgentLines.tsx`).
+- A durable hobkin's rows read every turn whose run hobkin still holds.
+- A spawn call is a step, so a run with teams agents always shows its exchange too.
 
 ### On the wire
 
@@ -83,28 +87,35 @@ A durable hobkin's turn or a routine run runs in its own Pi process, and the age
 - Teams agents of the main chat and of Claude Code runs.
 - An agent's own children (teams' nested read agents) as rows of their own. They report to the agent that started them.
 - Completion group journals, checkpoints and claims.
-- Counting teams agents' tokens or cost in hobkin's usage.
+- Counting teams agents' tokens or cost in hobkin's usage. The tokens a row shows are what its context holds, for the user to read; nothing adds them up.
+- Measuring hobkin's own helpers' tokens or keeping their times for the rows.
 - What loads in each kind of run, which `038-resources` decides.
 
 ## Acceptance
 
-- A1. While a durable hobkin's turn or a routine run has pi-extended-teams agents, its screen shows them, running ones first. A durable hobkin's page lists each with its name, the first line of what it was asked, its status, when it started to the second, and when it finished or failed. A routine run's screen shows each with its name, status and time, and the rest in its label and in the list one click away. A run that started none looks as it did before.
+- ~~A1. While a durable hobkin's turn or a routine run has pi-extended-teams agents, its screen shows them, running ones first. A durable hobkin's page lists each with its name, the first line of what it was asked, its status, when it started to the second, and when it finished or failed. A routine run's screen shows each with its name, status and time, and the rest in its label and in the list one click away. A run that started none looks as it did before.~~ Retired on 2026-11-27: the pill and its list gave way to the rows under the input (A8).
 - A2. With teams' files missing, unreadable, malformed or for another session, the rows come from the run's own spawn calls, reports and wakes. A reader error never fails the run and never keeps the screen from drawing.
 - A3. teams' files fill a run's rows only when their session is the one the run's own spawn result named, as both `config.json` and `lead-session.json` say. An agent of the same name in another session, or an earlier run of the same name in the same session, never fills a row.
 - A4. An agent the run saw start and never saw end reads running while its run is live, unless teams' files are there and no longer list it. After its run ends it reads running only while teams lists it with a heartbeat from the last 90 seconds. Otherwise it reads unknown. hobkin never says an agent finished or stopped when neither teams' files nor the run's own events said so.
-- A5. Opening a row shows, read only, what it was asked, its status and times, its last steps when teams kept its session, and the messages between it and the run, or says there is nothing to show. Escape puts the keyboard back on the row.
-- A6. Nothing in hobkin starts, stops, messages or waits for a teams agent. The strip and the sheet have no such control. Teams agents never appear in `jobChildren`, `mainChildren`, Stop or Force targets, helper counts or budgets, and hobkin writes nothing in teams' folders.
+- ~~A5. Opening a row shows, read only, what it was asked, its status and times, its last steps when teams kept its session, and the messages between it and the run, or says there is nothing to show. Escape puts the keyboard back on the row.~~ Retired on 2026-11-27: the sheet gave way to the navigator (A9).
+- A6. Nothing in hobkin starts, stops, messages or waits for a teams agent. The rows and the navigator have no such control. Teams agents never appear in `jobChildren`, `mainChildren`, Stop or Force targets, helper counts or budgets, and hobkin writes nothing in teams' folders.
 - A7. A run's pi-extended-teams tool calls behave exactly as before the layer existed. hobkin filters, wraps, blocks or limits none of them, and the events the run's harness handles are the same ones, unchanged.
+- A8. A durable hobkin's page and a run's page show the agent's pi-extended-teams agents and hobkin's helpers under its input, never as a pill under its header: "Agent activity" with how many are active, failed and unknown, then a row each, running ones first, ten at most with the rest counted. A row has its name, the model and level it runs on, its tier, how long it has been out, what its context holds with its share of the model's window when the window knows it, and what it is doing. A done agent leaves and a failed or unknown one stays. An agent with none shows nothing there.
+- A9. Down from an agent's empty input, or a click on a row, opens the navigator over the page on the first agent or the one clicked, read only: the agents with the shown one marked, its row, the keys, what it was asked, its report, its last steps and its messages, or that there is nothing to show. Down and Up walk the agents, Up from the first and Escape close it with the keyboard back in the input, Left and Right go round, Page Up and Page Down scroll and End follows again. While it is open no agent leaves it. With no agents, Down does what it did before.
+- A10. A running teams agent says what it is doing in its own words from teams' runtime file, only while it runs and up to 200 characters, and what its context holds from its own session's last response that measured anything, as Pi counts it. A response cut short or failed counts nothing. Without those files a row has neither.
 
 ## Proof
 
-- A1. `hobkin/test/cli-teams-agents.test.mjs` › "a run's own spawn calls give each agent its name, task, status and times"; `ui/test/teams-rules.test.ts` › "running agents come first, then queued and unknown, then failed and done" and "an agent the user is reading stays, marked done, until they close it, and then it leaves"; `ui/test/teams-agents-read.test.ts` › "the line's last agent stays in its open list once it finishes, marked done, and leaves when the list closes"; check: still renders of a routine run's screen and a durable hobkin's page with four teams agents, light and dark.
+- ~~A1.~~ Retired with its acceptance.
 - A2. `hobkin/test/cli-teams-agents.test.mjs` › "without teams' files, or with broken ones, the rows stand on the run's own events"
 - A3. `hobkin/test/cli-teams-agents.test.mjs` › "teams' files count only for the session the run named, and a name alone never matches"
 - A4. `hobkin/test/cli-teams-agents.test.mjs` › "an agent never seen to end reads unknown once its run ended or teams no longer lists it"
-- A5. `hobkin/test/cli-teams-agents.test.mjs` › "an agent's steps and messages come from its own session and the inboxes, cut to size"; `ui/test/teams-rules.test.ts` › "an opened agent says what it was asked and what hobkin has of its work"; check: still render of the opened sheet, light and dark.
+- ~~A5.~~ Retired with its acceptance.
 - A6. `hobkin/test/cli-teams-agents.test.mjs` › "reading teams' files writes nothing there"; `hobkin/test/cli-application.test.mjs` › "a run's teams agents travel in teamsAgents, never in jobChildren"; check: `rg teamsAgents` in hobkin and the client finds only the reader, the snapshot, the protocol type, `ui/src/features/teams/` and their tests, and nothing in stop, Force, children or usage code.
 - A7. `hobkin/test/cli-teams-agents.test.mjs` › "observing a run's events changes none of them"; check: `git diff` shows `src/cli/harnesses.mjs`, `src/cli/bridge.mjs` and the pi-extended-teams package untouched by this work, and `observeActivity` hands the reader each event after the run's own feed has it.
+- A8. `ui/test/agent-activity-rows.test.ts` › "teams agents and helpers make one list, what is still out first, teams agents before helpers in a tie", "a running teams agent reads as pi-extended-teams' activity row: model and level, tier, time out, context and what it is doing", "an agent no longer running says how it stands, and its time stops where it ended", "a helper's row has what hobkin keeps of it: its model, level and tier, and how it stands", "the heading counts what is out, then what failed or was lost, as the activity header does", "the strip draws ten rows at most and counts the rest", "times, token counts and context shares are written as pi-extended-teams writes them", "a running teams agent without its own words says its tool or phase, and with neither that it runs" and "a helper that reported, completed or was cancelled leaves; one still out, failed or never seen to end stays"; `ui/test/teams-rules.test.ts` › "a done agent leaves the strip, and a failed or unknown one stays"; check: still renders of the rows under a durable hobkin's input with four teams agents and a helper, light and dark, and `rg 'TeamsStrip|HelpersLine' ui` finds nothing.
+- A9. `ui/test/teams-agents-read.test.ts` › "an agent the navigator shows stays in it once it finishes, marked as it ended, and leaves when the navigator closes" and "Down opens the navigator only over an agent whose strip draws agents, on the first or the one asked for"; `ui/test/agent-activity-rows.test.ts` › "in the navigator Down walks to the next agent, Up back, and Up from the first leaves it; Left and Right go round"; `ui/test/teams-rules.test.ts` › "an opened agent says what it was asked and what hobkin has of its work"; check: still renders of the navigator, light and dark; in the live window, Down from the empty input of a durable hobkin with a teams agent running opens it, and Escape puts the keyboard back in the input.
+- A10. `hobkin/test/cli-teams-agents.test.mjs` › "a running agent says its latest progress and how many tokens its context holds, from teams' own files" and "an agent's steps and messages come from its own session and the inboxes, cut to size".
 
 ## Steps
 
@@ -116,7 +127,10 @@ Note, 2026-11-15. S1 to S4 are built and their proofs pass: the reader's 8 tests
 - [x] S2 (A1, A6, A7). Runtime: `hobkin/src/cli/application.mjs` hands each run's events to the reader after its feed, publishes `teamsAgents` beside `jobChildren`, and closes the reader with the app.
 - [x] S3 (A1, A5, A6). Window: new `shared/protocol/teams.ts` and one field in `shared/protocol/snapshot.ts`; new `ui/src/features/teams/` (`rules.ts`, `use-teams-agents.ts`, `TeamsStrip.tsx`, `TeamsAgentSheet.tsx`); the strip in `ui/src/features/work/AgentScreen.tsx` and `ui/src/features/hobkins/HobkinScreen.tsx`; tests new `ui/test/teams-rules.test.ts`.
 - [x] S4 (A1, A5). Still renders without a browser: a routine run's screen, a durable hobkin's page, the opened sheet and its list, with four teams agents, light and dark.
-- [ ] S5 (A1, A4, A5). With the user's go-ahead, once the live host has taken the new runtime: a durable hobkin asked to start one teams agent shows it running, then done, with its steps.
+- [ ] S5 (A4, A9). With the user's go-ahead, once the live host has taken the new runtime: a durable hobkin asked to start one teams agent shows it running, then done, with its steps.
+- [x] S6 (A10). Runtime: the reader keeps teams' `latestProgress` and counts the context tokens of the agent's session as it reads its steps (`hobkin/src/cli/teams-agents.mjs`); `progress` and `tokens` in `shared/protocol/teams.ts`. Red first: the new reader test failed on `tokens` before the change.
+- [x] S7 (A8, A9). Window: `ui/src/features/teams/activity.ts` (the rows' words, order and keys), `use-activity.ts` (the agents and the navigator's state) and `SubagentActivity.tsx` (the rows and the navigator), under the inputs of `HobkinScreen.tsx` and `RunPage.tsx` and at the foot of `MainAgentScreen.tsx`. The teams line (`TeamsStrip.tsx`), the helpers line, the sheet and their drops are gone from `AgentLines.tsx`. Still renders of the rows and the navigator, light and dark.
+- [ ] S8 (A8, A9, A10). Live: once the host has restarted onto S6, a durable hobkin's teams agent shows its tokens and its own words under the input, and Down opens the navigator on it.
 
 ## Open questions
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { TeamsAgent } from '../../shared/protocol/teams.ts'
 import { stampOf } from '../src/features/agent-activity/stamp.ts'
-import { agentsCount, describeTeamsAgent, firstLine, standing, stillRead, stillShown, teamsAgentsOf, teamsSummary, whatIsKept, whoSaid } from '../src/features/teams/rules.ts'
+import { describeTeamsAgent, firstLine, standing, stillRead, stillShown, teamsAgentsOf, whatIsKept, whoSaid } from '../src/features/teams/rules.ts'
 
 // Local times, so the rules hold in any time zone the tests run in.
 const at = (hour: number, minute: number, second: number) => new Date(2026, 10, 15, hour, minute, second).getTime()
@@ -25,9 +25,6 @@ test('running agents come first, then queued and unknown, then failed and done',
   assert.equal(new Set(shown.map((row) => row.id)).size, shown.length, 'the same name in two turns is two rows')
   assert.deepEqual(teamsAgentsOf(undefined, ['turn1']), [])
   assert.deepEqual(teamsAgentsOf(all, []), [])
-  assert.equal(teamsSummary(shown), '6 teams agents · 2 running, 1 queued, 1 unknown, 1 failed, 1 done')
-  assert.equal(teamsSummary(shown.slice(0, 1)), '1 teams agent · 1 running')
-  assert.equal(teamsSummary([]), '')
 })
 
 test('a done agent leaves the strip, and a failed or unknown one stays', () => {
@@ -91,10 +88,4 @@ test('an opened agent says what it was asked and what hobkin has of its work', (
   assert.equal(whoSaid({ by: 'agent', text: '' }, 'scout', 'Nightly digest'), 'scout')
   assert.equal(whoSaid({ by: 'peer', peer: 'fixer', text: '' }, 'scout', 'Nightly digest'), 'fixer')
   assert.equal(whoSaid({ by: 'peer', text: '' }, 'scout', 'Nightly digest'), 'Another teams agent')
-})
-
-test("the agents' one line says how many, as the tasks line does", () => {
-  const shown = teamsAgentsOf({ turn1: [agent('lint', 'failed', at(14, 4, 0)), agent('test-gate', 'running', at(14, 1, 0)), agent('observability', 'running', at(14, 2, 0))] }, ['turn1'])
-  assert.equal(agentsCount(shown), '3 agents')
-  assert.equal(agentsCount(shown.slice(2)), '1 agent')
 })

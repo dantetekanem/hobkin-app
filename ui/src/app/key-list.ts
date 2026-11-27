@@ -29,6 +29,8 @@ export const KEY_LIST: readonly KeyEntry[] = [
   { keys: '⌃⌥W', does: 'Schedules agents keep', where: "the main chat, an agent's page or hobkin's mind, once one exists" },
   { keys: '⌃X', does: 'End an agent (press twice)', where: "an agent's page, or its row in the agents list" },
   { keys: '⌃⇥  ⌃⇧⇥', does: 'Next or previous agent', where: "an agent's page" },
+  { keys: '↓', does: 'Open its agents', where: "an agent's empty message box, while it has agents" },
+  { keys: '↑ ↓', does: 'Move through its agents, esc goes back', where: 'the agent navigator', basic: true },
   { keys: 'esc', does: 'Close the canvas', where: 'the canvas' },
   { keys: '⌘S', does: 'Save the drawing', where: 'the canvas, on a drawing' },
   { keys: 'T  ⇧T', does: 'Open, close or expand the proof', where: 'a review' },

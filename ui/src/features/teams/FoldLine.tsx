@@ -31,7 +31,7 @@ interface FoldLineProps {
   drop: Exclude<DropName, 'tasks'>
   /** Every one's face, the first drawn first; the line stacks the first few. */
   faces: readonly { key: string; face: ReactNode }[]
-  /** How many, such as "2 agents". */
+  /** How many, such as "2 schedules". */
   count: string
   /** Every one and how it stands, for a screen reader. */
   summary: string
@@ -45,8 +45,8 @@ interface FoldLineProps {
 }
 
 /**
- * An agent's subagents folded into one line, as the tasks line beside it reads: their faces and how many, such as
- * "2 agents". It is as wide as its words, up to 22rem, and its border breathes while one of them is working. A press or
+ * A list under an agent's header folded into one line, as the tasks line beside it reads: faces and how many, such as
+ * "2 schedules". It is as wide as its words, up to 22rem, and its border breathes while one of them is working. A press or
  * Enter opens every one under it, and the same again closes it; Escape inside closes it too. It shares its place under
  * the header with the other lists, so opening one closes the others.
  *
@@ -155,10 +155,4 @@ function useLineLeft(list: RefObject<HTMLElement | null>): number {
     if (line) setLeft(line.offsetLeft)
   }, [list])
   return left
-}
-
-/** What a subagent runs on, under its name in an open list: its tier, model and thinking level, or nothing when none is known. */
-export function RunsOnLine({ words }: { words: readonly string[] }) {
-  if (words.length === 0) return null
-  return <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">{words.join(' · ')}</span>
 }

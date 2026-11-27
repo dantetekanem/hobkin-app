@@ -1,6 +1,4 @@
 import type { CSSProperties } from 'react'
-import type { RunChild } from '#shared/protocol/snapshot.ts'
-import type { TeamsAgent } from '#shared/protocol/teams.ts'
 import type { AgentTask } from './tasks.ts'
 
 /**
@@ -12,12 +10,6 @@ import type { AgentTask } from './tasks.ts'
 
 /** The tasks line glows while a task is in progress. */
 export const tasksGlow = (tasks: readonly AgentTask[]): boolean => tasks.some((task) => task.state === 'now')
-
-/** The helpers line glows while a helper runs. One that waits for a place, or has ended, does not. */
-export const helpersGlow = (helpers: readonly RunChild[]): boolean => helpers.some((helper) => helper.state === 'running')
-
-/** The teams line glows while one of the run's teams agents is working. One that waits, or has ended, does not. */
-export const teamsGlow = (agents: readonly TeamsAgent[]): boolean => agents.some((agent) => agent.state === 'running')
 
 /** A line's glow in the agent's color, the one its tasks' dots are drawn in (`--tasks-tint` in TaskList.tsx). */
 export const glowIn = (hue: number): CSSProperties => ({ '--aa-glow': `oklch(0.62 0.11 ${hue})` }) as CSSProperties
