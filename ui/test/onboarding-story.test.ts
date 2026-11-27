@@ -19,6 +19,7 @@ import {
   piHandWords,
   piNeeds,
   piSteps,
+  skipShows,
   spokenText,
   startTale,
   tellOn,
@@ -358,8 +359,26 @@ test('back never undoes an install or a sign-in', () => {
   assert.deepEqual(tellOn(ready, 'back', installed, facts), ready)
 })
 
-test('skip ends the story from anywhere, the last bubble ends it as done, and then nothing moves', () => {
-  const skipped = tell(['on', 'skip'])
+test('skip shows only once Pi is in and a model account answers, and before that no way of skipping does anything', () => {
+  const ready: Facts = { ...bare, pi: pi(), connected: ['OpenAI Codex'] }
+  const missingPackage = pi({ packages: [{ name: 'pi-coder', adds: '', installed: false }] })
+
+  assert.equal(skipShows(none, bare), false, 'no host has said what Pi is here')
+  assert.equal(skipShows(none, { ...bare, pi: pi() }), false, 'Pi, and no account')
+  assert.equal(skipShows(none, { ...ready, pi: pi({ installed: false, version: null, matches: false }) }), false, 'an account, and no Pi')
+  assert.equal(skipShows(none, { ...ready, pi: pi({ version: '1.4.2', matches: false }) }), false, 'a Pi older than hobkin runs on')
+  assert.equal(skipShows({ ...none, account: 'later' }, { ...bare, pi: pi() }), false, 'the sign-in put off')
+  assert.deepEqual(tell(['on', 'skip']), tell(['on']), 'skip does nothing before both')
+
+  assert.equal(skipShows(none, ready), true)
+  assert.equal(skipShows({ ...none, account: 'connected' }, { ...bare, pi: pi() }), true, 'signed in during the setup')
+  assert.equal(skipShows({ ...none, launcher: 'saved' }, { ...bare, pi: pi() }), true, 'a launcher that was kept')
+  assert.equal(skipShows(none, { ...ready, pi: missingPackage }), true, 'missing packages can wait')
+})
+
+test('skip ends the story from anywhere once it shows, the last bubble ends it as done, and then nothing moves', () => {
+  const ready: Facts = { ...bare, pi: pi(), connected: ['OpenAI Codex'] }
+  const skipped = tell(['on', 'skip'], none, ready)
   const last: Tale = { at: 'tour', line: beatOf('tour', none, bare).lines.length - 1, trail: [], ended: null }
   const done = tellOn(last, 'on', none, bare)
 
@@ -367,8 +386,8 @@ test('skip ends the story from anywhere, the last bubble ends it as done, and th
   assert.equal(skipped.at, 'hello', 'it ends where it was')
   assert.equal(done.ended, 'done')
   for (const event of ['on', 'back', 'skip', 'answered'] as const) {
-    assert.deepEqual(tellOn(done, event, none, bare), done)
-    assert.deepEqual(tellOn(skipped, event, none, bare), skipped)
+    assert.deepEqual(tellOn(done, event, none, ready), done)
+    assert.deepEqual(tellOn(skipped, event, none, ready), skipped)
   }
 })
 

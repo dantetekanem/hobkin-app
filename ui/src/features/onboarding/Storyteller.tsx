@@ -35,7 +35,7 @@ import { PiPanel } from './PiPanel.tsx'
 import { checksWanted, goalAnswersOf, GOAL_WORDS, goalsOf, projectStart, setupAnswersOf } from './goals.ts'
 import { SAMPLE_PROJECTS, startingReply } from './questions.ts'
 import { sampleGoalCards } from './sample-cards.ts'
-import { beatOf, checkAnswer, followUpOf, piBlocks, spokenText, type Answers, type Ask, type BeatId, type Facts, type Tale } from './story.ts'
+import { beatOf, checkAnswer, followUpOf, piBlocks, skipShows, spokenText, type Answers, type Ask, type BeatId, type Facts, type Tale } from './story.ts'
 import { endedAs, tourFollows } from './first-run.ts'
 import { useSetup } from './store.ts'
 import { keepUsage, usageAnswer } from './usage-ask.ts'
@@ -885,6 +885,8 @@ export function Storyteller() {
   const choicesApart = Math.min(clamp(viewport.width * 0.27, CHOICES.nearest, CHOICES.farthest), viewport.width / 2 - CHOICES.edge)
   const mood = faceFor(beat.mood, { leaving, signingIn, busy })
   const storyShows = talking && !leaving
+  // Skip setup waits for Pi and a model account. It sits alone in the corner, so its coming moves nothing.
+  const canSkip = skipShows(answers, facts)
 
   return (
     <MotionConfig reducedMotion={REDUCED_MOTION[movement]}>
@@ -1028,9 +1030,11 @@ export function Storyteller() {
           animate={{ opacity: storyShows ? 1 : 0 }}
           transition={tween.exit}
         >
-          <Button variant="ghost" className="mt-1 mr-4" tabIndex={talking ? 0 : -1} onClick={() => tell('skip', facts)}>
-            Skip setup
-          </Button>
+          {canSkip ? (
+            <Button variant="ghost" className="mt-1 mr-4" tabIndex={talking ? 0 : -1} onClick={() => tell('skip', facts)}>
+              Skip setup
+            </Button>
+          ) : null}
         </motion.div>
 
         {quietLine ? (

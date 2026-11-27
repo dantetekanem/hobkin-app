@@ -607,6 +607,13 @@ function whoseComputer(answers: Answers, facts: Facts): BeatId {
   return answers.computer === 'work' ? 'computer-work' : afterGoals(answers, facts)
 }
 
+/**
+ * Skip setup shows, and works, only once Pi is in and a model account answers: without them nothing after the setup
+ * works (the user's word of 2026-11-26: "\"Skip Setup\" is not an option, honestly ... otherwise wont even work, you can
+ * show that after sub/pi is connected"). Missing packages can wait. With no host there is no Pi, so no skipping.
+ */
+export const skipShows = (answers: Answers, facts: Facts): boolean => facts.pi !== null && !piBlocks(facts.pi) && hasAccount(answers, facts)
+
 /** Projects were picked for code, with a host to hand them to work mode, so hobkin says what it did with them. */
 function handsToWork(index: number, answers: Answers, facts: Facts): boolean {
   const question = goalQuestions(goalsOf(answers))[index]
@@ -787,14 +794,17 @@ function nextBeat(tale: Tale, beat: Beat, answers: Answers, facts: Facts): Tale 
   return { at: next, line: 0, trail: sealed ? [] : [...tale.trail, tale.at], ended: null }
 }
 
-/** One move. A question holds the story until it is answered, and nothing moves once the story has ended. */
+/**
+ * One move. A question holds the story until it is answered, nothing moves once the story has ended, and skipping does
+ * nothing until Skip setup shows.
+ */
 export function tellOn(tale: Tale, event: TaleEvent, answers: Answers, facts: Facts): Tale {
   if (tale.ended) return tale
   const beat = beatOf(tale.at, answers, facts)
 
   switch (event) {
     case 'skip':
-      return { ...tale, ended: 'skipped' }
+      return skipShows(answers, facts) ? { ...tale, ended: 'skipped' } : tale
     case 'back': {
       if (tale.line > 0) return { ...tale, line: tale.line - 1 }
       const before = tale.trail.at(-1)
