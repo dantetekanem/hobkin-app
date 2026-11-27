@@ -15,6 +15,9 @@ export const DEFAULT_LOWEST = 8
 /** A change with more lines than this is large: it says so, and Change Review offers to make it a stack. */
 export const LARGE_LINES = 300
 
+/** A change's size in words: "1 line", "12 lines", "1,200 lines". */
+export const linesOf = (lines: number): string => `${lines.toLocaleString('en-US')} ${lines === 1 ? 'line' : 'lines'}`
+
 
 /** The lowest rate as a number to compare by: 8 whenever the rules gave none. */
 const usable = (lowest: number | null | undefined): number => (typeof lowest === 'number' && Number.isFinite(lowest) ? lowest : DEFAULT_LOWEST)
@@ -188,7 +191,7 @@ export function tagsOf(change: FinishedChange, pull?: PullFacts): Tag[] {
   if (change.behind > 0) tags.push({ text: `${change.behind} behind`, tone: 'bad' })
   if (pull?.review === 'changes-requested') tags.push({ text: 'changes requested', tone: 'bad' })
   if (pull?.checks === 'failing') tags.push({ text: 'checks fail', tone: 'bad' })
-  if (change.size && change.size.lines > LARGE_LINES) tags.push({ text: `${change.size.lines.toLocaleString('en-US')} lines`, tone: 'quiet' })
+  if (change.size && change.size.lines > LARGE_LINES) tags.push({ text: linesOf(change.size.lines), tone: 'quiet' })
   return tags
 }
 

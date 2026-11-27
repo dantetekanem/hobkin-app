@@ -15,7 +15,7 @@ import { openLink } from '@/lib/open-link.ts'
 import { cn } from '@/lib/utils.ts'
 import type { HobkinChoice } from './actions.ts'
 import { factsOf, placeBefore, rowKey, whenWords, type Fact, type Tone } from './change-row.ts'
-import { actionOf, gradeBlockOf, sentenceOf, tagsOf, type Tag } from './change-list.ts'
+import { actionOf, gradeBlockOf, linesOf, sentenceOf, tagsOf, type Tag } from './change-list.ts'
 import { Grades } from './Grades.tsx'
 import { RowMenu } from './RowMenu.tsx'
 import { useChangeActions } from './row-actions.ts'
@@ -300,7 +300,7 @@ export function ChangeRow({ change, lowest, place = null, bare = false, initiall
             </div>
             {/* Its size over when it was written, each line always there, so neither moves when the other changes. */}
             <div className="col-start-2 row-start-1 flex flex-col items-end text-right text-[12px] leading-4 text-muted-foreground tabular-nums @[860px]:col-start-3">
-              <span className="hidden h-4 whitespace-nowrap @[860px]:block">{change.size ? `${change.size.lines.toLocaleString('en-US')} lines` : ''}</span>
+              <span className="hidden h-4 whitespace-nowrap @[860px]:block">{change.size ? linesOf(change.size.lines) : ''}</span>
               <When at={change.at} />
             </div>
             <div className="col-start-3 row-start-1 flex min-w-0 items-center justify-end @[860px]:col-start-4">{closedAction()}</div>

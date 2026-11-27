@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { FinishedChange, FinishedGroup, StackPlace } from '#shared/protocol/work.ts'
 import {
+  linesOf,
   actionOf,
   entriesOf,
   gradeBlockOf,
@@ -228,4 +229,11 @@ test('the sample has every part the list shows: a graded stack, notes, a conflic
   assert.ok(changes.some(({ behind }) => behind > 0))
   assert.ok(entries.some(({ kind }) => kind === 'stack'))
   assert.ok(entries.some((entry) => entry.kind === 'change' && actionOf(entry.at.change, 8).kind === 'merge'))
+})
+
+test('a change of one line reads "1 line", and any other size reads in lines', () => {
+  assert.equal(linesOf(1), '1 line')
+  assert.equal(linesOf(2), '2 lines')
+  assert.equal(linesOf(0), '0 lines')
+  assert.equal(linesOf(1200), '1,200 lines')
 })
