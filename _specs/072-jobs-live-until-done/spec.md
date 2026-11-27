@@ -42,7 +42,7 @@ The user, 2026-11-24: "review how hobkins work when asked, they keep creating wo
 
 ### Where it works and merging
 
-- A job works in the folder it was given, on a branch it makes there. It never makes a worktree. If the folder holds changes that are not its own, it asks the user before touching anything.
+- A job works in the folder it was given, on a branch it makes there. ~~It never makes a worktree.~~ Changed on 2026-11-27: the job's prompt no longer forbids a worktree (the user: "does anywhere in the source code it says to avoid using worktrees? it shouldnt"). If the folder holds changes that are not its own, it asks the user before touching anything.
 - When the user's ask names the change and the job's tests pass, the job merges its branch into the default branch there, locally, and says so in its report. It never pushes. Otherwise it asks.
 
 ### Reporting back
@@ -66,7 +66,7 @@ The user, 2026-11-24: "review how hobkins work when asked, they keep creating wo
 - A2. A message from the user, a report from one of its agents and a due schedule each start a turn on the living job; none ends it as `waiting`.
 - A3. An idle living job does not count against routines' concurrency.
 - A4. A job's reply that asks the user reaches the chat and the user, and the answer reaches the job.
-- A5. `session-job.md` keeps the job in its folder with no worktree, asks before touching changes not its own, merges its own branch locally when the ask names the change and its tests pass, never pushes, files no Work items, and ends with `hobkin_done`.
+- A5. `session-job.md` keeps the job in its folder (until 2026-11-27 also "with no worktree", which it no longer says), asks before touching changes not its own, merges its own branch locally when the ask names the change and its tests pass, never pushes, files no Work items, and ends with `hobkin_done`.
 - A6. After a restart, a job that was cut off ends its session with a report saying so and wakes the chat.
 - A7. A card choice that could not be sent is sent on the next try.
 
