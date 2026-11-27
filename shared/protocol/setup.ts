@@ -287,6 +287,15 @@ export interface SetupTelemetry {
 }
 
 /**
+ * hobkin's usage upload as Settings shows it (`usage.read`): whether usage counts go from this home now, and whether
+ * this host keeps the setting, which only a live host on the real home does.
+ */
+export interface UsageUpload {
+  upload: boolean
+  saves: boolean
+}
+
+/**
  * What became of a project picked in the setup. `taken`: work mode has it now, which starts nothing. `proposed`:
  * it waits in Work for the user to take, since a running work mode that picks by itself would start on it at once.
  * `left`: work mode knew it already, and it is as it was. `skipped`: it could not be added, and `reason` says why.

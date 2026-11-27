@@ -427,13 +427,21 @@ declare module 'hobkin/src/cli/provider-extensions.mjs' {
   ): Promise<unknown>
 }
 
+declare module 'hobkin/src/cli/telemetry/sender.mjs' {
+  /** `hobkin telemetry upload [on | off | status]`: on is a yes, and off also forgets where upload was and what waited. */
+  export function runUploadCommand(root: string, args: readonly string[]): { upload: 'on' | 'off'; message: string }
+}
+
 declare module 'hobkin/src/cli/config.mjs' {
   import type { HobkinConfig } from 'hobkin/src/cli/application.mjs'
 
   /** Creates the home when it has no `config.json`, and otherwise returns its configuration unchanged. */
   export function initialize(root: string, options?: { cwd?: string; now?: string; legacySources?: string[] }): HobkinConfig
   export function setTelemetryUpload(root: string, enabled: boolean): { enabled: boolean }
-  /** On unless the home turned it off. While on, hobkin enrolls the home with its server and sends usage. */
+  /**
+   * Yes or no as the user set it. With no answer saved, no, unless the home was enrolled before hobkin asked. While
+   * yes, hobkin enrolls the home with its server and sends usage.
+   */
   export function telemetryUploadEnabled(root: string): boolean
   /** Writes JSON whole under another name and moves it into place, private to the user. */
   export function atomicJson(file: string, value: unknown): void
