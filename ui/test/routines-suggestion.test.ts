@@ -19,8 +19,9 @@ after(() => {
 const { useChat } = await import('../src/features/chat/chat-store.ts')
 const { askForNewRoutine, suggestMessage, useRoutineSuggestion, watchRoutineSuggestion } = await import('../src/features/routines/ask.ts')
 
-test('a suggested message goes into the input and the input takes the keyboard, and nothing is sent', (t) => {
+test('a suggested message fills an empty input and the input takes the keyboard, and nothing is sent', (t) => {
   let focused = 0
+  useChat.getState().change({ type: 'typed', text: '  ' })
   const stop = watchRoutineSuggestion(useChat, () => (focused += 1))
   t.after(stop)
 
@@ -31,13 +32,23 @@ test('a suggested message goes into the input and the input takes the keyboard, 
   assert.equal(useChat.getState().outbox.entries.length, 0, 'sending stays the user\'s')
 })
 
-test('the same text suggested twice is put back the second time', (t) => {
+test('a suggestion never loses typed words: it goes below them after a blank line', (t) => {
+  const stop = watchRoutineSuggestion(useChat, () => {})
+  t.after(stop)
+  useChat.getState().change({ type: 'typed', text: 'Also, the weekly plan is too long.\n' })
+
+  suggestMessage('Fix the inbox routine.')
+
+  assert.equal(useChat.getState().draft.text, 'Also, the weekly plan is too long.\n\nFix the inbox routine.')
+})
+
+test('the same text suggested twice still counts: the input takes the keyboard again, and the words are not doubled', (t) => {
   let focused = 0
+  useChat.getState().change({ type: 'typed', text: '' })
   const stop = watchRoutineSuggestion(useChat, () => (focused += 1))
   t.after(stop)
 
   suggestMessage('Fix the inbox routine.')
-  useChat.getState().change({ type: 'typed', text: 'something else' })
   suggestMessage('Fix the inbox routine.')
 
   assert.equal(useChat.getState().draft.text, 'Fix the inbox routine.')

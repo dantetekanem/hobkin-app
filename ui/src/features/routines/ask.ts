@@ -26,9 +26,20 @@ export function suggestMessage(text: string): void {
   useRoutineSuggestion.setState({ suggestion: { id: made, text } })
 }
 
-/** The message input, as far as taking a suggestion goes: its words are replaced, and nothing is sent. */
+/** The message input, as far as taking a suggestion goes: what is written in it, and writing it. Nothing is sent. */
 interface Draft {
-  getState(): { change(action: { type: 'typed'; text: string }): void }
+  getState(): { draft: { text: string }; change(action: { type: 'typed'; text: string }): void }
+}
+
+/**
+ * The draft with a suggestion in it. An empty draft takes it as it is. Typed words stay, with the suggestion below them
+ * after a blank line, unless they already end with it.
+ */
+function draftWith(written: string, suggestion: string): string {
+  const kept = written.trimEnd()
+  if (!kept.trim()) return suggestion
+  if (kept.endsWith(suggestion)) return written
+  return `${kept}\n\n${suggestion}`
 }
 
 /**
@@ -40,7 +51,8 @@ export function watchRoutineSuggestion(draft: Draft, focus: () => void): () => v
     const { suggestion } = useRoutineSuggestion.getState()
     if (!suggestion) return
     useRoutineSuggestion.setState({ suggestion: null })
-    draft.getState().change({ type: 'typed', text: suggestion.text })
+    const chat = draft.getState()
+    chat.change({ type: 'typed', text: draftWith(chat.draft.text, suggestion.text) })
     focus()
   }
   const unsubscribe = useRoutineSuggestion.subscribe(take)
