@@ -55,8 +55,9 @@ test('with Pi in place, only the missing packages are asked for, and Pi is not i
   const packages = PI_PACKAGES.filter(({ optional }) => !optional).map(({ name, adds }) => ({ name, adds, installed: name !== 'pi-coder' }))
   const prompt = agentPrompt(setup({ installed: true, version: '1.5.0', matches: true, canInstall: true, packages }), 'Pi could not install pi-coder.')
 
-  assert.ok(prompt.includes('`pi install npm:pi-coder`'))
-  assert.ok(!prompt.includes('`pi install npm:pi-ask-user`'))
+  const sourceOf = (name: string) => PI_PACKAGES.find((item) => item.name === name)!.source
+  assert.ok(prompt.includes(`\`pi install ${sourceOf('pi-coder')}\``))
+  assert.ok(!prompt.includes(`\`pi install ${sourceOf('pi-ask-user')}\``))
   assert.ok(!prompt.includes(COMMAND))
 })
 

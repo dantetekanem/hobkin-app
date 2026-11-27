@@ -26,6 +26,8 @@ const PI = '/fake.invalid/bin/pi'
 const NPM = '/fake.invalid/bin/npm'
 const PIN = '1.5.0'
 const COMMAND = `npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PIN}`
+/** What `pi install` is given for a package of the catalog. */
+const sourceOf = (name: string) => PI_PACKAGES.find((item) => item.name === name)!.source
 const none = (installed: string[] = []) => PI_PACKAGES.filter(({ optional }) => !optional).map(({ name, adds }) => ({ name, adds, installed: installed.includes(name) }))
 /** The fake npm has no Node beside it, so it runs on the host's own, as `environment` says. Its version is known without asking. */
 const HOST_NODE = { found: true, version: process.versions.node, installs: process.versions.node }
@@ -120,10 +122,35 @@ test('an optional package is left out of what setup asks for, even when Pi has i
   assert.ok(names.includes('pi-ask-user'))
 })
 
+test('each package is pinned to what the setup was tried with: one from npm to its exact version, one from git to a commit', () => {
+  for (const { name, source } of PI_PACKAGES) {
+    assert.match(source, /^npm:(@[\w.-]+\/)?[\w.-]+@\d+\.\d+\.\d+$|^git:[\w./-]+@[0-9a-f]{40}$/, name)
+  }
+})
+
+test('a copy a person already has counts as installed at any version and from any source, so a pin never installs it again', async () => {
+  const list = [
+    'User packages:',
+    '  npm:pi-coder@0.9.10',
+    '  npm:pi-extended-teams',
+    '  npm:pi-agentic-search@9.0.0',
+    '  git:github.com/someone/pi-ask-user@main',
+    '',
+    'Project packages:',
+    '  ../../projects/pi-solid-tasks',
+    '',
+  ].join('\n')
+  const run = fakeRun({ 'pi --version': { stdout: '1.5.0\n' }, 'pi list': { stdout: list } })
+
+  const { packages } = await piSetup({ findPi: () => PI, findNpm: () => NPM, run, pinned: PIN })
+
+  assert.deepEqual(packages, none(['pi-coder', 'pi-extended-teams', 'pi-agentic-search', 'pi-ask-user', 'pi-solid-tasks']))
+})
+
 test('with a launcher the Pi check and a package install run through it, with its environment, and no Pi on the PATH is looked for', async () => {
   const calls: Call[] = []
   const launcher = () => ({ command: ['work-pi', '--flag'], env: { REGION: 'x' } })
-  const run = fakeRun({ 'work-pi --flag --version': { stdout: '' }, 'work-pi --flag list': { stdout: '  npm:pi-coder\n' }, 'work-pi --flag install npm:pi-ask-user': { stdout: 'Installed\n' } }, calls)
+  const run = fakeRun({ 'work-pi --flag --version': { stdout: '' }, 'work-pi --flag list': { stdout: '  npm:pi-coder\n' }, [`work-pi --flag install ${sourceOf('pi-ask-user')}`]: { stdout: 'Installed\n' } }, calls)
   // The version goes to stderr, as a real Pi does.
   const stderr: PiRun = (file, args, options, done) => (args.includes('--version') ? (calls.push({ program: file, args: [...args], timeout: options.timeout, path: '', env: options.env }), done(null, '', '1.5.0\n')) : run(file, args, options, done))
 
@@ -137,7 +164,7 @@ test('with a launcher the Pi check and a package install run through it, with it
   assert.deepEqual(calls.map(({ program, args }) => [program, ...args]), [
     ['work-pi', '--flag', '--version'],
     ['work-pi', '--flag', 'list'],
-    ['work-pi', '--flag', 'install', 'npm:pi-ask-user'],
+    ['work-pi', '--flag', 'install', sourceOf('pi-ask-user')],
   ])
   assert.ok(calls.every(({ env }) => env?.REGION === 'x'))
 
@@ -202,9 +229,9 @@ test('installing Pi runs exactly the pinned npm line, through the npm found, wit
 
 test('a package installs by its name, through the Pi found, and a name not in the catalog is refused', async () => {
   const calls: Call[] = []
-  const run = fakeRun({ 'pi install npm:pi-coder': { stdout: 'Installed npm:pi-coder\n' } }, calls)
+  const run = fakeRun({ [`pi install ${sourceOf('pi-coder')}`]: { stdout: 'Installed npm:pi-coder\n' } }, calls)
   await installPackage('pi-coder', { findPi: () => PI, run })
-  assert.deepEqual(calls.map(({ program, args, timeout }) => [program, args, timeout]), [[PI, ['install', 'npm:pi-coder'], 300000]])
+  assert.deepEqual(calls.map(({ program, args, timeout }) => [program, args, timeout]), [[PI, ['install', sourceOf('pi-coder')], 300000]])
 
   await assert.rejects(installPackage('npm:evil-package', { findPi: () => PI, run }), /not one of the Pi packages hobkin sets up/)
   await assert.rejects(installPackage('pi-coder', { findPi: () => null, run }), /Pi is not installed yet/)
@@ -228,7 +255,7 @@ test("a failed install says so in plain words, then the program's last lines, wi
   assert.doesNotMatch(failure.message, /line 1\b/, 'only the last lines')
   assert.doesNotMatch(failure.message, /npm_abcdefghijklmnopqrstuvwxyz0123456789/)
 
-  const slow = fakeRun({ 'pi install npm:pi-coder': { error: Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' }), stdout: 'Installing npm:pi-coder\n' } })
+  const slow = fakeRun({ [`pi install ${sourceOf('pi-coder')}`]: { error: Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' }), stdout: 'Installing npm:pi-coder\n' } })
   await assert.rejects(installPackage('pi-coder', { findPi: () => PI, run: slow }), /^Error: Pi could not install pi-coder\. It took longer than 5 minutes, so it was stopped\.[\s\S]*Installing npm:pi-coder/)
 })
 

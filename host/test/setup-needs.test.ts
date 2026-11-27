@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ClaudeCodeStatus } from '../../shared/protocol/claude-code.ts'
 import type { PiSetup, SetupNeed } from '../../shared/protocol/setup.ts'
+import { PI_PACKAGES } from '../../shared/setup/pi-packages.ts'
 import { readSetupNeeds, setupNeedsHandlers, type SetupNeedsOptions } from '../src/setup-needs.ts'
 
 const pi = (over: Partial<PiSetup> = {}): PiSetup => ({
@@ -168,8 +169,9 @@ test("what is missing offers the setup's own install where it has one, and other
   // Where hobkin can install no Node, the lines to run once Node is installed by hand.
   const byHand = (await review({ pi: async () => ({ ...bareMac, canInstallNode: false }), programs: { 'agentic-search': null, qmd: null, npm: null } })).needs
   assert.deepEqual(byHand.pi!.fix, { kind: 'command', command: 'npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.5.0' })
-  assert.deepEqual(byHand['package:pi-coder']!.fix, { kind: 'command', command: 'pi install npm:pi-coder' })
-  assert.deepEqual(byHand['agentic-search']!.fix, { kind: 'command', command: 'pi install npm:pi-agentic-search' })
+  const sourceOf = (name: string) => PI_PACKAGES.find((item) => item.name === name)!.source
+  assert.deepEqual(byHand['package:pi-coder']!.fix, { kind: 'command', command: `pi install ${sourceOf('pi-coder')}` })
+  assert.deepEqual(byHand['agentic-search']!.fix, { kind: 'command', command: `pi install ${sourceOf('pi-agentic-search')}` })
   assert.deepEqual(byHand.qmd!.fix, { kind: 'command', command: 'npm install -g @tobilu/qmd' })
 
   // With npm the window installs Pi, and with Pi the package.
