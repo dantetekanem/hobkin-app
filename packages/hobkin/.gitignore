@@ -2,6 +2,7 @@
 !/.gitignore
 !/package.json
 !/pnpm-workspace.yaml
+!/pnpm-lock.yaml
 !/README.md
 !/LICENSE
 !/src/

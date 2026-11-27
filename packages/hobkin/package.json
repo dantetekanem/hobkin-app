@@ -6,9 +6,14 @@
   "packageManager": "pnpm@11.12.0",
   "type": "module",
   "description": "hobkin's runtime: the application, routines, work mode and the hobkin command that hobkin-client's host loads.",
-  "bin": { "hobkin": "./src/cli/main.mjs" },
+  "bin": {
+    "hobkin": "./src/cli/main.mjs"
+  },
   "repository": "https://github.com/dantetekanem/hobkin",
-  "files": ["src", "README.md"],
+  "files": [
+    "src",
+    "README.md"
+  ],
   "peerDependencies": {
     "@earendil-works/pi-ai": "^1.5.0",
     "@earendil-works/pi-coding-agent": "1.5.0",
@@ -20,13 +25,20 @@
     "test:cli": "node --test --test-concurrency=${HOBKIN_TEST_CONCURRENCY:-4} test/cli-*.test.mjs",
     "test:migration": "node --test --test-concurrency=${HOBKIN_TEST_CONCURRENCY:-4} test/migration.test.mjs test/migration-*.test.mjs"
   },
-  "engines": { "node": ">=22.19.0" },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "devEngines": {
-    "runtime": { "name": "node", "version": "26.3.1", "onFail": "download" }
+    "runtime": {
+      "name": "node",
+      "version": "26.3.1",
+      "onFail": "download"
+    }
   },
   "dependencies": {
     "@earendil-works/chord": "1.5.0",
     "@earendil-works/pi-durable": "1.5.0",
     "proper-lockfile": "4.1.2"
-  }
+  },
+  "devDependencies": {}
 }
