@@ -101,6 +101,8 @@ declare module 'hobkin/src/cli/application.mjs' {
 
   export interface HobkinConfig {
     main: { cwd: string; model: string | null; effort: string }
+    /** The checks, and the routines that name no model. */
+    background?: { harness?: string; model: string | null; effort: string }
     launcher?: unknown
     providerExtensions?: Record<string, string>
     [key: string]: unknown
@@ -472,7 +474,7 @@ declare module 'hobkin/src/cli/settings.mjs' {
     error?: string
     persisted: {
       status: 'complete' | 'partial' | 'failed' | 'unchanged'
-      settings?: { main?: Binding; error?: string }
+      settings?: { main?: Binding; background?: Binding & { harness?: string }; error?: string }
       failed?: { target: string; error: string }
     }
     activeRuntime: { status: 'verified' | 'unverified' | 'unchanged'; effective?: Binding; error?: string; reason?: string }
@@ -484,7 +486,7 @@ declare module 'hobkin/src/cli/settings.mjs' {
    */
   export function updateSettings(
     root: string,
-    request: { scope: 'main'; model?: string; effort?: string },
+    request: { scope: 'main' | 'background'; model?: string; effort?: string },
     options?: { modelRuntime?: unknown; applyCurrent?: (choice: { model?: unknown; effort?: string }) => Promise<Binding> },
   ): Promise<SettingsUpdate>
 

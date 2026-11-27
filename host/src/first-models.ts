@@ -14,6 +14,8 @@ export interface FirstModelsHost {
   tiers: () => Promise<HostTiers>
   /** Saves hobkin's own model, as `models.select` does. */
   selectModel: (model: string, effort: Effort) => Promise<unknown>
+  /** Saves the checks' model, as hobkin's own model settings do. */
+  selectChecks: (model: string, effort: Effort) => Promise<unknown>
   /** Saves tiers, as `tiers.apply` does. */
   applyTiers: (change: TiersChange) => Promise<unknown>
 }
@@ -30,14 +32,15 @@ export function neverChosen({ lead, tiers }: HostTiers): boolean {
 /** What a tier saves of a pick: its model and level, without the name. */
 const settingOf = ({ model, effort }: Picked): TierSetting => ({ model, effort })
 
-export async function setFirstModels({ models, tiers, selectModel, applyTiers }: FirstModelsHost): Promise<FirstModels> {
+export async function setFirstModels({ models, tiers, selectModel, selectChecks, applyTiers }: FirstModelsHost): Promise<FirstModels> {
   if (!neverChosen(await tiers())) return { set: false, why: 'chosen' }
 
   const pick = pickFirstModels(await models())
   if (!pick) return { set: false, why: 'no-model' }
 
-  // The chat's model first. Should the tiers then fail, they follow it, and the home reads as chosen from then on.
+  // The chat's model first. Should the rest then fail, it follows Pi or the chat, and the home reads as chosen from then on.
   await selectModel(pick.lead.model, pick.lead.effort)
+  await selectChecks(pick.checks.model, pick.checks.effort)
   const { fast, mid, high, max } = pick.tiers
   await applyTiers({ tiers: { fast: settingOf(fast), mid: settingOf(mid), high: settingOf(high), max: settingOf(max) } })
 

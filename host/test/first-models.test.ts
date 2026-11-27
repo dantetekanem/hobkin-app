@@ -32,7 +32,7 @@ const CODEX: ModelsState = {
 /** The host as `setFirstModels` sees it, keeping what it was asked to save. */
 function fakeHost(tiers: HostTiers, models: ModelsState = CODEX) {
   const calls: string[] = []
-  const saved: { main?: [string, string]; tiers?: TiersChange } = {}
+  const saved: { main?: [string, string]; checks?: [string, string]; tiers?: TiersChange } = {}
   return {
     calls,
     saved,
@@ -46,6 +46,10 @@ function fakeHost(tiers: HostTiers, models: ModelsState = CODEX) {
         calls.push('main')
         saved.main = [model, effort]
       },
+      selectChecks: async (model: string, effort: string) => {
+        calls.push('checks')
+        saved.checks = [model, effort]
+      },
       applyTiers: async (change: TiersChange) => {
         calls.push('tiers')
         saved.tiers = change
@@ -54,12 +58,13 @@ function fakeHost(tiers: HostTiers, models: ModelsState = CODEX) {
   }
 }
 
-test("a new home gets hobkin's model and every tier from the account, the chat's first, and hears what was set", async () => {
+test("a new home gets hobkin's model, the checks' and every tier from the account, the chat's first, and hears what was set", async () => {
   const host = fakeHost(NEW_HOME)
   const answer = await setFirstModels(host.deps)
 
-  assert.deepEqual(host.calls, ['models', 'main', 'tiers'])
+  assert.deepEqual(host.calls, ['models', 'main', 'checks', 'tiers'])
   assert.deepEqual(host.saved.main, ['openai-codex/gpt-6.1-sol', 'medium'])
+  assert.deepEqual(host.saved.checks, ['openai-codex/gpt-6.1-sol', 'medium'], 'the mid pick')
   assert.deepEqual(host.saved.tiers, {
     tiers: {
       fast: { model: 'openai-codex/gpt-6-luna', effort: 'low' },

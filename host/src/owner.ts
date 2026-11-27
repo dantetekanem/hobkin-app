@@ -591,6 +591,23 @@ export class HomeOwner {
     return { model: saved.model, effort: saved.effort, applied: result.activeRuntime.status === 'verified' }
   }
 
+  /**
+   * The checks' model, chosen the way hobkin's own `model_settings` tool chooses it, checked against the catalog the open
+   * conversation has. The open hobkin learns it too, so the routines that name no model run on it from their next start.
+   */
+  async selectChecks(model: string, effort: string): Promise<void> {
+    const { updateSettings } = await import('hobkin/src/cli/settings.mjs')
+    const session = this.main
+    const modelRuntime = this.app && session?.modelCatalog ? await session.modelCatalog() : await this.options.modelRuntime?.()
+    const result = await updateSettings(this.options.root, { scope: 'background', model, effort }, { modelRuntime })
+    const saved = result.persisted.settings?.background
+    if (result.persisted.status !== 'complete' || !saved?.model) {
+      throw Error(`hobkin could not save the checks' model: ${result.error ?? result.persisted.failed?.error ?? result.persisted.status}`)
+    }
+
+    if (this.app?.config.background) Object.assign(this.app.config.background, saved)
+  }
+
   /** hobkin's tiers for delegated work and the two a change review uses, as its `config.json` holds them now. */
   tiers(): Promise<HostTiers> {
     return readHostTiers(this.options.root)

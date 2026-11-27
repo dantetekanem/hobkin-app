@@ -35,6 +35,8 @@ export interface FirstPick {
   provider: { id: string; name: string }
   /** hobkin's own model, for the main chat. */
   lead: Picked
+  /** What the checks and the routines that name no model run on: the mid pick. */
+  checks: Picked
   tiers: Record<TierId, Picked>
 }
 
@@ -134,13 +136,15 @@ export function pickFirstModels(state: ModelsState): FirstPick | null {
   const { provider, own } = found
   const anchor = own.find((model) => model.id === provider.defaultModel) ?? own.find(thinks) ?? own[0]
   const fast = cheaperOfKind(own, anchor) ?? anchor
+  const mid = pickedAt(anchor, 'medium')
 
   return {
     provider: { id: provider.id, name: provider.name },
     lead: pickedAt(anchor, 'medium'),
+    checks: mid,
     tiers: {
       fast: pickedAt(fast, 'low'),
-      mid: pickedAt(anchor, 'medium'),
+      mid,
       high: pickedAt(anchor, 'high'),
       max: pickedAt(anchor, strongest(anchor)),
     },

@@ -85,6 +85,14 @@ test("one subscription: hobkin and its tiers start on Pi's default for it, fast 
   })
 })
 
+test('the checks run on the mid pick', () => {
+  for (const state of [{ providers: [CODEX], models: CODEX_MODELS }, { providers: [ANTHROPIC], models: ANTHROPIC_MODELS }]) {
+    const pick = pickFirstModels(state)
+
+    assert.deepEqual(pick?.checks, pick?.tiers.mid)
+  }
+})
+
 test('each pick carries the name Pi gives the model and the provider', () => {
   const pick = pickFirstModels({ providers: [CODEX], models: CODEX_MODELS })
   assert.deepEqual(pick?.provider, { id: 'openai-codex', name: 'OpenAI Codex' })

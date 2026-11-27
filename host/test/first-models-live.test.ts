@@ -46,7 +46,7 @@ test("on a new home the setup's account step sets hobkin's model and tiers from 
   const config = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8'))
   assert.deepEqual(config.main, { cwd: root, model: 'deepseek/deepseek-v4-pro', effort: 'high' })
   assert.deepEqual(config.tiers.fast, { model: 'deepseek/deepseek-flash', effort: 'low' })
-  assert.equal(config.background.model, null, 'the checks keep following Pi')
+  assert.deepEqual(config.background, { harness: 'pi', model: 'deepseek/deepseek-v4-pro', effort: 'high' }, 'the checks on the mid pick')
 
   // The open conversation answers with it at once.
   await client.until((view) => view.snapshot.main?.model === 'deepseek/deepseek-v4-pro', 'the conversation on the first model')
