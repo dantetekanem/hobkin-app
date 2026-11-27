@@ -152,7 +152,8 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null, resume = nu
     const told = focus.filter((id) => rectOf.has(id))
     // A card keeps off the zones' headings as it keeps off the other nodes.
     const regions = regionsOf(view.nodes, view.zones).map((region) => region.rect)
-    const others = [...view.nodes.filter((node) => !told.includes(node.id)).map((node) => rectOf.get(node.id)!), ...headingsOf(regions)]
+    const otherNodes = view.nodes.filter((node) => !told.includes(node.id)).map((node) => rectOf.get(node.id)!)
+    const others = [...otherNodes, ...headingsOf(regions)]
     const height = content ? (measure.current?.offsetHeight ?? 0) : 0
     const card = content && height > 0 ? { width, height } : null
 

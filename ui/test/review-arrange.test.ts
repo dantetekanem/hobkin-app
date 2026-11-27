@@ -71,7 +71,10 @@ test('the graph reads the way a request goes, zone by zone, with each zone of te
   for (const node of shape.nodes) assert.ok(shape.zones.some((zone) => zone.id === node.zone), `${node.title} is in a zone`)
   assert.ok(zoneOf('GET /posts/:id') < zoneOf('PostsController#show') && zoneOf('PostsController#show') < zoneOf('link_user_tags') && zoneOf('link_user_tags') < zoneOf('User.find_by_handles'))
   // Tests are off the way: each card stands left of what it covers, so its wire runs right.
-  const cardFor = (title: string) => shape.nodes.find((node) => node.id === Object.values(shape.groups).find((group) => group.subject === at(title).id)!.id)!
+  const cardFor = (title: string) => {
+    const group = Object.values(shape.groups).find((each) => each.subject === at(title).id)!
+    return shape.nodes.find((node) => node.id === group.id)!
+  }
   for (const title of ['link_user_tags', 'fetch_errors', 'report']) assert.ok(cardFor(title).position.x + 288 < x(title), `the tests for ${title} sit left of it`)
   // The controllers call into the helper, so its tests sit under its zone. Nothing calls into the scripts: theirs stand
   // on their rows.

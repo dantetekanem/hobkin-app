@@ -428,10 +428,10 @@ export function frameOpening({ graph, area, card, maxZoom = FRAME.maxZoom }: { g
   const height = Math.min(card.height, room.height)
   const box = boundsOf(graph)
   const fit = (space: Rect) => Math.max(0.01, Math.min(maxZoom, space.width / Math.max(1, box.width), space.height / Math.max(1, box.height)))
-  const spaces = [
-    { ...room, width: room.width - width - FRAME.gap },
-    { ...room, y: room.y + height + FRAME.gap, height: room.height - height - FRAME.gap },
-  ].filter((space) => space.width > 0 && space.height > 0)
+  const leftOfCard = { ...room, width: room.width - width - FRAME.gap }
+  const underCard = { ...room, y: room.y + height + FRAME.gap, height: room.height - height - FRAME.gap }
+  // Left of the card wins a tie, as the opening always had it.
+  const spaces = [leftOfCard, underCard].filter((space) => space.width > 0 && space.height > 0)
   const space = spaces.reduce<Rect>((best, each) => (fit(each) > fit(best) ? each : best), spaces[0] ?? room)
   const zoom = fit(space)
   // The graph's middle at the middle of its room.

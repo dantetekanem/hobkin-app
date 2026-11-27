@@ -583,15 +583,24 @@ function wantedLeft(test: string, edges: readonly LayoutEdge[], above: Positions
  */
 function besideBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[], code: Positions, kind: (id: string) => NodeKind, top: number, room: Room): Positions {
   const middle = (id: string) => code[id]!.y + room.size[kind(id)].height / 2
+  /** The top that puts a test's middle level with the middle of what it covers; none for a test that covers nothing here. */
+  const levelTop = (node: ZoneNode) => {
+    const covered = coveredBy(node.id, edges, code).map(middle)
+    if (covered.length === 0) return Number.POSITIVE_INFINITY
+    const average = covered.reduce((sum, value) => sum + value, 0) / covered.length
+    return average - room.size[node.kind].height / 2
+  }
   const order = members
-    .map((node, index) => {
-      const covered = coveredBy(node.id, edges, code).map(middle)
-      const at = covered.length > 0 ? covered.reduce((sum, value) => sum + value, 0) / covered.length - room.size[node.kind].height / 2 : Number.POSITIVE_INFINITY
-      return { node, index, at }
-    })
+    .map((node, index) => ({ node, index, at: levelTop(node) }))
     .sort((a, b) => a.at - b.at || a.index - b.index)
+
+  // A test that covers nothing here wants the place of the test before it, so it packs right after it.
+  const wanted: number[] = []
   let last = Number.isFinite(top) ? top : 0
-  const wanted = order.map(({ at }) => (Number.isFinite(at) ? (last = at) : last))
+  for (const { at } of order) {
+    if (Number.isFinite(at)) last = at
+    wanted.push(last)
+  }
   const tops = settle(wanted, order.map(({ node }) => room.size[node.kind].height))
   const down = Math.max(0, top - (tops[0] ?? top))
   return Object.fromEntries(order.map(({ node }, index) => [node.id, { x: 0, y: Math.round(tops[index]! + down) }]))
@@ -604,8 +613,11 @@ function besideBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[],
 function testsBeside(code: Positions, tests: readonly ZoneNode[], stack: readonly string[], zoneOf: ReadonlyMap<string, string>, edges: readonly LayoutEdge[]): boolean {
   const xs = Object.values(code).map((point) => point.x)
   if (xs.length === 0 || tests.length === 0) return false
-  const reached = edges.some((edge) => edge.from !== edge.to && code[edge.to] && zoneOf.has(edge.from) && !stack.includes(zoneOf.get(edge.from)!))
+
+  const fromOutside = (edge: LayoutEdge) => zoneOf.has(edge.from) && !stack.includes(zoneOf.get(edge.from)!)
+  const reached = edges.some((edge) => edge.from !== edge.to && code[edge.to] && fromOutside(edge))
   if (reached) return false
+
   const first = Math.min(...xs)
   return tests.every((test) => {
     const covered = coveredBy(test.id, edges, code)
@@ -780,27 +792,34 @@ export function layoutZones(
   }
 
   const rectIn = (placed: Positions) => (id: string): Rect => ({ ...placed[id]!, ...room.size[kind(id)] })
+  /** The box around placed nodes, cards and all. */
+  const boxOf = (placed: Positions) => boundsOf(Object.keys(placed).map(rectIn(placed)))
   /** The room between two regions, one after the other: under the first's nodes, the gap, and over the second's. */
   const between = room.frame.bottom + ZONE_FRAME.gap + room.frame.top
 
   const built = stacks.map(([head, ...under]): BuiltStack => {
     const members = membersOf.get(head!) ?? []
     const code = finish(head!, isTests(head!) ? gridOf(members, room) : codeBlock(members, edges, room))
+    const tested = under.flatMap((zone) => membersOf.get(zone) ?? [])
     let placed = code
-    if (testsBeside(code, under.flatMap((zone) => membersOf.get(zone) ?? []), [head!, ...under], zoneOfNode, edges)) {
-      // The zones of tests one under the other at the left, each test on its code's row, and the code moved right of them.
+    if (testsBeside(code, tested, [head!, ...under], zoneOfNode, edges)) {
+      // The zones of tests one under the other at the left, each test on its code's row.
       let tests: Positions = {}
       let top = Number.NEGATIVE_INFINITY
       for (const zone of under) {
         const block = finish(zone, besideBlock(membersOf.get(zone) ?? [], edges, code, kind, top, room))
         if (Object.keys(block).length === 0) continue
         tests = { ...tests, ...block }
-        const { y, height } = boundsOf(Object.keys(block).map(rectIn(block)))
+        const { y, height } = boxOf(block)
         top = y + height + between
       }
-      const right = boundsOf(Object.keys(tests).map(rectIn(tests)))
-      const shift = right.x + right.width + room.frame.right + ZONE_FRAME.gap + room.frame.left - Math.min(...Object.values(code).map((point) => point.x))
-      placed = { ...tests, ...Object.fromEntries(Object.entries(code).map(([id, point]) => [id, { x: point.x + shift, y: point.y }])) }
+
+      // The code moved right of them: past their region, the gap, and the room its own region keeps on its left.
+      const testsBox = boxOf(tests)
+      const codeLeft = Math.min(...Object.values(code).map((point) => point.x))
+      const shift = testsBox.x + testsBox.width + room.frame.right + ZONE_FRAME.gap + room.frame.left - codeLeft
+      const moved = Object.entries(code).map(([id, point]) => [id, { x: point.x + shift, y: point.y }] as const)
+      placed = { ...tests, ...Object.fromEntries(moved) }
     } else {
       for (const zone of under) {
         // Under the regions above, each test just left of what it covers.
