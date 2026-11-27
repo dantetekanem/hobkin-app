@@ -18,7 +18,7 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://github.com/dantetekanem/hobkin-client/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/dantetekanem/hobkin-app/releases/latest/download/latest.json"],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYwQ0U2Qzc3NzQyRUFERTgKUldUb3JTNTBkMnpPWUV6ZzNvajQ5VTg5V3h0TjJoeGlOU1dkRDZUZUROY0lYSjVqcTc0OVdtOE0K"
     }
   }

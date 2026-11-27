@@ -15,7 +15,7 @@ hobkin is in early release and runs on macOS. Windows and Linux aren't supported
 You can let a coding agent such as Claude Code or Codex do the steps below. Paste this into it:
 
 ```text
-Install hobkin from https://github.com/dantetekanem/hobkin-client on this Mac and start it.
+Install hobkin from https://github.com/dantetekanem/hobkin-app on this Mac and start it.
 1. Check each tool, and install only the ones that are missing, each with its official installer:
    - Apple's Command Line Tools (not the Xcode app): check with `xcode-select -p`. If missing, run
      `xcode-select --install`, tell me to press Install in the window that opens, and wait until it finishes.
@@ -43,8 +43,8 @@ Or do it yourself:
 2. Get the code and its packages:
 
    ```sh
-   git clone https://github.com/dantetekanem/hobkin-client.git
-   cd hobkin-client
+   git clone https://github.com/dantetekanem/hobkin-app.git
+   cd hobkin-app
    pnpm run bootstrap
    ```
 

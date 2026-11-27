@@ -43,7 +43,7 @@ export const JAVA_RUNTIME = {
 export const TLAPS = {
   version: '1.6.0-pre',
   builds: {
-    arm64: { url: 'https://github.com/dantetekanem/hobkin-client/releases/download/tlaps-1.6.0-pre-2026-11-26/tlapm-1.6.0-pre-arm64-darwin.tar.gz', sha256: 'c82b5edf853359bf20fb0d7c177ac89b040939f9f829d4eaaf923f79c81a3826', bytes: 40986905 },
+    arm64: { url: 'https://github.com/dantetekanem/hobkin-app/releases/download/tlaps-1.6.0-pre-2026-11-26/tlapm-1.6.0-pre-arm64-darwin.tar.gz', sha256: 'c82b5edf853359bf20fb0d7c177ac89b040939f9f829d4eaaf923f79c81a3826', bytes: 40986905 },
   },
 };
 

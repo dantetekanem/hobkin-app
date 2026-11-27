@@ -246,7 +246,7 @@ test('on an Intel Mac setup installs TLC and says in its one line that TLAPS has
 test("the pinned TLAPS is hobkin's own copy of the 1.6.0-pre Apple-silicon tarball, with its sha256 and size", () => {
   assert.equal(TLAPS.version, '1.6.0-pre');
   assert.deepEqual(Object.keys(TLAPS.builds), ['arm64']);
-  assert.equal(TLAPS.builds.arm64.url, 'https://github.com/dantetekanem/hobkin-client/releases/download/tlaps-1.6.0-pre-2026-11-26/tlapm-1.6.0-pre-arm64-darwin.tar.gz');
+  assert.equal(TLAPS.builds.arm64.url, 'https://github.com/dantetekanem/hobkin-app/releases/download/tlaps-1.6.0-pre-2026-11-26/tlapm-1.6.0-pre-arm64-darwin.tar.gz');
   assert.equal(TLAPS.builds.arm64.sha256, 'c82b5edf853359bf20fb0d7c177ac89b040939f9f829d4eaaf923f79c81a3826');
   assert.equal(TLAPS.builds.arm64.bytes, 40986905);
 });

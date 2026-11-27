@@ -40,7 +40,7 @@ test('a feed is never written for a version that is not three numbers, with an e
 })
 
 test("the updater's one endpoint names the GitHub repository whose latest release carries the feed", () => {
-  assert.equal(REPOSITORY, 'dantetekanem/hobkin-client')
+  assert.equal(REPOSITORY, 'dantetekanem/hobkin-app')
   const endpoint = (url: string) => ({ plugins: { updater: { endpoints: [url] } } })
   assert.equal(repositoryFrom(endpoint('https://github.com/someone/hobkin-client/releases/latest/download/latest.json')), 'someone/hobkin-client')
   assert.throws(() => repositoryFrom(endpoint('https://hobkin.example.invalid/downloads/latest.json')), /releases\/latest\/download\/latest\.json/)

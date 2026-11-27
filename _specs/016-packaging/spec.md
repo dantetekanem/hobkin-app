@@ -25,8 +25,8 @@ One command per chip builds hobkin for Apple silicon or Intel from one commit. I
 - Node's own release asks for six entitlements, `get-task-allow` among them, which notarization rejects. The carried Node is signed with the fewest that run it (`scripts/package/node-<arch>.entitlements.plist`). `allow-jit` is for V8's compiled code. `disable-library-validation` is needed because the hardened runtime otherwise loads only native modules signed by the same team, and the carried Node loads Pi extensions from the user's folders and runs checks in the user's projects (`packages/hobkin/src/cli/pi-extensions.mjs`, `work/proof-checks.mjs`), whose modules nobody here signs. Intel also needs `allow-unsigned-executable-memory`. The app's own executable needs no entitlement.
 - Tauri notarizes and staples the app inside `tauri build` when the credentials are in its environment. It then makes the DMG and the updater archive from the stapled app. `build.ts` signs the DMG, has Apple notarize it, and staples it. The credentials come from the environment: an App Store Connect API key (recommended), or an Apple ID with an app-specific password. Tauri takes the Apple ID when both are whole, so `build.ts` does too, and hands Tauri only that route's variables.
 - An identity of `-` is a proof run. It signs everything ad hoc and runs every step but notarization, then stops with what notarization is missing. Nothing signed ad hoc is ever sent to Apple, and nothing of it reaches `dist/built/`, the only place `release.ts` reads.
-- Every download is a GitHub release of `dantetekanem/hobkin-client` (the user's call, 2026-11-26). Each version is release `v<version>`, made at the commit it was built from, and its assets are both DMGs, both update archives and `latest.json`. The feed's archive links name that release: `https://github.com/dantetekanem/hobkin-client/releases/download/v<version>/<file>`.
-- The updater endpoint in `scripts/package/tauri.release.conf.json` is the one setting: `https://github.com/dantetekanem/hobkin-client/releases/latest/download/latest.json`. `feed.ts` reads the repository from it. GitHub answers `/releases/latest` with the newest release that is neither a draft nor a pre-release, so each app release is marked latest (`gh release create --latest`).
+- Every download is a GitHub release of `dantetekanem/hobkin-app` (the user's call, 2026-11-26). The repository was named `hobkin-client` until 2026-11-27. Each version is release `v<version>`, made at the commit it was built from, and its assets are both DMGs, both update archives and `latest.json`. The feed's archive links name that release: `https://github.com/dantetekanem/hobkin-app/releases/download/v<version>/<file>`.
+- The updater endpoint in `scripts/package/tauri.release.conf.json` is the one setting: `https://github.com/dantetekanem/hobkin-app/releases/latest/download/latest.json`. `feed.ts` reads the repository from it. GitHub answers `/releases/latest` with the newest release that is neither a draft nor a pre-release, so each app release is marked latest (`gh release create --latest`).
 - Every other release on the repository is a pre-release, so it never becomes the latest. A release that is not the app's, but is marked latest, would leave every installed app without a feed until the next app release.
 - `release.ts` uploads nothing. It writes the files and `notes.md` to `dist/release/` and prints the `gh release create` command that publishes them. gh uploads the assets to a draft and publishes it once they are all there, so no app reads a feed whose archives are missing.
 - The repository is private today. Until it is public, the endpoint and every asset link need a GitHub sign-in, so installed apps find no update, and the DMG links work only for people with access to the repository.
@@ -98,7 +98,7 @@ node scripts/package/release.ts "What changed."
 `release.ts` ends with the command that publishes the release, to run from the repository folder, such as:
 
 ```
-gh release create v<version> --repo dantetekanem/hobkin-client --target <commit> --title 'hobkin <version>' --notes-file dist/release/notes.md --latest dist/release/hobkin-alpha-<version>.dmg dist/release/hobkin-<version>-aarch64.app.tar.gz dist/release/hobkin-alpha-<version>-intel.dmg dist/release/hobkin-<version>-x86_64.app.tar.gz dist/release/latest.json
+gh release create v<version> --repo dantetekanem/hobkin-app --target <commit> --title 'hobkin <version>' --notes-file dist/release/notes.md --latest dist/release/hobkin-alpha-<version>.dmg dist/release/hobkin-<version>-aarch64.app.tar.gz dist/release/hobkin-alpha-<version>-intel.dmg dist/release/hobkin-<version>-x86_64.app.tar.gz dist/release/latest.json
 ```
 
 The Apple ID route takes `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password) and `APPLE_TEAM_ID` in place of the three `APPLE_API_*` variables.
@@ -111,10 +111,10 @@ The file is `tlapm-1.6.0-pre-arm64-darwin.tar.gz`, 40986905 bytes, sha256 `c82b5
 curl -fLO https://github.com/tlaplus/tlapm/releases/download/1.6.0-pre/tlapm-1.6.0-pre-arm64-darwin.tar.gz
 shasum -a 256 tlapm-1.6.0-pre-arm64-darwin.tar.gz   # c82b5edf853359bf20fb0d7c177ac89b040939f9f829d4eaaf923f79c81a3826
 stat -f %z tlapm-1.6.0-pre-arm64-darwin.tar.gz        # 40986905
-gh release create tlaps-1.6.0-pre-2026-11-26 --repo dantetekanem/hobkin-client --prerelease --latest=false --title 'TLAPS 1.6.0-pre, build of 2026-11-26' --notes 'tlapm 1.6.0-pre for Apple silicon, as https://github.com/tlaplus/tlapm/releases/tag/1.6.0-pre published it on 2026-11-26. hobkin checks its sha256 before it installs it.' tlapm-1.6.0-pre-arm64-darwin.tar.gz
+gh release create tlaps-1.6.0-pre-2026-11-26 --repo dantetekanem/hobkin-app --prerelease --latest=false --title 'TLAPS 1.6.0-pre, build of 2026-11-26' --notes 'tlapm 1.6.0-pre for Apple silicon, as https://github.com/tlaplus/tlapm/releases/tag/1.6.0-pre published it on 2026-11-26. hobkin checks its sha256 before it installs it.' tlapm-1.6.0-pre-arm64-darwin.tar.gz
 ```
 
-Its link is then `https://github.com/dantetekanem/hobkin-client/releases/download/tlaps-1.6.0-pre-2026-11-26/tlapm-1.6.0-pre-arm64-darwin.tar.gz`.
+Its link is then `https://github.com/dantetekanem/hobkin-app/releases/download/tlaps-1.6.0-pre-2026-11-26/tlapm-1.6.0-pre-arm64-darwin.tar.gz`.
 
 ## Open questions
 
