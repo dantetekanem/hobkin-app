@@ -1,7 +1,8 @@
 import { Cpu, Gauge, Layers3, PencilLine, ScanSearch, Timer, type LucideIcon } from 'lucide-react'
 import { memo, useLayoutEffect, useRef, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
+import { DialogTitle } from '@/components/ui/dialog.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { useModelChoices } from '@/features/tiers/models.ts'
@@ -304,19 +305,27 @@ interface NavigatorProps {
 }
 
 /**
- * pi-extended-teams' agent navigation, floating over the page: every agent's row, the one shown marked, the keys, then
- * what hobkin has of its work, followed at the newest unless the user scrolls up. Up and Down walk the agents, Up from
- * the first and Escape go back to the input, Left and Right go round, Page Up and Page Down scroll and End follows
- * again. Read only: there is no input and no stop, as hobkin never reaches the agents it shows.
+ * pi-extended-teams' agent navigation over the right side of the window, 95% of its width and height (the user,
+ * 2026-11-27: "press down should take 95% of width/height of this right side of the window, not a float"): every agent's
+ * row, the one shown marked, the keys, then what hobkin has of its work, followed at the newest unless the user scrolls
+ * up. Up and Down walk the agents, Up from the first and Escape go back to the input, Left and Right go round, Page Up
+ * and Page Down scroll and End follows again. Read only: there is no input and no stop, as hobkin never reaches the
+ * agents it shows.
  */
 function AgentNavigator({ agents, open, hue, name }: NavigatorProps) {
   const chosen = open ? (agents.find((agent) => agent.id === open.at) ?? agents[0]) : undefined
   const chosenRow = useRef<HTMLButtonElement>(null)
   const body = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
-  // Where the keyboard goes back to. Kept past the close, which draws with no `open` left to read it from.
+  // Where the keyboard goes back to, and the side it covers. Kept past the close, which draws with no `open` left to read.
   const from = useRef<HTMLElement | null>(null)
-  if (open) from.current = open.from
+  const side = useRef<HTMLElement | null>(null)
+  if (open) {
+    from.current = open.from
+    side.current = open.side
+  }
+  // Inside the right side it sits over that side alone, above its menu; with none, over the window.
+  const place = side.current ? 'absolute' : 'fixed'
 
   // A new agent shows from its newest, with its row in sight and the keyboard on it.
   useLayoutEffect(() => {
@@ -380,7 +389,7 @@ function AgentNavigator({ agents, open, hue, name }: NavigatorProps) {
   }
 
   return (
-    <Dialog
+    <DialogPrimitive.Root
       open={chosen !== undefined}
       onOpenChange={(next, details) => {
         // Escape closes the navigator only, never the page or the canvas behind it.
@@ -391,14 +400,19 @@ function AgentNavigator({ agents, open, hue, name }: NavigatorProps) {
         if (!next) closeNavigator()
       }}
     >
-      <DialogContent
-        showCloseButton={false}
-        initialFocus={chosenRow}
-        finalFocus={() => (from.current?.isConnected ? from.current : false)}
-        onKeyDown={onKeyDown}
-        onClick={(event) => event.stopPropagation()}
-        className={cn(NAVIGATOR, 'motion-reduce:animate-none')}
-      >
+      {/* The portal's own element covers the side out of its grid's flow: in flow it took a row, and the page shrank. */}
+      <DialogPrimitive.Portal container={side.current ?? undefined} className={cn(place, 'inset-0 z-[60]')}>
+        <DialogPrimitive.Backdrop className="absolute inset-0 bg-black/15 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0" />
+        <DialogPrimitive.Popup
+          initialFocus={chosenRow}
+          finalFocus={() => (from.current?.isConnected ? from.current : false)}
+          onKeyDown={onKeyDown}
+          onClick={(event) => event.stopPropagation()}
+          className={cn(
+            NAVIGATOR,
+            'absolute inset-[2.5%] outline-none duration-100 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.98] data-closed:animate-out data-closed:fade-out-0 motion-reduce:animate-none',
+          )}
+        >
         {chosen ? (
           <NavigatorPanel
             agents={agents}
@@ -413,13 +427,14 @@ function AgentNavigator({ agents, open, hue, name }: NavigatorProps) {
             }}
           />
         ) : null}
-      </DialogContent>
-    </Dialog>
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   )
 }
 
-/** The navigator's box, floating over the page. */
-export const NAVIGATOR = 'z-[60] flex h-[min(86dvh,860px)] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 text-[12.5px] sm:max-w-[960px]'
+/** The navigator's box. Its place and size are the right side's (`AgentNavigator`). */
+export const NAVIGATOR = 'flex flex-col overflow-hidden rounded-[22px] bg-popover text-[12.5px] text-popover-foreground shadow-panel ring-1 ring-foreground/10'
 
 interface PanelProps {
   agents: readonly ActivityAgent[]

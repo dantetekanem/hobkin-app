@@ -239,7 +239,8 @@ export function Canvas() {
       />
       {needsModel ? null : <ScreenMenu shift={shift} transition={growth} />}
       {/* Every page starts at the same height under the menu and the trail, whatever the menu shows (screen-layout.ts). */}
-      <div className="relative grid h-full overflow-hidden rounded-l-[26px] bg-surface shadow-float" style={PAGE_START}>
+      {/* The right side itself: an agent's navigator opens over 95% of it (SubagentActivity.tsx). */}
+      <div data-canvas-surface className="relative grid h-full overflow-hidden rounded-l-[26px] bg-surface shadow-float" style={PAGE_START}>
         {/* A durable hobkin's canvas in its split, drawn before the screens. */}
         <AnimatePresence initial={false}>
           {split ? <CanvasPane key="split" owner={split.owner} width={sizes.canvasWidth} /> : null}

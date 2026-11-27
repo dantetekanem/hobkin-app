@@ -5,11 +5,15 @@ import { useAgentJobs, useJobsHelpers } from '@/features/agent-activity/agent-jo
 import { activityAgents, helperStays, type ActivityAgent } from './activity.ts'
 import { useTeamsAgents } from './use-teams-agents.ts'
 
-/** The navigator open over an agent's page: whose agents, the one it shows, and where the keyboard goes back to. */
+/**
+ * The navigator open over an agent's page: whose agents, the one it shows, where the keyboard goes back to, and the right
+ * side of the window it covers (`data-canvas-surface`), or none outside the window.
+ */
 export interface NavigatorOpen {
   agent: string
   at: string
   from: HTMLElement | null
+  side: HTMLElement | null
 }
 
 /**
@@ -29,7 +33,9 @@ export function openNavigator(agent: string, { at, from }: { at?: string; from?:
   const shown = at && ids.includes(at) ? at : ids[0]!
   // Opened by a key, the keyboard goes back to where it was: the agent's input.
   const keyboard = typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null)
-  useNavigator.setState({ open: { agent, at: shown, from: from ?? keyboard } })
+  const back = from ?? keyboard
+  const side = back?.closest<HTMLElement>('[data-canvas-surface]') ?? null
+  useNavigator.setState({ open: { agent, at: shown, from: back, side } })
   return true
 }
 
