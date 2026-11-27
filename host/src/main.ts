@@ -78,9 +78,11 @@ async function main(args: readonly string[]): Promise<void> {
 
   // A scripted sign-in has no page to approve on, so nothing is ever opened in the browser for it.
   // Only a live host, started on purpose, opens pages in the browser: a real provider's sign-in page.
+  // A simulated new Mac answers the setup in place of this one: nothing installs, nothing is signed in, no page opens.
+  const simulated = options.simulateNewMac ? (await import('./simulate-new-mac.ts')).simulatedNewMac({ root: home.root, real: home.real }) : {}
   const scripted = options.live
     ? { openUrl: openInBrowser }
-    : { openUrl: () => {}, ...(options.signedOut ? { access: async () => (await import('./scripted-access.ts')).scriptedModelAccess({ connected: [] }) } : {}) }
+    : { openUrl: () => {}, ...(options.signedOut ? { access: async () => (await import('./scripted-access.ts')).scriptedModelAccess({ connected: [] }) } : {}), ...simulated }
   const host = await startHost({
     root: home.root,
     real: home.real,
@@ -124,6 +126,7 @@ async function main(args: readonly string[]): Promise<void> {
     ...(options.live || options.github ? { reviewGh: spawnGh() } : {}),
   })
   if (options.github && !options.live) console.log('The GitHub page reads the real GitHub through gh, read only.')
+  if (options.simulateNewMac) console.log('The setup sees a new Mac with nothing installed. Its installs and sign-ins only pretend.')
   if (options.origin) console.log(`It also talks to the page at ${options.origin}.`)
   // The token is never printed. It is in the home, readable by the user only.
   console.log(`hobkin host listening on 127.0.0.1:${host.port} for ${home.root} with the ${options.live ? 'live' : 'scripted'} model`)
