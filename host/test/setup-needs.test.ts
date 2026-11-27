@@ -172,7 +172,7 @@ test("what is missing offers the setup's own install where it has one, and other
   const sourceOf = (name: string) => PI_PACKAGES.find((item) => item.name === name)!.source
   assert.deepEqual(byHand['package:pi-coder']!.fix, { kind: 'command', command: `pi install ${sourceOf('pi-coder')}` })
   assert.deepEqual(byHand['agentic-search']!.fix, { kind: 'command', command: `pi install ${sourceOf('pi-agentic-search')}` })
-  assert.deepEqual(byHand.qmd!.fix, { kind: 'command', command: 'npm install -g @tobilu/qmd' })
+  assert.deepEqual(byHand.qmd!.fix, { kind: 'command', command: 'npm install -g --ignore-scripts @tobilu/qmd@2.9.0' })
 
   // With npm the window installs Pi, and with Pi the package.
   const oldPi = pi({ version: '0.9.0', matches: false, packages: [{ name: 'pi-coder', adds: '', installed: false }] })
@@ -193,17 +193,74 @@ test("the lines to copy need no Homebrew the Mac lacks, and name hobkin's own np
   assert.deepEqual(bare.gh!.fix, { kind: 'command', command: 'https://cli.github.com' })
   assert.deepEqual(bare.node!.fix, { kind: 'command', command: 'https://nodejs.org/en/download' })
   // npm and the install scripts it runs start `node` from the PATH, and Terminal's has none, so hobkin's comes first.
-  assert.deepEqual(bare.qmd!.fix, { kind: 'command', command: 'PATH=~/.hobkin/client/node/bin:"$PATH" npm install -g @tobilu/qmd' })
+  assert.deepEqual(bare.qmd!.fix, { kind: 'command', command: 'PATH=~/.hobkin/client/node/bin:"$PATH" npm install -g --ignore-scripts @tobilu/qmd@2.9.0' })
   assert.doesNotMatch(JSON.stringify(Object.values(bare)), /someone/, "never the user's home folder by name")
   const spaced = '/Users/someone/My Homes/hobkin/client/node/bin'
   const quoted = (await review({ ownNode: spaced, userHome: '/Users/someone', programs: { qmd: null, npm: `${spaced}/npm` } })).needs
-  assert.deepEqual(quoted.qmd!.fix, { kind: 'command', command: `PATH=~/'My Homes/hobkin/client/node/bin':"$PATH" npm install -g @tobilu/qmd` })
+  assert.deepEqual(quoted.qmd!.fix, { kind: 'command', command: `PATH=~/'My Homes/hobkin/client/node/bin':"$PATH" npm install -g --ignore-scripts @tobilu/qmd@2.9.0` })
 
   // With Homebrew, and an npm Terminal finds.
   const brewed = (await review({ pi: async () => oldNode, ownNode, programs: { gh: null, qmd: null } })).needs
   assert.deepEqual(brewed.gh!.fix, { kind: 'command', command: 'brew install gh' })
   assert.deepEqual(brewed.node!.fix, { kind: 'command', command: 'brew install node' })
-  assert.deepEqual(brewed.qmd!.fix, { kind: 'command', command: 'npm install -g @tobilu/qmd' })
+  assert.deepEqual(brewed.qmd!.fix, { kind: 'command', command: 'npm install -g --ignore-scripts @tobilu/qmd@2.9.0' })
+})
+
+test("on a host that installs, git, gh, Claude Code and qmd are each a press that says what it installs and from where, with the line to copy kept for a failure", async () => {
+  const presses = { install: () => true, signIn: () => true }
+  const notInstalled = (await review({
+    presses,
+    programs: { git: null, gh: null, qmd: null, brew: null },
+    claude: async () => ({ settings: { enabled: true }, status: claudeStatus({ installed: false }) }),
+  })).needs
+
+  const press = (need: SetupNeed) => {
+    assert.ok(need.fix?.kind === 'install-program' || need.fix?.kind === 'sign-in-program', `${need.id} is a press`)
+    return need.fix
+  }
+  const git = press(notInstalled.git!)
+  assert.deepEqual([git.name, git.byHand], ['git', 'xcode-select --install'])
+  assert.match(git.says, /Apple's Command Line Tools/)
+  assert.match(git.says, /not the Xcode app/i)
+  assert.match(notInstalled.git!.neededBy, /Only Work and Change Review/)
+  assert.match(notInstalled.git!.neededBy, /chat, routines and reports/i)
+
+  const gh = press(notInstalled.gh!)
+  assert.deepEqual([gh.name, gh.byHand], ['gh', 'https://cli.github.com'])
+  assert.match(gh.says, /GitHub/)
+  assert.match(gh.says, /2\.105\.0/)
+  assert.match(notInstalled.gh!.neededBy, /pull requests/i)
+
+  const claude = press(notInstalled.claude!)
+  assert.deepEqual([claude.name, claude.byHand], ['claude', 'curl -fsSL https://claude.ai/install.sh | bash'])
+  assert.match(claude.says, /Anthropic/)
+  assert.match(notInstalled.claude!.neededBy, /Claude Code/)
+
+  const qmd = press(notInstalled.qmd!)
+  assert.deepEqual([qmd.name, qmd.byHand], ['qmd', 'npm install -g --ignore-scripts @tobilu/qmd@2.9.0'])
+  assert.match(qmd.says, /npm/)
+  assert.match(qmd.says, /2\.9\.0/)
+
+  // Installed and signed out: gh and Claude Code sign in on a press.
+  const signedOut = (await review({
+    presses,
+    prints: { '/opt/homebrew/bin/gh auth status': failed(1) },
+    claude: async () => ({ settings: { enabled: true }, status: claudeStatus({ signedIn: false }) }),
+  })).needs
+  const ghIn = press(signedOut.gh!)
+  assert.deepEqual([ghIn.kind, ghIn.name, ghIn.byHand], ['sign-in-program', 'gh', 'gh auth login'])
+  assert.match(ghIn.says, /one-time code/)
+  const claudeIn = press(signedOut.claude!)
+  assert.deepEqual([claudeIn.kind, claudeIn.name, claudeIn.byHand], ['sign-in-program', 'claude', 'claude auth login'])
+
+  // With no npm yet, qmd waits on hobkin's own Node, as Pi does.
+  const noNpm = (await review({ presses, pi: async () => pi({ canInstall: false }), programs: { qmd: null, npm: null } })).needs
+  assert.deepEqual(noNpm.qmd!.fix, { kind: 'install', what: 'node' })
+
+  // A host that cannot run the press keeps the line to copy.
+  const scripted = (await review({ presses: { install: () => false, signIn: () => false }, programs: { git: null, gh: null, brew: null } })).needs
+  assert.deepEqual(scripted.git!.fix, { kind: 'command', command: 'xcode-select --install' })
+  assert.deepEqual(scripted.gh!.fix, { kind: 'command', command: 'https://cli.github.com' })
 })
 
 test('Node older than Pi needs, and Claude Code only while its agents are on', async () => {

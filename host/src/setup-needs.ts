@@ -5,13 +5,15 @@ import { askWith, ghState, gitState, type Ask, type Asked } from 'hobkin/src/cli
 import type { ClaudeCodeSettings, ClaudeCodeStatus } from '#shared/protocol/claude-code.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
 import type { ProofTools } from '#shared/protocol/proofs.ts'
-import { PI_MIN_MAJOR, type PiSetup, type SetupFix, type SetupNeed, type SetupNeeds } from '#shared/protocol/setup.ts'
+import { PI_MIN_MAJOR, type PiSetup, type SetupFix, type SetupNeed, type SetupNeeds, type SetupProgram, type SignInProgram } from '#shared/protocol/setup.ts'
 import { PI_NODE } from '#shared/setup/agent-prompt.ts'
 import { PI_PACKAGES } from '#shared/setup/pi-packages.ts'
 import type { HostHandlers } from './commands.ts'
 import { findProgram } from './pi/install.ts'
 import { findGh } from './review/gh.ts'
 import { findAgenticSearch } from './review/vicinity-scan.ts'
+import { GH_VERSION } from './setup/gh.ts'
+import { QMD_VERSION } from './setup/programs.ts'
 
 /**
  * The setup's review of everything hobkin needs on this Mac (025-onboarding): one row each, with what needs it,
@@ -51,7 +53,20 @@ export interface SetupNeedsOptions {
   ownNode?: string
   /** The user's home, which a line to copy names as `~`. */
   userHome?: string
+  /**
+   * The programs this host installs and signs in on a press (`setup/programs.ts`). Without it every program's fix is
+   * the line to copy, as on a host that installs nothing.
+   */
+  presses?: Presses
 }
+
+/** Whether a press can install a program, or run its sign-in, on this host. */
+export interface Presses {
+  install: (name: SetupProgram) => boolean
+  signIn: (name: SignInProgram) => boolean
+}
+
+const NO_PRESSES: Presses = { install: () => false, signIn: () => false }
 
 /** gh and agentic-search are looked for where Change Review looks; the rest on the PATH, where the host runs them. */
 function findDefault(name: string): string | null {
@@ -103,12 +118,22 @@ type Need = Pick<SetupNeed, 'id' | 'group' | 'name' | 'neededBy'>
 const NODE: Need = { id: 'node', group: 'run', name: 'Node', neededBy: 'Pi runs on it' }
 const PI: Need = { id: 'pi', group: 'run', name: 'Pi', neededBy: 'The chat, agents and checks' }
 const SIGN_IN: Need = { id: 'sign-in', group: 'run', name: 'Model sign-in', neededBy: 'Every model hobkin runs' }
-const GIT: Need = { id: 'git', group: 'code', name: 'git', neededBy: 'Work and Change Review' }
-const GH: Need = { id: 'gh', group: 'code', name: 'GitHub CLI', neededBy: 'Pull requests in Work and Review' }
+const GIT: Need = { id: 'git', group: 'code', name: 'git', neededBy: 'Only Work and Change Review use it. Chat, routines and reports run without it.' }
+const GH: Need = { id: 'gh', group: 'code', name: 'GitHub CLI', neededBy: 'Only pull requests in Work and Change Review use it.' }
 const TLA: Need = { id: 'tla', group: 'features', name: 'TLA+ tools', neededBy: 'Checks of state machine models' }
 const SEARCH: Need = { id: 'agentic-search', group: 'features', name: 'agentic-search', neededBy: "Change Review's search facts" }
-const CLAUDE: Need = { id: 'claude', group: 'features', name: 'Claude Code', neededBy: 'Agents set to run on it' }
-const QMD: Need = { id: 'qmd', group: 'optional', name: 'qmd', neededBy: 'Memory search for agents' }
+const CLAUDE: Need = { id: 'claude', group: 'features', name: 'Claude Code', neededBy: 'Only agents you set to run on Claude Code use it. The rest run on Pi.' }
+const QMD: Need = { id: 'qmd', group: 'optional', name: 'qmd', neededBy: "Agents search hobkin's memory and notes with it. Without it they read the files." }
+
+/** What each press installs, and from where, in the words its row shows. */
+const SAYS = {
+  git: "Installs Apple's Command Line Tools, which bring git. Not the Xcode app.",
+  gh: `Installs GitHub's own gh ${GH_VERSION}, from GitHub, into hobkin's folder.`,
+  ghSignIn: 'Signs gh in to your GitHub account in the browser, with a one-time code.',
+  claude: "Installs Claude Code with Anthropic's own installer, from claude.ai.",
+  claudeSignIn: 'Signs Claude Code in to your Claude account in the browser.',
+  qmd: `Installs qmd ${QMD_VERSION} from npm. Its search model downloads the first time it runs.`,
+}
 
 const NO_ANSWER = 'Did not answer'
 
@@ -129,6 +154,13 @@ const missing = (need: Need, problem: string, fix: SetupFix, version: string | n
 })
 
 const command = (line: string): SetupFix => ({ kind: 'command', command: line })
+
+/** The setup's own install of a program where this host has one, and otherwise the line to copy. */
+const installOr = (presses: Presses, name: SetupProgram, says: string, byHand: string): SetupFix =>
+  presses.install(name) ? { kind: 'install-program', name, says, byHand } : command(byHand)
+/** The program's own sign-in where this host runs it, and otherwise the line to copy. */
+const signInOr = (presses: Presses, name: SignInProgram, says: string, byHand: string): SetupFix =>
+  presses.signIn(name) ? { kind: 'sign-in-program', name, says, byHand } : command(byHand)
 const versionOf = (asked: Asked) => asked.text?.match(VERSION)?.[0] ?? null
 const atLeast = (version: string, least: string) => version.localeCompare(least, 'en', { numeric: true }) >= 0
 
@@ -167,7 +199,7 @@ function linesOn(find: (name: string) => string | null, ownNode: string | undefi
 
 /** Without Homebrew, the official installers, which need nothing else. */
 const nodeByHand = ({ homebrew }: Lines) => command(homebrew ? 'brew install node' : 'https://nodejs.org/en/download')
-const ghByHand = ({ homebrew }: Lines) => command(homebrew ? 'brew install gh' : 'https://cli.github.com')
+const ghByHand = ({ homebrew }: Lines) => (homebrew ? 'brew install gh' : 'https://cli.github.com')
 
 /** The setup's own install that brings Pi: Pi itself with npm, or first a Node of hobkin's own. Null when neither can run. */
 function piInstall(pi: PiSetup | null): SetupFix | null {
@@ -176,14 +208,15 @@ function piInstall(pi: PiSetup | null): SetupFix | null {
   return null
 }
 
-/** A program npm installs: through the npm found, or with no npm, hobkin's own Node first where it has one. */
-function npmInstall(pi: PiSetup | null, lines: Lines, name: string): SetupFix {
-  if (lines.npm) return command(`${lines.npm} install -g ${name}`)
+/** qmd, which npm installs: on a press through the npm found, or with no npm, hobkin's own Node first where it has one. */
+function qmdInstall(pi: PiSetup | null, lines: Lines, presses: Presses): SetupFix {
+  const line = (npm: string) => `${npm} install -g --ignore-scripts @tobilu/qmd@${QMD_VERSION}`
+  if (lines.npm) return installOr(presses, 'qmd', SAYS.qmd, line(lines.npm))
   if (pi?.canInstallNode) return { kind: 'install', what: 'node' }
-  return command(`npm install -g ${name}`)
+  return command(line('npm'))
 }
 
-const INSTALL_GIT = command('xcode-select --install')
+const GIT_BY_HAND = 'xcode-select --install'
 const SIGN_IN_FIX: SetupFix = { kind: 'sign-in' }
 const INSTALL_PROOF_TOOLS: SetupFix = { kind: 'install', what: 'proof-tools' }
 
@@ -243,20 +276,22 @@ function signInNeed(models: Pick<ModelsState, 'providers'> | null): SetupNeed {
   return found(SIGN_IN)
 }
 
-async function gitNeed(ask: Ask, which: (name: string) => string | null, platform: NodeJS.Platform): Promise<SetupNeed> {
+async function gitNeed(ask: Ask, which: (name: string) => string | null, platform: NodeJS.Platform, presses: Presses): Promise<SetupNeed> {
   const git = await gitState(ask, { which, platform })
+  // Apple's installer is the Mac's own, so only a Mac gets the press.
+  const fix = platform === 'darwin' ? installOr(presses, 'git', SAYS.git, GIT_BY_HAND) : command(GIT_BY_HAND)
 
   if (git.found) return found(GIT, git.version)
-  if (git.why === 'no-tools') return missing(GIT, 'Needs the command line tools', INSTALL_GIT)
-  return missing(GIT, git.why === 'absent' ? 'Not installed' : 'Did not run', INSTALL_GIT)
+  if (git.why === 'no-tools') return missing(GIT, 'Needs the command line tools', fix)
+  return missing(GIT, git.why === 'absent' ? 'Not installed' : 'Did not run', fix)
 }
 
-async function ghNeed(ask: Ask, lines: Lines): Promise<SetupNeed> {
+async function ghNeed(ask: Ask, lines: Lines, presses: Presses): Promise<SetupNeed> {
   const [gh, versionSaid] = await Promise.all([ghState(ask), ask('gh', ['--version'])])
   const version = versionOf(versionSaid)
 
-  if (!gh.installed) return missing(GH, 'Not installed', ghByHand(lines))
-  if (!gh.signedIn) return missing(GH, 'Not signed in, or GitHub did not answer', command('gh auth login'), version)
+  if (!gh.installed) return missing(GH, 'Not installed', installOr(presses, 'gh', SAYS.gh, ghByHand(lines)))
+  if (!gh.signedIn) return missing(GH, 'Not signed in, or GitHub did not answer', signInOr(presses, 'gh', SAYS.ghSignIn, 'gh auth login'), version)
   return found(GH, version)
 }
 
@@ -274,13 +309,13 @@ function programNeed(need: Need, said: Asked, fix: SetupFix): SetupNeed {
 }
 
 /** Claude Code has a row only while hobkin's agents run on it. */
-function claudeNeeds(claude: ClaudeCodeFound | null): SetupNeed[] {
+function claudeNeeds(claude: ClaudeCodeFound | null, presses: Presses): SetupNeed[] {
   if (!claude?.settings.enabled) return []
 
   const { installed, signedIn, version } = claude.status
-  if (!installed) return [missing(CLAUDE, 'Not installed', command('curl -fsSL https://claude.ai/install.sh | bash'))]
+  if (!installed) return [missing(CLAUDE, 'Not installed', installOr(presses, 'claude', SAYS.claude, 'curl -fsSL https://claude.ai/install.sh | bash'))]
   // Null is a sign-in it could not tell, which is not a missing one.
-  if (signedIn === false) return [missing(CLAUDE, 'Not signed in', command('claude auth login'), version)]
+  if (signedIn === false) return [missing(CLAUDE, 'Not signed in', signInOr(presses, 'claude', SAYS.claudeSignIn, 'claude auth login'), version)]
   return [found(CLAUDE, version)]
 }
 
@@ -292,6 +327,7 @@ export async function readSetupNeeds({
   timeoutMs = READER_MS,
   ownNode,
   userHome = homedir(),
+  presses = NO_PRESSES,
   ...read
 }: SetupNeedsOptions): Promise<SetupNeeds> {
   const ask = askFor(find, exec)
@@ -301,8 +337,8 @@ export async function readSetupNeeds({
     settled(read.models, timeoutMs),
     settled(read.proofTools, timeoutMs),
     settled(read.claude, timeoutMs),
-    gitNeed(ask, find, platform),
-    ghNeed(ask, lines),
+    gitNeed(ask, find, platform, presses),
+    ghNeed(ask, lines, presses),
     ask(SEARCH.id, ['--version']),
     ask(QMD.id, ['--version']),
   ])
@@ -317,8 +353,8 @@ export async function readSetupNeeds({
     tlaNeed(tools),
     // Pi keeps the program in its own folder with its package, where Change Review looks for it.
     programNeed(SEARCH, search, packageFix(pi, 'pi-agentic-search')),
-    ...claudeNeeds(claude),
-    programNeed(QMD, qmd, npmInstall(pi, lines, '@tobilu/qmd')),
+    ...claudeNeeds(claude, presses),
+    programNeed(QMD, qmd, qmdInstall(pi, lines, presses)),
   ]
   return { needs }
 }
