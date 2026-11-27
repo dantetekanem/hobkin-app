@@ -85,6 +85,8 @@ export interface Facts {
   models?: FirstModels | null
   /** The folder typed for where the projects live, when it is not on this Mac. The folder question says so and asks again. */
   folderMissing?: string | null
+  /** An install the Pi step started is running. */
+  installing?: boolean
 }
 
 /** A question main hobkin has open, as the story asks it. */
@@ -291,6 +293,16 @@ function piWords(pi: PiSetup | null): string[] {
   return [said, nodeMissing(pi), pi.canInstallNode ? `Want me to install Node and Pi? ${packagesToo}` : byHand]
 }
 
+/**
+ * What hobkin says while the install runs, by what is still missing as each step ends: hobkin's own Node, then Pi,
+ * then the packages. It asks nothing, since the press was the answer.
+ */
+function installingWords(pi: PiSetup | null): string {
+  const missing = piNeeds(pi)
+  if (pi && (missing === 'pi' || missing === 'version')) return !pi.canInstall && pi.canInstallNode ? 'Installing Node now, then Pi.' : `Installing Pi ${pi.pinned} now.`
+  return 'Adding the packages now.'
+}
+
 /** How a question is asked: typed, picked from bubbles, or chosen between two. */
 function askFor(question: Question, replies: Answers['replies']): Ask {
   switch (question.kind) {
@@ -483,7 +495,7 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
         },
       }
     case 'pi':
-      return { mood: 'surprised', lines: piWords(facts.pi), ask: { kind: 'pi' } }
+      return { mood: 'surprised', lines: facts.installing ? [installingWords(facts.pi)] : piWords(facts.pi), ask: { kind: 'pi' } }
     case 'pi-ready':
       return { mood: 'celebrating', lines: ['Pi is ready!'] }
     case 'pi-later':

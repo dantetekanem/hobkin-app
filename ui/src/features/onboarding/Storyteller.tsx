@@ -369,8 +369,10 @@ interface FolderMissing {
 }
 
 /** Each bubble's id. A beat whose words change while it is up, as an answer comes back, says them as a new bubble. */
-function bubbleOf(tale: Tale, facts: Facts, missing: FolderMissing | null): string {
+function bubbleOf(tale: Tale, facts: Facts, missing: FolderMissing | null, line: string): string {
   if (tale.at === 'writing') return `${tale.at}:${facts.asked?.id ?? 'thinking'}`
+  // Each step of an install is said as it starts.
+  if (tale.at === 'pi' && facts.installing) return `${tale.at}:installing:${line}`
   if (tale.at === 'projects-said') return `${tale.at}:${facts.worked ? 'said' : 'waiting'}`
   // Each folder that is not there is said anew, the same one typed twice too.
   if (missing?.at === tale.at) return `${tale.at}:missing:${missing.tries}`
@@ -575,9 +577,11 @@ export function Storyteller() {
   // What hobkin's model and tiers were set to once an account was found or connected.
   const models = useFirstModels(tale.at, sayTrouble)
   const folderMissing = missing?.at === tale.at ? missing.folder : null
+  // An install is running: nothing goes back from it, and at the Pi step hobkin says what it installs.
+  const [busy, setBusy] = useState(false)
   const facts: Facts = useMemo(
-    () => ({ pi, connected: connectedNames(providers), claude, smart, asked: followUpOf(pending), host: hasHost, worked, cards, written, models, folderMissing }),
-    [pi, providers, claude, smart, pending, hasHost, worked, cards, written, models, folderMissing],
+    () => ({ pi, connected: connectedNames(providers), claude, smart, asked: followUpOf(pending), host: hasHost, worked, cards, written, models, folderMissing, installing: busy }),
+    [pi, providers, claude, smart, pending, hasHost, worked, cards, written, models, folderMissing, busy],
   )
   const beat = beatOf(tale.at, answers, facts)
   const lastLine = tale.line >= beat.lines.length - 1
@@ -589,15 +593,13 @@ export function Storyteller() {
   const talking = act === 'talking'
 
   // Each question main hobkin asks is a bubble of its own, so its words arrive anew, and so is what it did with the projects.
-  const bubble = bubbleOf(tale, facts, missing)
+  const bubble = bubbleOf(tale, facts, missing, line)
   const [said, sayAll] = useSaid(bubble, line, talking, still)
   // The question comes with the last bubble, once that bubble is said.
   const asking: Ask | null = talking && !leaving && lastLine && said ? (beat.ask ?? null) : null
   // With nothing asked, or only a bubble to pass, the story waits for the user to go on.
   const waitsToGoOn = !lastLine || !beat.ask || beat.ask.kind === 'go'
 
-  // An install is running: nothing goes back from it.
-  const [busy, setBusy] = useState(false)
   // The TLA+ tools, set up in the background. The quiet line says how it goes while nothing went wrong.
   const toolsLine = useProofTools(sayTrouble)
   const quietLine = troubleAt(trouble, tale.at) ?? toolsLine
@@ -796,6 +798,13 @@ export function Storyteller() {
     })
     answer({ computer }, facts)
   }
+
+  // Once up, the Pi panel stays through the Pi step, while hobkin says each install and after one fails, so what it
+  // shows of the install is never lost to a new bubble.
+  const [piUp, setPiUp] = useState(false)
+  if (asking?.kind === 'pi' && !piUp) setPiUp(true)
+  if (tale.at !== 'pi' && piUp) setPiUp(false)
+  const piPanelShows = tale.at === 'pi' && talking && !leaving && (piUp || asking?.kind === 'pi')
 
   const picking = asking?.kind === 'pick' ? asking : null
   /** The goals picked before, as bubbles: this time's, or the last setup's, and the person's own words. */
@@ -1039,7 +1048,7 @@ export function Storyteller() {
             />
           ) : null}
           {asking?.kind === 'go' ? <GoOn key={tale.at} label={asking.label} onGo={on} still={still} /> : null}
-          {asking?.kind === 'pi' && pi ? (
+          {piPanelShows && pi ? (
             <PiPanel
               key="pi"
               pi={pi}

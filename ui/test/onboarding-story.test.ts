@@ -178,6 +178,24 @@ test('what hobkin says about Pi follows what is missing, and putting it off is s
   assert.equal(beatAfter('pi', { ...none, pi: 'installed' }, bare), 'pi-ready')
 })
 
+test('while the install runs hobkin says what it is doing, asking nothing, and then that Pi is ready', () => {
+  const packagesMissing = pi({ packages: [{ name: 'pi-coder', adds: '', installed: false }] })
+  const asking = beatOf('pi', none, { ...bare, pi: packagesMissing })
+  const installing = beatOf('pi', none, { ...bare, pi: packagesMissing, installing: true })
+
+  assert.match(asking.lines.at(-1)!, /\?$/, 'before the press it asks')
+  assert.equal(installing.lines.length, 1, 'one bubble, with the panel still up')
+  assert.doesNotMatch(installing.lines[0]!, /\?/, 'while it runs it asks nothing')
+  assert.deepEqual(installing.ask, { kind: 'pi' })
+  // What it says follows what is being installed: hobkin's own Node first, then Pi, then the packages.
+  const withoutNode = { ...bare, pi: pi({ installed: false, version: null, matches: false, canInstall: false, canInstallNode: true, node: { found: false, version: null, installs: '26.1.0' } }), installing: true }
+  const withoutPi = { ...bare, pi: pi({ installed: false, version: null, matches: false }), installing: true }
+  assert.match(beatOf('pi', none, withoutNode).lines[0]!, /Node/)
+  assert.match(beatOf('pi', none, withoutPi).lines[0]!, /Pi 1\.5\.0/)
+  assert.notEqual(beatOf('pi', none, withoutPi).lines[0], installing.lines[0])
+  assert.equal(beatAfter('pi', { ...none, pi: 'installed' }, bare), 'pi-ready')
+})
+
 /** A Mac without npm, as a host that sends the Node facts says it: no Node at all, and hobkin can install its own. */
 const noNode = (over: Partial<PiSetup> = {}) =>
   pi({ installed: false, version: null, matches: false, canInstall: false, node: { found: false, version: null, installs: '26.1.0' }, canInstallNode: true, ...over })
