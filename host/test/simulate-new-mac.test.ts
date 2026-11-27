@@ -42,16 +42,12 @@ test('a new Mac has nothing: no Node, Pi, packages, git, gh, TLA+ tools or qmd, 
   assert.equal(pi.canInstall, false, 'no npm')
   assert.equal(pi.node?.found, false)
   assert.equal(pi.canInstallNode, true)
-  assert.deepEqual(
-    pi.packages.filter(({ installed }) => installed),
-    [],
-  )
+  const installedPackages = pi.packages.filter(({ installed }) => installed)
+  assert.deepEqual(installedPackages, [])
 
   const needs = await client.run<SetupNeeds>('setup.needs')
-  assert.deepEqual(
-    needs.needs.filter(({ found }) => found),
-    [],
-  )
+  const foundNeeds = needs.needs.filter(({ found }) => found)
+  assert.deepEqual(foundNeeds, [])
   assert.equal(needs.needs.find(({ id }) => id === 'git')?.problem, 'Needs the command line tools')
   // Every fix is a press: hobkin's own Node brings npm, and npm brings Pi, its packages and qmd.
   assert.deepEqual(fixes(needs), {
@@ -69,10 +65,8 @@ test('a new Mac has nothing: no Node, Pi, packages, git, gh, TLA+ tools or qmd, 
   const { status } = await client.run<{ status: ClaudeCodeStatus }>('claude-code.read')
   assert.equal(status.installed, false)
   const models = await client.run<ModelsState>('models.list')
-  assert.deepEqual(
-    models.providers.filter(({ connected }) => connected),
-    [],
-  )
+  const connected = models.providers.filter((provider) => provider.connected)
+  assert.deepEqual(connected, [])
 })
 
 test('an install takes a moment, and only the read after it finds what it brought', async (t) => {
@@ -105,10 +99,8 @@ test('press by press, the review brings everything, in the order a real Mac need
   const pi = await client.run<PiSetup>('setup.pi')
   assert.equal(pi.installed, true)
   assert.equal(pi.matches, true)
-  assert.deepEqual(
-    pi.packages.filter(({ installed }) => !installed),
-    [],
-  )
+  const missingPackages = pi.packages.filter(({ installed }) => !installed)
+  assert.deepEqual(missingPackages, [])
 
   const installed = await client.run<SetupNeeds>('setup.needs')
   assert.deepEqual(missing(installed), ['sign-in', 'gh'])

@@ -50,6 +50,8 @@ const APPLE_GIT = '/usr/bin/git'
 const XCODE_SELECT = '/usr/bin/xcode-select'
 const DEVELOPER = '/Library/Developer/CommandLineTools'
 const CLAUDE_VERSION = '2.1.332'
+const PI_NPM_PACKAGE = '@earendil-works/pi-coding-agent'
+const QMD_NPM_PACKAGE = '@tobilu/qmd'
 const NAMES: Record<SignInProgram, string> = { gh: 'gh', claude: 'Claude Code' }
 
 /** What each sign-in shows. The pages are on a reserved name that never resolves, so nothing can load them. */
@@ -92,6 +94,7 @@ function said(mac: Mac, file: string, args: readonly string[]): string | null {
   switch ([basename(file), ...args].join(' ')) {
     case 'xcode-select -p':
       return mac.git ? `${DEVELOPER}\n` : null
+    // Only the git in the command line tools answers. The setup never runs Apple's stand-in.
     case 'git --version':
       return file === APPLE_GIT ? null : 'git version 2.39.5 (Apple Git-154)\n'
     case 'gh --version':
@@ -118,12 +121,32 @@ function install(mac: Mac, file: string, args: readonly string[]): void {
   const [verb, ...rest] = args
   const program = basename(file)
   const what = rest.at(-1) ?? ''
-  const piPackage = PI_PACKAGES.find(({ source }) => source === what)
-  if (program === 'npm' && verb === 'install' && what.startsWith('@earendil-works/pi-coding-agent@')) mac.pi = true
-  else if (program === 'npm' && verb === 'install' && what.startsWith('@tobilu/qmd@')) mac.qmd = true
-  else if (program === 'pi' && verb === 'install' && piPackage) mac.packages.add(piPackage.name)
-  else if (file === XCODE_SELECT && verb === '--install') mac.git = true
-  else throw Error(`The simulated Mac has no ${[program, ...args].join(' ')}.`)
+
+  if (program === 'npm' && verb === 'install') {
+    if (what.startsWith(`${PI_NPM_PACKAGE}@`)) {
+      mac.pi = true
+      return
+    }
+    if (what.startsWith(`${QMD_NPM_PACKAGE}@`)) {
+      mac.qmd = true
+      return
+    }
+  }
+
+  if (program === 'pi' && verb === 'install') {
+    const piPackage = PI_PACKAGES.find(({ source }) => source === what)
+    if (piPackage) {
+      mac.packages.add(piPackage.name)
+      return
+    }
+  }
+
+  if (file === XCODE_SELECT && verb === '--install') {
+    mac.git = true
+    return
+  }
+
+  throw Error(`The simulated Mac has no ${[program, ...args].join(' ')}.`)
 }
 
 /** The setup's sign-in, with no page and no question: the account connects a moment later, as after a person approved it. */
@@ -163,7 +186,16 @@ export type SimulatedMac = Required<Pick<HostOptions, 'access' | 'claudeStatus' 
 export function simulatedNewMac({ root, real = false, delay = aMoment }: SimulatedMacOptions): SimulatedMac {
   if (real) throw Error(`${root} is the real hobkin home. A simulated new Mac runs only on a new folder named with --home.`)
 
-  const mac: Mac = { node: false, pi: false, packages: new Set(), git: false, gh: 'absent', claude: 'absent', qmd: false, proofTools: false }
+  const mac: Mac = {
+    node: false,
+    pi: false,
+    packages: new Set(),
+    git: false,
+    gh: 'absent',
+    claude: 'absent',
+    qmd: false,
+    proofTools: false,
+  }
   const slowly = async <T>(change: () => T): Promise<T> => {
     await pause(delay())
     return change()
@@ -171,7 +203,11 @@ export function simulatedNewMac({ root, real = false, delay = aMoment }: Simulat
   const find = finder(mac, root)
   const exec = async (file: string, args: readonly string[]) => {
     const words = said(mac, file, args)
-    if (words === null) throw Object.assign(Error(`${basename(file)} ${args.join(' ')} failed.`), { code: 1 })
+    // A program that is there and fails exits with a code, as execFile says, which is not a missing program.
+    if (words === null) {
+      const failed = Error(`${basename(file)} ${args.join(' ')} failed.`)
+      throw Object.assign(failed, { code: 1 })
+    }
     return words
   }
   // Pi's reads answer at once. Anything else is an install, which takes a moment.
@@ -189,10 +225,24 @@ export function simulatedNewMac({ root, real = false, delay = aMoment }: Simulat
 
   const claudeStatus = async (): Promise<ClaudeCodeStatus> => {
     if (mac.claude === 'absent') return { installed: false, version: null, signedIn: null, authMethod: null, plan: null }
+
     const signedIn = mac.claude === 'signed-in'
-    return { installed: true, version: CLAUDE_VERSION, signedIn, authMethod: signedIn ? 'claude.ai' : null, plan: signedIn ? 'pro' : null }
+    return {
+      installed: true,
+      version: CLAUDE_VERSION,
+      signedIn,
+      authMethod: signedIn ? 'claude.ai' : null,
+      plan: signedIn ? 'pro' : null,
+    }
   }
-  const proofTools = (): ProofTools => (mac.proofTools ? { java: join(root, 'tools', 'java'), tlc: join(root, 'tools', 'tla', 'tla2tools.jar'), tlaps: null } : { java: null, tlc: null, tlaps: null })
+  const proofTools = (): ProofTools => {
+    if (!mac.proofTools) return { java: null, tlc: null, tlaps: null }
+    return {
+      java: join(root, 'tools', 'java'),
+      tlc: join(root, 'tools', 'tla', 'tla2tools.jar'),
+      tlaps: null,
+    }
+  }
 
   // Every install here is pretend, so the setup may run each one, as on a live host.
   const pi = piSetupHandlers({
@@ -239,7 +289,11 @@ export function simulatedNewMac({ root, real = false, delay = aMoment }: Simulat
       pi: async () => pi['setup.pi']!({}),
       models: async () => (await access()).list(),
       proofTools,
-      claude: async () => ({ settings: new ClaudeCodeSettingsFile(resolveDataRoot(root)).read(), status: await claudeStatus() }),
+      // Claude Code's row follows the home's own setting, as on a real Mac.
+      claude: async () => ({
+        settings: new ClaudeCodeSettingsFile(resolveDataRoot(root)).read(),
+        status: await claudeStatus(),
+      }),
       find,
       exec,
       platform: 'darwin',
