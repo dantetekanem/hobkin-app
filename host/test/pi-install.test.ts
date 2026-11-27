@@ -113,13 +113,13 @@ test('a Pi that prints its version on standard error is read from there when sta
 test('an optional package is left out of what setup asks for, even when Pi has it, and a required one stays', async () => {
   const optional = PI_PACKAGES.filter((item) => item.optional).map(({ name }) => name)
   assert.ok(optional.includes('pi-search-hub'), 'pi-search-hub is optional')
-  const list = ['User packages:', `  npm:pi-coder`, ...optional.map((name) => `  npm:${name}`)].join('\n')
+  const list = ['User packages:', `  npm:pi-extended-teams`, ...optional.map((name) => `  npm:${name}`)].join('\n')
   const run = fakeRun({ 'pi --version': { stdout: '1.5.0\n' }, 'pi list': { stdout: list } })
   const { packages } = await piSetup({ findPi: () => PI, findNpm: () => NPM, run, pinned: PIN })
   const names = packages.map(({ name }) => name)
   for (const name of optional) assert.ok(!names.includes(name), name)
-  assert.deepEqual(packages.find(({ name }) => name === 'pi-coder')?.installed, true)
-  assert.ok(names.includes('pi-ask-user'))
+  assert.deepEqual(packages.find(({ name }) => name === 'pi-extended-teams')?.installed, true)
+  assert.ok(names.includes('pi-solid-tasks'))
 })
 
 test('each package is pinned to what the setup was tried with: one from npm to its exact version, one from git to a commit', () => {
@@ -131,10 +131,8 @@ test('each package is pinned to what the setup was tried with: one from npm to i
 test('a copy a person already has counts as installed at any version and from any source, so a pin never installs it again', async () => {
   const list = [
     'User packages:',
-    '  npm:pi-coder@0.9.10',
-    '  npm:pi-extended-teams',
+    '  npm:pi-extended-teams@2.0.1',
     '  npm:pi-agentic-search@9.0.0',
-    '  git:github.com/someone/pi-ask-user@main',
     '',
     'Project packages:',
     '  ../../projects/pi-solid-tasks',
@@ -144,13 +142,13 @@ test('a copy a person already has counts as installed at any version and from an
 
   const { packages } = await piSetup({ findPi: () => PI, findNpm: () => NPM, run, pinned: PIN })
 
-  assert.deepEqual(packages, none(['pi-coder', 'pi-extended-teams', 'pi-agentic-search', 'pi-ask-user', 'pi-solid-tasks']))
+  assert.deepEqual(packages, none(['pi-extended-teams', 'pi-agentic-search', 'pi-solid-tasks']))
 })
 
 test('with a launcher the Pi check and a package install run through it, with its environment, and no Pi on the PATH is looked for', async () => {
   const calls: Call[] = []
   const launcher = () => ({ command: ['work-pi', '--flag'], env: { REGION: 'x' } })
-  const run = fakeRun({ 'work-pi --flag --version': { stdout: '' }, 'work-pi --flag list': { stdout: '  npm:pi-coder\n' }, [`work-pi --flag install ${sourceOf('pi-ask-user')}`]: { stdout: 'Installed\n' } }, calls)
+  const run = fakeRun({ 'work-pi --flag --version': { stdout: '' }, 'work-pi --flag list': { stdout: '  npm:pi-extended-teams\n' }, [`work-pi --flag install ${sourceOf('pi-solid-tasks')}`]: { stdout: 'Installed\n' } }, calls)
   // The version goes to stderr, as a real Pi does.
   const stderr: PiRun = (file, args, options, done) => (args.includes('--version') ? (calls.push({ program: file, args: [...args], timeout: options.timeout, path: '', env: options.env }), done(null, '', '1.5.0\n')) : run(file, args, options, done))
 
@@ -158,13 +156,13 @@ test('with a launcher the Pi check and a package install run through it, with it
   assert.equal(setup.installed, true)
   assert.equal(setup.version, '1.5.0')
   assert.equal(setup.launcher, 'work-pi --flag')
-  assert.deepEqual(setup.packages.find(({ name }) => name === 'pi-coder')?.installed, true)
+  assert.deepEqual(setup.packages.find(({ name }) => name === 'pi-extended-teams')?.installed, true)
 
-  await installPackage('pi-ask-user', { findPi: () => null, run, launcher })
+  await installPackage('pi-solid-tasks', { findPi: () => null, run, launcher })
   assert.deepEqual(calls.map(({ program, args }) => [program, ...args]), [
     ['work-pi', '--flag', '--version'],
     ['work-pi', '--flag', 'list'],
-    ['work-pi', '--flag', 'install', sourceOf('pi-ask-user')],
+    ['work-pi', '--flag', 'install', sourceOf('pi-solid-tasks')],
   ])
   assert.ok(calls.every(({ env }) => env?.REGION === 'x'))
 
@@ -174,10 +172,10 @@ test('with a launcher the Pi check and a package install run through it, with it
 
 test('the pinned Pi says which packages it has, by their whole names', async () => {
   const calls: Call[] = []
-  const list = ['User packages:', '  npm:pi-coder', '    /fake.invalid/lib/pi-coder', '  npm:pi-ask-user-extra', '', 'Project packages:', '  ../../Poetry/pi-agentic-search', ''].join('\n')
+  const list = ['User packages:', '  npm:pi-extended-teams', '    /fake.invalid/lib/pi-extended-teams', '  npm:pi-solid-tasks-extra', '', 'Project packages:', '  ../../Poetry/pi-agentic-search', ''].join('\n')
   const run = fakeRun({ 'pi --version': { stdout: '1.5.0\n' }, 'pi list': { stdout: list } }, calls)
   const setup = await piSetup({ findPi: () => PI, findNpm: () => NPM, run, pinned: PIN })
-  assert.deepEqual(setup, { installed: true, version: PIN, pinned: PIN, matches: true, canInstall: true, installCommand: COMMAND, packages: none(['pi-coder', 'pi-agentic-search']), node: HOST_NODE })
+  assert.deepEqual(setup, { installed: true, version: PIN, pinned: PIN, matches: true, canInstall: true, installCommand: COMMAND, packages: none(['pi-extended-teams', 'pi-agentic-search']), node: HOST_NODE })
   // Each read is short, and only reads.
   assert.deepEqual(calls.map(({ program, args, timeout }) => [program, ...args, timeout]), [[PI, '--version', 5000], [PI, 'list', 5000]])
 
@@ -229,12 +227,12 @@ test('installing Pi runs exactly the pinned npm line, through the npm found, wit
 
 test('a package installs by its name, through the Pi found, and a name not in the catalog is refused', async () => {
   const calls: Call[] = []
-  const run = fakeRun({ [`pi install ${sourceOf('pi-coder')}`]: { stdout: 'Installed npm:pi-coder\n' } }, calls)
-  await installPackage('pi-coder', { findPi: () => PI, run })
-  assert.deepEqual(calls.map(({ program, args, timeout }) => [program, args, timeout]), [[PI, ['install', sourceOf('pi-coder')], 300000]])
+  const run = fakeRun({ [`pi install ${sourceOf('pi-extended-teams')}`]: { stdout: 'Installed npm:pi-extended-teams\n' } }, calls)
+  await installPackage('pi-extended-teams', { findPi: () => PI, run })
+  assert.deepEqual(calls.map(({ program, args, timeout }) => [program, args, timeout]), [[PI, ['install', sourceOf('pi-extended-teams')], 300000]])
 
   await assert.rejects(installPackage('npm:evil-package', { findPi: () => PI, run }), /not one of the Pi packages hobkin sets up/)
-  await assert.rejects(installPackage('pi-coder', { findPi: () => null, run }), /Pi is not installed yet/)
+  await assert.rejects(installPackage('pi-extended-teams', { findPi: () => null, run }), /Pi is not installed yet/)
   assert.equal(calls.length, 1)
 })
 
@@ -255,8 +253,8 @@ test("a failed install says so in plain words, then the program's last lines, wi
   assert.doesNotMatch(failure.message, /line 1\b/, 'only the last lines')
   assert.doesNotMatch(failure.message, /npm_abcdefghijklmnopqrstuvwxyz0123456789/)
 
-  const slow = fakeRun({ [`pi install ${sourceOf('pi-coder')}`]: { error: Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' }), stdout: 'Installing npm:pi-coder\n' } })
-  await assert.rejects(installPackage('pi-coder', { findPi: () => PI, run: slow }), /^Error: Pi could not install pi-coder\. It took longer than 5 minutes, so it was stopped\.[\s\S]*Installing npm:pi-coder/)
+  const slow = fakeRun({ [`pi install ${sourceOf('pi-extended-teams')}`]: { error: Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' }), stdout: 'Installing npm:pi-extended-teams\n' } })
+  await assert.rejects(installPackage('pi-extended-teams', { findPi: () => PI, run: slow }), /^Error: Pi could not install pi-extended-teams\. It took longer than 5 minutes, so it was stopped\.[\s\S]*Installing npm:pi-extended-teams/)
 })
 
 const fakeSetup: PiSetup = { installed: false, version: null, pinned: PIN, matches: false, canInstall: true, installCommand: COMMAND, packages: none() }
@@ -274,18 +272,18 @@ test('the setup commands install only on a live host, with the installers it was
   const offered = { ...fakeSetup, canInstallNode: nodeBuild() !== null }
   assert.deepEqual(await live['setup.pi']!({}), offered)
   assert.deepEqual(await live['setup.install-pi']!({}), offered)
-  assert.deepEqual(await live['setup.install-package']!({ name: 'pi-ask-user' }), offered)
+  assert.deepEqual(await live['setup.install-package']!({ name: 'pi-solid-tasks' }), offered)
   assert.deepEqual(await live['setup.install-node']!({}), offered)
-  assert.deepEqual(installed, ['pi', 'pi-ask-user', 'node'])
+  assert.deepEqual(installed, ['pi', 'pi-solid-tasks', 'node'])
   assert.equal(reads, 4)
 
   // The scripted development host never installs anything on the Mac, whatever it was handed, and offers no Node.
   const scripted = piSetupHandlers({ live: false, ...options, installNode: async () => void installed.push('node') })
   assert.equal((await scripted['setup.pi']!({})).canInstallNode, false)
   await assert.rejects(async () => scripted['setup.install-pi']!({}), /scripted.*--live/)
-  await assert.rejects(async () => scripted['setup.install-package']!({ name: 'pi-coder' }), /scripted.*--live/)
+  await assert.rejects(async () => scripted['setup.install-package']!({ name: 'pi-extended-teams' }), /scripted.*--live/)
   await assert.rejects(async () => scripted['setup.install-node']!({}), /scripted.*--live/)
-  assert.deepEqual(installed, ['pi', 'pi-ask-user', 'node'])
+  assert.deepEqual(installed, ['pi', 'pi-solid-tasks', 'node'])
 
   // A live host handed no Node installer offers none, and refuses one.
   const withoutNode = piSetupHandlers({ live: true, ...options })
@@ -336,7 +334,7 @@ test('a host started with the default options installs nothing, and hobkin canno
   afterTest(t, () => client.close())
 
   assert.deepEqual(await client.run('setup.pi'), { ...fakeSetup, canInstallNode: false })
-  for (const [name, args] of [['setup.install-pi', {}], ['setup.install-package', { name: 'pi-coder' }], ['setup.install-node', {}]] as const) {
+  for (const [name, args] of [['setup.install-pi', {}], ['setup.install-package', { name: 'pi-extended-teams' }], ['setup.install-node', {}]] as const) {
     const refused = await client.command(name, args)
     assert.equal(!refused.ok && refused.error.code, 'unavailable', name)
   }

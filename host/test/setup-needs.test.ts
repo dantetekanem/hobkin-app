@@ -12,7 +12,7 @@ const pi = (over: Partial<PiSetup> = {}): PiSetup => ({
   matches: true,
   canInstall: true,
   installCommand: 'npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.5.0',
-  packages: [{ name: 'pi-coder', adds: 'A diff viewer.', installed: true }],
+  packages: [{ name: 'pi-extended-teams', adds: 'Helper agents.', installed: true }],
   node: { found: true, version: '22.19.0', installs: '22.19.0' },
   canInstallNode: true,
   ...over,
@@ -89,7 +89,7 @@ test('a ready Mac: every need is found, in the review order, with its version, a
 
   assert.deepEqual(
     list.map(({ id, group }) => `${group} ${id}`),
-    ['run node', 'run pi', 'run sign-in', 'code git', 'code gh', 'features package:pi-coder', 'features tla', 'features agentic-search', 'features claude', 'optional qmd'],
+    ['run node', 'run pi', 'run sign-in', 'code git', 'code gh', 'features package:pi-extended-teams', 'features tla', 'features agentic-search', 'features claude', 'optional qmd'],
   )
   assert.deepEqual(list.filter((need) => !need.found || need.problem || need.fix), [])
   assert.deepEqual(
@@ -147,7 +147,7 @@ test("what is missing offers the setup's own install where it has one, and other
     matches: false,
     canInstall: false,
     node: { found: false, version: null, installs: '22.19.0' },
-    packages: [{ name: 'pi-coder', adds: 'A diff viewer.', installed: false }],
+    packages: [{ name: 'pi-extended-teams', adds: 'Helper agents.', installed: false }],
   })
   const { needs } = await review({
     pi: async () => bareMac,
@@ -161,7 +161,7 @@ test("what is missing offers the setup's own install where it has one, and other
   assert.ok(gaps.every((need) => !need.found && need.problem && need.fix))
   assert.deepEqual(needs.node!.fix, { kind: 'install', what: 'node' })
   // No npm yet: whatever needs npm or Pi starts with the Node hobkin installs for itself, since no line could run.
-  for (const id of ['pi', 'package:pi-coder', 'agentic-search', 'qmd']) assert.deepEqual(needs[id]!.fix, { kind: 'install', what: 'node' }, id)
+  for (const id of ['pi', 'package:pi-extended-teams', 'agentic-search', 'qmd']) assert.deepEqual(needs[id]!.fix, { kind: 'install', what: 'node' }, id)
   assert.deepEqual(needs['sign-in']!.fix, { kind: 'sign-in' })
   assert.deepEqual(needs.tla!.fix, { kind: 'install', what: 'proof-tools' })
   assert.deepEqual(needs.claude!.fix, { kind: 'command', command: 'claude auth login' })
@@ -170,16 +170,16 @@ test("what is missing offers the setup's own install where it has one, and other
   const byHand = (await review({ pi: async () => ({ ...bareMac, canInstallNode: false }), programs: { 'agentic-search': null, qmd: null, npm: null } })).needs
   assert.deepEqual(byHand.pi!.fix, { kind: 'command', command: 'npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.5.0' })
   const sourceOf = (name: string) => PI_PACKAGES.find((item) => item.name === name)!.source
-  assert.deepEqual(byHand['package:pi-coder']!.fix, { kind: 'command', command: `pi install ${sourceOf('pi-coder')}` })
+  assert.deepEqual(byHand['package:pi-extended-teams']!.fix, { kind: 'command', command: `pi install ${sourceOf('pi-extended-teams')}` })
   assert.deepEqual(byHand['agentic-search']!.fix, { kind: 'command', command: `pi install ${sourceOf('pi-agentic-search')}` })
   assert.deepEqual(byHand.qmd!.fix, { kind: 'command', command: 'npm install -g --ignore-scripts @tobilu/qmd@2.9.0' })
 
   // With npm the window installs Pi, and with Pi the package.
-  const oldPi = pi({ version: '0.9.0', matches: false, packages: [{ name: 'pi-coder', adds: '', installed: false }] })
+  const oldPi = pi({ version: '0.9.0', matches: false, packages: [{ name: 'pi-extended-teams', adds: '', installed: false }] })
   const installs = (await review({ pi: async () => oldPi, programs: { 'agentic-search': null } })).needs
   assert.deepEqual(installs.pi!.fix, { kind: 'install', what: 'pi' })
   assert.equal(installs.pi!.version, '0.9.0')
-  assert.deepEqual(installs['package:pi-coder']!.fix, { kind: 'install-package', name: 'pi-coder' })
+  assert.deepEqual(installs['package:pi-extended-teams']!.fix, { kind: 'install-package', name: 'pi-extended-teams' })
   // The program comes with Pi's package, in Pi's own folder, where Change Review looks for it.
   assert.deepEqual(installs['agentic-search']!.fix, { kind: 'install-package', name: 'pi-agentic-search' })
 })

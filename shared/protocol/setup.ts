@@ -19,7 +19,7 @@ export const PROFILE_TEXT_MAX = 120
 
 /** A Pi package hobkin's agents use, and whether Pi has it on this Mac. */
 export interface PiPackageState {
-  /** Its name, such as `pi-coder`. The setup installs by this name, never by a source from the window. */
+  /** Its name, such as `pi-extended-teams`. The setup installs by this name, never by a source from the window. */
   name: string
   /** What it adds, in one short line. */
   adds: string
@@ -128,7 +128,7 @@ export interface ProgramSignInEnd {
 
 /** One thing hobkin needs on this Mac, as the setup's review shows it. */
 export interface SetupNeed {
-  /** Its own id, such as `git` or `package:pi-coder`. */
+  /** Its own id, such as `git` or `package:pi-extended-teams`. */
   id: string
   group: SetupNeedGroup
   name: string

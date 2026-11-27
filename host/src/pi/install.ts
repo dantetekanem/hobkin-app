@@ -146,7 +146,7 @@ export function pinnedPi(): string {
 const installArgs = (pinned: string) => ['install', '-g', '--ignore-scripts', `${PI_PACKAGE}@${pinned}`]
 const installCommand = (pinned: string) => `npm ${installArgs(pinned).join(' ')}`
 
-/** `pi list` names a package by its source, such as `npm:pi-coder` or a path ending in it. A longer name is another package. */
+/** `pi list` names a package by its source, such as `npm:pi-extended-teams` or a path ending in it. A longer name is another package. */
 function listed(list: string, name: string): boolean {
   const literal = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return new RegExp(`(?<![\\w.-])${literal}(?![\\w-])`).test(list)

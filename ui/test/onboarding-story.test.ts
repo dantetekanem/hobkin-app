@@ -41,7 +41,7 @@ const pi = (over: Partial<PiSetup> = {}): PiSetup => ({
   matches: true,
   canInstall: true,
   installCommand: 'npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.5.0',
-  packages: [{ name: 'pi-coder', adds: 'Opens a branch as a diff.', installed: true }],
+  packages: [{ name: 'pi-extended-teams', adds: 'Helper agents.', installed: true }],
   ...over,
 })
 
@@ -152,7 +152,7 @@ test('a new Mac with goals: Pi and a sign-in first, then who the person is, the 
 
 test('Pi is only brought up when something of it is missing', () => {
   const after = (state: PiSetup | null) => beatAfter('subscription', none, { ...bare, pi: state })
-  const missingPackage = pi({ packages: [{ name: 'pi-coder', adds: '', installed: false }] })
+  const missingPackage = pi({ packages: [{ name: 'pi-extended-teams', adds: '', installed: false }] })
 
   assert.equal(after(pi()), 'connect', 'Pi and its packages are here')
   assert.equal(after(null), 'connect', 'no host has said, as in a browser tab')
@@ -179,7 +179,7 @@ test('what hobkin says about Pi follows what is missing, and putting it off is s
 })
 
 test('while the install runs hobkin says what it is doing, asking nothing, and then that Pi is ready', () => {
-  const packagesMissing = pi({ packages: [{ name: 'pi-coder', adds: '', installed: false }] })
+  const packagesMissing = pi({ packages: [{ name: 'pi-extended-teams', adds: '', installed: false }] })
   const asking = beatOf('pi', none, { ...bare, pi: packagesMissing })
   const installing = beatOf('pi', none, { ...bare, pi: packagesMissing, installing: true })
 
@@ -211,12 +211,12 @@ test('while the install runs hobkin says what it is doing, asking nothing, and t
 const noNode = (over: Partial<PiSetup> = {}) =>
   pi({ installed: false, version: null, matches: false, canInstall: false, node: { found: false, version: null, installs: '26.1.0' }, canInstallNode: true, ...over })
 const ids = (state: PiSetup) => piSteps(state).map(({ id }) => id)
-const missingCoder = [{ name: 'pi-coder', adds: 'Opens a branch as a diff.', installed: false }]
+const missingTeams = [{ name: 'pi-extended-teams', adds: 'Helper agents.', installed: false }]
 
 test('without npm the install starts with a Node of hobkin\'s own, then Pi, then the packages', () => {
-  assert.deepEqual(ids(pi({ installed: false, version: null, matches: false, packages: missingCoder })), ['pi', 'pi-coder'], 'with npm there is no Node step')
-  assert.deepEqual(ids(noNode({ packages: missingCoder })), ['node', 'pi', 'pi-coder'])
-  assert.deepEqual(ids(noNode({ installed: true, version: '1.5.0', matches: true, packages: missingCoder })), ['node', 'pi-coder'], 'Pi adds its packages through npm too')
+  assert.deepEqual(ids(pi({ installed: false, version: null, matches: false, packages: missingTeams })), ['pi', 'pi-extended-teams'], 'with npm there is no Node step')
+  assert.deepEqual(ids(noNode({ packages: missingTeams })), ['node', 'pi', 'pi-extended-teams'])
+  assert.deepEqual(ids(noNode({ installed: true, version: '1.5.0', matches: true, packages: missingTeams })), ['node', 'pi-extended-teams'], 'Pi adds its packages through npm too')
 
   const [node, piItself] = piSteps(noNode())
   assert.deepEqual([node!.kind, node!.name], ['node', 'Node 26.1.0'])
@@ -226,16 +226,16 @@ test('without npm the install starts with a Node of hobkin\'s own, then Pi, then
 })
 
 test('without npm and no way to install Node, the steps are as before and the user installs by hand', () => {
-  const cannot = noNode({ canInstallNode: false, packages: missingCoder })
+  const cannot = noNode({ canInstallNode: false, packages: missingTeams })
   const { node: _node, canInstallNode: _can, ...before } = cannot
 
-  assert.deepEqual(ids(cannot), ['pi', 'pi-coder'])
+  assert.deepEqual(ids(cannot), ['pi', 'pi-extended-teams'])
   assert.equal(piByHand(cannot), true)
   // A host from before sends no Node facts, and the panel does what it did.
-  assert.deepEqual(ids(before), ['pi', 'pi-coder'])
+  assert.deepEqual(ids(before), ['pi', 'pi-extended-teams'])
   assert.equal(piByHand(before), true)
   assert.equal(piByHand(pi({ installed: false, version: null, matches: false })), false, 'with npm the window installs Pi')
-  assert.equal(piByHand(pi({ canInstall: false, packages: missingCoder })), false, 'only packages missing: the window tries, as before')
+  assert.equal(piByHand(pi({ canInstall: false, packages: missingTeams })), false, 'only packages missing: the window tries, as before')
 })
 
 test('installing by hand says first what is missing, then how to get Node, then the line to run', () => {
@@ -256,7 +256,7 @@ test('what hobkin says about Pi without npm names Node, and offers to install it
   assert.match(lines(noNode()), /Node isn't on this Mac/)
   assert.match(lines(noNode()), /Want me to install Node and Pi\?/)
   assert.match(lines(noNode({ installed: true, version: '1.4.2' })), /Want me to install Node, then Pi 1\.5\.0\?/)
-  assert.match(lines(noNode({ installed: true, version: '1.5.0', matches: true, packages: missingCoder })), /Want me to install Node, then add them\?/)
+  assert.match(lines(noNode({ installed: true, version: '1.5.0', matches: true, packages: missingTeams })), /Want me to install Node, then add them\?/)
 
   const cannot = lines(noNode({ canInstallNode: false }))
   assert.match(cannot, /Node isn't on this Mac/)
@@ -322,7 +322,7 @@ test('the account holds the story like Pi: nothing puts it off, and a provider t
   // An unfinished setup comes back to the step that holds it: Pi itself missing, or no account.
   assert.equal(holdsAt('connect', bare), true)
   assert.equal(holdsAt('pi', { ...bare, pi: pi({ installed: false, version: null, matches: false }) }), true)
-  assert.equal(holdsAt('pi', { ...bare, pi: pi({ packages: [{ name: 'pi-coder', adds: '', installed: false }] }) }), false, 'missing packages can wait')
+  assert.equal(holdsAt('pi', { ...bare, pi: pi({ packages: [{ name: 'pi-extended-teams', adds: '', installed: false }] }) }), false, 'missing packages can wait')
   assert.equal(holdsAt('found', { ...bare, connected: ['OpenAI'] }), false)
   assert.equal(holdsAt('name', bare), false)
 })
@@ -399,7 +399,7 @@ test('back never undoes an install or a sign-in', () => {
 
 test('skip shows only once Pi is in and a model account answers, and before that no way of skipping does anything', () => {
   const ready: Facts = { ...bare, pi: pi(), connected: ['OpenAI Codex'] }
-  const missingPackage = pi({ packages: [{ name: 'pi-coder', adds: '', installed: false }] })
+  const missingPackage = pi({ packages: [{ name: 'pi-extended-teams', adds: '', installed: false }] })
 
   assert.equal(skipShows(none, bare), false, 'no host has said what Pi is here')
   assert.equal(skipShows(none, { ...bare, pi: pi() }), false, 'Pi, and no account')

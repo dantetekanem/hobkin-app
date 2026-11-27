@@ -52,12 +52,12 @@ test('after a failure, the prompt says what hobkin saw, with no secret and no ho
 })
 
 test('with Pi in place, only the missing packages are asked for, and Pi is not installed again', () => {
-  const packages = PI_PACKAGES.filter(({ optional }) => !optional).map(({ name, adds }) => ({ name, adds, installed: name !== 'pi-coder' }))
-  const prompt = agentPrompt(setup({ installed: true, version: '1.5.0', matches: true, canInstall: true, packages }), 'Pi could not install pi-coder.')
+  const packages = PI_PACKAGES.filter(({ optional }) => !optional).map(({ name, adds }) => ({ name, adds, installed: name !== 'pi-extended-teams' }))
+  const prompt = agentPrompt(setup({ installed: true, version: '1.5.0', matches: true, canInstall: true, packages }), 'Pi could not install pi-extended-teams.')
 
   const sourceOf = (name: string) => PI_PACKAGES.find((item) => item.name === name)!.source
-  assert.ok(prompt.includes(`\`pi install ${sourceOf('pi-coder')}\``))
-  assert.ok(!prompt.includes(`\`pi install ${sourceOf('pi-ask-user')}\``))
+  assert.ok(prompt.includes(`\`pi install ${sourceOf('pi-extended-teams')}\``))
+  assert.ok(!prompt.includes(`\`pi install ${sourceOf('pi-solid-tasks')}\``))
   assert.ok(!prompt.includes(COMMAND))
 })
 

@@ -26,13 +26,11 @@ export interface PiPackageConfig {
 }
 
 export const PI_PACKAGES: readonly PiPackage[] = [
-  // hobkin's own optional row in `hobkin setup` (its `src/cli/setup.mjs`).
-  { name: 'pi-coder', source: 'npm:pi-coder@0.9.11', adds: "A diff viewer: d on a local PR opens the branch's diff." },
   // Work's harness waits for the agents it starts (hobkin's `src/cli/harnesses.mjs`).
   { name: 'pi-extended-teams', source: 'npm:pi-extended-teams@2.8.1', adds: 'Helper agents: an agent can start others and gets their reports back.' },
   // Change Review reads its search facts, and works with weaker ones without it (032-change-review).
   { name: 'pi-agentic-search', source: 'npm:pi-agentic-search@0.8.0', adds: 'Ranked code search for agents, and the search facts Change Review reads.' },
-  { name: 'pi-ask-user', source: 'npm:pi-ask-user@0.17.2', adds: 'An ask_user tool, so an agent can stop and ask the user a question.' },
+  // The task lists agents keep, which the window shows (`ui/src/features/agent-activity/tasks.ts`).
   { name: 'pi-solid-tasks', source: 'npm:pi-solid-tasks@0.8.18', adds: 'Task tracking for agents, with dependencies, owners, subtasks and progress.' },
   {
     name: 'pi-search-hub',
