@@ -1,6 +1,7 @@
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import { PROFILE_TEXT_MAX, type ComputerKind, type Goal, type PiSetup, type SetupWorkDone } from '#shared/protocol/setup.ts'
 import { PI_NODE } from '#shared/setup/agent-prompt.ts'
+import type { FirstModels } from '#shared/tiers/first-models.ts'
 import type { Mood } from '../../avatar/moods.tsx'
 import { cardsInOrder, cardsLines, firstRunLines, firstRunOf, keptCards, routinesSaid, type CardPicks, type GoalCards, type NamedRoutine, type Written } from './cards.ts'
 import { asksComputer, emailWhy, GOAL_BUBBLES, GOALS, goalQuestions, goalsSaid } from './goals.ts'
@@ -79,6 +80,8 @@ export interface Facts {
   cards?: readonly GoalCards[] | null
   /** The kept cards that have a routine, once the writing is over. Left out until then. */
   written?: readonly Written[]
+  /** What the host set hobkin's model and tiers to once an account was found or connected (`tiers.first`). Left out or null until it said. */
+  models?: FirstModels | null
 }
 
 /** A question main hobkin has open, as the story asks it. */
@@ -190,6 +193,21 @@ function listed(names: readonly string[]): string {
 const CONNECTED = "Great! You're connected! Now I can be even smarter with you!"
 const CLAUDE_TOO = 'I also see Claude Code on this Mac. My agents can run on it, and Settings turns that on.'
 const withClaude = (lines: string[], { claude }: Facts) => (claude ? [...lines, CLAUDE_TOO] : lines)
+
+/** What hobkin picked to think with, in one bubble. The tiers above fast run on hobkin's own model (`017-model-tiers`). */
+function modelsSaid({ lead, tiers }: Extract<FirstModels, { set: true }>): string {
+  const helpers = tiers.fast.name === lead.name ? 'and so will my agents' : `and my agents use ${tiers.fast.name} for quick work`
+  return `I'll think with ${lead.name}, ${helpers}. You can change that in Settings.`
+}
+
+/**
+ * The account's bubbles, then what hobkin picked to think with once the host said. It comes last, so a pick that lands
+ * while the beat is up adds a bubble and moves none.
+ */
+const accountLines = (lines: string[], facts: Facts) => {
+  const told = withClaude(lines, facts)
+  return facts.models?.set ? [...told, modelsSaid(facts.models)] : told
+}
 
 /** One thing to install: a Node of hobkin's own, Pi itself, or a package of Pi's, by its name as its id. */
 export interface PiStep {
@@ -445,7 +463,7 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
     case 'found':
       return {
         mood: 'celebrating',
-        lines: withClaude([`I found your ${listed(facts.connected)} ${facts.connected.length > 1 ? 'accounts' : 'account'}!`, CONNECTED], facts),
+        lines: accountLines([`I found your ${listed(facts.connected)} ${facts.connected.length > 1 ? 'accounts' : 'account'}!`, CONNECTED], facts),
       }
     case 'connect':
       return {
@@ -454,7 +472,7 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
         ask: { kind: 'connect' },
       }
     case 'connected':
-      return { mood: 'celebrating', lines: withClaude([CONNECTED], facts) }
+      return { mood: 'celebrating', lines: accountLines([CONNECTED], facts) }
     case 'no-account':
       return { mood: 'idle', lines: ["Okay. I can't answer until a model is connected, so the app will ask you again."] }
     case 'more':

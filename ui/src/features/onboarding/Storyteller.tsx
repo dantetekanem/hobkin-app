@@ -15,6 +15,7 @@ import { answerQuestion, hostStore, isLive, runCommand, useHasHost, useHost, use
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ComputerKind, Goal, GoalCards, ProjectFolder, SetupSaved, SetupWorkDone } from '#shared/protocol/setup.ts'
+import type { FirstModels } from '#shared/tiers/first-models.ts'
 import { routinesFromHost } from '@/features/routines/host-data.ts'
 import type { FirstRunStop } from '@/features/tour/steps.ts'
 import { connectedNames } from './accounts.ts'
@@ -34,7 +35,7 @@ import { PiPanel } from './PiPanel.tsx'
 import { checksWanted, goalAnswersOf, GOAL_WORDS, goalsOf, projectStart, setupAnswersOf } from './goals.ts'
 import { SAMPLE_PROJECTS, startingReply } from './questions.ts'
 import { sampleGoalCards } from './sample-cards.ts'
-import { beatOf, checkAnswer, followUpOf, spokenText, type Answers, type Ask, type Facts, type Tale } from './story.ts'
+import { beatOf, checkAnswer, followUpOf, spokenText, type Answers, type Ask, type BeatId, type Facts, type Tale } from './story.ts'
 import { endedAs, tourFollows } from './first-run.ts'
 import { useSetup } from './store.ts'
 import { useProofTools } from './use-proof-tools.ts'
@@ -215,6 +216,25 @@ function useThisMac(): void {
       current = false
     }
   }, [hasHost, link, setPi, setClaude])
+}
+
+/**
+ * hobkin's first model and tiers, set once the story reaches an account it found or signed in to (`tiers.first`, in
+ * 017-model-tiers). Asked once per setup, and only of a live host: the scripted one saves nothing. A home where a model
+ * was chosen before keeps it, so the host answers that it set nothing. Null until the host said.
+ */
+function useFirstModels(at: BeatId, onTrouble: (words: string) => void): FirstModels | null {
+  const live = useHost((state) => state.link === 'open' && state.model === 'live')
+  const [models, setModels] = useState<FirstModels | null>(null)
+  const asked = useRef(false)
+
+  useEffect(() => {
+    if (asked.current || !live || (at !== 'found' && at !== 'connected')) return
+    asked.current = true
+    runCommand('tiers.first').then(setModels, (error: unknown) => onTrouble(`I could not set my models, so they stay as Pi picks them: ${reasonOf(error)}`))
+  }, [at, live])
+
+  return models
 }
 
 /**
@@ -530,9 +550,11 @@ export function Storyteller() {
   const [written, setWritten] = useState<Written[] | undefined>(undefined)
   // The routine the setup ran, for the tour's stop about its first report.
   const firstRun = useRef<FirstRunStop | null>(null)
+  // What hobkin's model and tiers were set to once an account was found or connected.
+  const models = useFirstModels(tale.at, setTrouble)
   const facts: Facts = useMemo(
-    () => ({ pi, connected: connectedNames(providers), claude, smart, asked: followUpOf(pending), host: hasHost, worked, cards, written }),
-    [pi, providers, claude, smart, pending, hasHost, worked, cards, written],
+    () => ({ pi, connected: connectedNames(providers), claude, smart, asked: followUpOf(pending), host: hasHost, worked, cards, written, models }),
+    [pi, providers, claude, smart, pending, hasHost, worked, cards, written, models],
   )
   const beat = beatOf(tale.at, answers, facts)
   const lastLine = tale.line >= beat.lines.length - 1

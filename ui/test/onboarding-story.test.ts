@@ -251,6 +251,32 @@ test('with Claude Code signed in, hobkin says it can use it too', () => {
   assert.doesNotMatch(beatOf('found', none, { ...claude, claude: false }).lines.join(' '), /Claude Code/)
 })
 
+test('with its first models set, hobkin says in one more bubble, after the others, what it picked and that Settings changes it', () => {
+  const at = (model: string, name: string, effort: 'low' | 'medium' | 'high' | 'max') => ({ model: `openai-codex/${model}`, name, effort })
+  const sol = (effort: 'medium' | 'high' | 'max') => at('gpt-6.1-sol', 'GPT-6.1 Sol', effort)
+  const models: Facts['models'] = {
+    set: true,
+    provider: { id: 'openai-codex', name: 'OpenAI Codex' },
+    lead: sol('medium'),
+    tiers: { fast: at('gpt-6-luna', 'GPT-6 Luna', 'low'), mid: sol('medium'), high: sol('high'), max: sol('max') },
+  }
+  const before: Facts = { ...bare, connected: ['OpenAI Codex'], claude: true }
+
+  for (const beat of ['found', 'connected'] as const) {
+    const without = beatOf(beat, none, before).lines
+    const said: readonly string[] = beatOf(beat, none, { ...before, models }).lines
+    // Set while the beat is up, the bubble comes after the ones already said, so none of them moves.
+    assert.deepEqual(said.slice(0, -1), without, beat)
+    assert.match(said.at(-1)!, /GPT-6\.1 Sol.*GPT-6 Luna.*Settings/, beat)
+    // Nothing set, as on a home where a model was chosen before: no bubble.
+    assert.deepEqual(beatOf(beat, none, { ...before, models: { set: false, why: 'chosen' } }).lines, without, beat)
+  }
+  // One model for everything is said once.
+  const one = { ...models, tiers: { ...models.tiers, fast: sol('medium') } }
+  const line = beatOf('found', none, { ...before, models: one }).lines.at(-1)!
+  assert.equal(line.split('GPT-6.1 Sol').length, 2, line)
+})
+
 test('putting the sign-in off skips the questions, which need a model to hand them to', () => {
   const later: Answers = { ...none, account: 'later' }
 
