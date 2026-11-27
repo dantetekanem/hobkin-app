@@ -13,6 +13,9 @@ import { sampleGitHubSource } from './host/sample.ts'
 /** The commands whose end brings a pull request or an issue closing, so GitHub is read again once they are done. */
 const READ_AFTER = ['work.change', 'work.group']
 
+/** A page on github.com. A pull request that merged on any other code host is that host's, and leaves GitHub alone. */
+const onGitHub = (url: string) => /^https:\/\/github\.com\//i.test(url)
+
 const githubPart: HostPartFactory = (context: HostContext): HostPart => {
   const given = context.options.source as GitHubSource | undefined
   // gh runs for real only when the host was given gh.
@@ -31,7 +34,11 @@ const githubPart: HostPartFactory = (context: HostContext): HostPart => {
     afterCommand: ({ name, outcome }) => {
       if (READ_AFTER.includes(name) && outcome.ok) github.readSoon()
     },
-    onMerged: (pull) => (pull.url || pull.repo ? github.closed(pull) : github.readSoon()),
+    onMerged: (pull) => {
+      if (pull.url && !onGitHub(pull.url)) return
+      if (pull.url || pull.repo) github.closed(pull)
+      else github.readSoon()
+    },
     pulls: () => ({ mine: github.state.pulls, waiting: github.state.reviews, sample: github.state.sample }),
   }
 }

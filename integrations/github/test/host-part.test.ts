@@ -151,6 +151,23 @@ test('a merge takes the pull request out of the lists at once when it is named, 
   part.close?.()
 })
 
+test('a pull request that merged on another code host leaves GitHub alone: nothing leaves the lists and GitHub is not read again', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const source = counting({ pulls: [4] })
+  const part = await partFor({ source })
+  await run(part, 'github.refresh', {})
+  const before = source.reads
+
+  part.onMerged?.({ url: 'https://delta.example.invalid/octo/app/pull/4', repo: 'octo/app', number: 4 })
+  await settle()
+  t.mock.timers.tick(10_000)
+  await settle()
+
+  assert.deepEqual(part.pulls?.()?.mine.map((p) => p.number), [4], 'the github.com pull request of the same number stays')
+  assert.equal(source.reads, before)
+  part.close?.()
+})
+
 test('pulls gives Change Review the own pull requests as mine, the review requests as waiting, and says when they are made up', async () => {
   const part = await partFor({ source: counting({ reviews: [7], pulls: [3, 4] }) })
   await run(part, 'github.refresh', {})
