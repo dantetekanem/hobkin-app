@@ -33,12 +33,12 @@ Or do it yourself:
 
 1. Install the tools hobkin is built with. Skip any you already have; the second column checks.
 
-   | Tool | Why hobkin needs it | Check | Install |
-   | --- | --- | --- | --- |
-   | Apple's Command Line Tools (not the Xcode app) | `git`, to clone the code, and Apple's compiler and macOS SDK, which Rust uses to build the Mac window | `xcode-select -p` | `xcode-select --install` |
-   | Node 22.19 or newer | Runs hobkin's host and builds its interface | `node -v` | https://nodejs.org, or `brew install node` |
-   | pnpm 11 | Installs the exact package versions in the lockfiles | `pnpm -v` | `npm install -g pnpm@11` |
-   | Rust | Builds the Mac window (Tauri) | `cargo -V` | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`, then open a new terminal |
+   | Tool | Check | Install |
+   | --- | --- | --- |
+   | Apple's Command Line Tools (not the Xcode app) | `xcode-select -p` | `xcode-select --install` |
+   | Node 22.19 or newer | `node -v` | https://nodejs.org, or `brew install node` |
+   | pnpm 11 | `pnpm -v` | `npm install -g pnpm@11` |
+   | Rust | `cargo -V` | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`, then open a new terminal |
 
 2. Get the code and its packages:
 
