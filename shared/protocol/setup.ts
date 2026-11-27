@@ -76,15 +76,55 @@ export interface PiNodeState {
 export const SETUP_NEED_GROUPS = ['run', 'code', 'features', 'optional'] as const
 export type SetupNeedGroup = (typeof SETUP_NEED_GROUPS)[number]
 
+/** The programs the setup installs for the user on a press (`setup.install-program`), so no one needs Terminal. */
+export const SETUP_PROGRAMS = ['git', 'gh', 'claude', 'qmd'] as const
+export type SetupProgram = (typeof SETUP_PROGRAMS)[number]
+
+/** The programs whose own web sign-in the setup runs on a press (`setup.sign-in-program`). */
+export const SIGN_IN_PROGRAMS = ['gh', 'claude'] as const
+export type SignInProgram = (typeof SIGN_IN_PROGRAMS)[number]
+
 /**
- * How a missing need is fixed: one of the setup's own installs, its sign-in, or a command for the user to copy and
- * run. The setup installs only on the user's press.
+ * How a missing need is fixed: one of the setup's own installs, its sign-in, a program's own sign-in, or a command
+ * for the user to copy and run. The setup installs only on the user's press. A program's install and sign-in say what
+ * the press does (`says`), and keep the line to copy (`byHand`) for when it fails.
  */
 export type SetupFix =
   | { kind: 'install'; what: 'node' | 'pi' | 'proof-tools' }
   | { kind: 'install-package'; name: string }
   | { kind: 'sign-in' }
   | { kind: 'command'; command: string }
+  | { kind: 'install-program'; name: SetupProgram; says: string; byHand: string }
+  | { kind: 'sign-in-program'; name: SignInProgram; says: string; byHand: string }
+
+/**
+ * What `setup.install-program` did. `finished` is false when the press opened an installer of the Mac's own, Apple's
+ * for its command line tools, which goes on in its own window: Look again finds what it installed once it is done.
+ */
+export interface ProgramInstalled {
+  finished: boolean
+}
+
+/** The most a code pasted back into a program's sign-in may hold. */
+export const SIGN_IN_CODE_MAX = 2000
+
+/**
+ * A program's web sign-in under way (`setup.sign-in-program`): the page to open in the browser, the one-time code to
+ * enter there (gh's), and whether the page may give a code to paste back instead (Claude Code's). The program itself
+ * waits for the answer until `setup.sign-in-program-wait` says it ended.
+ */
+export interface ProgramSignIn {
+  name: SignInProgram
+  url: string
+  code: string | null
+  pastes: boolean
+}
+
+/** How a program's sign-in ended: signed in, or not, with the program's own last words. */
+export interface ProgramSignInEnd {
+  signedIn: boolean
+  message: string | null
+}
 
 /** One thing hobkin needs on this Mac, as the setup's review shows it. */
 export interface SetupNeed {
