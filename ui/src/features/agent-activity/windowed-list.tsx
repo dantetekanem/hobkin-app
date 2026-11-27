@@ -25,8 +25,9 @@ import { endFrom, FreshKeys, mountedIndexes, nextWalkable, piecesOf, rowsAt, wal
 const MARGIN_VIEWS = 1
 /** At most this many rows each way for that margin. */
 const MOST_EACH_WAY = 12
-/** The view's height before the list has read its own or kept one. */
+/** The view's size before the list has read its own or kept one. */
 const FIRST_HEIGHT = 800
+const FIRST_WIDTH = 1000
 /**
  * Where TanStack takes a list that follows its newest row to be: past any end, so its range is the end's and its own
  * write when it takes the scroller lands on the end the rows have once drawn, whatever their guessed heights said.
@@ -39,8 +40,8 @@ export interface WindowedOptions<Row> {
   rows: readonly Row[]
   /** A row's key: the same for as long as the row shows, in every state. */
   keyOf: (row: Row) => string
-  /** How tall a row not drawn yet is guessed to be. A short guess draws a row too many, never a blank. */
-  estimate: (row: Row) => number
+  /** How tall a row not drawn yet is guessed to be, in a list `width` pixels wide. A short guess draws a row too many, never a blank. */
+  estimate: (row: Row, width: number) => number
   /** The rows the keyboard walks onto. Every row without it. */
   walkable?: (row: Row) => boolean
   /** The list's own spacing, as its classes set it: the gap between rows and its padding above and below them. */
@@ -74,6 +75,25 @@ function useCurrent<Value>(value: Value): { readonly current: Value } {
   const held = useRef(value)
   held.current = value
   return held
+}
+
+/**
+ * The guesses of the rows not drawn yet, each made once at a width: TanStack asks again for every row below one that
+ * changed, and a guess may read a long answer's whole text.
+ */
+function useGuesses<Row>(estimate: (row: Row, width: number) => number) {
+  const guesses = useRef({ width: -1, sizes: new Map<string, number>() })
+  return useCallback(
+    (row: Row, key: string, width: number) => {
+      const held = guesses.current
+      if (held.width !== width) guesses.current = { width, sizes: new Map() }
+      const sizes = guesses.current.sizes
+      let size = sizes.get(key)
+      if (size === undefined) sizes.set(key, (size = estimate(row, width)))
+      return size
+    },
+    [estimate],
+  )
 }
 
 /** The heights kept from the last time a list was drawn, as TanStack takes them: only when they were drawn at the width the list opens at. */
@@ -123,6 +143,8 @@ function shownAgain(rows: Rows | null, place: Place | undefined, indexes: Readon
 function useRowHeights(following: { readonly current: boolean }) {
   const measuredAt = useRef(new Map<string, number>())
   const lastMeasure = useRef<{ key: string; known: boolean } | null>(null)
+  // How wide the rows stand, as the last one measured did: the width the guesses for the rest are made at.
+  const rowWidth = useRef(0)
 
   const measureElement = useCallback((element: HTMLElement, entry: ResizeObserverEntry | undefined, rows: Rows) => {
     const key = String(rows.options.getItemKey(rows.indexFromElement(element)))
@@ -134,6 +156,7 @@ function useRowHeights(following: { readonly current: boolean }) {
 
     lastMeasure.current = { key, known }
     measuredAt.current.set(key, width)
+    rowWidth.current = box ? Math.round(box.inlineSize) : element.offsetWidth
     return box ? Math.round(box.blockSize) : element.offsetHeight
   }, [])
 
@@ -148,7 +171,7 @@ function useRowHeights(following: { readonly current: boolean }) {
     [following],
   )
 
-  return { measuredAt, measureElement, keepsView }
+  return { measuredAt, rowWidth, measureElement, keepsView }
 }
 
 /** The key of the row of `list` that `target` is in, by the place the list told it (`data-index`). */
@@ -318,7 +341,7 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
     return -1
   }, [rows, walkable])
 
-  const { measuredAt, measureElement, keepsView } = useRowHeights(following)
+  const { measuredAt, rowWidth, measureElement, keepsView } = useRowHeights(following)
   const rangeExtractor = useCallback(
     (range: Range) => {
       const list = self.current
@@ -343,13 +366,15 @@ export function useWindowedList<Row>({ name, rows, keyOf, estimate, walkable, sp
     [indexes, lastWalkable, opened, focused, walkedTo, scroll.pinned],
   )
   const getItemKey = useCallback((index: number) => keys[index]!, [keys])
+  const guess = useGuesses(estimate)
   const box = keptRect()
   const firstDraw = useRef(true)
 
   const list = useVirtualizer<HTMLDivElement, HTMLElement>({
     count: keys.length,
     getScrollElement: () => scroll.scroller.current,
-    estimateSize: (index) => estimate(rows[index]!),
+    // At the rows' own width once one is measured; before, about the list's inside the page's gutters.
+    estimateSize: (index) => guess(rows[index]!, keys[index]!, rowWidth.current || Math.round((self.current?.scrollRect?.width || box?.width || FIRST_WIDTH) * 0.8)),
     getItemKey,
     gap: spacing.gap,
     paddingStart: spacing.top,

@@ -11,7 +11,7 @@ import { sampleLength } from '@/features/agent-activity/sample.ts'
 import { stepsOf, type Step } from '@/features/agent-activity/steps.ts'
 import { Arrivals } from '@/features/agent-activity/arrive.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
-import { StepItem } from '@/features/agent-activity/StepView.tsx'
+import { StepItem, stepHeight } from '@/features/agent-activity/StepView.tsx'
 import { AgentLines } from '@/features/agent-activity/AgentLines.tsx'
 import { lastStepTime, mainTimeOf, type EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
@@ -198,8 +198,6 @@ function ToNewest({ pinned, onJump, still }: { pinned: boolean; onJump: () => vo
 }
 
 const stepKey = (step: Step) => step.key
-/** A step not drawn yet is guessed at one folded row: a guess too short draws a step too many, never a blank. */
-const stepHeight = () => 32
 /** The list's own gap and padding: `gap-3 pt-2 pb-10`. */
 const SPACING = { gap: 12, top: 8, bottom: 40 }
 

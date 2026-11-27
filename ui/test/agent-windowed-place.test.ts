@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { KEPT_LISTS, keepList, keepRect, keptList, keptRect, openingOf, placeAt, windowedSteps } from '../src/features/agent-activity/windowed-place.ts'
+import { KEPT_LISTS, keepList, keepRect, keptList, keptRect, openingOf, placeAt, textHeight, windowedSteps } from '../src/features/agent-activity/windowed-place.ts'
 
 const sizes = (entries: [string, number][]) => new Map(entries)
 
@@ -78,4 +78,16 @@ test('the windowed transcript is off unless the switch is set', () => {
     }),
     false,
   )
+})
+
+test('a row not drawn yet is guessed as tall as its text wraps at its width, a long answer far taller than a short one', () => {
+  const words = (count: number) => Array.from({ length: count }, () => 'word').join(' ')
+  const line = textHeight('A short answer.', 800)
+  assert.ok(line >= 20 && line <= 30, 'one line of text')
+  // About 4,000 characters in paragraphs, as a long answer: many lines, as it wraps at the column.
+  const long = textHeight([words(200), words(200), words(200), words(200)].join('\n\n'), 800)
+  assert.ok(long > 30 * line && long < 80 * line, `wrapped into lines: ${long}`)
+  assert.ok(textHeight(words(200), 400) > textHeight(words(200), 800), 'a narrower column wraps into more lines')
+  // Code: each of its lines is a line, however short.
+  assert.equal(textHeight(['a', 'b', 'c', 'd'].join('\n'), 800), 4 * line)
 })

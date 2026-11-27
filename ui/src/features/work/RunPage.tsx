@@ -18,7 +18,7 @@ import { atOf, exchangeOf, pauseOf, type ExchangeItem } from '@/features/agent-a
 import { withRuns, type RunsRow } from '@/features/schedules/runs.ts'
 import { ScheduleRunsItem } from '@/features/schedules/ScheduleRuns.tsx'
 import { useScheduleRuns } from '@/features/schedules/use-schedule-runs.ts'
-import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
+import { bubbleHeight, EarlierSteps, StepItem, StepJob, stepHeight } from '@/features/agent-activity/StepView.tsx'
 import { lastStepTime, useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import type { FollowStart } from '@/features/agent-activity/follow.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
@@ -273,11 +273,12 @@ function ExchangeSteps({ agentId, hue, question, waiting, idle }: ExchangeProps)
 type QuestionRow = { kind: 'question'; key: 'question'; question: string }
 type RunRow = ExchangeItem | RunsRow | QuestionRow
 const runRowKey = (row: RunRow) => row.key
-/** How tall a row not drawn yet is guessed to be: a message's bubble, the question with its line, a step folded to its row. */
-function runRowHeight(row: RunRow): number {
-  if (row.kind === 'note') return 60
+/** How tall a row not drawn yet is guessed to be in a list `width` pixels wide: a message's bubble by its words, the question with its line, a step as StepView guesses it. */
+function runRowHeight(row: RunRow, width: number): number {
+  if (row.kind === 'note') return bubbleHeight(row.note.text, width)
   if (row.kind === 'question') return 84
-  return 36
+  if (row.kind === 'schedule') return 36
+  return stepHeight(row, width)
 }
 /** The list's own gap and padding: `gap-3 pt-2 pb-3`. */
 const RUN_SPACING = { gap: 12, top: 8, bottom: 12 }

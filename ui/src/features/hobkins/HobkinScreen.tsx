@@ -22,12 +22,12 @@ import { useScheduleRuns } from '@/features/schedules/use-schedule-runs.ts'
 import { earlierRow, NEWEST_STEPS, useNewest, withEarlier } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
-import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
+import { bubbleHeight, EarlierSteps, rowTextWidth, StepItem, StepJob, stepHeight } from '@/features/agent-activity/StepView.tsx'
 import { useAgentActivity, useStepsMood, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import type { FollowStart } from '@/features/agent-activity/follow.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { useWindowedList, WindowedRows } from '@/features/agent-activity/windowed-list.tsx'
-import { windowedSteps } from '@/features/agent-activity/windowed-place.ts'
+import { textHeight, windowedSteps } from '@/features/agent-activity/windowed-place.ts'
 import { olderPlace, useOlderNearView } from '@/features/agent-activity/older-near.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import type { Attachment } from '@/features/chat/draft.ts'
@@ -612,12 +612,14 @@ function ConversationRows({ id, prepared, turns, cwd, sending, problem, loading 
 
 const rowKey = (row: ShownRow) => row.key
 /**
- * How tall a row not drawn yet is guessed to be: a message's bubble of two lines, an answer of a few, a step folded to
- * its row. Rows are measured as they are drawn, and kept, so a guess counts only until then.
+ * How tall a row not drawn yet is guessed to be in a list `width` pixels wide: a message and an answer by their words, a
+ * step as StepView guesses it, anything else at one row. Rows are measured as they are drawn, and kept, so a guess
+ * counts only until then.
  */
-function rowHeight(row: ShownRow): number {
-  if (row.kind === 'said') return 60
-  if (row.kind === 'answer') return 160
+function rowHeight(row: ShownRow, width: number): number {
+  if (row.kind === 'said') return bubbleHeight(row.text, width)
+  if (row.kind === 'answer') return (row.turn.reply ? textHeight(row.turn.reply, rowTextWidth(width) * 0.92) : 0) + (whyOf(row.turn) ? 20 : 0)
+  if (row.kind === 'step') return stepHeight(row.step, width)
   if (row.kind === 'thinking') return 24
   return 36
 }

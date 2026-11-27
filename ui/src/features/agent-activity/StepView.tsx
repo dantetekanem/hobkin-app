@@ -27,6 +27,7 @@ import { proofCheckOf } from '@/features/proofs/proof-match.ts'
 import { ProofCheckStep, useCheckRun } from '@/features/proofs/ProofCheckStep.tsx'
 import { useNear } from './use-colors.ts'
 import type { EntryTime } from './use-agent-activity.ts'
+import { textHeight } from './windowed-place.ts'
 
 /** A running command shows at most this many of its last lines (021 A5). One that failed shows as many. */
 const TAIL_LINES = 12
@@ -34,6 +35,20 @@ const TAIL_LINES = 12
 const DONE_LINES = 6
 
 type TimeOf = (id: string) => EntryTime | undefined
+
+/** How wide a row's own words stand in a list `width` pixels wide: less the row's inset and the times' column beside it. */
+export const rowTextWidth = (width: number) => Math.max(0, width - 106)
+
+/**
+ * How tall a step not drawn yet is guessed to be in a windowed list `width` pixels wide (windowed-list.tsx): what it
+ * said by its words, at the width they wrap at, and any other folded to its one row.
+ */
+export function stepHeight(step: Step, width: number): number {
+  return step.kind === 'says' ? textHeight(step.text, rowTextWidth(width) * 0.92) : 36
+}
+
+/** How tall a message's bubble is guessed to be in a windowed list `width` pixels wide: its words at the bubble's width, and its padding. */
+export const bubbleHeight = (text: string, width: number) => 16 + textHeight(text, rowTextWidth(width) * 0.72 - 28)
 
 /**
  * The run whose steps these are, so an output the feed cut to its ends can be read whole from the run's saved session.

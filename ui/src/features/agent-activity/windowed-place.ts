@@ -73,6 +73,29 @@ export function openingOf(place: Place | undefined, indexOf: (key: string) => nu
   return index < 0 ? { pinned: true } : { pinned: false, index, offset: place.offset }
 }
 
+/** About how wide a character of the transcript's 15 px text is, and how tall its line (`leading-relaxed`), in pixels. */
+const CHARACTER = 7.5
+const LINE = 24
+
+/**
+ * About how tall `text` stands as the transcript draws it in a column `width` pixels wide: each of its lines wrapped at
+ * the column, a line's height apart, and a third of one for a blank line between paragraphs. A guess for a row not drawn
+ * yet, as a long answer is, kept on the short side: a short guess draws a row too many, never a blank.
+ */
+export function textHeight(text: string, width: number): number {
+  const columns = Math.max(24, Math.floor(width / CHARACTER))
+  let lines = 0
+  let blank = 0
+  for (let start = 0; start <= text.length; ) {
+    const newline = text.indexOf('\n', start)
+    const end = newline < 0 ? text.length : newline
+    if (end === start) blank += 1
+    else lines += Math.ceil((end - start) / columns)
+    start = end + 1
+  }
+  return Math.round(lines * LINE + (blank * LINE) / 3)
+}
+
 /** The switch that draws agent transcripts windowed: only the rows on screen and a few around them. */
 export const WINDOWED_STEPS = 'hobkin:windowed-steps'
 
