@@ -37,6 +37,14 @@ export interface ActivityEntry {
   at?: number
 }
 
+/**
+ * The `name` of a `tool` entry that is not a call the agent made: a report one of its own agents sent back
+ * (`pi-extended-teams-report`), which hobkin keeps as a step of its own (`AGENT_REPORT` in `src/cli/job-activity.mjs`).
+ * Its `input` holds who sent it, whether it says it went well and its summary (`{ name, ok, summary }`), its `output`
+ * the report, and its state is `failed` when the report says it failed.
+ */
+export const AGENT_REPORT = 'agent_report'
+
 /** Every job's activity, by run id. */
 export type JobActivity = Record<string, readonly ActivityEntry[]>
 

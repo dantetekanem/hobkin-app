@@ -1,4 +1,4 @@
-import { Braces, Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, Search, SquareTerminal, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react'
+import { Braces, Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, MessageSquareText, Search, SquareTerminal, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react'
 import { createContext, Fragment, memo, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { FilePath } from '@/components/FilePath.tsx'
@@ -133,7 +133,37 @@ function StepBody({ step, timeOf, ended }: { step: Step; timeOf: TimeOf; ended: 
       return <Looks id={step.key} looks={step.looks} />
     case 'tool':
       return <OtherTool id={step.key} name={step.name} summary={step.summary} state={step.state} output={step.output} failure={step.failure} />
+    case 'report':
+      return <AgentReport step={step} />
   }
+}
+
+/**
+ * A report one of the agent's own agents sent back, as the conversation draws it (the user, 2026-11-27: "when an agent
+ * finishes, a message should be rendered in the main screen with the handoff/feedback/whatever, so i can click and
+ * expand"): who sent it and its summary on one row, and the whole report as Markdown under it on request.
+ */
+function AgentReport({ step }: { step: Extract<Step, { kind: 'report' }> }) {
+  const whole = useWhole(step.key)
+  const block = useBlock('other', step.key)
+  const text = whole.text ?? step.text
+  const opens = Boolean(text.trim())
+  const open = opens && block.open
+  return (
+    <div className="flex flex-col gap-1">
+      <FoldRow icon={MessageSquareText} open={open} onToggle={opens ? block.toggle : undefined} failed={!step.ok}>
+        <span className="shrink-0 font-medium">{step.from}</span>
+        <span className="shrink-0 text-muted-foreground">{step.ok ? 'reported' : 'failed'}</span>
+        {step.summary ? <span className="min-w-0 truncate text-[12px] text-muted-foreground">{step.summary}</span> : null}
+      </FoldRow>
+      {open ? (
+        <div className="ml-[22px] max-w-[88%] rounded-2xl bg-surface-2 px-3.5 py-2.5 text-[14px] leading-relaxed break-words">
+          <GrowingMarkdown text={text} whole />
+          <CutNote whole={whole} />
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 /** How long the agent's words stay the same before they count as finished and parse whole. */

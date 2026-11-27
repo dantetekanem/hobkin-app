@@ -1,4 +1,4 @@
-import { sameEntry, type ActivityEntry } from '#shared/protocol/activity.ts'
+import { AGENT_REPORT, sameEntry, type ActivityEntry } from '#shared/protocol/activity.ts'
 import { proofCheckOf } from '../proofs/proof-match.ts'
 import { isSkillLoad } from './skills.ts'
 import { isTaskTool } from './tasks.ts'
@@ -89,6 +89,8 @@ export type Step =
   | (Base & { kind: 'change'; change: Change })
   | (Base & { kind: 'looks'; looks: Look[] })
   | (Base & { kind: 'tool'; name: string; summary: string; state: CallState; output: string; failure?: string })
+  /** A report one of the agent's own agents sent back (`AGENT_REPORT`): who sent it, whether it went well, its summary and the report. */
+  | (Base & { kind: 'report'; from: string; ok: boolean; summary: string; text: string })
 
 /** A message the user sent to the agent while it worked. */
 export interface Note {
@@ -355,6 +357,10 @@ function groupsOf(entries: readonly ActivityEntry[], options: ReadOptions): Grou
       block.entries.push(entry)
       continue
     }
+    if (entry.name === AGENT_REPORT) {
+      groups.push({ kind: 'report', entries: [entry] })
+      continue
+    }
     if (options.tasksOnLine && isTaskTool(entry.name) && entry.state !== 'failed') continue
     // A failed load is no skill (skills.ts), so it stays a step. A SKILL.md read leaves its group of reads.
     if (options.tasksOnLine && isSkillLoad(entry)) continue
@@ -447,6 +453,11 @@ function buildStep(group: Group, carried: Carried, ended: boolean, options: Read
   switch (group.kind) {
     case 'says':
       return { step: { kind: 'says', key, entries, text: first.text ?? '' } }
+    case 'report': {
+      const args = argsOf(first)
+      const from = firstText(args, 'name') || 'An agent'
+      return { step: { kind: 'report', key, entries, from, ok: first.state !== 'failed', summary: firstText(args, 'summary') ?? '', text: first.output ?? '' } }
+    }
     case 'codemode': {
       // Each call is built as its own step is, so a call that did not change is the step it was.
       const calls = entries.slice(1).map((entry) => stepOf(groupOf(entry, options), ended, options))
@@ -632,6 +643,7 @@ export function doingNow(entries: readonly ActivityEntry[], options: ReadOptions
   const entry = entries.findLast((candidate) => candidate.kind === 'tool' || candidate.text?.trim())
   if (!entry) return null
   if (entry.kind !== 'tool') return { lead: lastSentence(entry.text ?? '') }
+  if (entry.name === AGENT_REPORT) return { lead: 'Report from', subject: firstText(argsOf(entry), 'name') || 'an agent' }
 
   const family = familyOf(entry.name)
   const state = stateOf(entry, options.ended ?? false)

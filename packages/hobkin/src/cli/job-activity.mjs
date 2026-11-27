@@ -13,6 +13,12 @@ export const outputText = value => {
 };
 /** A run's feed keeps its newest steps, and what it lets go stays in the run's saved session (`run-steps.mjs`). */
 export const MOST_STEPS = 200;
+/**
+ * The step a report one of the run's agents sent back becomes (`pi-extended-teams-report`): not a tool the agent called,
+ * but one the window can fold and open, with who sent it and its summary as its input and the report as its output.
+ */
+export const AGENT_REPORT = 'agent_report';
+const isAgentReport = message => message?.role === 'custom' && message.customType === 'pi-extended-teams-report';
 /** How much of a tool's output a run's feed keeps: all of a shorter one, else its start and its end, each half of this. */
 export const MOST_OUTPUT = 8192;
 const LEFT_OUT = '\n…\n';
@@ -238,7 +244,9 @@ export class JobActivity {
         if (part?.type === 'text_end') this.text(part.contentIndex, part.content);
       }
     } else if (event.type === 'message_end') {
-      if (!this.hidden
+      if (!this.hidden && this.visibleMessage(event.message) && isAgentReport(event.message)) {
+        this.report(event.message);
+      } else if (!this.hidden
         && this.visibleMessage(event.message)) {
         const content = typeof event.message.content === 'string' ? [{ type: 'text', text: event.message.content }] : event.message.content;
         if (!Array.isArray(content)) return;
@@ -266,6 +274,17 @@ export class JobActivity {
     } else if (event.type === 'tool_execution_end') {
       this.tool(event.toolCallId, event.toolName, event.isError ? 'failed' : 'completed', undefined, event.result, event.parentToolCallId);
     }
+  }
+
+  /** A report one of the run's agents sent back, as its own step (`AGENT_REPORT`), not as words the agent said. */
+  report(message) {
+    const details = message.details && typeof message.details === 'object' ? message.details : {};
+    const input = {
+      name: typeof details.name === 'string' && details.name ? details.name : 'An agent',
+      ok: details.ok !== false,
+      summary: typeof details.summary === 'string' ? details.summary : '',
+    };
+    this.tool(`report-${this.message}`, AGENT_REPORT, input.ok ? 'completed' : 'failed', input, message.content);
   }
 
   visibleMessage(message) {

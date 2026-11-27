@@ -118,6 +118,32 @@ test('public custom messages preserve complete Unicode display history', () => {
   assert.deepEqual(feed.snapshot().map(entry => entry.text), ['Visible custom', text]);
 });
 
+test("a report one of the run's agents sent back is a step of its own: who sent it, its summary, and the report to open", () => {
+  const feed = new JobActivity();
+  const report = (name, ok, summary, content) => ({
+    role: 'custom', customType: 'pi-extended-teams-report', display: true, content, details: { name, ok, summary, elapsedMs: 4000, tokens: 1200 },
+  });
+  const scout = report('scout', true, 'The redirect drops the session', '## Findings\nThe redirect drops the session cookie.');
+  const lint = report('lint', false, 'Could not run the linter', [{ type: 'text', text: 'eslint is missing' }]);
+  feed.accept({ type: 'message_start', message: scout });
+  feed.accept({ type: 'message_end', message: scout });
+  feed.accept({ type: 'message_start', message: lint });
+  feed.accept({ type: 'message_end', message: lint });
+  feed.accept({ type: 'message_end', message: { role: 'custom', display: true, content: 'Another custom note' } });
+
+  const entries = feed.snapshot();
+  assert.deepEqual(entries.map(({ kind, name, state }) => ({ kind, name, state })), [
+    { kind: 'tool', name: 'agent_report', state: 'completed' },
+    { kind: 'tool', name: 'agent_report', state: 'failed' },
+    { kind: 'assistant', name: undefined, state: undefined },
+  ]);
+  assert.deepEqual(JSON.parse(entries[0].input), { name: 'scout', ok: true, summary: 'The redirect drops the session' });
+  assert.equal(entries[0].output, '## Findings\nThe redirect drops the session cookie.');
+  assert.equal(entries[1].output, 'eslint is missing');
+  assert.notEqual(entries[0].id, entries[1].id);
+  assert.equal(entries[2].text, 'Another custom note', 'any other message shown to the user stays words');
+});
+
 test('compact RPC reconciles text and tool snapshots without duplicating streamed output', () => {
   const feed = new JobActivity();
   feed.accept({ type: 'message_start', message: { role: 'assistant' } });
