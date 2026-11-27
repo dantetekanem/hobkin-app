@@ -25,14 +25,19 @@ One command per chip builds hobkin for Apple silicon or Intel from one commit. I
 - Node's own release asks for six entitlements, `get-task-allow` among them, which notarization rejects. The carried Node is signed with the fewest that run it (`scripts/package/node-<arch>.entitlements.plist`). `allow-jit` is for V8's compiled code. `disable-library-validation` is needed because the hardened runtime otherwise loads only native modules signed by the same team, and the carried Node loads Pi extensions from the user's folders and runs checks in the user's projects (`packages/hobkin/src/cli/pi-extensions.mjs`, `work/proof-checks.mjs`), whose modules nobody here signs. Intel also needs `allow-unsigned-executable-memory`. The app's own executable needs no entitlement.
 - Tauri notarizes and staples the app inside `tauri build` when the credentials are in its environment. It then makes the DMG and the updater archive from the stapled app. `build.ts` signs the DMG, has Apple notarize it, and staples it. The credentials come from the environment: an App Store Connect API key (recommended), or an Apple ID with an app-specific password. Tauri takes the Apple ID when both are whole, so `build.ts` does too, and hands Tauri only that route's variables.
 - An identity of `-` is a proof run. It signs everything ad hoc and runs every step but notarization, then stops with what notarization is missing. Nothing signed ad hoc is ever sent to Apple, and nothing of it reaches `dist/built/`, the only place `release.ts` reads.
-- The download folder and the updater endpoint are one setting: the endpoint in `scripts/package/tauri.release.conf.json`, `https://hobkin.dev/downloads/latest.json`. `feed.ts` takes the folder from it, and every file of a release is published there. The files sit in Cloudflare R2 behind that path, since Cloudflare Pages caps a file at 25 MB.
-- The user removed the old route, `https://api.hobkin.dev/downloads/`, on 2026-11-26. Installed 0.1.19 apps poll `https://api.hobkin.dev/downloads/latest.json`, so they will find no update, and their users download a new DMG once. Each installed app has its endpoint compiled in, so a later move of the downloads folder must keep `latest.json` answering at the old endpoint, or redirect it, until the apps that poll it have updated.
+- Every download is a GitHub release of `dantetekanem/hobkin-client` (the user's call, 2026-11-26). Each version is release `v<version>`, made at the commit it was built from, and its assets are both DMGs, both update archives and `latest.json`. The feed's archive links name that release: `https://github.com/dantetekanem/hobkin-client/releases/download/v<version>/<file>`.
+- The updater endpoint in `scripts/package/tauri.release.conf.json` is the one setting: `https://github.com/dantetekanem/hobkin-client/releases/latest/download/latest.json`. `feed.ts` reads the repository from it. GitHub answers `/releases/latest` with the newest release that is neither a draft nor a pre-release, so each app release is marked latest (`gh release create --latest`).
+- Every other release on the repository is a pre-release, so it never becomes the latest. A release that is not the app's, but is marked latest, would leave every installed app without a feed until the next app release.
+- `release.ts` uploads nothing. It writes the files and `notes.md` to `dist/release/` and prints the `gh release create` command that publishes them. gh uploads the assets to a draft and publishes it once they are all there, so no app reads a feed whose archives are missing.
+- The repository is private today. Until it is public, the endpoint and every asset link need a GitHub sign-in, so installed apps find no update, and the DMG links work only for people with access to the repository.
+- The old download route, `https://api.hobkin.dev/downloads/`, was removed on 2026-11-26. Installed 0.1.19 apps poll `https://api.hobkin.dev/downloads/latest.json`, so they will find no update, and their users download a new DMG once. Each installed app has its endpoint compiled in, so a later move away from GitHub must keep `latest.json` answering at the GitHub endpoint, or redirect it, until the apps that poll it have updated.
+- hobkin's TLAPS setup downloads tlapm's 1.6.0-pre build, which upstream rebuilds in place. The build of 2026-11-26 is kept as a pre-release of this repository (see "TLAPS on GitHub"). `packages/hobkin/src/cli/proof/tools.mjs` keeps the upstream link until the repository is public and that release exists.
 
 ## Out of scope
 
 - A universal binary: the user chose two DMGs.
 - Windows and Linux (073-windows-linux).
-- Uploading a release, and a download page. The user uploads `dist/release/`, `latest.json` last.
+- Publishing a release, and a download page. The user runs the `gh` command `release.ts` prints.
 
 ## Acceptance
 
@@ -45,8 +50,10 @@ One command per chip builds hobkin for Apple silicon or Intel from one commit. I
 - A7. The updater archive holds the signed, stapled app (the same CDHash, and a stapled ticket), and its `.sig` verifies against the release config's public key.
 - A8. A missing identity, credential or tool stops the build before anything is built and names the variables, never their values. An ad hoc identity runs every step but notarization and then stops with what is missing.
 - A9. The carried Node has only the entitlements it needs on its chip.
-- A10. The download folder and the updater endpoint are one setting.
-- A11. `release.ts` publishes only notarized builds, of one version and one commit.
+- A10. The updater endpoint is the one setting: the feed, every archive link and the publish command take the repository from it.
+- A11. `release.ts` gathers only notarized builds, of one version and one commit.
+- A12. `release.ts` uploads nothing. It prints the command that publishes the files as release `v<version>` at the built commit, marked latest.
+- A13. No release on the repository but an app's is ever marked latest: every other one is a pre-release.
 
 ## Proof
 
@@ -59,16 +66,20 @@ One command per chip builds hobkin for Apple silicon or Intel from one commit. I
 - A7. `host/test/package-sign.test.ts` › "an updater archive passes only with a signature the release's public key made ..."; check: the build's archive line, and the verifier against the published 0.1.19 archives.
 - A8. `host/test/package-sign.test.ts` › "says which variables are missing ...", "an ad hoc identity is a proof run ..."; check: the build with nothing set, and the ad hoc run's last words.
 - A9. check: a hardened, ad hoc signed Node with each set of entitlements, running JIT code, WebAssembly and pi-tui's helper.
-- A10. `host/test/package-release.test.ts` › "the files are published beside the feed the release config's updater reads ...".
+- A10. `host/test/package-release.test.ts` › "the updater's one endpoint names the GitHub repository whose latest release carries the feed", "the feed names the version and, for each chip built, where its archive is ..."
 - A11. check: read `release.ts`.
+- A12. `host/test/package-release.test.ts` › "a version is released as tag v<version>, by a gh command that marks it the latest release"; check: `release.ts` in a scratch copy on stand-in files.
+- A13. check: the TLAPS command below has `--prerelease --latest=false`.
 
 ## Steps
 
 - [x] S1 (A2, A3). Stage for a chip. d5bfb5c, 2406237. `package-stage.test.ts` 11 of 11, `package-binaries.test.ts` 3 of 3. Seen in the ad hoc runs on 2026-11-26: the Apple silicon stage kept `node/bin/node` and pi-tui's `darwin-arm64` helper and left out the other five builds of it; the Intel stage kept the `darwin-x64` one. Node 26.3.1 matched SHASUMS256.txt for both chips.
 - [x] S2 (A4, A9). Sign the staged Mach-O files. 70dc714. Seen on a copy of Node 26.3.1 signed ad hoc with the hardened runtime. On Apple silicon, `allow-jit` alone runs JIT code and WebAssembly. Without `disable-library-validation`, pi-tui's helper is refused ("mapping process and mapped file (non-platform) have different Team IDs"). On Intel under Rosetta, `allow-jit` alone stops V8 at start ("Check failed: 12 == (*__error())"), and `allow-unsigned-executable-memory` lets it run. Not checked on an Intel Mac.
 - [x] S3 (A1, A4, A5, A7, A8). One build command per chip, proved ad hoc. 70dc714. `package-sign.test.ts` 8 of 8. On 2026-11-26 both chips were built ad hoc from a commit holding these scripts. In each app, all three Mach-O files show `flags=0x10002(adhoc,runtime)`. `codesign --verify --deep --strict` says valid on disk, and `check.ts` passes on the signed stage, with the helper loaded. The archive's app has the app's CDHash, and its `.sig` verifies against the config's key. Opened on a throwaway home, each app ran its host on the Node inside it (Intel under Rosetta), and the host stopped when the app quit. Each run then stopped with the missing-credentials error. With nothing set, the build stops before it starts and names the variables. The signature verifier also accepts the published 0.1.19 archives and refuses a changed byte. Not checked: a Developer ID signature's `Authority=` and `Timestamp=` lines, since there is no certificate yet.
-- [ ] S4 (A6). Notarize and staple, once the user has a Developer ID and notary credentials. As expected for an ad hoc build, `spctl` rejects the app and the DMG ("no usable signature"), and `stapler validate` finds no ticket on either. Nothing was sent to Apple.
-- [x] S5 (A10, A11). One download setting, and releases only from notarized builds. 318e7bd, 70dc714. `package-release.test.ts` 4 of 4.
+- [ ] S4 (A6). Notarize and staple, once the user has a Developer ID and notary credentials. The DMG work is paused by the user's call of 2026-11-26. As expected for an ad hoc build, `spctl` rejects the app and the DMG ("no usable signature"), and `stapler validate` finds no ticket on either. Nothing was sent to Apple.
+- [x] S5 (A10, A11). One download setting, and releases only from notarized builds. 318e7bd, 70dc714.
+- [x] S6 (A10, A12). Releases on GitHub. 48fb547. `package-release.test.ts` 5 of 5. Seen in a scratch copy: `release.ts` on stand-in files for both chips wrote a feed whose links name release v0.2.2, and printed the `gh release create v0.2.2 ... --latest` command. Nothing was published. Not checked: an app reading the feed, which waits for a public repository and a first release.
+- [ ] S7 (A13). The TLAPS pre-release, once the user runs the command below. Then `tools.mjs` links to it, after the repository is public.
 
 ## How to release
 
@@ -84,7 +95,26 @@ node scripts/package/build.ts --chip x86_64 --commit <sha>
 node scripts/package/release.ts "What changed."
 ```
 
+`release.ts` ends with the command that publishes the release, to run from the repository folder, such as:
+
+```
+gh release create v<version> --repo dantetekanem/hobkin-client --target <commit> --title 'hobkin <version>' --notes-file dist/release/notes.md --latest dist/release/hobkin-alpha-<version>.dmg dist/release/hobkin-<version>-aarch64.app.tar.gz dist/release/hobkin-alpha-<version>-intel.dmg dist/release/hobkin-<version>-x86_64.app.tar.gz dist/release/latest.json
+```
+
 The Apple ID route takes `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password) and `APPLE_TEAM_ID` in place of the three `APPLE_API_*` variables.
+
+## TLAPS on GitHub
+
+The file is `tlapm-1.6.0-pre-arm64-darwin.tar.gz`, 40986905 bytes, sha256 `c82b5edf853359bf20fb0d7c177ac89b040939f9f829d4eaaf923f79c81a3826`, the build upstream published on 2026-11-26. Upstream rebuilds that pre-release in place, so publish only a download that matches:
+
+```
+curl -fLO https://github.com/tlaplus/tlapm/releases/download/1.6.0-pre/tlapm-1.6.0-pre-arm64-darwin.tar.gz
+shasum -a 256 tlapm-1.6.0-pre-arm64-darwin.tar.gz   # c82b5edf853359bf20fb0d7c177ac89b040939f9f829d4eaaf923f79c81a3826
+stat -f %z tlapm-1.6.0-pre-arm64-darwin.tar.gz        # 40986905
+gh release create tlaps-1.6.0-pre-2026-11-26 --repo dantetekanem/hobkin-client --prerelease --latest=false --title 'TLAPS 1.6.0-pre, build of 2026-11-26' --notes 'tlapm 1.6.0-pre for Apple silicon, as https://github.com/tlaplus/tlapm/releases/tag/1.6.0-pre published it on 2026-11-26. hobkin checks its sha256 before it installs it.' tlapm-1.6.0-pre-arm64-darwin.tar.gz
+```
+
+Its link is then `https://github.com/dantetekanem/hobkin-client/releases/download/tlaps-1.6.0-pre-2026-11-26/tlapm-1.6.0-pre-arm64-darwin.tar.gz`.
 
 ## Open questions
 
