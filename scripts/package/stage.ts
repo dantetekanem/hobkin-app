@@ -169,7 +169,9 @@ function installTree(target: string, files: Readonly<Record<string, string>>, lo
   try {
     for (const [name, text] of Object.entries(files)) writeFileSync(join(temporary, name), text)
     try {
-      run('pnpm', ['install', '--prod', lockfile, '--offline', '--ignore-scripts', '--config.node-linker=hoisted'], { cwd: temporary })
+      // The lockfile is the committed one whose packages are already in the store. pnpm's supply-chain check would
+      // read registry metadata the offline cache does not keep, so the stage trusts the lockfile instead.
+      run('pnpm', ['install', '--prod', lockfile, '--offline', '--trust-lockfile', '--ignore-scripts', '--config.node-linker=hoisted'], { cwd: temporary })
     } catch (error) {
       throw Error(`pnpm could not install ${what} from the store offline. Nothing was fetched from the network.\n${(error as Error).message}`)
     }
