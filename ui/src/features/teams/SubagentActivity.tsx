@@ -90,27 +90,33 @@ function describe(agent: ActivityAgent, line: ActivityLine): string {
 }
 
 /*
- * Each chip of a row has one width on every row, as a pull request's card has on the GitHub page, so the same part
- * lines up down the list and nothing moves as the clock ticks. Each width fits the part's longest value: "claude-sonnet-
- * 5-5 · xhigh", "write-critical", "59m59s", "999k · 100%". The names share a column as wide as the longest, up to 10rem.
- * The model and the tier give way first when the page is narrow.
+ * The rows share one grid. Faces, names and what each is doing take the left, the text the room that is left over. Each
+ * kind of chip has a column of its own on the right, as wide as its widest chip down the list, and each chip is as
+ * wide as its words and keeps to its column's right edge, so the chips line up at the right with no empty room in them
+ * (the user, 2026-11-27: "the badges should align (they in the right, text in the left), and they should not have
+ * useless gap, like in seconds"). A column no row has anything for takes no room. On a narrow page the model and the
+ * tier give way first.
  */
-const MODEL_WIDTH = 'w-44'
-const TIER_WIDTH = 'w-[7.75rem]'
-const TIME_WIDTH = 'w-[4.75rem]'
-const CONTEXT_WIDTH = 'w-[6.5rem]'
+const LIST = 'grid grid-cols-[auto_minmax(0,max-content)_minmax(0,1fr)_auto_auto_auto_auto] gap-y-px'
+const MODEL_CELL = 'col-start-4 hidden @3xl:flex'
+const TIER_CELL = 'col-start-5 hidden @2xl:flex'
+const TIME_CELL = 'col-start-6 flex'
+const CONTEXT_CELL = 'col-start-7 flex'
 
 /** A chip of a row, drawn as the GitHub page draws a stack's layer: an icon and its words in a rounded pill. */
 const CHIP =
-  'inline-flex h-[22px] shrink-0 items-center gap-1 overflow-hidden rounded-full bg-surface-2 px-2 font-heading text-[11.5px] font-medium whitespace-nowrap tabular-nums [&_svg]:size-3 [&_svg]:shrink-0'
+  'inline-flex h-[22px] shrink-0 items-center gap-1 rounded-full bg-surface-2 px-2 font-heading text-[11.5px] font-medium whitespace-nowrap tabular-nums [&_svg]:size-3 [&_svg]:shrink-0'
 
-/** One part as a chip, or its empty place when hobkin does not know it, so the parts after it stay in line. */
-function Chip({ icon: Icon, width, shown, className, children }: { icon: LucideIcon; width: string; shown: boolean; className?: string; children: ReactNode }) {
-  if (!shown) return <span aria-hidden="true" className={cn('shrink-0', width, className)} />
+/** One part as a chip at its column's right, or nothing when hobkin does not know it. */
+function Chip({ icon: Icon, cell, shown, className, children }: { icon: LucideIcon; cell: string; shown: boolean; className?: string; children: ReactNode }) {
   return (
-    <span className={cn(CHIP, width, className)}>
-      <Icon aria-hidden="true" className="text-muted-foreground" />
-      <span className="min-w-0 truncate">{children}</span>
+    <span className={cn(cell, 'justify-end', shown && 'pl-1.5')}>
+      {shown ? (
+        <span className={cn(CHIP, className)}>
+          <Icon aria-hidden="true" className="text-muted-foreground" />
+          {children}
+        </span>
+      ) : null}
     </span>
   )
 }
@@ -128,26 +134,26 @@ function contextTone(share: number | undefined): string {
   return share < 90 ? 'text-warn-fg' : 'text-bad-fg'
 }
 
-/** The chips at the row's right, each at its one width. */
+/** The chips at the row's right, each in its own column. */
 function Chips({ line }: { line: ActivityLine }) {
   const share = line.context?.share
   return (
-    <span className="flex shrink-0 items-center gap-1.5">
-      <Chip icon={Cpu} width={MODEL_WIDTH} shown={line.model !== ''} className="hidden @3xl:inline-flex">
+    <>
+      <Chip icon={Cpu} cell={MODEL_CELL} shown={line.model !== ''}>
         {line.model}
-        {line.level ? <span className="text-muted-foreground"> · {line.level}</span> : null}
+        {line.level ? <span className="text-muted-foreground">· {line.level}</span> : null}
       </Chip>
-      <Chip icon={tierIcon(line.tier)} width={TIER_WIDTH} shown={line.tier !== ''} className="hidden @2xl:inline-flex">
+      <Chip icon={tierIcon(line.tier)} cell={TIER_CELL} shown={line.tier !== ''}>
         {line.tier}
       </Chip>
-      <Chip icon={Timer} width={TIME_WIDTH} shown={line.elapsed !== ''}>
+      <Chip icon={Timer} cell={TIME_CELL} shown={line.elapsed !== ''}>
         {line.elapsed}
       </Chip>
-      <Chip icon={Gauge} width={CONTEXT_WIDTH} shown={line.context !== null} className={contextTone(share)}>
+      <Chip icon={Gauge} cell={CONTEXT_CELL} shown={line.context !== null} className={contextTone(share)}>
         {line.context?.tokens}
-        {share !== undefined ? <span className={contextTone(share) || 'text-muted-foreground'}> · {share}%</span> : null}
+        {share !== undefined ? <span className={contextTone(share) || 'text-muted-foreground'}>· {share}%</span> : null}
       </Chip>
-    </span>
+    </>
   )
 }
 
@@ -187,11 +193,13 @@ function AgentRow({ agent, line, hue, current = false, rowRef, onSelect }: RowPr
         current && 'bg-tone-2 hover:bg-tone-2',
       )}
     >
-      <AgentFace agent={agent} hue={hue} />
-      <span className="max-w-40 truncate font-medium" style={tint(agentHue(hue, agent))}>
+      <span className="col-start-1">
+        <AgentFace agent={agent} hue={hue} />
+      </span>
+      <span className="col-start-2 max-w-[11.25rem] truncate pl-2.5 font-medium" style={tint(agentHue(hue, agent))}>
         {line.name}
       </span>
-      <span className={cn('min-w-0 truncate', doingTone(line))}>{line.doing}</span>
+      <span className={cn('col-start-3 min-w-0 truncate pr-1.5 pl-2.5', doingTone(line))}>{line.doing}</span>
       <Chips line={line} />
     </button>
   )
@@ -211,8 +219,7 @@ function AgentRows({ agents, hue, label, chosen, chosenRow, onSelect }: RowsProp
   const models = useModelChoices()
   const now = useNow(agents.some(stillOut), 1000)
   return (
-    // One grid for every row: faces, names, what each is doing, then the chips, each in its own column.
-    <ul aria-label={label} className="grid grid-cols-[auto_minmax(0,max-content)_minmax(0,1fr)_auto] gap-x-2.5 gap-y-px">
+    <ul aria-label={label} className={LIST}>
       {agents.map((agent) => {
         const current = agent.id === chosen
         return (
