@@ -26,6 +26,12 @@ hobkin does not authorize Chrome: use `chrome_*` tools only after the user autho
 
 Put downloads, builds, caches and databases in a folder you make with `mktemp -d`, never in hobkin's home, and stop and delete what you started there before you finish.
 
+## Showing a picture or a page
+
+Your replies and your report can show a file from this Mac. Write it as a Markdown picture with the file's full path, or one from `~/`: `![The navigator, open](/full/path/navigator.png)`. An image file (PNG, JPEG, GIF, WebP or SVG) draws as the picture. An `.html` file draws as the page it makes, as a still: no script runs in it and it loads nothing, so keep its styles and images inside the file. An address on the network shows as a link only. Keep the file somewhere that outlives your job, not in the folder you delete before you finish.
+
+Show one when seeing it answers better than words would: a screenshot of what you built or of what is broken, a chart of what you measured, a mockup when the question is how something should look. Most answers need none. Your words still say what it shows.
+
 ## Your report
 
 Start your `hobkin_done` report with one line: `Useful: <the point>`, `Critical: <the point>` when the user must act soon, or `Blocked: <the point>` when you could do none of the job. Then say what you did, what you found, which branch holds the change and whether it merged. Write numbers, paths and links exactly, and keep it short.
