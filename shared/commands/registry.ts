@@ -29,7 +29,13 @@ import {
   SETUP_ANSWERS_MAX,
   SETUP_ASK_MAX,
   SETUP_CARDS_MAX,
+  SETUP_PROGRAMS,
+  SIGN_IN_CODE_MAX,
+  SIGN_IN_PROGRAMS,
   type PiSetup,
+  type ProgramInstalled,
+  type ProgramSignIn,
+  type ProgramSignInEnd,
   type ProjectsFound,
   type SetupNeeds,
   type SetupSaved,
@@ -615,6 +621,33 @@ export const COMMANDS = {
       "Set up the TLA+ tools proof checks run on, as `hobkin proof setup` does: on a Mac without Java 11 or newer, the pinned Java runtime into tools/java in hobkin's home, then the pinned TLC into tools/tla and, on an Apple-silicon Mac, the pinned TLAPS proof system into tools/tlaps, each kept only when its pinned checksum matches. What is there already is kept. Answers with whether the tools are ready and hobkin's one line. A failed setup is an answer, not an error.",
     runs: 'host',
     args: nothing,
+    outside: true,
+  },
+  // The setup's review installs and signs in for the user, so no one needs Terminal (025-onboarding).
+  'setup.install-program': {
+    description:
+      "Install one program hobkin's features use, by its name, on the user's press: `git` opens Apple's own installer for its command line tools (not Xcode), which finishes in its own window; `gh` downloads GitHub's official macOS build for this Mac's chip, checks it against its release's checksums and unpacks it into client/gh in hobkin's home; `claude` runs Anthropic's own Claude Code installer; `qmd` installs qmd with npm. Answers with whether it finished.",
+    runs: 'host',
+    args: Type.Object({ name: oneOf(SETUP_PROGRAMS) }, { additionalProperties: false }),
+    outside: true,
+  },
+  'setup.sign-in-program': {
+    description:
+      "Start a program's own web sign-in on the user's press: `gh auth login --web`, or `claude auth login`. Answers once the program says what to do: the page to open in the browser, gh's one-time code to enter there, and whether the page may give a code to paste back. The program keeps what it gets, as it does in Terminal.",
+    runs: 'host',
+    args: Type.Object({ name: oneOf(SIGN_IN_PROGRAMS) }, { additionalProperties: false }),
+    outside: true,
+  },
+  'setup.sign-in-program-code': {
+    description: "Pass the code the user pasted from the sign-in page to the program's sign-in under way, which reads it as it would from Terminal.",
+    runs: 'host',
+    args: Type.Object({ name: oneOf(SIGN_IN_PROGRAMS), code: words(SIGN_IN_CODE_MAX) }, { additionalProperties: false }),
+    outside: true,
+  },
+  'setup.sign-in-program-wait': {
+    description: "Wait until a program's sign-in under way ends, and answer whether it signed in, with its last words when not. With none under way it answers at once.",
+    runs: 'host',
+    args: Type.Object({ name: oneOf(SIGN_IN_PROGRAMS) }, { additionalProperties: false }),
     outside: true,
   },
   'integrations.refresh': {
@@ -1670,6 +1703,10 @@ export interface CommandResults {
   'setup.install-node': PiSetup
   /** Whether the TLA+ tools are ready, and what hobkin said, in a line. */
   'setup.install-proof-tools': { ok: boolean; message: string }
+  'setup.install-program': ProgramInstalled
+  'setup.sign-in-program': ProgramSignIn
+  'setup.sign-in-program-code': { ok: true }
+  'setup.sign-in-program-wait': ProgramSignInEnd
   'setup.launcher': PiSetup
   'setup.projects': ProjectsFound
   /** What the app saved. */
