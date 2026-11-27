@@ -61,22 +61,20 @@ test('what is kept survives the module being loaded again, as a hot update does'
   assert.deepEqual(again.keptList('hot')?.place, { pinned: false, key: 'x', offset: 4 })
 })
 
-test('the windowed transcript is off unless the switch is set', () => {
+test('the windowed transcript is on unless the switch is set to off', () => {
   const storage = (value: string | null) => ({ getItem: () => value })
-  assert.equal(windowedSteps(storage(null)), false)
-  assert.equal(windowedSteps(storage('0')), false)
   assert.equal(windowedSteps(storage('off')), false)
-  assert.equal(windowedSteps(storage('1')), false)
-  assert.equal(windowedSteps(storage('true')), false)
+  assert.equal(windowedSteps(storage(null)), true)
   assert.equal(windowedSteps(storage('on')), true)
-  assert.equal(windowedSteps(undefined), false)
+  assert.equal(windowedSteps(storage('0')), true)
+  assert.equal(windowedSteps(undefined), true)
   assert.equal(
     windowedSteps({
       getItem: () => {
         throw new Error('blocked')
       },
     }),
-    false,
+    true,
   )
 })
 

@@ -99,11 +99,11 @@ export function textHeight(text: string, width: number): number {
 /** The switch that draws agent transcripts windowed: only the rows on screen and a few around them. */
 export const WINDOWED_STEPS = 'hobkin:windowed-steps'
 
-/** Whether the switch is on in `storage` (the window's localStorage): 'on', as `hobkin:kept-pages` is. Off when it cannot be read. */
+/** Whether the switch is on in `storage` (the window's localStorage): on unless it says 'off', and on when it cannot be read. */
 export function windowedSteps(storage: Pick<Storage, 'getItem'> | undefined = globalThis.localStorage): boolean {
   try {
-    return storage?.getItem(WINDOWED_STEPS) === 'on'
+    return storage?.getItem(WINDOWED_STEPS) !== 'off'
   } catch {
-    return false
+    return true
   }
 }

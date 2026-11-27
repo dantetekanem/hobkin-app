@@ -20,8 +20,8 @@
  *
  *   NODE_ENV=production node scripts/perf/agent-switch.ts [--hobkins 2] [--turns 300] [--runs 2] [--calls 2400] [--rounds 5] [--open] [--feeds read|held] [--windowed] [--profile] [--trace]
  *
- * `--windowed` turns on the switch `hobkin:windowed-steps` in the page's storage, so the transcript draws only the rows
- * in view and a view's height around them (`windowed-list.tsx`). A windowed list draws nothing in a view of no height,
+ * `--windowed` keeps the switch `hobkin:windowed-steps` on (the window's default), so the transcript draws only the rows
+ * in view and a view's height around them (`windowed-list.tsx`); without it the switch is set off and every row is drawn. A windowed list draws nothing in a view of no height,
  * so with it every element of the page reads as laid out at made-up sizes: each row 80 px tall, the transcript's box
  * 600 px tall and 800 px wide. Nothing else is laid out, and no scroll moves.
  *
@@ -62,8 +62,8 @@ const { installPage } = await import('./window/dom.ts')
 const page = installPage()
 /** The made-up sizes a windowed transcript reads: each row's height, and its box. */
 const LAID_OUT = { row: 80, height: 600, width: 800 }
+localStorage.setItem('hobkin:windowed-steps', WINDOWED ? 'on' : 'off')
 if (WINDOWED) {
-  localStorage.setItem('hobkin:windowed-steps', 'on')
   const made = { html: page.document.createElement.bind(page.document), ns: page.document.createElementNS.bind(page.document) }
   const sized = <Element extends object>(element: Element) => Object.assign(element, { offsetHeight: LAID_OUT.row, clientHeight: LAID_OUT.height, clientWidth: LAID_OUT.width })
   page.document.createElement = (tag: string) => sized(made.html(tag))
