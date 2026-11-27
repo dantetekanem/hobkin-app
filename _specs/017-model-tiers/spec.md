@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "draft",
   "depends": ["002-host", "004-signin"],
-  "updated": "2026-11-21"
+  "updated": "2026-11-26"
 }
 ---
 # Model tiers for delegated work
@@ -48,6 +48,21 @@ The idea comes from pi-extended-teams, which maps eight tiers to models (`~/Poet
 - A change review (`032-change-review`) uses two tiers, each a choice of one of the four: the Reviewer builds it, on `high` until the user names another, and Quick checks it, on `fast`. They are kept in `config.json` under `review`, and the Models window sets them.
 - Every run records the tier it used and the model and effort that tier resolved to, so a later change of the tier does not rewrite history.
 
+### The first models
+
+On the user's word of 2026-11-26: "after subscription is detected, we need to have it setting the default models on what is available."
+
+- Before this, a new home named no model. `initialize` writes the chat and the checks with no model at medium and no tiers, so the chat, the checks and every tier ran on whatever Pi starts with: Pi's saved default when its provider is connected, and otherwise Pi's default for the first connected provider in Pi's own table (`findInitialModel` in pi-coding-agent's model resolver), all at medium. With one subscription that is its default for everything: OpenAI Codex's GPT-6.1 Sol, Anthropic's Claude Opus 4.8, GitHub Copilot's GPT-6.1 Sol. Fast never got a cheaper model and max never thought harder. With several accounts, Pi's table decides. It puts Amazon Bedrock first and DeepSeek before GitHub Copilot, so a key in the environment could win over a subscription.
+- Now the first-run setup sets hobkin's model and the four tiers once, when its account step finds an account Pi reaches or a sign-in connects one (`tiers.first`, `025-onboarding`). The pick is one pure rule, `pickFirstModels` in `shared/tiers/first-models.ts`, over the models Pi lists as usable now, with Pi's default per provider, each model's thinking levels and its price, which the models slice now carries. Pi gives no speed. Its thinking levels already say whether a model reasons: one that cannot lists only `off`.
+- One provider gives every pick. Within it, everything starts on Pi's default for that provider, or, with no default Pi can use, on the first model Pi lists that thinks. hobkin and mid think at medium, Pi's own starting level, high at high, and max at the most that model allows. Fast takes the cheapest model of the same kind (the id's first word, such as `gpt` or `claude`) that reaches the default's strongest thinking level and costs less by Pi's prices, at low. With no such model, or no prices, fast is the default at low. A level a model lacks moves to the nearest one it has.
+- With several accounts connected, the provider is chosen in this order, a decision the user can change (`PROVIDER_ORDER`):
+  1. One someone already pays for as a whole before one paid by the token: a subscription's sign-in, or a work computer's launcher, before a key.
+  2. Then OpenAI Codex (`openai-codex`, the setup's own sign-in), OpenAI (`openai`), Anthropic (`anthropic`) and GitHub Copilot (`github-copilot`), in that order.
+  3. Then every other provider, in Pi's order.
+- What a new home gets with one subscription, from Pi 1.5.0's catalog. OpenAI Codex: hobkin on GPT-6.1 Sol at medium, fast on GPT-6 Luna at low, mid, high and max on GPT-6.1 Sol at medium, high and max. Claude Pro or Max: Claude Opus 4.8 (Pi's default for Anthropic) at medium, fast on Claude Haiku 5.5 at low, the rest on Claude Opus 4.8 at medium, high and max. GitHub Copilot: as OpenAI Codex, on Copilot's own GPT-6.1 Sol and GPT-6 Luna. Pi lists a provider's whole catalog once it is connected, so a model a plan leaves out can still be picked. Pi's default is the one the account most surely has, which is why everything but fast stays on it.
+- Only a home where nothing was ever chosen gets them: hobkin's config names no model for the chat, the checks or any tier, as `initialize` writes it. Nothing clears the chat's model once it is set (hobkin's settings, the Models window and the terminal each save a model), so setting it also marks the home as chosen, and the rule never runs there again. No other marker is kept. The chat's model is saved first, then the tiers in one write. Should the tiers fail, they follow the chat's model, and the home still reads as chosen.
+- The checks model is left as it is, so routines without a tier still run on what Pi starts with. pi-extended-teams' tiers follow the four once they name models, as `teams-tiers.mjs` keeps them equal to hobkin's.
+
 ### The lightbox
 
 - It also opens by command, so hobkin can open it too.
@@ -79,6 +94,10 @@ The idea comes from pi-extended-teams, which maps eight tiers to models (`~/Poet
 - A10. hobkin can read the tiers and open the lightbox through commands, and cannot change a tier without the user confirming in the lightbox.
 - A11. Wherever a thinking level is chosen (a tier's card, the first-run setup, a durable hobkin on a model of its own), the choices are exactly the levels Pi lists for that model, in Pi's order, `max` among them when the model has it. A level the model does not have is never offered. hobkin's host takes `max` for its own model, for a tier and for a durable hobkin, and a tier at `max` on Claude Code runs at Claude Code's `max`.
 - A12. With the model list open, the lightbox's title and the search stay at the top and its footer at the bottom, at every window size the app allows (1100 by 640 and up). The list takes the room between them and is the only thing that scrolls. When it opens, the chosen model is in view and nothing else moves. The tier cards scroll in the same room and never cover the footer.
+- A13. With one account connected, the first models are Pi's default for it, with hobkin and mid at medium, high at high and max at the most the model allows, and fast on the cheapest model of the same kind that reaches the default's strongest level and costs less, at low. With no such model, or no prices, fast is the default at low. A level a model lacks moves to the nearest one it has. With no default Pi can use, they start on the first model Pi lists that thinks.
+- A14. With several accounts connected, the first models come from one provider: a subscription's sign-in or a launcher before a key, then OpenAI Codex, OpenAI, Anthropic and GitHub Copilot, then Pi's order. A provider that is not connected, or that Pi lists no model for, is passed over.
+- A15. The first models are set only on a home whose config names no model for the chat, the checks or any tier. Once they are set the home reads as chosen, so a second call sets nothing, and a model chosen before is never overwritten. With no account Pi can use, nothing is set. The scripted host sets nothing.
+- A16. Set on a live host, the first models are in hobkin's `config.json` and the open conversation answers on hobkin's new model at once. The host answers with what it set, each model with its name, so the setup can say it.
 
 ## Proof
 
@@ -94,6 +113,10 @@ The idea comes from pi-extended-teams, which maps eight tiers to models (`~/Poet
 - A10. `host/test/tiers.test.ts` › "a tier change from hobkin needs the user's confirmation"
 - A11. `shared/test/tiers.test.ts` › "the thinking levels are Pi's seven, weakest first, and the ones the host accepts for hobkin", "a model that thinks at max keeps max, and one that stops at xhigh moves down to it" and "the host takes max for a tier, for hobkin's own model and for a durable hobkin on a model of its own"; `shared/test/tiers-from-pi.test.ts` › "every level Pi lists for a model is kept in Pi's order, max included"; `host/test/claude-code-harness.test.ts` › "starts claude headless with the run's settings" (a tier at max runs at Claude Code's own max). Seen 2026-11-13 in a still render: a card on a model with `max` offers off to max, one on a model that stops at xhigh offers no max.
 - A12. `ui/test/tiers-list-scroll.test.ts` (the list scrolls itself, and only itself, to show the chosen model). Seen 2026-11-13 in still renders at 1100 by 640 and 1440 by 900 with 43 models: title and search at the top, footer at the bottom, list and cards clipped between them. A still does not scroll, so the opening scroll is proved by the rule and the code, not seen.
+- A13. `shared/test/tiers-first.test.ts` › "one subscription: hobkin and its tiers start on Pi's default for it, fast on the cheapest model of its kind, each thinking a little more" (OpenAI Codex, Anthropic and GitHub Copilot, on Pi 1.5.0's models and prices), "a thinking level a model lacks moves to the nearest it has, and max takes the most it allows", "fast stays on the default when nothing cheaper of its kind thinks as hard, or when Pi knows no prices", "with no default Pi can use, the first model Pi lists that thinks", "a default whose id holds a slash is found as Pi names it" and "a provider whose models cannot think gets its first model on every tier, thinking off"; `host/test/models-price.test.ts`.
+- A14. `shared/test/tiers-first.test.ts` › "several accounts: a subscription sign-in before a key, then the written order, then Pi's order" and "only a connected provider Pi lists a model for counts".
+- A15. `host/test/first-models.test.ts` › "a new home gets hobkin's model and every tier from the account, the chat's first, and hears what was set", "a model chosen before, for the chat, the checks or any tier, is never overwritten", "with no account Pi can use, nothing is set" and "hobkin's own config tells a new home from one where a model was chosen"; `host/test/first-models-live.test.ts` › "the scripted host sets nothing".
+- A16. `host/test/first-models-live.test.ts` › "on a new home the setup's account step sets hobkin's model and tiers from the account once, and the first chat runs on them": a live host on Pi's own catalog with one DeepSeek key and a fake model server. Not seen with a real subscription, since no run here may sign in or reach a model.
 
 ## Steps
 
@@ -102,6 +125,7 @@ The idea comes from pi-extended-teams, which maps eight tiers to models (`~/Poet
 - [x] S3 (A1, A2, A3, A10). Host: tier state and commands. Done 2026-11-12: hobkin holds the tiers (`tiers` and `review` in its config.json), `hobkin session` takes `--tier` and refuses a job without one, work mode names a tier by level, and the host reads and saves them with `tiers.read` and `tiers.apply`.
 - [ ] S4 (A1, A2, A3, A4). UI: the lightbox. Its list comes from Pi (2026-11-10): `choicesFromPi` in shared/tiers/from-pi.ts maps the host's models slice, and the window offers the models Pi can use once a host answers (44 from the scripted dev host), sample ones before. Apply sets hobkin's own main model through the host's `models.select` (004 A21), which saves it in hobkin's config and switches the open conversation; a refusal shows the host's reason and applies nothing (seen 2026-11-10 with the scripted host). The thinking levels are Pi's own: off, minimal, low, medium, high, xhigh. Left: saving the four tiers through the host (they need hobkin's tiers config, S1), and real defaults from the first-run setup (025).
 - [ ] S5 (A9). Tier labels on agents.
+- [x] S6 (A13, A14, A15, A16). The first models from the account the setup finds, the real defaults S4 left for 025. Built on 2026-11-26: the pure rule, Pi's price in the models slice, `tiers.first` in the host and the setup's call and bubble (`025-onboarding` A75). Checked with tests on fakes and one live host on Pi's catalog with a key for a fake server. Not checked: a real sign-in, a real model, the window.
 
 ## Open questions
 
