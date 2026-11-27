@@ -38,6 +38,7 @@ import { sampleGoalCards } from './sample-cards.ts'
 import { beatOf, checkAnswer, followUpOf, spokenText, type Answers, type Ask, type BeatId, type Facts, type Tale } from './story.ts'
 import { endedAs, tourFollows } from './first-run.ts'
 import { useSetup } from './store.ts'
+import { keepUsage, usageAnswer } from './usage-ask.ts'
 import { useProofTools } from './use-proof-tools.ts'
 import { resolveTaleKey, type TaleKey, type TaleKeyContext } from './tale-keys.ts'
 import { WORLD_TIMES, World, type WorldPhase } from './World.tsx'
@@ -732,8 +733,21 @@ export function Storyteller() {
     }
   }
 
+  /**
+   * The answer about usage counts: the story goes on at once, and the host keeps it, which makes it hobkin's own
+   * setting on the real home. A refusal is said in the quiet line, and nothing is sent.
+   */
+  const usageChosen = (value: string) => {
+    const upload = usageAnswer(value)
+    answer({ usage: upload }, facts)
+    void keepUsage(upload, (name, args) => runCommand(name, args)).then((trouble) => {
+      if (trouble) setTrouble(trouble)
+    })
+  }
+
   const chosen = (ask: ChoiceAsk, value: string) => {
     if (ask.field === 'more') return answer({ more: value === 'yes' }, facts)
+    if (ask.field === 'usage') return usageChosen(value)
     if (ask.field === 'first-run') return void runFirst(value)
     if (ask.field === 'sound') {
       const heard = value === 'sound-on'

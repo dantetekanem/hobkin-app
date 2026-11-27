@@ -140,6 +140,7 @@ test('a new Mac with goals: who the person is, Pi, a sign-in, the cards, the wri
     'first-run',
     'first-run-started',
     'thanks',
+    'usage',
     'needs',
     'settings',
     'tour',
@@ -285,13 +286,14 @@ test('putting the sign-in off skips the questions, which need a model to hand th
   assert.equal(beatAfter('connect', { ...none, account: 'connected' }, bare), 'connected')
 })
 
-test('with a host, the review of what hobkin needs comes just before the settings, however the story got there', () => {
+test('with a host, the question about usage counts and the review of what hobkin needs come just before the settings, however the story got there', () => {
   const host: Facts = { ...bare, host: true }
 
-  assert.equal(beatAfter('no-account', { ...none, account: 'later' }, host), 'needs')
-  assert.equal(beatAfter('more', { ...none, more: false }, host), 'needs')
-  assert.equal(beatAfter('thanks', none, host), 'needs')
-  assert.equal(beatAfter('connected', none, host), 'needs', 'with no goal no routines are offered')
+  assert.equal(beatAfter('no-account', { ...none, account: 'later' }, host), 'usage')
+  assert.equal(beatAfter('more', { ...none, more: false }, host), 'usage')
+  assert.equal(beatAfter('thanks', none, host), 'usage')
+  assert.equal(beatAfter('connected', none, host), 'usage', 'with no goal no routines are offered')
+  assert.equal(beatAfter('usage', none, host), 'needs')
   assert.equal(beatAfter('needs', none, host), 'settings')
   assert.equal(beatOf('needs', none, host).ask?.kind, 'needs')
   // Without a host there is nothing to read, as in a browser tab on sample data.
@@ -376,7 +378,7 @@ test('every beat has words, and only the last bubble of a beat asks', () => {
   const ids: BeatId[] = [
     'hello', 'sound', 'goals', 'goals-said', 'computer', 'computer-work', 'name', 'name-hi', 'email', 'subscription', 'computer-late', 'launcher', 'pi', 'pi-ready',
     'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'q3', 'q4', 'projects-said', 'q5', 'q6', 'cards-job', 'cards-business',
-    'cards-project', 'cards-life', 'cards-code', 'routines-need', 'writing', 'written', 'first-run', 'first-run-started', 'thanks', 'needs', 'settings', 'tour',
+    'cards-project', 'cards-life', 'cards-code', 'routines-need', 'writing', 'written', 'first-run', 'first-run-started', 'thanks', 'usage', 'needs', 'settings', 'tour',
   ]
 
   for (const asked of [null, long]) {
@@ -559,7 +561,7 @@ const picked: Answers = { ...none, goals: ['code'], computer: 'personal', more: 
 const hosted: Facts = { ...smart, smart: false, host: true }
 
 test('the folder, the projects and validation are asked only with code, and only then do projects go to Work', () => {
-  assert.deepEqual(walk(picked, hosted, 'more'), ['more', 'q1', 'q2', 'projects-said', 'q3', 'cards-code', 'thanks', 'needs', 'settings', 'tour'])
+  assert.deepEqual(walk(picked, hosted, 'more'), ['more', 'q1', 'q2', 'projects-said', 'q3', 'cards-code', 'thanks', 'usage', 'needs', 'settings', 'tour'])
   const [folder, projects, validation] = (['q1', 'q2', 'q3'] as const).map((id) => beatOf(id, { ...picked, replies: { 'projects-folder': ' ~/Code ' } }, bare).ask)
   assert.equal(folder?.kind === 'input' && folder.optional, true, 'the folder is typed, and can be skipped')
   assert.deepEqual(projects, { kind: 'pick', question: 'projects', from: { projectsIn: '~/Code' } }, 'the projects are the folders found in the folder that was named')
@@ -567,7 +569,7 @@ test('the folder, the projects and validation are asked only with code, and only
 
   // Without code none of them is asked, and nothing goes to Work.
   const job: Answers = { ...picked, goals: ['job'], replies: { projects: 'storefront' } }
-  assert.deepEqual(walk(job, hosted, 'more'), ['more', 'q1', 'cards-job', 'thanks', 'needs', 'settings', 'tour'])
+  assert.deepEqual(walk(job, hosted, 'more'), ['more', 'q1', 'cards-job', 'thanks', 'usage', 'needs', 'settings', 'tour'])
   assert.deepEqual(setupAnswersOf(job, [folderOf('storefront')], []).projects, [])
   assert.equal(beatAfter('q2', { ...picked, replies: { projects: '  ' } }, hosted), 'q3', 'nothing picked, nothing to say')
   assert.equal(beatAfter('q2', picked, { ...hosted, host: false }), 'q3', 'with no host nothing was done, as in a browser tab on sample data')

@@ -6,6 +6,7 @@ import type { Mood } from '../../avatar/moods.tsx'
 import { cardsInOrder, cardsLines, firstRunLines, firstRunOf, keptCards, routinesSaid, type CardPicks, type GoalCards, type NamedRoutine, type Written } from './cards.ts'
 import { asksComputer, emailWhy, GOAL_BUBBLES, GOALS, goalQuestions, goalsSaid } from './goals.ts'
 import { USUAL_FOLDER, type Question } from './questions.ts'
+import { asksUsage, USAGE_CHOICES, USAGE_LINES, USAGE_MOOD } from './usage-ask.ts'
 
 /**
  * The first-run setup as a story hobkin tells in speech bubbles: what it says, what it asks, and what comes next
@@ -56,6 +57,7 @@ export type BeatId =
   | 'first-run'
   | 'first-run-started'
   | 'thanks'
+  | 'usage'
   | 'needs'
   | 'settings'
   | 'tour'
@@ -131,6 +133,8 @@ export interface Answers {
   cards?: CardPicks
   /** The first run was asked for, or put off. */
   firstRun?: 'run' | 'later'
+  /** The answer to the question about usage counts: only yes sends them (`usage-ask.ts`). */
+  usage?: boolean
 }
 
 export interface Option {
@@ -142,7 +146,7 @@ export interface Option {
 export type InputField = { kind: 'name' } | { kind: 'email' } | { kind: 'launcher' } | { kind: 'reply'; question: string }
 
 /** What a choice between two answers: one of the setup's own facts, or one of the questions, by its id. */
-export type ChoiceField = 'sound' | 'computer' | 'more' | 'first-run' | { reply: string }
+export type ChoiceField = 'sound' | 'computer' | 'more' | 'first-run' | 'usage' | { reply: string }
 
 /** Where the bubbles to pick from come from: a list that is given, or the projects found in a folder. */
 export type PickFrom = { options: readonly string[] } | { projectsIn: string }
@@ -537,6 +541,8 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
       return facts.written?.length
         ? { mood: 'love', lines: ['Thank you! From now on, your routines only speak up when something changes.'] }
         : { mood: 'love', lines: ['Thank you! Ask me for a routine any time.'] }
+    case 'usage':
+      return { mood: USAGE_MOOD, lines: USAGE_LINES, ask: { kind: 'choice', field: 'usage', options: USAGE_CHOICES } }
     case 'needs':
       return { mood: 'searching', lines: ["One last look. Here's everything I need on this Mac, and how to add what's missing."], ask: { kind: 'needs' } }
     case 'settings':
@@ -549,8 +555,11 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
   }
 }
 
-/** With a host, the review of what hobkin needs comes last before the settings. Without one there is nothing to read. */
-const beforeSettings = (facts: Facts): BeatId => (facts.host === true ? 'needs' : 'settings')
+/**
+ * With a host, the question about usage counts, then the review of what hobkin needs, come last before the settings.
+ * Without one there is nowhere to keep the answer and nothing to read.
+ */
+const beforeSettings = (facts: Facts): BeatId => (asksUsage(facts) ? 'usage' : 'settings')
 
 /** An account Pi already reaches is found. With none, the setup offers its one sign-in. */
 const accounts = (facts: Facts): BeatId => (facts.connected.length > 0 ? 'found' : 'connect')
@@ -657,6 +666,8 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
       return 'thanks'
     case 'thanks':
       return beforeSettings(facts)
+    case 'usage':
+      return 'needs'
     case 'needs':
       return 'settings'
     case 'settings':
