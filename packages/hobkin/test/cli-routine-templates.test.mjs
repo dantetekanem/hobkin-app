@@ -44,7 +44,7 @@ test('every shipped template names its goals, its bar, what it gives and what cl
   }
   assert.match(rules, /Nothing new\./);
 
-  assert.deepEqual(TEMPLATE_GOALS, ['job', 'business', 'project', 'life', 'code'], 'the client holds the same list');
+  assert.deepEqual(TEMPLATE_GOALS, ['code', 'project', 'business', 'life', 'job'], 'the client holds the same list');
   assert.deepEqual(Object.keys(GOAL_STARTERS), TEMPLATE_GOALS);
   const byId = byIdOf(templates);
   for (const [goal, starters] of Object.entries(GOAL_STARTERS)) {

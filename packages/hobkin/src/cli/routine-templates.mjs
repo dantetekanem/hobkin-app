@@ -5,16 +5,16 @@ import { atomicJson } from './config.mjs';
 import { routinesFolder } from './schedules.mjs';
 
 /** What a person can be working toward in setup, in the order setup asks about them. The client keeps the same list. */
-export const TEMPLATE_GOALS = ['job', 'business', 'project', 'life', 'code'];
+export const TEMPLATE_GOALS = ['code', 'project', 'business', 'life', 'job'];
 /** What a routine made from a template gives the person. */
 export const TEMPLATE_GIVES = ['report', 'action', 'critical', 'follow-up'];
 /** The three cards setup starts each goal with. The rest of a goal's templates are its More. */
 export const GOAL_STARTERS = {
-  job: ['job-openings', 'job-applications', 'interviews'],
-  business: ['business-leads', 'runway', 'competitors'],
-  project: ['project-milestones', 'project-blockers', 'deadlines-ahead'],
-  life: ['deadlines-ahead', 'email', 'money'],
   code: ['review-queue', 'dependency-watch', 'unblocker'],
+  project: ['project-milestones', 'project-blockers', 'deadlines-ahead'],
+  business: ['business-leads', 'runway', 'competitors'],
+  life: ['deadlines-ahead', 'email', 'money'],
+  job: ['job-openings', 'job-applications', 'interviews'],
 };
 // A template written before goals named a group, and a person's own may still. Each group reads as the goal it served.
 const GROUP_GOALS = { day: 'life', week: 'life', life: 'life', code: 'code', machine: 'code' };

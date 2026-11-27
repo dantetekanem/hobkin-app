@@ -20,11 +20,11 @@ interface GoalWords {
 }
 
 export const GOAL_WORDS: Record<Goal, GoalWords> = {
-  job: { bubble: 'Finding a job', said: 'a new job', cards: 'for your job search' },
-  business: { bubble: 'Starting a business', said: 'a business', cards: 'for your business' },
-  project: { bubble: 'A project of my own', said: 'a project', cards: 'for your project' },
-  life: { bubble: 'Keeping life in order', said: 'keeping life in order', cards: 'to keep life in order' },
   code: { bubble: 'Writing code', said: 'writing code', cards: 'for your code' },
+  project: { bubble: 'A project of my own', said: 'a project', cards: 'for your project' },
+  business: { bubble: 'Starting a business', said: 'a business', cards: 'for your business' },
+  life: { bubble: 'Keeping life in order', said: 'keeping life in order', cards: 'to keep life in order' },
+  job: { bubble: 'Finding a job', said: 'a new job', cards: 'for your job search' },
 }
 
 /** The bubbles of the goals question, in the goals' order. */

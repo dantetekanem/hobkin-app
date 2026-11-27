@@ -49,10 +49,10 @@ const card = (id: string, over: Partial<Card> = {}): Card => ({
 const keep = (picks: CardPicks, id: string) => keepCard(picks, id).picks
 
 test('the goals are picked by their bubbles in a fixed order, and their own words count as a project and start its answer', () => {
-  assert.deepEqual(GOALS, ['job', 'business', 'project', 'life', 'code'])
+  assert.deepEqual(GOALS, ['code', 'project', 'business', 'life', 'job'])
   const words = (goal: (typeof GOALS)[number]) => GOAL_WORDS[goal].bubble
 
-  assert.deepEqual(goalsOf([words('code'), words('job')]), { goals: ['job', 'code'], own: [] }, 'picked in any order, kept in the goals\' order')
+  assert.deepEqual(goalsOf([words('job'), words('code')]), { goals: ['code', 'job'], own: [] }, 'picked in any order, kept in the goals\' order')
   assert.deepEqual(goalsOf(['a garden app', words('life')]), { goals: ['project', 'life'], own: ['a garden app'] })
   assert.deepEqual(goalsOf([words('project'), 'a garden app']), { goals: ['project'], own: ['a garden app'] }, 'the project counts once')
   assert.deepEqual(goalsOf([]), { goals: [], own: [] })
@@ -72,7 +72,7 @@ test('whose computer it is matters only for a job, a business or life, whose rou
 test('each picked goal asks its own question in the goals\' order, life asks none, and code asks the folder, the projects and validation', () => {
   const ids = (goals: Parameters<typeof goalQuestions>[0]) => goalQuestions(goals).map(({ id }) => id)
 
-  assert.deepEqual(ids(['code', 'project', 'job', 'business']), ['job', 'business', 'project', 'projects-folder', 'projects', 'validation'])
+  assert.deepEqual(ids(['job', 'business', 'project', 'code']), ['projects-folder', 'projects', 'validation', 'project', 'business', 'job'])
   assert.deepEqual(ids(['life']), [])
   assert.deepEqual(ids([]), [])
   // The code questions are 025's own, answered the way they always were.

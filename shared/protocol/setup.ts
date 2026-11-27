@@ -190,7 +190,7 @@ export interface SetupAnswer {
  * What the person is working toward, asked in the setup (044-goal-first-setup), in the order its questions are asked
  * and its cards shown. hobkin's runtime has the same list (`TEMPLATE_GOALS`), and a host test holds the two equal.
  */
-export const GOALS = ['job', 'business', 'project', 'life', 'code'] as const
+export const GOALS = ['code', 'project', 'business', 'life', 'job'] as const
 export type Goal = (typeof GOALS)[number]
 
 /** What a routine made from a template gives the person. */

@@ -132,8 +132,8 @@ test('a new Mac with goals: who the person is, Pi, a sign-in, the cards, the wri
     'more',
     'q1',
     'q2',
-    'cards-job',
     'cards-project',
+    'cards-job',
     'routines-need',
     'writing',
     'written',
@@ -716,7 +716,7 @@ test('the goals question comes right after the sound question, takes any goals, 
   const goals = beatOf('goals', none, bare)
 
   assert.equal(beatAfter('sound', none, bare), 'goals')
-  assert.deepEqual(goals.ask?.kind === 'pick' && goals.ask.from, { options: ['Finding a job', 'Starting a business', 'A project of my own', 'Keeping life in order', 'Writing code'] })
+  assert.deepEqual(goals.ask?.kind === 'pick' && goals.ask.from, { options: ['Writing code', 'A project of my own', 'Starting a business', 'Keeping life in order', 'Finding a job'] })
   assert.match(goals.ask?.kind === 'pick' ? goals.ask.note ?? '' : '', /model provider/, 'the note about the answers is under this question')
   assert.equal(beatAfter('goals', none, bare), 'goals-said')
   for (const said of [[], ['code'], ['project', 'code']] as const) {
@@ -736,11 +736,11 @@ test('each picked goal asks its own question in the goals\' order, and none or n
   const all: Answers = { ...none, goals: ['code', 'project', 'job', 'business', 'life'], more: true }
   const asked = (['q1', 'q2', 'q3', 'q4', 'q5', 'q6'] as const).map((id) => beatOf(id, all, bare).lines.at(-1))
 
-  assert.match(asked[0]!, /kind of job/)
-  assert.match(asked[1]!, /business in a line/)
-  assert.match(asked[2]!, /the project/)
-  assert.match(asked[3]!, /projects live/)
-  assert.equal(beatOf('q1', all, bare).ask?.kind === 'input' && beatOf('q1', all, bare).ask?.kind, 'input', 'typed, and it can be skipped')
+  assert.match(asked[0]!, /projects live/)
+  assert.match(asked[3]!, /the project/)
+  assert.match(asked[4]!, /business in a line/)
+  assert.match(asked[5]!, /kind of job/)
+  assert.equal(beatOf('q6', all, bare).ask?.kind === 'input' && beatOf('q6', all, bare).ask?.kind, 'input', 'typed, and it can be skipped')
   assert.deepEqual(walk({ ...none, goals: ['life'], more: true }, bare, 'more'), ['more', 'cards-life', 'thanks', 'settings', 'tour'], 'life asks none')
 
   // No goal, or no account: no routines, and on to the settings.
@@ -753,15 +753,15 @@ test('after the cards hobkin says it will check what they need, and with none ke
   const kept: Answers = { ...none, goals: ['job', 'life'], cards: keepCard(NO_PICKS, 'email').picks }
   const facts: Facts = { ...smart, host: true, cards: groups }
 
-  assert.equal(beatAfter('cards-job', kept, facts), 'cards-life', 'one goal at a time')
-  assert.equal(beatAfter('cards-life', kept, facts), 'routines-need')
+  assert.equal(beatAfter('cards-life', kept, facts), 'cards-job', 'one goal at a time')
+  assert.equal(beatAfter('cards-job', kept, facts), 'routines-need')
   assert.equal(beatOf('routines-need', kept, facts).lines.length, 1)
   assert.equal(beatAfter('routines-need', kept, facts), 'writing')
-  assert.equal(beatAfter('cards-life', { ...kept, cards: dropCard(NO_PICKS, 'email') }, facts), 'thanks', 'none kept: nothing is written')
+  assert.equal(beatAfter('cards-job', { ...kept, cards: dropCard(NO_PICKS, 'email') }, facts), 'thanks', 'none kept: nothing is written')
   // The first goal's cards say how they work, the next ones only introduce themselves.
-  assert.equal(beatOf('cards-job', kept, facts).lines.length, 2)
-  assert.equal(beatOf('cards-life', kept, facts).lines.length, 1)
-  assert.deepEqual(beatOf('cards-life', kept, facts).ask, { kind: 'cards', goal: 'life' })
+  assert.equal(beatOf('cards-life', kept, facts).lines.length, 2)
+  assert.equal(beatOf('cards-job', kept, facts).lines.length, 1)
+  assert.deepEqual(beatOf('cards-job', kept, facts).ask, { kind: 'cards', goal: 'job' })
 })
 
 test('the writing message goes once, after the cards or else at the hand-off, and never on the scripted host or with no host', () => {
