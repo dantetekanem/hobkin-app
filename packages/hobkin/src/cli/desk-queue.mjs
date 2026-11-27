@@ -61,6 +61,8 @@ const iso = time => new Date(time).toISOString();
 const sourceOf = ({ id }) => String(id ?? '').split(':')[1] ?? '';
 // One line whatever was written, so nothing in it can pass for a line of its own.
 const flat = text => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, LONGEST_LINE);
+// Ready reviews get a sidebar link immediately, without raising their interruption level.
+const readyReview = notice => notice?.review && notice.id?.startsWith('notice:client:review-ready:');
 const withoutDeskFacts = ({ blocksWork, asked, ...notice }) => notice;
 const isItem = notice => ['notice', 'system'].includes(notice.role) && !REPLIES.has(sourceOf(notice)) && !notice.asked;
 
@@ -283,6 +285,10 @@ export class Desk {
   release(queue, context, events) {
     const kept = [];
     for (const entry of queue.held) {
+      if (readyReview(entry.notice)) {
+        queue.posting.push({ ...entry.notice, level: entry.level });
+        continue;
+      }
       if (entry.delivery !== 'breakpoint') {
         kept.push(entry);
         continue;
@@ -337,7 +343,9 @@ export class Desk {
           }
           if (taken.has(line.id)) return;
           const item = itemOf(notice);
-          const { delivery, level } = deliveryFor(item, context);
+          const policy = deliveryFor(item, context);
+          const { level } = policy;
+          const delivery = readyReview(line) ? 'now' : policy.delivery;
           if (delivery === 'now' || (delivery === 'breakpoint' && context.atPause)) {
             post.push({ ...line, level });
             events.push(['desk_posted', { source: item.source, level, delivery, waitedMs: 0 }]);

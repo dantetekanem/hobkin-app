@@ -64,6 +64,7 @@ export function useCamera(): CameraRig {
   const x = useMotionValue(0)
   const y = useMotionValue(0)
   const zoom = useMotionValue(1)
+  const offsetX = useMotionValue(0)
   const panel = useMotionValue(0)
   const side = useMotionValue(0)
   const outline = useMotionValue(0)
@@ -84,7 +85,7 @@ export function useCamera(): CameraRig {
     const { canvas, cover } = room.get()
     const lean = rideOffset(ride?.curve ?? null, ride?.reversed ?? false, progress.get())
     const fade = carry.get()
-    const camera = { x: x.get() + lean.x + carried.x * fade, y: y.get() + lean.y + carried.y * fade, zoom: zoom.get() }
+    const camera = { x: x.get() + lean.x + carried.x * fade, y: y.get() + lean.y + carried.y * fade, zoom: zoom.get(), offsetX: offsetX.get() }
     const uncovered = uncoveredArea(canvas, {
       top: cover.top,
       bottom: cover.bottom + panel.get(),
@@ -137,6 +138,7 @@ export function useCamera(): CameraRig {
           x.jump(target.x)
           y.jump(target.y)
           zoom.jump(target.zoom)
+          offsetX.jump(target.offsetX ?? 0)
           return
         }
         // Keep the camera exactly where it is: what the old ride leaned by becomes an offset that fades away.
@@ -148,6 +150,7 @@ export function useCamera(): CameraRig {
           animate(x, target.x, transition),
           animate(y, target.y, transition),
           animate(zoom, target.zoom, transition),
+          animate(offsetX, target.offsetX ?? 0, transition),
           animate(carry, 0, transition),
           ...(ride ? [animate(progress, 1, transition)] : []),
         ]
@@ -162,11 +165,12 @@ export function useCamera(): CameraRig {
         x.jump(camera.x)
         y.jump(camera.y)
         zoom.jump(camera.zoom)
+        offsetX.jump(0)
       },
       current: () => {
         const lean = leanNow()
-        return { x: x.get() + lean.x, y: y.get() + lean.y, zoom: zoom.get() }
+        return { x: x.get() + lean.x, y: y.get() + lean.y, zoom: zoom.get(), offsetX: offsetX.get() }
       },
     }
-  }, [carry, outline, panel, progress, proof, room, side, viewport, x, y, zoom])
+  }, [carry, offsetX, outline, panel, progress, proof, room, side, viewport, x, y, zoom])
 }

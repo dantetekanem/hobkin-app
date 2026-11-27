@@ -87,6 +87,26 @@ test('each unit is a step in the order the story walks, focused on the graph nod
   assert.ok(!story.some((step) => step.focus.includes(idOf('total is rounded'))), 'no step is a test')
 })
 
+test('Story walks the scanned request and caller before the changed unit, with a wire for each hop', async () => {
+  const graph = await review()
+  const total = graph.nodes.find((node) => node.title === 'total')!
+  const context = (id: string, title: string): ReviewNode => ({ ...total, id, title, kind: 'context', change: 'unchanged' })
+  graph.nodes.push(context('show', 'CartsController#show'), context('route', 'GET /cart'))
+  graph.edges.push(
+    { id: 'in', kind: 'called-by', certainty: 'host', from: 'show', to: 'route' },
+    { id: 'total-call', kind: 'called-by', certainty: 'host', from: total.id, to: 'show' },
+  )
+  const path = 'GET /cart (likely) → CartsController#show → Cart#total'
+  total.lifecycle = { role: 'changed', hops: 2, path, origin: { kind: 'route', label: 'GET /cart', exact: false, chain: ['route', 'show'] } }
+
+  const units = [unit('one', 1, { nodes: ['n1'] }), unit('two', 2, { nodes: ['n1'] })]
+  const story = unitStory(graph, { units, places, words: null, story: STORY, buckets: [] })
+  const walk = story.filter((step) => step.kind === 'walk')
+  assert.deepEqual(walk.map((step) => step.focus), [['route'], ['show'], [total.id], [total.id]])
+  assert.deepEqual(walk.map((step) => step.travel), [undefined, 'in', 'total-call', undefined])
+  assert.equal(walk[0]!.text, path)
+})
+
 test('the story’s words name the change and its units, and a long title is kept within what a step may hold', async () => {
   const graph = await review()
   const long = `${'A very long claim about the total '.repeat(4)}that goes on`

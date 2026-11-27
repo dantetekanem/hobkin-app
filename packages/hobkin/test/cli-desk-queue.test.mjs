@@ -13,6 +13,7 @@ import { recordSessionStart, endSessionJob } from '../src/cli/session-log.mjs';
 import { pendingCard } from '../src/cli/pending.mjs';
 import { readPending } from '../src/cli/pending-read.mjs';
 import { writeMode } from '../src/cli/work/store.mjs';
+import { clientNotice, postClientNotice } from '../src/cli/client-notices.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
 const MINUTE_MS = 60000;
@@ -265,6 +266,26 @@ test('what the user asked for posts at once: a run they started by hand, and the
     assert.equal(linesIn(view, 'Both changes merged here').length, 1);
     assert.deepEqual(readHeld(h.root), []);
     assert.deepEqual(h.ofType('desk_posted'), [], 'an answer to the user is no interruption');
+  } finally {
+    await app.close();
+  }
+});
+
+test('ready reviews reach the sidebar once, including a review held for a digest before the upgrade', async t => {
+  const h = fixture(t);
+  const ready = id => ({ key: `review-ready:change:shop:${id}`, review: `change:shop:${id}`, line: `Review ${id} is ready`, tone: 'useful' });
+  const at = iso(h.clock.at - MINUTE_MS);
+  const held = clientNotice({ ...ready('older'), at });
+  atomicJson(deskPath(h.root), { version: 1, held: [{ id: held.id, source: 'client', level: 'P2', delivery: 'digest', heldAt: at, notice: held }], posting: [], seen: { [held.id]: at }, lastDigestAt: null });
+  postClientNotice(h.root, ready('newer'), h.clock.at);
+
+  const app = await h.openApp();
+  try {
+    for (let refresh = 0; refresh < 2; refresh++) {
+      const view = await app.refresh();
+      assert.deepEqual(view.messages.filter(line => line.review).map(line => [line.review, line.level]).sort(), [['change:shop:newer', 'P2'], ['change:shop:older', 'P2']]);
+    }
+    assert.deepEqual(heldLines(h.root), []);
   } finally {
     await app.close();
   }

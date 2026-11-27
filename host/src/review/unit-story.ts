@@ -1,6 +1,6 @@
 /**
- * A review's story once its change review is ready (spec 032): an opening with the change's claim, then one step per
- * unit of the change review, in the order its story walks the request, then the closing the review already had. Each
+ * A review's story once its change review is ready (spec 032): an opening with the change's claim, then the scanned way in
+ * to each unit and the unit's change, then the closing the review already had. Each
  * step tells its unit: its title (a claim), what changed, and its level. Its focus is the graph's nodes that hold the
  * unit's definitions: in the same file, on overlapping lines, at head, or at base for a definition the change removed.
  * A step may hold several nodes, and the walk goes to each node once. Tests are never steps, and never in a step's focus.
@@ -252,13 +252,33 @@ export function unitStory(review: Review, parts: UnitStoryParts): StoryStep[] {
   // it: a later step that would go back there keeps only what is its alone. A step left with nothing of its own goes
   // back to its nodes, so its code is told beside the node that holds it, never with the whole graph.
   const visited = new Set<string>()
-  const walks: StoryStep[] = ordered.map(({ unit }) => {
+  const nodes = new Map(review.nodes.map((node) => [node.id, node]))
+  const shownCallers = new Set<string>()
+  const walks: StoryStep[] = ordered.flatMap(({ unit }): StoryStep[] => {
     const said = parts.words?.units?.[unit.id]
     const own = focusOf(unit)
     const fresh = own.filter((id) => !visited.has(id))
     const focus = fresh.length ? fresh : own
     for (const id of focus) visited.add(id)
-    return {
+    const callers: StoryStep[] = []
+    for (const target of fresh) {
+      const life = nodes.get(target)?.lifecycle
+      if (!life?.origin) continue
+      for (const id of life.origin.chain) {
+        const caller = nodes.get(id)
+        if (!caller || caller.kind === 'test' || shownCallers.has(id)) continue
+        shownCallers.add(id)
+        callers.push({
+          id: `caller-${id}`,
+          kind: 'walk',
+          title: cleanProse(caller.title, PROSE_LIMIT.title),
+          text: cleanProse(life.path ?? caller.summary, PROSE_LIMIT.stepText),
+          focus: [id],
+          criteria: [],
+        })
+      }
+    }
+    const change: StoryStep = {
       id: `unit-${unit.id}`,
       kind: 'walk',
       title: cleanProse(said?.title ?? unit.title, PROSE_LIMIT.title),
@@ -268,6 +288,7 @@ export function unitStory(review: Review, parts: UnitStoryParts): StoryStep[] {
       level: unit.level,
       unit: unit.id,
     }
+    return [...callers, change]
   })
 
   const steps = [opening, ...walks, ...(closing ? [closing] : [])]

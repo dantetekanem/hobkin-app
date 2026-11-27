@@ -18,6 +18,8 @@ export interface Camera {
   x: number
   y: number
   zoom: number
+  /** Screen pixels from the uncovered area's center to the zoom anchor (e.g. left of the step dock). */
+  offsetX?: number
 }
 
 /** React Flow's viewport: a point of the graph is drawn at `point * zoom + (x, y)`. */
@@ -85,7 +87,7 @@ export function uncoveredArea(canvas: Size, cover: Cover): Rect {
 }
 
 export function viewportFor(camera: Camera, area: Rect): Viewport {
-  return { x: area.x + area.width / 2 - camera.x * camera.zoom, y: area.y + area.height / 2 - camera.y * camera.zoom, zoom: camera.zoom }
+  return { x: area.x + area.width / 2 + (camera.offsetX ?? 0) - camera.x * camera.zoom, y: area.y + area.height / 2 - camera.y * camera.zoom, zoom: camera.zoom }
 }
 
 export function cameraFor(viewport: Viewport, area: Rect): Camera {
@@ -409,34 +411,29 @@ export function revealNode({ node, camera, area, card = null, others = [], maxZo
   return cameraFor({ x: viewport.x + dx, y: viewport.y + dy, zoom }, area)
 }
 
-export interface OpeningShot {
-  camera: Camera
-  /** The card, in canvas pixels: as tall as its words while they fit, then it scrolls. */
-  card: PlacedCard
+/** With no story node to visit, center the overview on the graph itself. */
+export function overviewCamera(graph: readonly Rect[]): Camera {
+  const box = boundsOf(graph)
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2, zoom: 0.5 }
 }
 
-/**
- * Frames the whole graph for the story's opening or closing (the user, 2026-11-12), with its card in the top right corner
- * of the uncovered area, under the menus, as tall as its words up to the room: never clipped. The whole graph is framed
- * in the room left of the card or under it, whichever draws it larger, so the card covers none of it (the user,
- * 2026-11-26). A room with neither gives the graph all of it, and the card stands over its corner.
- */
-export function frameOpening({ graph, area, card, maxZoom = FRAME.maxZoom }: { graph: readonly Rect[]; area: Rect; card: Size; maxZoom?: number }): OpeningShot {
+/** The first zoom has one subject. Use the first drawn node of the first walk, not its callers or the graph bounds. */
+export function entryCamera(story: readonly { focus: readonly string[] }[], index: number, nodes: ReadonlyMap<string, Rect>, area: Rect): Camera | null {
+  const first = story.findIndex((step) => step.focus.some((id) => nodes.has(id)))
+  if (first < 0 || (index !== 0 && index !== first)) return null
+  const id = story[first]!.focus.find((id) => nodes.has(id))!
+  const node = nodes.get(id)!
+  const graph = storyDock(area).graph
+  const zoom = index === 0 ? 0.5 : frameStep({ focus: [node], area: graph }).camera.zoom
+  return { x: node.x + node.width / 2, y: node.y + node.height / 2, offsetX: (graph.width - area.width) / 2, zoom }
+}
+
+/** The step stays at the top right. Its content height never changes the room a node is framed in. */
+export function storyDock(area: Rect): { card: Rect; graph: Rect } {
   const margin = marginOf(area)
-  const room = { x: area.x + margin, y: area.y + margin, width: area.width - margin * 2, height: area.height - margin * 2 }
-  const width = Math.min(card.width, room.width)
-  const height = Math.min(card.height, room.height)
-  const box = boundsOf(graph)
-  const fit = (space: Rect) => Math.max(0.01, Math.min(maxZoom, space.width / Math.max(1, box.width), space.height / Math.max(1, box.height)))
-  const leftOfCard = { ...room, width: room.width - width - FRAME.gap }
-  const underCard = { ...room, y: room.y + height + FRAME.gap, height: room.height - height - FRAME.gap }
-  // Left of the card wins a tie, as the opening always had it.
-  const spaces = [leftOfCard, underCard].filter((space) => space.width > 0 && space.height > 0)
-  const space = spaces.reduce<Rect>((best, each) => (fit(each) > fit(best) ? each : best), spaces[0] ?? room)
-  const zoom = fit(space)
-  // The graph's middle at the middle of its room.
-  const viewport = { x: space.x + space.width / 2 - (box.x + box.width / 2) * zoom, y: space.y + space.height / 2 - (box.y + box.height / 2) * zoom, zoom }
-  return { camera: cameraFor(viewport, area), card: { side: 'right', x: room.x + room.width - width, y: room.y, width, height } }
+  const width = Math.min(380, Math.max(260, area.width * 0.35), area.width * 0.5)
+  const card = { x: area.x + area.width - margin - width, y: area.y + margin, width, height: area.height - 2 * margin }
+  return { card, graph: { ...area, width: Math.max(1, card.x - area.x - margin) } }
 }
 
 export interface ShotInput {

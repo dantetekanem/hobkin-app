@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { layoutZones, NODE_SIZE, nodeRect, ZONE_FRAME, zoneRects, type Rect, type ZoneNode } from '#shared/review/layout.ts'
 import { stressReview } from '#shared/review/stress.ts'
 import type { Review } from '#shared/review/types.ts'
-import { BESIDE_GAP, cameraFor, composeShot, FRAME, frameOpening, frameStep, framingOf, headingsOf, placeCard, revealNode, toScreen, uncoveredArea, viewportFor, type Size } from '../src/features/review/story/camera.ts'
+import { BESIDE_GAP, cameraFor, composeShot, FRAME, entryCamera, storyDock, frameStep, framingOf, headingsOf, placeCard, revealNode, toScreen, uncoveredArea, viewportFor, type Size } from '../src/features/review/story/camera.ts'
 import { arrange } from '../src/features/review/graph/arrange.ts'
 import { pullReview } from '../src/features/review/sample/pull.ts'
 
@@ -235,26 +235,12 @@ test('the left panel is covered area too, tucked or open', async () => {
   }
 })
 
-test('tells the opening and the closing beside the whole graph', async () => {
-  for (const review of [sample, await stressReview()]) {
-    const all = review.nodes.map((node) => nodeRect(node.kind, node.position))
-    for (const canvas of canvases) {
-      for (const cover of covers(canvas)) {
-        const area = uncoveredArea(canvas, cover)
-        for (const height of [120, 240, 400]) {
-          const shot = composeShot({ focus: all, area, card: { width: 320, height }, others: [], closer: FRAME.closer })
-          const where = `${review.id} in ${canvas.width}x${canvas.height} under ${cover.bottom}, card ${height}`
-          if (!shot.card) {
-            // The text is left out only when the uncovered area cannot hold a readable card.
-            assert.ok(area.height < 330 || area.width < 360, where)
-            continue
-          }
-          assert.ok(inside(shot.card, area), `${where}: the text stays inside the uncovered area`)
-          assert.ok(shot.card.height >= Math.min(height, FRAME.minCardHeight), `${where}: enough of the text shows`)
-        }
-      }
-    }
-  }
+test('the explicit whole-graph view still fits the graph', async () => {
+  const review = await stressReview()
+  const all = review.nodes.map((node) => nodeRect(node.kind, node.position))
+  const area = uncoveredArea({ width: 1200, height: 800 }, { top: 112, bottom: 68, left: 300 })
+  const { camera } = composeShot({ focus: all, area })
+  for (const rect of all) assert.ok(inside(toScreen(rect, camera, area), area))
 })
 
 test('the camera and the viewport are two ways of saying where the graph sits', () => {
@@ -279,31 +265,34 @@ test('only a step frames the camera: a node looked at is told where it is', () =
   assert.equal(framingOf({ first: true, kind: 'detour', focus: 1 }), 'step')
 })
 
-test('the opening is told on a card as tall as its words, top right, with the whole graph framed beside it', async () => {
-  const stress = await stressReview()
-  /** The steps panel open, as wide as `stepsPanelWidth` makes it. */
-  const stepsPanelWidth = (canvas: number) => Math.round(Math.max(248, Math.min(372, canvas * 0.3, canvas - 300)))
-  // A window 1432 by 840 with the chat beside the canvas or not, the steps panel open, and a short window too.
-  for (const canvas of [{ width: 980, height: 820 }, { width: 1420, height: 820 }, { width: 980, height: 560 }]) {
-    const area = uncoveredArea(canvas, { top: 112, bottom: 68, left: stepsPanelWidth(canvas.width) })
-    for (const review of [arranged, sample, stress]) {
-      const graph = review.nodes.map((node) => nodeRect(node.kind, node.position))
-      for (const height of [180, 320, 900]) {
-        const shot = frameOpening({ graph, area, card: { width: 340, height } })
-        const where = `${review.id} in ${canvas.width}x${canvas.height}, card ${height}`
-        // Never clipped: as tall as its words while they fit, and inside what is uncovered, in its top right corner.
-        assert.equal(shot.card.height, Math.min(height, area.height - 2 * FRAME.margin), where)
-        assert.ok(inside(shot.card, area), `${where}: the card is in the uncovered area`)
-        assert.ok(Math.abs(shot.card.x + shot.card.width - (area.x + area.width - FRAME.margin)) < 1 && Math.abs(shot.card.y - (area.y + FRAME.margin)) < 1, `${where}: top right`)
-        // The whole graph is framed in the room beside it, under nothing.
-        for (const rect of graph) {
-          const onScreen = toScreen(rect, shot.camera, area)
-          assert.ok(inside(onScreen, area), `${where}: every node is in the frame`)
-          assert.equal(overlap(onScreen, shot.card), false, `${where}: the card covers no node`)
-        }
-      }
-    }
+test('the opening and first walk keep the entry node centered beside the dock throughout the zoom', () => {
+  const area = { x: 300, y: 112, width: 850, height: 640 }
+  const graph = storyDock(area).graph
+  const entry = { x: 7000, y: -900, width: 280, height: 120 }
+  const nodes = new Map([['helper', { ...entry, x: -2000 }], ['handler', entry]])
+  const story = [{ focus: [] }, { focus: ['handler', 'helper'] }, { focus: ['helper'] }]
+  const opening = entryCamera(story, 0, nodes, area)!
+  const firstWalk = entryCamera(story, 1, nodes, area)!
+
+  assert.equal(opening.zoom, 0.5)
+  assert.ok(firstWalk.zoom > opening.zoom)
+  assert.deepEqual({ ...firstWalk, zoom: opening.zoom }, opening, 'only zoom changes')
+  for (const zoom of [opening.zoom, 0.8, firstWalk.zoom]) {
+    const box = toScreen(entry, { ...opening, zoom }, area)
+    assert.ok(Math.abs(box.x + box.width / 2 - (graph.x + graph.width / 2)) < 1e-8)
+    assert.ok(Math.abs(box.y + box.height / 2 - (graph.y + graph.height / 2)) < 1e-8)
   }
+  assert.equal(entryCamera(story, 2, nodes, area), null, 'later steps use normal framing')
+})
+
+test('the step dock reserves a strip on the right; opening code changes its height, not its anchor', () => {
+  const area = { x: 300, y: 112, width: 850, height: 640 }
+  const { card, graph } = storyDock(area)
+  assert.equal(card.x + card.width, area.x + area.width - FRAME.margin)
+  assert.equal(card.y, area.y + FRAME.margin)
+  assert.ok(graph.width > 0 && graph.x + graph.width < card.x)
+  const shorter = storyDock({ ...area, height: 360 }).card
+  assert.deepEqual(shorter, { ...card, height: card.height - 280 })
 })
 
 /** The user's picture (2026-11-26): the zone of a test left of the zone of the code it covers, as the graph lays them out. */
@@ -319,19 +308,6 @@ function besideZones() {
   const positions = layoutZones(nodes, [{ from: 'rejects', to: 'stores' }], zones)
   return { cards: nodes.map((node) => nodeRect(node.kind, positions[node.id]!)), regions: [...zoneRects(nodes, positions).values()] }
 }
-
-test("the opening's card covers no zone, heading and all, and goes over the graph only when there is no room beside or under it", () => {
-  const { cards, regions } = besideZones()
-  // A roomy canvas, and one too narrow for the graph beside the card, where it goes under the card instead.
-  for (const area of [{ x: 300, y: 112, width: 900, height: 640 }, { x: 300, y: 112, width: 520, height: 640 }]) {
-    const shot = frameOpening({ graph: [...cards, ...regions], area, card: { width: 340, height: 300 } })
-    for (const rect of [...cards, ...regions]) {
-      const onScreen = toScreen(rect, shot.camera, area)
-      assert.ok(inside(onScreen, area), `${area.width} wide: every zone is in the frame`)
-      assert.equal(overlap(onScreen, shot.card), false, `${area.width} wide: the card covers no zone`)
-    }
-  }
-})
 
 test("a step's card keeps off a zone's heading as it keeps off a node", () => {
   // Each heading is the room its region keeps over its nodes.
