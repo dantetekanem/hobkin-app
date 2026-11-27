@@ -9,7 +9,11 @@ const shippedSkill = name => fileURLToPath(new URL(`../skills/${name}/SKILL.md`,
 
 export const TLA_SKILL = shippedSkill('tla-plus');
 // copywriting and stop-slop are vendored under MIT, each with its LICENSE beside it.
-export const SHIPPED_SKILLS = Object.freeze([TLA_SKILL, shippedSkill('copywriting'), shippedSkill('stop-slop')]);
+export const SHIPPED_SKILLS = Object.freeze([
+  TLA_SKILL,
+  shippedSkill('copywriting'),
+  shippedSkill('stop-slop'),
+]);
 
 export const skillsExtension = fileURLToPath(import.meta.url);
 
