@@ -122,24 +122,36 @@ test('fast stays on the default when nothing cheaper of its kind thinks as hard,
   assert.equal(picked({ providers: [CODEX], models: defaultUnpriced })?.fast, 'openai-codex/gpt-6.1-sol low')
 })
 
-test('several accounts: a subscription sign-in before a key, then the written order, then Pi\'s order', () => {
+test("several accounts: the OpenAI subscription first, then keys with OpenAI's first, and other subscriptions last, each in Pi's order", () => {
+  // The user, 2026-11-26: hobkin supports OpenAI and Claude Code, and Pi is required, so it needs an API key or the
+  // OpenAI subscription. Claude's subscription is used through Claude Code agents, not through Pi.
   const byKey = (provider: ProviderAccess): ProviderAccess => ({ ...provider, connectedBy: 'key' })
-  const models = [...ANTHROPIC_MODELS, ...COPILOT_MODELS, ...CODEX_MODELS]
+  const OPENAI: ProviderAccess = { id: 'openai', name: 'OpenAI', signIn: subscription, connected: true, connectedBy: 'sign-in', defaultModel: 'gpt-6.1-sol' }
+  const GROQ: ProviderAccess = { id: 'groq', name: 'Groq', connected: true, connectedBy: 'environment', defaultModel: 'gpt-oss' }
+  const MISTRAL: ProviderAccess = { id: 'mistral', name: 'Mistral', connected: true, connectedBy: 'environment' }
+  const LAUNCHER: ProviderAccess = { id: 'company', name: 'Company', connected: true, connectedBy: 'launcher' }
+  const models = [
+    ...ANTHROPIC_MODELS,
+    ...COPILOT_MODELS,
+    ...CODEX_MODELS,
+    model('openai', 'gpt-6.1-sol', 'GPT-6.1 Sol', ALL),
+    model('groq', 'gpt-oss', 'GPT OSS', ALL),
+    model('mistral', 'devstral', 'Devstral', ALL),
+    model('company', 'big', 'Big', ALL),
+  ]
+  const from = (...providers: ProviderAccess[]) => picked({ providers, models })?.provider
 
-  assert.equal(picked({ providers: [ANTHROPIC, COPILOT, CODEX], models })?.provider, 'openai-codex', 'all three by sign-in: the written order')
-  assert.equal(picked({ providers: [ANTHROPIC, COPILOT], models })?.provider, 'anthropic')
-  assert.equal(picked({ providers: [byKey(ANTHROPIC), COPILOT], models })?.provider, 'github-copilot', 'a sign-in comes before a key')
-  assert.equal(picked({ providers: [byKey(ANTHROPIC), byKey(CODEX)], models })?.provider, 'openai-codex', 'two keys: the written order')
-
-  // Providers the written order does not name come after those it names, in Pi's order.
-  const groq: ProviderAccess = { id: 'groq', name: 'Groq', connected: true, connectedBy: 'environment', defaultModel: 'gpt-oss' }
-  const mistral: ProviderAccess = { id: 'mistral', name: 'Mistral', connected: true, connectedBy: 'environment' }
-  const others = [model('mistral', 'devstral', 'Devstral', ALL), model('groq', 'gpt-oss', 'GPT OSS', ALL)]
-  assert.equal(picked({ providers: [mistral, groq], models: others })?.provider, 'mistral')
-  assert.equal(picked({ providers: [mistral, groq, byKey(ANTHROPIC)], models: [...others, ...ANTHROPIC_MODELS] })?.provider, 'anthropic')
-  // A work computer's launcher is as good as a subscription: the company pays for it.
-  const launcher: ProviderAccess = { id: 'company', name: 'Company', connected: true, connectedBy: 'launcher' }
-  assert.equal(picked({ providers: [byKey(ANTHROPIC), launcher], models: [...ANTHROPIC_MODELS, model('company', 'big', 'Big', ALL)] })?.provider, 'company')
+  assert.equal(from(ANTHROPIC, COPILOT, GROQ, CODEX), 'openai-codex')
+  assert.equal(from(OPENAI, CODEX), 'openai-codex', 'both are the OpenAI subscription: Codex first')
+  assert.equal(from(GROQ, OPENAI), 'openai', 'OpenAI signed in with ChatGPT is the OpenAI subscription too')
+  // Then every provider reached by a key, OpenAI's first, then in Pi's order.
+  assert.equal(from(ANTHROPIC, MISTRAL, byKey(OPENAI)), 'openai')
+  assert.equal(from(ANTHROPIC, COPILOT, MISTRAL, GROQ), 'mistral')
+  assert.equal(from(byKey(ANTHROPIC), MISTRAL), 'anthropic', 'a Claude key is a key')
+  assert.equal(from(COPILOT, LAUNCHER), 'company', "a work computer's launcher is no subscription")
+  // Other subscriptions only when nothing else is connected, in Pi's order.
+  assert.equal(from(ANTHROPIC, COPILOT), 'anthropic')
+  assert.equal(from(COPILOT), 'github-copilot')
 })
 
 test('only a connected provider Pi lists a model for counts', () => {

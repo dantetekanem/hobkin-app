@@ -3,9 +3,11 @@
  * so a new person's chat, routines and agents run without opening Settings. See _specs/017-model-tiers, "The first
  * models". Pure rules only, shared by the host and the window.
  *
- * One provider gives them all. With several connected, the one picked is the first of: a provider someone already pays
- * for as a whole (a subscription's sign-in, or a work computer's launcher) before one paid by the token, then
- * `PROVIDER_ORDER`, then Pi's own order.
+ * One provider gives them all. hobkin supports OpenAI and Claude Code, and its agents need Pi, so a new person needs an
+ * API key or the OpenAI subscription; Claude's subscription is used through Claude Code agents, not through Pi. With
+ * several connected, the one picked is the first of: the OpenAI subscription, then a provider reached any other way
+ * than a subscription's sign-in (a key, the environment, the cloud, a launcher), then the other subscriptions. Within
+ * each, `PROVIDER_ORDER` first, then Pi's own order.
  *
  * Within it, everything starts on Pi's own default model for the provider, the one Pi switches to after a sign-in
  * (`defaultModelPerProvider` in pi-coding-agent's model resolver), or, with no default Pi can use, the first model Pi
@@ -18,8 +20,8 @@ import type { ModelChoice as PiModel, ModelsState, ProviderAccess } from '../pro
 import { effortsOf, qualifiedId } from './from-pi.ts'
 import { EFFORTS, clampEffort, type Effort, type TierId } from './tiers.ts'
 
-/** The providers hobkin's first models come from, in this order, when several are connected the same way. The user can change it. */
-export const PROVIDER_ORDER = ['openai-codex', 'openai', 'anthropic', 'github-copilot'] as const
+/** Which providers come first among those connected the same way, in this order. The user can change it. */
+export const PROVIDER_ORDER = ['openai-codex', 'openai'] as const
 
 /** A model and thinking level, with the name Pi gives the model, for hobkin to say what it picked. */
 export interface Picked {
@@ -39,10 +41,12 @@ export interface FirstPick {
 /** What the host's `tiers.first` did: what it set, or why it set nothing (a model or tier was chosen before, or Pi reaches no model). */
 export type FirstModels = ({ set: true } & FirstPick) | { set: false; why: 'chosen' | 'no-model' }
 
-/** Someone already pays for it as a whole: a subscription's sign-in, or the company's launcher on a work computer. */
-function paidAsWhole({ connectedBy, signIn }: ProviderAccess): boolean {
-  if (connectedBy === 'launcher') return true
-  return connectedBy === 'sign-in' && signIn?.subscription === true
+const bySubscription = ({ connectedBy, signIn }: ProviderAccess): boolean => connectedBy === 'sign-in' && signIn?.subscription === true
+
+/** The OpenAI subscription first, then whatever is reached another way than a subscription, then the other subscriptions. */
+function standing(provider: ProviderAccess): number {
+  if (provider.id === 'openai-codex' || (provider.id === 'openai' && bySubscription(provider))) return 0
+  return bySubscription(provider) ? 2 : 1
 }
 
 /** Where a provider stands in the written order. One it does not name comes after every one it does. */
@@ -60,10 +64,10 @@ interface Usable {
 
 const isUsable = (entry: Omit<Usable, 'own'> & { own: PiModel[] }): entry is Usable => entry.provider.connected && entry.own.length > 0
 
-/** Paid as a whole first, then the written order, then Pi's order. */
+/** By standing, then the written order, then Pi's order. */
 function byPreference(a: Usable, b: Usable): number {
-  const paid = Number(paidAsWhole(b.provider)) - Number(paidAsWhole(a.provider))
-  if (paid !== 0) return paid
+  const stands = standing(a.provider) - standing(b.provider)
+  if (stands !== 0) return stands
 
   const written = writtenPlace(a.provider) - writtenPlace(b.provider)
   if (written !== 0) return written
