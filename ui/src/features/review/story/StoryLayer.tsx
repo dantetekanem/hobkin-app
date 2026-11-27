@@ -6,6 +6,7 @@ import { boundsOf, nodeRect, type Point, type Rect } from '#shared/review/layout
 import { spring, tween } from '@/lib/motion.ts'
 import { drawnTrail, isChangedCode } from '../graph/trail.ts'
 import { wireCurve } from '../graph/wire-path.ts'
+import { regionsOf } from '../graph/zones.ts'
 import { inProofPanel } from '../keys.ts'
 import type { AskCommand } from '../panel/ask.ts'
 import { OUTLINE_ROOM } from '../outline/Outline.tsx'
@@ -16,7 +17,7 @@ import { useReduced, useRig, useSession, useSessionStore } from '../state/contex
 import { notesAbout, notesOnStep } from '../state/quick-notes.ts'
 import { BesideCard, besideRect, type BesidePlace } from './Beside.tsx'
 import { testCardOf } from './node-tests.ts'
-import { cameraFor, composeShot, frameOpening, frameStep, framingOf, placeCard, pointToScreen, revealNode, viewportFor, type Camera, type CardSide, type PlacedCard, type Size, type Viewport } from './camera.ts'
+import { cameraFor, composeShot, frameOpening, frameStep, framingOf, headingsOf, placeCard, pointToScreen, revealNode, viewportFor, type Camera, type CardSide, type PlacedCard, type Size, type Viewport } from './camera.ts'
 import { NotesBody } from './NotesBody.tsx'
 import { StepBody, type CardGraph } from './StepBody.tsx'
 import { CardBody, type CardContent } from './StepCard.tsx'
@@ -149,7 +150,9 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null, resume = nu
     last.current = move.key
     const rectOf = new Map<string, Rect>(view.nodes.map((node) => [node.id, nodeRect(node.kind, node.position)]))
     const told = focus.filter((id) => rectOf.has(id))
-    const others = view.nodes.filter((node) => !told.includes(node.id)).map((node) => rectOf.get(node.id)!)
+    // A card keeps off the zones' headings as it keeps off the other nodes.
+    const regions = regionsOf(view.nodes, view.zones).map((region) => region.rect)
+    const others = [...view.nodes.filter((node) => !told.includes(node.id)).map((node) => rectOf.get(node.id)!), ...headingsOf(regions)]
     const height = content ? (measure.current?.offsetHeight ?? 0) : 0
     const card = content && height > 0 ? { width, height } : null
 
@@ -185,9 +188,9 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null, resume = nu
       }
     } else if (card && content) {
       // The opening or the closing: the whole graph, inside the uncovered area, with its card as tall as its words in
-      // the top right corner, the graph framed in the room beside it.
+      // the top right corner, the graph and its zones, headings too, framed in the room beside it or under it.
       const subject = [...rectOf.values()]
-      const shot = frameOpening({ graph: subject, area, card })
+      const shot = frameOpening({ graph: [...subject, ...regions], area, card })
       target = shot.camera
       const box = boundsOf(subject)
       nextCard = { key: content.key, card: shot.card, anchor: { x: box.x + box.width / 2, y: box.y + box.height / 2 }, target: viewportFor(shot.camera, area) }

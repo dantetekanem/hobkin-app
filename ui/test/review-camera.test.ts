@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { nodeRect, type Rect } from '#shared/review/layout.ts'
+import { layoutZones, NODE_SIZE, nodeRect, ZONE_FRAME, zoneRects, type Rect, type ZoneNode } from '#shared/review/layout.ts'
 import { stressReview } from '#shared/review/stress.ts'
 import type { Review } from '#shared/review/types.ts'
-import { BESIDE_GAP, cameraFor, composeShot, FRAME, frameOpening, frameStep, framingOf, placeCard, revealNode, toScreen, uncoveredArea, viewportFor, type Size } from '../src/features/review/story/camera.ts'
+import { BESIDE_GAP, cameraFor, composeShot, FRAME, frameOpening, frameStep, framingOf, headingsOf, placeCard, revealNode, toScreen, uncoveredArea, viewportFor, type Size } from '../src/features/review/story/camera.ts'
 import { arrange } from '../src/features/review/graph/arrange.ts'
 import { pullReview } from '../src/features/review/sample/pull.ts'
 
@@ -304,4 +304,47 @@ test('the opening is told on a card as tall as its words, top right, with the wh
       }
     }
   }
+})
+
+/** The user's picture (2026-11-26): the zone of a test left of the zone of the code it covers, as the graph lays them out. */
+function besideZones() {
+  const zones = [
+    { id: 'settings', layer: 'model' },
+    { id: 'settings-tests', layer: 'test:model' },
+  ]
+  const nodes: ZoneNode[] = [
+    { id: 'stores', kind: 'code', zone: 'settings', change: 'modified' },
+    { id: 'rejects', kind: 'test', zone: 'settings-tests', change: 'added' },
+  ]
+  const positions = layoutZones(nodes, [{ from: 'rejects', to: 'stores' }], zones)
+  return { cards: nodes.map((node) => nodeRect(node.kind, positions[node.id]!)), regions: [...zoneRects(nodes, positions).values()] }
+}
+
+test("the opening's card covers no zone, heading and all, and goes over the graph only when there is no room beside or under it", () => {
+  const { cards, regions } = besideZones()
+  // A roomy canvas, and one too narrow for the graph beside the card, where it goes under the card instead.
+  for (const area of [{ x: 300, y: 112, width: 900, height: 640 }, { x: 300, y: 112, width: 520, height: 640 }]) {
+    const shot = frameOpening({ graph: [...cards, ...regions], area, card: { width: 340, height: 300 } })
+    for (const rect of [...cards, ...regions]) {
+      const onScreen = toScreen(rect, shot.camera, area)
+      assert.ok(inside(onScreen, area), `${area.width} wide: every zone is in the frame`)
+      assert.equal(overlap(onScreen, shot.card), false, `${area.width} wide: the card covers no zone`)
+    }
+  }
+})
+
+test("a step's card keeps off a zone's heading as it keeps off a node", () => {
+  // Each heading is the room its region keeps over its nodes.
+  const { regions } = besideZones()
+  assert.deepEqual(headingsOf(regions), regions.map((region) => ({ x: region.x, y: region.y, width: region.width, height: ZONE_FRAME.head })))
+  // The focus with a zone on its right whose first card stands lower: the card on the right would sit on that heading.
+  const focus = { x: 0, y: 300, ...NODE_SIZE.code }
+  const lower = { x: 408, y: 400, ...NODE_SIZE.code }
+  const region = { x: 380, y: 304, width: 344, height: 260 }
+  const area = { x: 0, y: 0, width: 1400, height: 900 }
+  const shot = frameStep({ focus: [focus], others: [lower, ...headingsOf([region])], area, card: { width: 400, height: 100 } })
+  const heading = toScreen(headingsOf([region])[0]!, shot.camera, area)
+  assert.ok(shot.card)
+  assert.equal(overlap(shot.card, heading), false, 'the card is clear of the heading')
+  assert.equal(overlap(shot.card, toScreen(lower, shot.camera, area)), false, 'and of the card under it')
 })

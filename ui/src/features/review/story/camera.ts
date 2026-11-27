@@ -3,7 +3,7 @@
  * answers with a camera and with a place for the step's card: beside its node when the step has a focus, and beside
  * the whole graph for the opening and the closing. And when the camera moves at all: only for a step.
  */
-import { boundsOf, type Point, type Rect } from '#shared/review/layout.ts'
+import { boundsOf, ZONE_FRAME, type Point, type Rect } from '#shared/review/layout.ts'
 
 export interface Size {
   width: number
@@ -181,6 +181,12 @@ function placesFor(node: Rect, card: Size, near: readonly Rect[]): { placed: Bes
   })
   return places
 }
+
+/**
+ * The heading of each zone's region (spec 055): the room it keeps over its nodes. A step's card keeps off it as it keeps
+ * off a node (the user, 2026-11-26: the card "in a better position").
+ */
+export const headingsOf = (regions: readonly Rect[]): Rect[] => regions.map(({ x, y, width }) => ({ x, y, width, height: ZONE_FRAME.head }))
 
 const inset = (rect: Rect, by: number): Rect => ({ x: rect.x + by, y: rect.y + by, width: Math.max(0, rect.width - by * 2), height: Math.max(0, rect.height - by * 2) })
 /** How much of a card the others cover, as a share of the card, in steps of 2%: a sliver counts, a hair does not. */
@@ -403,9 +409,6 @@ export function revealNode({ node, camera, area, card = null, others = [], maxZo
   return cameraFor({ x: viewport.x + dx, y: viewport.y + dy, zoom }, area)
 }
 
-/** The least width of graph worth framing beside the opening's card. Less, and the card sits over the graph's corner. */
-const OPENING_GRAPH = 160
-
 export interface OpeningShot {
   camera: Camera
   /** The card, in canvas pixels: as tall as its words while they fit, then it scrolls. */
@@ -415,17 +418,22 @@ export interface OpeningShot {
 /**
  * Frames the whole graph for the story's opening or closing (the user, 2026-11-12), with its card in the top right corner
  * of the uncovered area, under the menus, as tall as its words up to the room: never clipped. The whole graph is framed
- * in the room left of the card. A room too narrow for both gives the graph all of it, and the card stands over its corner.
+ * in the room left of the card or under it, whichever draws it larger, so the card covers none of it (the user,
+ * 2026-11-26). A room with neither gives the graph all of it, and the card stands over its corner.
  */
 export function frameOpening({ graph, area, card, maxZoom = FRAME.maxZoom }: { graph: readonly Rect[]; area: Rect; card: Size; maxZoom?: number }): OpeningShot {
   const margin = marginOf(area)
   const room = { x: area.x + margin, y: area.y + margin, width: area.width - margin * 2, height: area.height - margin * 2 }
   const width = Math.min(card.width, room.width)
   const height = Math.min(card.height, room.height)
-  const beside = room.width - width - FRAME.gap
-  const space = beside >= OPENING_GRAPH ? { ...room, width: beside } : room
   const box = boundsOf(graph)
-  const zoom = Math.max(0.01, Math.min(maxZoom, space.width / Math.max(1, box.width), space.height / Math.max(1, box.height)))
+  const fit = (space: Rect) => Math.max(0.01, Math.min(maxZoom, space.width / Math.max(1, box.width), space.height / Math.max(1, box.height)))
+  const spaces = [
+    { ...room, width: room.width - width - FRAME.gap },
+    { ...room, y: room.y + height + FRAME.gap, height: room.height - height - FRAME.gap },
+  ].filter((space) => space.width > 0 && space.height > 0)
+  const space = spaces.reduce<Rect>((best, each) => (fit(each) > fit(best) ? each : best), spaces[0] ?? room)
+  const zoom = fit(space)
   // The graph's middle at the middle of its room.
   const viewport = { x: space.x + space.width / 2 - (box.x + box.width / 2) * zoom, y: space.y + space.height / 2 - (box.y + box.height / 2) * zoom, zoom }
   return { camera: cameraFor(viewport, area), card: { side: 'right', x: room.x + room.width - width, y: room.y, width, height } }
