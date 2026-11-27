@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { CHIPS, DOWNLOADS, FEED, releaseNames, updateFeed, type Chip } from './feed.ts'
+import { CHIPS, FEED, releaseCommand, releaseNames, REPOSITORY, shellLine, updateFeed, type Chip } from './feed.ts'
 
 /**
  * Gathers what `build.ts` made for each chip into `dist/release/`, under the names the files are published with,
@@ -11,7 +11,8 @@ import { CHIPS, DOWNLOADS, FEED, releaseNames, updateFeed, type Chip } from './f
  *
  * `build.ts` copies a chip's DMG, updater archive and signature to `dist/built/<chip>/` only once they are signed,
  * notarized, stapled and checked, so nothing else can reach a release. A chip that was not built is left out, and
- * says so. It uploads nothing: every file goes to the downloads folder the release config's updater endpoint names.
+ * says so. It uploads nothing: it prints the `gh release create` command that publishes the folder as release
+ * `v<version>` of the repository the release config's updater endpoint names, for the user to run.
  */
 
 const repo = path.resolve(import.meta.dirname, '../..')
@@ -57,8 +58,9 @@ for (const chip of CHIPS) {
 
 const versions = new Set([...builds.values()].map((found) => `${found.version} at ${found.commit}`))
 if (versions.size > 1) throw Error(`The builds are of different versions or commits (${[...versions].join(', ')}). Build every chip from the same commit.`)
-const version = [...builds.values()][0]?.version
-if (!version) throw Error('No build was found. Run build.ts for each chip first.')
+const [first] = builds.values()
+if (!first) throw Error('No build was found. Run build.ts for each chip first.')
+const { version, commit } = first
 
 // Only now is the old folder replaced, so a run that fails above leaves the last release's files where they were.
 rmSync(out, { recursive: true, force: true })
@@ -75,8 +77,10 @@ for (const [chip, found] of builds) {
   published.push(names.dmg, names.archive)
 }
 
-const feed = updateFeed({ version, notes, publishedAt: new Date().toISOString(), signatures })
+const feed = updateFeed({ repository: REPOSITORY, version, notes, publishedAt: new Date().toISOString(), signatures })
 writeFileSync(path.join(out, FEED), `${JSON.stringify(feed, null, 2)}\n`)
+const notesFile = path.join(out, 'notes.md')
+writeFileSync(notesFile, `${notes}\n`)
 
 for (const name of [...published, FEED]) {
   const file = path.join(out, name)
@@ -84,4 +88,12 @@ for (const name of [...published, FEED]) {
   const sha256 = createHash('sha256').update(readFileSync(file)).digest('hex')
   console.log(`${name}  ${megabytes} MB  sha256 ${sha256}`)
 }
-console.log(`\nVersion ${version}, in ${out}. Upload them to ${DOWNLOADS}/: the other files first, and ${FEED} last.`)
+const fromRepo = (file: string) => path.relative(repo, file)
+const command = releaseCommand({
+  repository: REPOSITORY,
+  version,
+  commit,
+  notesFile: fromRepo(notesFile),
+  files: [...published, FEED].map((name) => fromRepo(path.join(out, name))),
+})
+console.log(`\nVersion ${version}, in ${fromRepo(out)}. To publish it, run this from the repository folder:\n\n${shellLine(command)}`)
