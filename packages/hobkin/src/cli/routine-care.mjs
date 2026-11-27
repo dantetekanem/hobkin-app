@@ -120,7 +120,7 @@ export function tickRoutineCare(root, { loaded, attention, now = Date.now() }) {
 
 const lowerFirst = text => text.charAt(0).toLowerCase() + text.slice(1);
 
-function oneNew(template) {
+function newTemplateItem(template) {
   return {
     key: `${TEMPLATE_KEY}${template.id}:${template.version}`,
     title: `Try the ${template.title} template`,
@@ -131,19 +131,20 @@ function oneNew(template) {
 }
 
 /** Several new templates from one update are one item, so an update never fills Action Items. Its key is the set it lists. */
-function severalNew(templates) {
+function newTemplatesItem(templates) {
   const ids = templates.map(({ id, version }) => `${id}@${version}`).toSorted();
-  const full = templates.map(({ title, summary }) => `- ${title}: ${summary}`).join('\n');
+  const withSummaries = templates.map(({ title, summary }) => `- ${title}: ${summary}`).join('\n');
+  const titlesOnly = templates.map(({ title }) => `- ${title}`).join('\n');
   return {
     key: `${TEMPLATE_KEY}new:${ids.join(',')}`,
     title: `${templates.length} new routine templates`,
-    detail: full.length <= LONGEST_LIST ? full : templates.map(({ title }) => `- ${title}`).join('\n'),
+    detail: withSummaries.length <= LONGEST_LIST ? withSummaries : titlesOnly,
     choices: NEW_TEMPLATES,
     answerTo: { kind: 'routines', subject: 'templates', ids },
   };
 }
 
-function newerOne(template) {
+function newerTemplateItem(template) {
   return {
     key: `${TEMPLATE_KEY}${template.id}:${template.version}`,
     title: `The ${template.title} template has a newer version`,
@@ -158,7 +159,8 @@ function newerOne(template) {
  * and one for each newer version, since each asks about the one routine made from it. A version is in the key, so a newer one asks again.
  */
 export function fileTemplateNews(root, { added = [], updated = [] }, now = Date.now()) {
-  const items = [...(added.length > 1 ? [severalNew(added)] : added.map(oneNew)), ...updated.map(newerOne)];
+  const newItems = added.length > 1 ? [newTemplatesItem(added)] : added.map(newTemplateItem);
+  const items = [...newItems, ...updated.map(newerTemplateItem)];
   const waiting = new Set(openDecisions(root).map(({ key }) => key));
   const filed = [];
   for (const item of items) {

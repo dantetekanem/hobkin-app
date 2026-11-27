@@ -28,6 +28,8 @@ function yours(root, name, text) {
 }
 
 const byIdOf = templates => Object.fromEntries(templates.map(entry => [entry.id, entry]));
+const newKeysOf = ({ goals, tells, skips, gives, closes, private: reads }) => ({ goals, tells, skips, gives, closes, private: reads });
+const idsOf = cards => cards.map(({ id }) => id);
 
 test('every shipped template names its goals, its bar, what it gives and what closes an item, and every starter names its goal', t => {
   const { templates, errors, rules } = listTemplates(home(t));
@@ -41,6 +43,7 @@ test('every shipped template names its goals, its bar, what it gives and what cl
     assert.equal(source, 'hobkin', id);
   }
   assert.match(rules, /Nothing new\./);
+
   assert.deepEqual(TEMPLATE_GOALS, ['job', 'business', 'project', 'life', 'code'], 'the client holds the same list');
   assert.deepEqual(Object.keys(GOAL_STARTERS), TEMPLATE_GOALS);
   const byId = byIdOf(templates);
@@ -52,20 +55,21 @@ test('every shipped template names its goals, its bar, what it gives and what cl
 
 test('the job, business and project templates are there and read', t => {
   const byId = byIdOf(listTemplates(home(t)).templates);
-  const shipped = {
-    'job-openings': ['job', ['report'], false],
-    'job-applications': ['job', ['report', 'action'], true],
-    interviews: ['job', ['report', 'critical'], true],
-    'business-leads': ['business', ['report', 'action'], true],
-    runway: ['business', ['report', 'critical'], true],
-    competitors: ['business', ['report'], false],
-    'project-milestones': ['project', ['report', 'action'], false],
-    'project-blockers': ['project', ['report', 'action', 'follow-up'], true],
+  const expected = {
+    'job-openings': { goal: 'job', gives: ['report'], private: false },
+    'job-applications': { goal: 'job', gives: ['report', 'action'], private: true },
+    interviews: { goal: 'job', gives: ['report', 'critical'], private: true },
+    'business-leads': { goal: 'business', gives: ['report', 'action'], private: true },
+    runway: { goal: 'business', gives: ['report', 'critical'], private: true },
+    competitors: { goal: 'business', gives: ['report'], private: false },
+    'project-milestones': { goal: 'project', gives: ['report', 'action'], private: false },
+    'project-blockers': { goal: 'project', gives: ['report', 'action', 'follow-up'], private: true },
   };
 
-  for (const [id, [goal, gives, reads]] of Object.entries(shipped)) {
-    assert.equal(byId[id]?.source, 'hobkin', id);
-    assert.deepEqual([byId[id].goals[0], byId[id].gives, byId[id].private], [goal, gives, reads], id);
+  for (const [id, wanted] of Object.entries(expected)) {
+    const shipped = byId[id];
+    assert.equal(shipped?.source, 'hobkin', id);
+    assert.deepEqual({ goal: shipped.goals[0], gives: shipped.gives, private: shipped.private }, wanted, id);
   }
 });
 
@@ -74,63 +78,78 @@ test('each goal offers its starters, a template shows once under the first picke
   yours(root, 'money.md', template({ ...garden, title: 'My money', goals: 'life' }));
   yours(root, 'garden.md', template(garden));
   const byId = byIdOf(listTemplates(root).templates);
+  const pickedGoal = ({ id }) => byId[id].goals.find(goal => ['project', 'life'].includes(goal));
 
   const cards = goalCards(root, ['life', 'project', 'nonsense', 'life']);
 
   assert.deepEqual(cards.map(({ goal }) => goal), ['project', 'life'], 'in the order of the goals, each once');
   const [project, life] = cards;
-  assert.deepEqual(project.starters.map(({ id }) => id), GOAL_STARTERS.project);
-  assert.deepEqual(life.starters.map(({ id }) => id), GOAL_STARTERS.life.filter(id => !GOAL_STARTERS.project.includes(id)));
-  assert.deepEqual([life.starters.at(-1).title, life.starters.at(-1).source], ['My money', 'yours'], 'their own replaces hobkin\'s');
-  const shown = cards.flatMap(({ starters, more }) => [...starters, ...more].map(({ id }) => id));
+  assert.deepEqual(idsOf(project.starters), GOAL_STARTERS.project);
+  assert.deepEqual(idsOf(life.starters), ['email', 'money'], 'deadlines-ahead shows under the project only');
+  const money = life.starters.at(-1);
+  assert.deepEqual([money.title, money.source], ['My money', 'yours'], 'their own replaces hobkin\'s');
+
+  const shown = cards.flatMap(({ starters, more }) => idsOf([...starters, ...more]));
+  const naming = Object.values(byId).filter(pickedGoal);
   assert.equal(new Set(shown).size, shown.length, 'each template shows once');
-  const named = Object.values(byId).filter(({ goals }) => goals.some(goal => ['project', 'life'].includes(goal))).map(({ id }) => id);
-  assert.deepEqual(shown.toSorted(), named.toSorted(), 'every template that names a picked goal shows');
-  assert.ok(life.more.some(({ id }) => id === 'garden'), 'one of their own with only a group is more');
+  assert.deepEqual(shown.toSorted(), idsOf(naming).toSorted(), 'every template that names a picked goal shows');
+  assert.ok(idsOf(life.more).includes('garden'), 'one of their own with only a group is more');
   for (const { goal, more } of cards) {
-    for (const { id } of more) assert.equal(byId[id].goals.find(named => ['project', 'life'].includes(named)), goal, id);
+    for (const card of more) assert.equal(pickedGoal(card), goal, card.id);
     const place = ({ id }) => byId[id].goals.indexOf(goal);
-    assert.deepEqual(more, more.toSorted((first, second) => place(first) - place(second) || first.id.localeCompare(second.id)), goal);
+    const inOrder = more.toSorted((first, second) => place(first) - place(second) || first.id.localeCompare(second.id));
+    assert.deepEqual(more, inOrder, goal);
   }
-  assert.deepEqual(Object.keys(project.starters[0]).toSorted(), ['asks', 'closes', 'effort', 'gives', 'id', 'needs', 'private', 'recurrence', 'skips', 'source', 'summary', 'tells', 'title', 'version']);
+
+  assert.deepEqual(Object.keys(project.starters[0]).toSorted(), [
+    'asks', 'closes', 'effort', 'gives', 'id', 'needs', 'private', 'recurrence', 'skips', 'source', 'summary', 'tells', 'title', 'version',
+  ]);
   assert.deepEqual(goalCards(root, []), []);
-  assert.deepEqual(goalCards(root, ['job']).map(({ starters }) => starters.map(({ id }) => id)), [GOAL_STARTERS.job]);
+  assert.deepEqual(goalCards(root, ['job']).map(({ starters }) => idsOf(starters)), [GOAL_STARTERS.job]);
 });
 
 test('a template of the user\'s own with only a group reads under the goal its group maps to, and one with neither is under none', t => {
   const root = home(t);
   const { group, ...neither } = garden;
-  for (const old of ['day', 'week', 'life', 'code', 'machine']) yours(root, `${old}-own.md`, template({ ...garden, group: old }));
+  const groups = ['day', 'week', 'life', 'code', 'machine'];
+  for (const old of groups) yours(root, `${old}-own.md`, template({ ...garden, group: old }));
   yours(root, 'no-goal.md', template(neither));
 
   const { templates, errors } = listTemplates(root);
 
   assert.deepEqual(errors, []);
   const byId = byIdOf(templates);
-  assert.deepEqual(['day', 'week', 'life', 'code', 'machine'].map(old => byId[`${old}-own`].goals), [['life'], ['life'], ['life'], ['code'], ['code']]);
-  const { goals, tells, skips, gives, closes } = byId['no-goal'];
-  assert.deepEqual([goals, tells, skips, gives, closes, byId['no-goal'].private], [[], null, null, [], null, false], 'the new keys may be left out');
-  assert.equal(goalCards(root, TEMPLATE_GOALS).flatMap(({ starters, more }) => [...starters, ...more]).some(({ id }) => id === 'no-goal'), false);
+  assert.deepEqual(groups.map(old => byId[`${old}-own`].goals), [['life'], ['life'], ['life'], ['code'], ['code']]);
+  assert.deepEqual(newKeysOf(byId['no-goal']), { goals: [], tells: null, skips: null, gives: [], closes: null, private: false }, 'the new keys may be left out');
+  const everyCard = goalCards(root, TEMPLATE_GOALS).flatMap(({ starters, more }) => [...starters, ...more]);
+  assert.equal(idsOf(everyCard).includes('no-goal'), false);
 });
 
 test('hobkin\'s own templates need the new keys, and a template\'s own goals, outputs and private mark are checked', t => {
   const root = home(t);
-  const folder = join(root, 'drafts');
-  mkdirSync(folder);
-  writeFileSync(join(folder, 'garden.md'), template(garden));
+  const draft = join(root, 'drafts', 'garden.md');
+  mkdirSync(join(root, 'drafts'));
+  writeFileSync(draft, template(garden));
 
-  assert.throws(() => readTemplate(join(folder, 'garden.md'), 'hobkin'), /goals, tells, gives, closes/);
-  assert.equal(readTemplate(join(folder, 'garden.md'), 'yours').id, 'garden');
+  assert.throws(() => readTemplate(draft, 'hobkin'), /goals, tells, gives, closes/);
+  assert.equal(readTemplate(draft, 'yours').id, 'garden');
 
   const full = { ...garden, goals: 'life, project', tells: 'A bed that needs water.', skips: 'The lawn.', gives: 'report, action', closes: 'Their word.', private: 'yes' };
   yours(root, 'garden.md', template(full));
   yours(root, 'odd-goal.md', template({ ...full, goals: 'life, hobbies' }));
   yours(root, 'odd-gives.md', template({ ...full, gives: 'report, email' }));
   yours(root, 'odd-private.md', template({ ...full, private: 'maybe' }));
+
   const { templates, errors } = listTemplates(root);
 
-  const garden_ = byIdOf(templates).garden;
-  assert.deepEqual([garden_.goals, garden_.tells, garden_.skips, garden_.gives, garden_.closes, garden_.private], [['life', 'project'], 'A bed that needs water.', 'The lawn.', ['report', 'action'], 'Their word.', true]);
+  assert.deepEqual(newKeysOf(byIdOf(templates).garden), {
+    goals: ['life', 'project'],
+    tells: 'A bed that needs water.',
+    skips: 'The lawn.',
+    gives: ['report', 'action'],
+    closes: 'Their word.',
+    private: true,
+  });
   const reported = Object.fromEntries(errors.map(({ file, message }) => [file.split('/').at(-1), message]));
   assert.deepEqual(Object.keys(reported).sort(), ['odd-gives.md', 'odd-goal.md', 'odd-private.md']);
   assert.match(reported['odd-goal.md'], /hobbies/);

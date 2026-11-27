@@ -47,14 +47,16 @@ function readHeader(text) {
 
 const listOf = value => (value ? value.split(',').map(entry => entry.trim()).filter(Boolean) : []);
 
-function oneOf(values, allowed, name) {
+/** The header's list under `key`, every entry one of `allowed`. */
+function listFrom(header, key, allowed) {
+  const values = listOf(header[key]);
   const odd = values.find(value => !allowed.includes(value));
-  if (odd) throw Error(`has the ${name} ${odd}, and ${name === 'output' ? 'an' : 'a'} ${name} is one of ${allowed.join(', ')}`);
+  if (odd) throw Error(`has ${odd} in ${key}, which takes ${allowed.join(', ')}`);
   return values;
 }
 
 function goalsOf(header) {
-  if (header.goals) return [...new Set(oneOf(listOf(header.goals), TEMPLATE_GOALS, 'goal'))];
+  if (header.goals) return [...new Set(listFrom(header, 'goals', TEMPLATE_GOALS))];
   if (!header.group) return [];
   if (!GROUP_GOALS[header.group]) throw Error(`has the group ${header.group}, and a group is one of ${Object.keys(GROUP_GOALS).join(', ')}`);
   return [GROUP_GOALS[header.group]];
@@ -88,7 +90,7 @@ export function readTemplate(file, source) {
     fits: header.fits,
     tells: header.tells || null,
     skips: header.skips || null,
-    gives: oneOf(listOf(header.gives), TEMPLATE_GIVES, 'output'),
+    gives: listFrom(header, 'gives', TEMPLATE_GIVES),
     closes: header.closes || null,
     private: privateOf(header.private),
     asks: header.asks || null,
@@ -173,8 +175,21 @@ export function listTemplates(root) {
 }
 
 /** What a card shows of a template, and what setup hands back to write it. Every part a template leaves out is null or empty. */
-const cardOf = ({ id, version, source, title, summary, needs, recurrence, tells, skips, gives, closes, private: reads, asks, effort }) => ({
-  id, version, source, title, summary, needs, recurrence, tells, skips, gives, closes, private: reads, asks, effort,
+const cardOf = template => ({
+  id: template.id,
+  version: template.version,
+  source: template.source,
+  title: template.title,
+  summary: template.summary,
+  needs: template.needs,
+  recurrence: template.recurrence,
+  tells: template.tells,
+  skips: template.skips,
+  gives: template.gives,
+  closes: template.closes,
+  private: template.private,
+  asks: template.asks,
+  effort: template.effort,
 });
 
 /**
@@ -186,16 +201,25 @@ export function goalCards(root, goals) {
   const picked = TEMPLATE_GOALS.filter(goal => goals.includes(goal));
   const { templates } = listTemplates(root);
   const byId = new Map(templates.map(template => [template.id, template]));
-  const startedUnder = new Map();
+
+  const starterGoal = new Map();
   for (const goal of picked) {
-    for (const id of GOAL_STARTERS[goal]) if (byId.has(id) && !startedUnder.has(id)) startedUnder.set(id, goal);
+    for (const id of GOAL_STARTERS[goal]) {
+      if (byId.has(id) && !starterGoal.has(id)) starterGoal.set(id, goal);
+    }
   }
-  const moreOf = goal => templates
-    .filter(({ id, goals: named }) => !startedUnder.has(id) && named.find(entry => picked.includes(entry)) === goal)
-    .toSorted((first, second) => first.goals.indexOf(goal) - second.goals.indexOf(goal) || first.id.localeCompare(second.id));
-  return picked.map(goal => ({
-    goal,
-    starters: GOAL_STARTERS[goal].filter(id => startedUnder.get(id) === goal).map(id => cardOf(byId.get(id))),
-    more: moreOf(goal).map(cardOf),
-  }));
+  const others = templates.filter(({ id }) => !starterGoal.has(id));
+  const moreGoal = template => template.goals.find(goal => picked.includes(goal));
+
+  return picked.map(goal => {
+    const starters = GOAL_STARTERS[goal].filter(id => starterGoal.get(id) === goal);
+    const more = others
+      .filter(template => moreGoal(template) === goal)
+      .toSorted((first, second) => first.goals.indexOf(goal) - second.goals.indexOf(goal) || first.id.localeCompare(second.id));
+    return {
+      goal,
+      starters: starters.map(id => cardOf(byId.get(id))),
+      more: more.map(cardOf),
+    };
+  });
 }

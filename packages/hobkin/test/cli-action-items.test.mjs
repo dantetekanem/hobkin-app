@@ -319,8 +319,16 @@ test('each new or newer template becomes one item to try, and an answer holds fo
 
 test('new templates from one update file one item that lists them all, once, and a newer version keeps its own', async t => {
   const root = home(t);
-  const roles = { id: 'job-openings', title: 'Roles that fit', version: 1, summary: 'New openings that fit the role they want.', fits: 'Someone looking for a job.', file: '/hobkin/routine-templates/job-openings.md' };
+  const roles = {
+    id: 'job-openings',
+    title: 'Roles that fit',
+    version: 1,
+    summary: 'New openings that fit the role they want.',
+    fits: 'Someone looking for a job.',
+    file: '/hobkin/routine-templates/job-openings.md',
+  };
   const runway = { ...roles, id: 'runway', title: 'Runway', summary: 'How many months the business can run.', file: '/hobkin/routine-templates/runway.md' };
+  const competitors = { ...runway, id: 'competitors', title: 'Competitors' };
   const brief = { ...roles, id: 'morning-brief', title: 'Morning brief', version: 2 };
 
   assert.equal(fileTemplateNews(root, { added: [roles, runway], updated: [brief] }, NOW).length, 2);
@@ -334,9 +342,13 @@ test('new templates from one update file one item that lists them all, once, and
   assert.equal(newer.answerTo.id, 'morning-brief', 'a newer version keeps its own item');
 
   const told = [];
-  const deliverMain = async (decision, words, handOff) => { told.push([decision.id, words, handOff]); };
+  const deliverMain = async (decision, words, handOff) => {
+    told.push([decision.id, words, handOff]);
+  };
   await carryOutAnswer(root, both.id, { value: 'some', deliverMain }, NOW);
   assert.deepEqual(told, [[both.id, ROUTINE_ASKS.some, true]], 'one message to main hobkin');
-  assert.deepEqual(fileTemplateNews(root, { added: [runway, roles] }, NOW + 60 * DAY_MS), [], 'the same set is not filed again');
-  assert.equal(fileTemplateNews(root, { added: [roles, { ...runway, id: 'competitors', title: 'Competitors' }] }, NOW + 60 * DAY_MS).length, 1, 'another set is');
+
+  const later = NOW + 60 * DAY_MS;
+  assert.deepEqual(fileTemplateNews(root, { added: [runway, roles] }, later), [], 'the same set is not filed again');
+  assert.equal(fileTemplateNews(root, { added: [roles, competitors] }, later).length, 1, 'another set is');
 });
