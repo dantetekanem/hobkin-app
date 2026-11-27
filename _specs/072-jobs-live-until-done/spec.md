@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["053-run-waits", "056-agent-schedules"],
-  "updated": "2026-11-25"
+  "updated": "2026-11-26"
 }
 ---
 # A job lives until its agent says it is done
@@ -77,3 +77,4 @@ The user, 2026-11-24: "review how hobkins work when asked, they keep creating wo
 - [x] S3 (A4, A5). Runtime: hobkin 35ae661 (`session-job.md`, the main may do a job of a few commands), 4eea6b5 (`v2-runtime.md` matches). Left: `src/cli/session.mjs`'s closing words still say not to merge; another agent holds uncommitted edits there. A job may push only when it is a push or deploy the user said yes to.
 - [x] S4 (A6, A7). Runtime: hobkin 3564e0e, d8ca6f6.
 - [x] S5 (A1, A2). The window: a living idle job reads as idle, not working, and Stop ends it. The host passes `runs` whole, so `idle` and `idleSince` only needed their types on `RunSummary`. The dock says "idle since 10:51 PM · its last words" with its face at rest and counts it apart ("1 working · 1 idle"), Home's chip leaves it out and its card says Idle, and the agent page says "Idle since 10:51 PM · waiting for a message" where Thinking was. Stop is unchanged: the run stays among hobkin's active runs while it lives, so hobkin lists its stop control (read in hobkin's `runtime.mjs` and `harnesses.mjs`, not run). `ui/test/run-idle.test.ts` 5 of 5. Not seen in the window.
+- [x] S6 (A1, A4). A job started through a configured launcher lives until it is done too: it gets `hobkin_done` beside the launcher's own extensions and reads `session-job.md`, so a turn that asks no longer ends it. Runtime: 63229b86, de63741c. `test/cli-jobs-live-until-done.test.mjs` 17 of 17. Agents a job or the main chat spawns with pi-extended-teams that wait on an answer stay alive until the reply too (pi-extended-teams 36ec637, b903cc6).
