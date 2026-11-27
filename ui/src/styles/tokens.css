@@ -179,6 +179,10 @@
   /* On the dark theme light strokes thin out, so every face carries a touch more weight there. */
   --weight-text: calc(var(--weight-base) + var(--weight-dark, 0));
 }
+:root[data-font-size="small"] { --hb-font-scale: 0.9; }
+:root[data-font-size="large"] { --hb-font-scale: 1.15; }
+:root[data-font-size="extra-large"] { --hb-font-scale: 1.3; }
+
 :root[data-type="inter"] {
   --font-text: "Inter Variable";
   --weight-base: 420;

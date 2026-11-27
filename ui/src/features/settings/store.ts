@@ -15,6 +15,8 @@ export type Movement = 'lively' | 'system' | 'still'
 /** The face for reading text. Headings, labels and the wordmark stay in Space Grotesk. */
 export type TypeFace = 'space-grotesk' | 'inter' | 'geist' | 'dm-sans' | 'figtree'
 
+export type FontSize = 'small' | 'default' | 'large' | 'extra-large'
+
 /** Main hobkin's chat (chat-store.ts). Custom's request goes through it as a message the user sent. */
 interface MainChat {
   getState: () => { send: (text: string) => Promise<boolean>; problem: string | null }
@@ -28,6 +30,7 @@ interface SettingsState extends BorderColors {
    */
   sound: boolean
   typeFace: TypeFace
+  fontSize: FontSize
   /** The pet hobkin is drawn as (spec 047). Settings saved before the pets load with Ears, as the store fills in what a saved state lacks. */
   pet: PetChoice
   /** hobkin's own settings. Sample values until the host supplies hobkin's (020-settings, S5). */
@@ -77,6 +80,7 @@ interface SettingsState extends BorderColors {
   setMovement: (movement: Movement) => void
   setSound: (on: boolean) => void
   setTypeFace: (typeFace: TypeFace) => void
+  setFontSize: (fontSize: FontSize) => void
   setPet: (pet: PetChoice) => void
   /** The number the sample agents follow with no host, and the one kept for when there is none. */
   setAgents: (agents: number) => void
@@ -142,6 +146,7 @@ export const useSettings = create<SettingsState>()(
       movement: 'system',
       sound: false,
       typeFace: 'space-grotesk',
+      fontSize: 'default',
       pet: DEFAULT_PET,
       agents: AGENTS.initial,
       dailyTokens: BUDGET.initial,
@@ -185,6 +190,7 @@ export const useSettings = create<SettingsState>()(
       setMovement: (movement) => set({ movement }),
       setSound: (sound) => set({ sound }),
       setTypeFace: (typeFace) => set({ typeFace }),
+      setFontSize: (fontSize) => set({ fontSize }),
       setPet: (pet) => set({ pet: petOr(pet) }),
       setAgents: (agents) => set({ agents: clampAgents(agents, AGENTS.max) }),
       setDailyTokens: (tokens) => set({ dailyTokens: stepBudget(tokens, 0) }),
@@ -210,12 +216,14 @@ export const useSettings = create<SettingsState>()(
       // Storage can hold anything: a look it does not know opens reviews in Graph, and a flow it does not know reads left to right.
       merge: (saved, current) => {
         const kept = (saved ?? {}) as Partial<SettingsState>
-        return { ...current, ...kept, reviewView: readLook(kept.reviewView), reviewGraphFlow: readFlow(kept.reviewGraphFlow) }
+        const fontSize = kept.fontSize === 'small' || kept.fontSize === 'large' || kept.fontSize === 'extra-large' ? kept.fontSize : 'default'
+        return { ...current, ...kept, fontSize, reviewView: readLook(kept.reviewView), reviewGraphFlow: readFlow(kept.reviewGraphFlow) }
       },
-      partialize: ({ movement, sound, typeFace, pet, agents, dailyTokens, usageEvents, feedback, screensOutOfMenu, backgroundOpacity, openByDefault, reviewView, reviewGraphFlow, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
+      partialize: ({ movement, sound, typeFace, fontSize, pet, agents, dailyTokens, usageEvents, feedback, screensOutOfMenu, backgroundOpacity, openByDefault, reviewView, reviewGraphFlow, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
         movement,
         sound,
         typeFace,
+        fontSize,
         pet,
         agents,
         dailyTokens,

@@ -129,6 +129,15 @@ test('the store loads settings saved at version 1 without losing them', async ()
     assert.deepEqual(JSON.parse(values.get('hobkin-client-settings')!).state.openByDefault, { change: false, shell: true, looks: false, other: false }, 'kept with the window\'s other settings')
     state.setOpenByDefault('shell', false)
 
+    assert.equal(state.fontSize, 'default', 'older settings keep the original text size')
+    for (const size of ['small', 'large', 'extra-large', 'default'] as const) {
+      state.setFontSize(size)
+      assert.equal(JSON.parse(values.get('hobkin-client-settings')!).state.fontSize, size)
+      await useSettings.persist.rehydrate()
+      assert.equal(useSettings.getState().fontSize, size)
+      assert.equal(useSettings.getState().typeFace, 'geist')
+    }
+
     assert.equal(state.appearanceId, 0)
     state.receive({ id: 10, name: 'Night', palette: DARK_PALETTE })
     assert.equal(useSettings.getState().appearanceId, 10)

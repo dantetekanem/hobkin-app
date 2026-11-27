@@ -42,7 +42,7 @@ import { clampAgents, hoodRow } from '@/features/work/agents-at-once.ts'
 import { AgentsStepper } from '@/features/work/AgentsStepper.tsx'
 import { play } from '@/features/sound/index.ts'
 import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, activeThemeLabel, budgetUse, formatTokens, stepBudget, type ActiveTheme, type BlockKind } from './rules.ts'
-import { useSettings, type Movement, type TypeFace } from './store.ts'
+import { useSettings, type FontSize, type Movement, type TypeFace } from './store.ts'
 
 /**
  * Settings, as hobkin's desk: each setting is a small living scene, and the scene is the control.
@@ -548,9 +548,17 @@ const FACES: readonly { value: TypeFace; label: string }[] = [
   { value: 'figtree', label: 'Figtree' },
 ]
 
-/** The face for reading text. The whole app changes as the choice does, so the app itself is the preview. */
+const FONT_SIZES: readonly { value: FontSize; label: string }[] = [
+  { value: 'small', label: 'Small' },
+  { value: 'default', label: 'Default' },
+  { value: 'large', label: 'Large' },
+  { value: 'extra-large', label: 'Extra large' },
+]
+
 function TypeTile() {
   const typeFace = useSettings((state) => state.typeFace)
+  const fontSize = useSettings((state) => state.fontSize)
+  const setFontSize = useSettings((state) => state.setFontSize)
   const setTypeFace = useSettings((state) => state.setTypeFace)
 
   return (
@@ -562,7 +570,16 @@ function TypeTile() {
         <p className="text-[12px] text-muted-foreground">Yesterday · 42 messages · storefront · 4 queued, 2 waiting on you</p>
       </div>
       <p className="text-[12px] text-muted-foreground">This is the face for reading. Headings, the menu and the wordmark stay in Space Grotesk.</p>
-      <Choice label="Text face" value={typeFace} options={FACES} onChoose={(value) => setTypeFace(value)} />
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div className="flex flex-col items-start gap-2">
+          <span className="text-[12px] text-muted-foreground">Font face</span>
+          <Choice label="Text face" value={typeFace} options={FACES} onChoose={setTypeFace} />
+        </div>
+        <div className="flex flex-col items-start gap-2">
+          <span className="text-[12px] text-muted-foreground">Font size</span>
+          <Choice label="Font size" value={fontSize} options={FONT_SIZES} onChoose={setFontSize} />
+        </div>
+      </div>
     </Tile>
   )
 }

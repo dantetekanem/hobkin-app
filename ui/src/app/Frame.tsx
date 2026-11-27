@@ -41,6 +41,7 @@ export function Frame() {
   const conversationWidth = useView((view) => view.conversationWidth)
   const movement = useSettings((state) => state.movement)
   const typeFace = useSettings((state) => state.typeFace)
+  const fontSize = useSettings((state) => state.fontSize)
   const chatSide = useRef<HTMLDivElement | null>(null)
   useFrameKeys()
   useEffect(watchKeyboard, [])
@@ -55,7 +56,8 @@ export function Frame() {
   }, [movement])
   useEffect(() => {
     document.documentElement.dataset.type = typeFace
-  }, [typeFace])
+    document.documentElement.dataset.fontSize = fontSize
+  }, [typeFace, fontSize])
 
   return (
     <MotionConfig reducedMotion={movement === 'still' ? 'always' : movement === 'lively' ? 'never' : 'user'}>
