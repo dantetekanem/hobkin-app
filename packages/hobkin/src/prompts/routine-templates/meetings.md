@@ -2,10 +2,13 @@
 title: Meetings
 summary: Today's meetings, what each one needs and any clashes, and after each meeting with other people, its notes and action items.
 recurrence: Weekday mornings, with a refresh at midday and mid-afternoon
-group: day
+goals: business, code, project
 needs: calendar, meeting notes
 effort: medium
 fits: Someone whose day runs on meetings and who wants to walk into each one ready and come out with the action items written down.
+tells: What each of today's meetings needs and any clashes, and after each meeting with others, its notes and action items.
+gives: report, follow-up
+closes: The meeting ending with its notes gathered, or moving or being cancelled.
 asks: Where do their meeting notes land after a meeting?
 version: 2
 ---

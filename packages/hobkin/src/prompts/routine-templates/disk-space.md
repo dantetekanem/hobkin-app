@@ -2,9 +2,12 @@
 title: Disk space
 summary: What takes space on the machine, such as caches, build output and old worktrees, and what could go.
 recurrence: Daily, early in the morning
-group: machine
+goals: code
 effort: medium
 fits: Someone whose disk keeps filling up with caches and build output they forget to clear.
+tells: What takes space and could go, with how much each would free.
+gives: report
+closes: The space coming free, or their word.
 asks: Which disks or folders should it look at, and what may it remove on its own?
 ---
 

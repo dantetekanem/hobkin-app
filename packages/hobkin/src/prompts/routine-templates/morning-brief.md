@@ -2,10 +2,13 @@
 title: Morning brief
 summary: Whether today holds more than fits, today's meetings and what each needs, the reviews waiting on them, their stuck work and what is left from yesterday, on one screen.
 recurrence: Weekday mornings
-group: day
+goals: code, life
 needs: calendar, code host
 effort: medium
 fits: Someone who wants one look in the morning to know what today holds, whether it fits, and what yesterday left open.
+tells: Whether today fits, today's meetings and what each needs, the reviews waiting, stuck work and what yesterday left open.
+gives: report
+closes: Its live state at the next brief, such as a review done or a meeting past.
 version: 2
 ---
 

@@ -50,7 +50,7 @@ Get to know their days before offering anything. Ask one question at a time, in 
 4. What they are working towards in the coming months, such as a goal for their health, money, learning, a move or a project of their own.
 5. Which tools hold all this: their calendar, mail, chat, code host and notes.
 
-Then run `hobkin routines templates --home /supplied/root`. It prints every template as JSON, each with its `summary`, `recurrence`, `needs`, `effort`, `fits`, `asks` and `file`, then the `rules` every routine made from a template keeps, and any template it could not read. Match their answers against each `fits`, and offer the two or three that fit best, each with one line on why it fits them. When their tools do not reach what one `needs`, say so and offer to connect it, as "Connect what they use" above says. If none fits, or they want to see more, list the templates by `group`, one line each. A routine of their own design is fine too.
+Then run `hobkin routines templates --home /supplied/root`. It prints every template as JSON, each with its `summary`, `recurrence`, `needs`, `effort`, `fits`, `asks` and `file`, then the `rules` every routine made from a template keeps, and any template it could not read. Match their answers against each `fits`, and offer the two or three that fit best, each with one line on why it fits them. When their tools do not reach what one `needs`, say so and offer to connect it, as "Connect what they use" above says. If none fits, or they want to see more, list the templates by goal, from the first goal in each one's `goals`, one line each. A routine of their own design is fine too.
 
 Two or three routines are enough to start. For each one they pick, read its `file`, ask what its `asks` says if it has one, and settle:
 

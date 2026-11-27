@@ -4,10 +4,25 @@ import { fileURLToPath } from 'node:url';
 import { atomicJson } from './config.mjs';
 import { routinesFolder } from './schedules.mjs';
 
-export const TEMPLATE_GROUPS = ['day', 'code', 'week', 'life', 'machine'];
+/** What a person can be working toward in setup, in the order setup asks about them. The client keeps the same list. */
+export const TEMPLATE_GOALS = ['job', 'business', 'project', 'life', 'code'];
+/** What a routine made from a template gives the person. */
+export const TEMPLATE_GIVES = ['report', 'action', 'critical', 'follow-up'];
+/** The three cards setup starts each goal with. The rest of a goal's templates are its More. */
+export const GOAL_STARTERS = {
+  job: ['job-openings', 'job-applications', 'interviews'],
+  business: ['business-leads', 'runway', 'competitors'],
+  project: ['project-milestones', 'project-blockers', 'deadlines-ahead'],
+  life: ['deadlines-ahead', 'email', 'money'],
+  code: ['review-queue', 'dependency-watch', 'unblocker'],
+};
+// A template written before goals named a group, and a person's own may still. Each group reads as the goal it served.
+const GROUP_GOALS = { day: 'life', week: 'life', life: 'life', code: 'code', machine: 'code' };
 const EFFORTS = ['low', 'medium', 'high'];
 const WHOLE_NUMBER = /^[1-9]\d*$/;
-const REQUIRED = ['title', 'summary', 'recurrence', 'group', 'fits'];
+const REQUIRED = ['title', 'summary', 'recurrence', 'fits'];
+// What a card shows and setup writes from. A person's own template may leave these out, and its card leaves out those rows.
+const REQUIRED_OF_HOBKIN = [...REQUIRED, 'goals', 'tells', 'gives', 'closes'];
 // A template is named for what it does. README.md, RULES.md or any other file named another way is about templates, not one.
 const TEMPLATE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
 const LARGEST_TEMPLATE = 16384;
@@ -30,14 +45,34 @@ function readHeader(text) {
   return header;
 }
 
-function readTemplate(file, source) {
+const listOf = value => (value ? value.split(',').map(entry => entry.trim()).filter(Boolean) : []);
+
+function oneOf(values, allowed, name) {
+  const odd = values.find(value => !allowed.includes(value));
+  if (odd) throw Error(`has the ${name} ${odd}, and ${name === 'output' ? 'an' : 'a'} ${name} is one of ${allowed.join(', ')}`);
+  return values;
+}
+
+function goalsOf(header) {
+  if (header.goals) return [...new Set(oneOf(listOf(header.goals), TEMPLATE_GOALS, 'goal'))];
+  if (!header.group) return [];
+  if (!GROUP_GOALS[header.group]) throw Error(`has the group ${header.group}, and a group is one of ${Object.keys(GROUP_GOALS).join(', ')}`);
+  return [GROUP_GOALS[header.group]];
+}
+
+function privateOf(value = 'no') {
+  if (!['yes', 'no'].includes(value)) throw Error(`has private: ${value}, and private is yes or no`);
+  return value === 'yes';
+}
+
+/** One template file. hobkin's own must say what a card shows; a person's own needs only what setup matches on. */
+export function readTemplate(file, source) {
   const stat = lstatSync(file);
   if (!stat.isFile()) throw Error('must be a regular file, not a link');
   if (stat.size > LARGEST_TEMPLATE) throw Error('is too large');
   const header = readHeader(readFileSync(file, 'utf8'));
-  const missing = REQUIRED.filter(key => !header[key]);
+  const missing = (source === 'hobkin' ? REQUIRED_OF_HOBKIN : REQUIRED).filter(key => !header[key]);
   if (missing.length) throw Error(`needs ${missing.join(', ')} in its header`);
-  if (!TEMPLATE_GROUPS.includes(header.group)) throw Error(`has the group ${header.group}, and a group is one of ${TEMPLATE_GROUPS.join(', ')}`);
   const effort = header.effort || 'medium';
   if (!EFFORTS.includes(effort)) throw Error(`has the effort ${effort}, and an effort is one of ${EFFORTS.join(', ')}`);
   const version = header.version || '1';
@@ -47,10 +82,15 @@ function readTemplate(file, source) {
     title: header.title,
     summary: header.summary,
     recurrence: header.recurrence,
-    group: header.group,
-    needs: header.needs ? header.needs.split(',').map(need => need.trim()).filter(Boolean) : [],
+    goals: goalsOf(header),
+    needs: listOf(header.needs),
     effort,
     fits: header.fits,
+    tells: header.tells || null,
+    skips: header.skips || null,
+    gives: oneOf(listOf(header.gives), TEMPLATE_GIVES, 'output'),
+    closes: header.closes || null,
+    private: privateOf(header.private),
     asks: header.asks || null,
     version: Number(version),
     file,
@@ -72,7 +112,9 @@ function readFolder(folder, source) {
   return found;
 }
 
-const inMenuOrder = (first, second) => TEMPLATE_GROUPS.indexOf(first.group) - TEMPLATE_GROUPS.indexOf(second.group) || first.id.localeCompare(second.id);
+// By the goal each serves best, and a template under no goal last.
+const goalPlace = ({ goals }) => (goals.length ? TEMPLATE_GOALS.indexOf(goals[0]) : TEMPLATE_GOALS.length);
+const inMenuOrder = (first, second) => goalPlace(first) - goalPlace(second) || first.id.localeCompare(second.id);
 
 const seenPath = root => join(root, 'runtime', 'templates-seen.json');
 
@@ -128,4 +170,32 @@ export function listTemplates(root) {
     templates: [...own.templates.filter(({ id }) => !replaced.has(id)), ...theirs.templates].toSorted(inMenuOrder),
     errors: [...own.errors, ...theirs.errors],
   };
+}
+
+/** What a card shows of a template, and what setup hands back to write it. Every part a template leaves out is null or empty. */
+const cardOf = ({ id, version, source, title, summary, needs, recurrence, tells, skips, gives, closes, private: reads, asks, effort }) => ({
+  id, version, source, title, summary, needs, recurrence, tells, skips, gives, closes, private: reads, asks, effort,
+});
+
+/**
+ * The cards setup shows for the goals picked, in the order of TEMPLATE_GOALS, each goal with its starters and its More. A template is one
+ * card in all of it: a starter under the first picked goal it starts, and any other under the first picked goal it names, best first. A
+ * goal's More goes by where that goal stands in each template's goals, then by name. A goal nobody knows is left out.
+ */
+export function goalCards(root, goals) {
+  const picked = TEMPLATE_GOALS.filter(goal => goals.includes(goal));
+  const { templates } = listTemplates(root);
+  const byId = new Map(templates.map(template => [template.id, template]));
+  const startedUnder = new Map();
+  for (const goal of picked) {
+    for (const id of GOAL_STARTERS[goal]) if (byId.has(id) && !startedUnder.has(id)) startedUnder.set(id, goal);
+  }
+  const moreOf = goal => templates
+    .filter(({ id, goals: named }) => !startedUnder.has(id) && named.find(entry => picked.includes(entry)) === goal)
+    .toSorted((first, second) => first.goals.indexOf(goal) - second.goals.indexOf(goal) || first.id.localeCompare(second.id));
+  return picked.map(goal => ({
+    goal,
+    starters: GOAL_STARTERS[goal].filter(id => startedUnder.get(id) === goal).map(id => cardOf(byId.get(id))),
+    more: moreOf(goal).map(cardOf),
+  }));
 }

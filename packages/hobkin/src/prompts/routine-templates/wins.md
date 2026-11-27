@@ -2,9 +2,13 @@
 title: Wins
 summary: The week's wins added to a notes file, each with a link that proves it, ready for their next performance review.
 recurrence: Friday afternoon, before the weekly review
-group: week
+goals: job, code
 effort: high
 fits: Someone who dreads their performance review because they cannot remember what they did months ago.
+tells: A win this week with a link that proves it, added to their wins file.
+skips: Wins already in the file, and any win with no link to prove it.
+gives: report
+closes: Each win is told once, and stays in the file.
 asks: Which notes file should the wins go in?
 ---
 

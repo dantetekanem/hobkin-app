@@ -2,10 +2,14 @@
 title: Important dates
 summary: Birthdays, anniversaries and events of the people who matter to them, two weeks ahead, with time to plan a present or a booking.
 recurrence: Daily, early in the morning
-group: life
+goals: life
 needs: calendar, contacts
 effort: medium
 fits: Someone who wants to be a week or two ahead of the dates that matter, like a partner's birthday, instead of remembering the day before.
+tells: A date of someone they named, 14 days away, and again at 7 days unless it is handled.
+gives: report, action
+closes: Their word that it is handled, or the date passing.
+private: yes
 asks: Whose dates should it keep, and which ones: birthdays, anniversaries, or events such as a recital or a trip?
 version: 1
 ---

@@ -2,10 +2,13 @@
 title: Unblocker
 summary: Where their own pull requests are stuck, one line each, with the one move that unblocks it.
 recurrence: Hourly in working hours
-group: code
+goals: code
 needs: gh or the CLI of their code host
 effort: medium
 fits: Someone with several pull requests open at once who loses time finding out which one is stuck and why.
+tells: Where one of their pull requests is stuck, with the one move that unblocks it.
+gives: report
+closes: The pull request merged or closed, or the move done.
 asks: Which repositories should it watch, and how long can a review wait before it counts as stuck?
 ---
 

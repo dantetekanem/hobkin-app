@@ -2,9 +2,12 @@
 title: Dependency watch
 summary: Outdated or vulnerable packages in a project, and the upgrade that fixes each one.
 recurrence: Weekly
-group: code
+goals: code
 effort: medium
 fits: Someone who maintains a project and wants to hear about vulnerable or outdated packages without checking by hand.
+tells: A package with a known vulnerability, or one that fell behind, with the upgrade that fixes it.
+gives: report
+closes: The upgrade landing in the project, or their word.
 asks: Which project should it watch?
 ---
 

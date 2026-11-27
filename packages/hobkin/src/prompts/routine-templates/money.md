@@ -2,10 +2,14 @@
 title: Money
 summary: What changed in their money, what is due and how long their savings would last.
 recurrence: Monthly
-group: life
+goals: life, business
 needs: a read-only source for their finances
 effort: medium
 fits: Someone who wants to know each month where their money stands and how long they could go without income.
+tells: What changed since last month, what is due before the next run, and how long their savings would last.
+gives: report
+closes: A payment due showing as paid in their source, or their word.
+private: yes
 asks: Which read-only source holds their finances?
 ---
 

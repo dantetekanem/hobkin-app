@@ -2,10 +2,13 @@
 title: Quality check
 summary: Whether the code they merged works in production, from its telemetry, errors and similar issues, and what they still cannot see, such as a missing metric, alert or dashboard.
 recurrence: Weekday afternoons
-group: code
+goals: code
 needs: code host, telemetry, error tracker
 effort: high
 fits: Someone who ships code and wants to know it works for real, or who heard about a broken feature from a user before any alert or graph showed it.
+tells: Whether each merged change works in production, with the numbers, and each gap they still cannot see.
+gives: report, action
+closes: A later run that sees the gap closed, with what shows it.
 asks: Which repositories should it watch, and where can it read their metrics, logs, errors and dashboards?
 version: 2
 ---

@@ -2,9 +2,12 @@
 title: Tool drift
 summary: The Pi packages and CLIs they rely on that have fallen behind upstream.
 recurrence: Daily, early in the morning
-group: machine
+goals: code
 effort: low
 fits: Someone who relies on Pi and a set of CLIs and wants to know when they fall behind without checking each one.
+tells: A Pi package or CLI that fell behind its latest release, with the version it would move to.
+gives: report
+closes: The tool updated, or their word.
 asks: Which CLIs do they rely on, and what may it update on its own?
 ---
 

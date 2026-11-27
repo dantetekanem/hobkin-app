@@ -2,10 +2,14 @@
 title: Deadlines ahead
 summary: Appointments, bills and renewals coming up, each warned once a week ahead and once the day before.
 recurrence: Daily, early in the morning
-group: day
+goals: life, project
 needs: calendar, mail
 effort: low
 fits: Someone who has missed a bill, a renewal or an appointment because it crept up on them.
+tells: A dated commitment 7 days away, and again the day before.
+gives: report
+closes: The date passing, or their word.
+private: yes
 asks: Is there anything it should leave out, such as birthdays?
 ---
 

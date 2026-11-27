@@ -2,10 +2,13 @@
 title: Deploy follow-up
 summary: Follows the deploy of each of their pull requests that merges, and reports a failed deploy or new errors.
 recurrence: The day each of their pull requests merges, written by the unblocker, or by an hourly check for their merges when they do not use one
-group: code
+goals: code
 needs: deploys, error tracker
 effort: medium
 fits: Someone who merges and moves on, and wants to hear when a deploy fails or brings new errors.
+tells: A failed deploy or new errors since one of their merges, and once that the deploy is live.
+gives: report, follow-up
+closes: The window after the merge ending, or their word.
 asks: Where can it read their deploys and their errors?
 ---
 

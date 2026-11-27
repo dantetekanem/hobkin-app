@@ -2,9 +2,12 @@
 title: Weekly review
 summary: What shipped, what they unblocked and what slipped this week, the days that were too full, how much deciding the week took, and what to approve or stop.
 recurrence: The last working day of the week
-group: week
+goals: project, code, business
 effort: high
 fits: Someone who ends the week unsure what they actually got done, or who has to report on it.
+tells: What shipped, what they unblocked and what slipped, the days that were too full, the week's deciding, and what to approve or stop.
+gives: report, action
+closes: The user's own call on each thing it names. It changes nothing itself.
 version: 2
 ---
 
