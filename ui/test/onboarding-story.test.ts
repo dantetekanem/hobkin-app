@@ -23,6 +23,7 @@ import {
   spokenText,
   startTale,
   tellOn,
+  troubleAt,
   workSaid,
   type Answers,
   type BeatId,
@@ -614,6 +615,28 @@ test('the folder, the projects and validation are asked only with code, and only
   assert.deepEqual(setupAnswersOf(job, [folderOf('storefront')], []).projects, [])
   assert.equal(beatAfter('q2', { ...picked, replies: { projects: '  ' } }, hosted), 'q3', 'nothing picked, nothing to say')
   assert.equal(beatAfter('q2', picked, { ...hosted, host: false }), 'q3', 'with no host nothing was done, as in a browser tab on sample data')
+})
+
+test('a folder left empty passes the projects question, and one that is not on this Mac is said in the bubble with the field to type another', () => {
+  const empty: Answers = { ...picked, replies: { 'projects-folder': '  ' } }
+  assert.equal(beatAfter('q1', empty, hosted), 'q3', 'no folder is looked in, not even a usual one')
+  assert.equal(tellOn({ at: 'q1', line: 0, trail: ['more'], ended: null }, 'answered', empty, hosted).at, 'q3')
+  assert.equal(beatAfter('more', { ...picked, replies: {} }, hosted), 'q1', 'the folder itself is always asked')
+
+  const asked = beatOf('q1', picked, hosted)
+  const missing = beatOf('q1', picked, { ...hosted, folderMissing: '~/Projects' })
+  assert.equal(missing.lines.length, 1, 'one bubble, so the field comes with it')
+  assert.match(missing.lines[0]!, /~\/Projects/, 'it names the folder it could not find')
+  assert.notDeepEqual(missing.lines, asked.lines)
+  assert.deepEqual(missing.ask, asked.ask, 'the same field, to type another or skip')
+  assert.deepEqual(beatOf('q4', { ...picked, goals: ['code', 'project'] }, { ...hosted, folderMissing: '~/Projects' }).lines, beatOf('q4', { ...picked, goals: ['code', 'project'] }, hosted).lines, 'only the folder question says it')
+})
+
+test('a line in the quiet line is up only while the story is at the beat it was said at', () => {
+  const said = { words: 'I could not keep your answers.', at: 'q2' as const }
+  assert.equal(troubleAt(said, 'q2'), said.words)
+  assert.equal(troubleAt(said, 'q3'), null, 'gone once the story moves on')
+  assert.equal(troubleAt(null, 'q2'), null)
 })
 
 test('while the projects go to Work the story waits, then hobkin says what was done, and none of it can be gone back to', () => {

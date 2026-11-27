@@ -25,14 +25,12 @@ export type Question =
   /** `yes` and `no` are the words on the two bubbles, and the answer that is kept. */
   | (Asked & { kind: 'yes'; yes: string; no: string })
 
-/** Where projects usually live, for a folder that was never said. */
-export const USUAL_FOLDER = '~/Projects'
-
+/** Left empty, no folder is looked in, so the field shows no folder as if it were the answer. */
 const WHERE_PROJECTS_LIVE: Question = {
   id: 'projects-folder',
   ask: 'Where do your projects live? Give me the folder.',
   kind: 'folder',
-  placeholder: USUAL_FOLDER,
+  placeholder: 'Type a folder, or pick one above',
   suggestions: ['~/Projects', '~/Developer', '~/Code', '~/src'],
 }
 

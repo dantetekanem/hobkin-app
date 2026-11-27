@@ -5,7 +5,7 @@ import type { FirstModels } from '#shared/tiers/first-models.ts'
 import type { Mood } from '../../avatar/moods.tsx'
 import { cardsInOrder, cardsLines, firstRunLines, firstRunOf, keptCards, routinesSaid, type CardPicks, type GoalCards, type NamedRoutine, type Written } from './cards.ts'
 import { asksComputer, emailWhy, GOAL_BUBBLES, GOALS, goalQuestions, goalsSaid } from './goals.ts'
-import { USUAL_FOLDER, type Question } from './questions.ts'
+import type { Question } from './questions.ts'
 import { asksUsage, USAGE_CHOICES, USAGE_LINES, USAGE_MOOD } from './usage-ask.ts'
 
 /**
@@ -84,6 +84,8 @@ export interface Facts {
   written?: readonly Written[]
   /** What the host set hobkin's model and tiers to once an account was found or connected (`tiers.first`). Left out or null until it said. */
   models?: FirstModels | null
+  /** The folder typed for where the projects live, when it is not on this Mac. The folder question says so and asks again. */
+  folderMissing?: string | null
 }
 
 /** A question main hobkin has open, as the story asks it. */
@@ -305,8 +307,8 @@ function askFor(question: Question, replies: Answers['replies']): Ask {
         suggestions: question.suggestions,
       }
     case 'projects':
-      // The folder is the answer to the question before. Left out, the usual one is looked in.
-      return { kind: 'pick', question: question.id, from: { projectsIn: replies[question.in]?.trim() || USUAL_FOLDER } }
+      // The folder is the answer to the question before. The question is asked only once one was named.
+      return { kind: 'pick', question: question.id, from: { projectsIn: replies[question.in]?.trim() ?? '' } }
     case 'pick':
       return { kind: 'pick', question: question.id, from: { options: question.options } }
     case 'yes':
@@ -330,11 +332,15 @@ const ANSWERS_KEPT = 'I keep these answers in my home on this Mac. My agents rea
 /** The goals picked, none while the question was not answered. */
 const goalsOf = (answers: Answers): readonly Goal[] => answers.goals ?? []
 
-function questionBeat(id: QuestionBeat, { goals = [], replies }: Answers): Omit<Beat, 'id'> {
+function questionBeat(id: QuestionBeat, { goals = [], replies }: Answers, { folderMissing }: Facts): Omit<Beat, 'id'> {
   const questions = goalQuestions(goals)
   // A beat past the last question is never reached. It says the last one, so it still has words.
   const question = questions[Math.min(QUESTION_BEATS.indexOf(id), questions.length - 1)]
   if (!question) return { mood: 'listening', lines: ['Tell me more about it.'] }
+  // A folder that is not on this Mac is said in one bubble, and the same field takes another or a skip.
+  if (question.kind === 'folder' && folderMissing) {
+    return { mood: 'thinking', lines: [`I can't find ${folderMissing} on this Mac. Type the folder your projects are in, or skip.`], ask: askFor(question, replies) }
+  }
   return { mood: 'listening', lines: [question.ask], ask: askFor(question, replies) }
 }
 
@@ -359,11 +365,20 @@ const cardsFrom = (answers: Answers, facts: Facts): BeatId => {
   return first ? cardsBeatOf(first) : 'thanks'
 }
 
-/** The beat after one of the goals' questions, by its place, or the cards after the last. */
-function questionAfter(index: number, answers: Answers, facts: Facts): BeatId {
-  if (index + 1 < goalQuestions(goalsOf(answers)).length) return QUESTION_BEATS[index + 1]!
-  return cardsFrom(answers, facts)
+/** Whether a question is asked, for what was answered before it: the projects only once a folder was named. */
+function isAsked(question: Question, replies: Answers['replies']): boolean {
+  if (question.kind === 'projects') return Boolean(replies[question.in]?.trim())
+  return true
 }
+
+/** The first of the goals' questions from the one at `index` on that is asked, or the cards when none is. */
+function questionFrom(index: number, answers: Answers, facts: Facts): BeatId {
+  const next = goalQuestions(goalsOf(answers)).findIndex((question, at) => at >= index && isAsked(question, answers.replies))
+  return next === -1 ? cardsFrom(answers, facts) : QUESTION_BEATS[next]!
+}
+
+/** The beat after one of the goals' questions, by its place, or the cards after the last. */
+const questionAfter = (index: number, answers: Answers, facts: Facts): BeatId => questionFrom(index + 1, answers, facts)
 
 /** The routine hobkin offers to run first, once the writing is over, or null. */
 const firstRunFor = (facts: Facts): NamedRoutine | null => firstRunOf(facts.written ?? [], facts.smart)
@@ -508,7 +523,7 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
     case 'q4':
     case 'q5':
     case 'q6':
-      return questionBeat(id, answers)
+      return questionBeat(id, answers, facts)
     case 'projects-said': {
       // The projects went to work mode as the question was answered. hobkin waits for what was done, then says it.
       const { worked } = facts
@@ -680,7 +695,7 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
       return afterGoals(answers, facts)
     case 'more':
       if (!answers.more) return beforeSettings(facts)
-      return goalQuestions(goalsOf(answers)).length ? 'q1' : cardsFrom(answers, facts)
+      return questionFrom(0, answers, facts)
     case 'q1':
     case 'q2':
     case 'q3':
@@ -751,6 +766,15 @@ export function workSaid({ workMode, projects }: SetupWorkDone): string {
   }
   return left && (taken || proposed) ? `${main} I had ${few(left)} of them already.` : main
 }
+
+/** A line for the quiet line at the bottom, with the beat the story was at when it was said. */
+export interface Trouble {
+  words: string
+  at: BeatId
+}
+
+/** What the quiet line says now: a line said at this beat, and nothing once the story has moved on from it. */
+export const troubleAt = (trouble: Trouble | null, at: BeatId): string | null => (trouble?.at === at ? trouble.words : null)
 
 /** A piece of a bubble: a word, or a key to press, drawn as a key. */
 export interface Piece {

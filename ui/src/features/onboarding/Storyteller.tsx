@@ -32,10 +32,10 @@ import { NeedsPanel } from './NeedsPanel.tsx'
 import { PickCloud } from './PickCloud.tsx'
 import { foldersPicked, pickedAnswer, picksOf } from './picks.ts'
 import { PiPanel } from './PiPanel.tsx'
-import { checksWanted, goalAnswersOf, GOAL_WORDS, goalsOf, projectStart, setupAnswersOf } from './goals.ts'
+import { checksWanted, goalAnswersOf, goalQuestions, GOAL_WORDS, goalsOf, projectStart, setupAnswersOf } from './goals.ts'
 import { SAMPLE_PROJECTS, startingReply } from './questions.ts'
 import { sampleGoalCards } from './sample-cards.ts'
-import { beatOf, checkAnswer, followUpOf, piBlocks, skipShows, spokenText, type Answers, type Ask, type BeatId, type Facts, type Tale } from './story.ts'
+import { beatOf, checkAnswer, followUpOf, piBlocks, skipShows, spokenText, troubleAt, type Answers, type Ask, type BeatId, type Facts, type Tale, type Trouble } from './story.ts'
 import { endedAs, tourFollows } from './first-run.ts'
 import { useSetup } from './store.ts'
 import { keepUsage, usageAnswer } from './usage-ask.ts'
@@ -361,12 +361,28 @@ function useEarlier(): SetupSaved | null {
   return earlier
 }
 
+/** A folder typed for where the projects live that is not on this Mac, at the beat that asked, and how many times one was. */
+interface FolderMissing {
+  folder: string
+  at: BeatId
+  tries: number
+}
+
 /** Each bubble's id. A beat whose words change while it is up, as an answer comes back, says them as a new bubble. */
-function bubbleOf(tale: Tale, facts: Facts): string {
+function bubbleOf(tale: Tale, facts: Facts, missing: FolderMissing | null): string {
   if (tale.at === 'writing') return `${tale.at}:${facts.asked?.id ?? 'thinking'}`
   if (tale.at === 'projects-said') return `${tale.at}:${facts.worked ? 'said' : 'waiting'}`
+  // Each folder that is not there is said anew, the same one typed twice too.
+  if (missing?.at === tale.at) return `${tale.at}:missing:${missing.tries}`
   return `${tale.at}:${tale.line}`
 }
+
+/** Whether the folder is on this Mac, as the host finds it. A host that cannot say lets it through, and the projects question says why. */
+const folderThere = (folder: string): Promise<boolean> =>
+  runCommand('setup.projects', { folder }).then(
+    ({ found }) => found,
+    () => true,
+  )
 
 /** The message that asks main hobkin to write the kept routines: the goals, their answers, the cards and the projects' checks. */
 function writingRequestOf(answers: Answers, cards: readonly GoalCards[]): string | null {
@@ -546,18 +562,22 @@ export function Storyteller() {
   const earlier = useEarlier()
   // What work mode did with the projects picked: null while the host has not said.
   const [worked, setWorked] = useState<SetupWorkDone | 'failed' | null>(null)
-  // Something that was meant to be kept and was not. Said once, quietly, at the bottom.
-  const [trouble, setTrouble] = useState<string | null>(null)
+  // Something that was meant to be kept and was not. Said quietly at the bottom while the story is at the beat it was said at.
+  const [trouble, setTrouble] = useState<Trouble | null>(null)
+  const sayTrouble = (words: string) => setTrouble({ words, at: useSetup.getState().tale.at })
+  // A folder typed for the projects that is not on this Mac: the folder question says so and asks again.
+  const [missing, setMissing] = useState<FolderMissing | null>(null)
   // The routine cards for the goals picked, and the kept cards that have their routine once the writing is over.
-  const { cards, load: loadCards } = useGoalCards(hasHost, earlier, setTrouble)
+  const { cards, load: loadCards } = useGoalCards(hasHost, earlier, sayTrouble)
   const [written, setWritten] = useState<Written[] | undefined>(undefined)
   // The routine the setup ran, for the tour's stop about its first report.
   const firstRun = useRef<FirstRunStop | null>(null)
   // What hobkin's model and tiers were set to once an account was found or connected.
-  const models = useFirstModels(tale.at, setTrouble)
+  const models = useFirstModels(tale.at, sayTrouble)
+  const folderMissing = missing?.at === tale.at ? missing.folder : null
   const facts: Facts = useMemo(
-    () => ({ pi, connected: connectedNames(providers), claude, smart, asked: followUpOf(pending), host: hasHost, worked, cards, written, models }),
-    [pi, providers, claude, smart, pending, hasHost, worked, cards, written, models],
+    () => ({ pi, connected: connectedNames(providers), claude, smart, asked: followUpOf(pending), host: hasHost, worked, cards, written, models, folderMissing }),
+    [pi, providers, claude, smart, pending, hasHost, worked, cards, written, models, folderMissing],
   )
   const beat = beatOf(tale.at, answers, facts)
   const lastLine = tale.line >= beat.lines.length - 1
@@ -569,7 +589,7 @@ export function Storyteller() {
   const talking = act === 'talking'
 
   // Each question main hobkin asks is a bubble of its own, so its words arrive anew, and so is what it did with the projects.
-  const bubble = bubbleOf(tale, facts)
+  const bubble = bubbleOf(tale, facts, missing)
   const [said, sayAll] = useSaid(bubble, line, talking, still)
   // The question comes with the last bubble, once that bubble is said.
   const asking: Ask | null = talking && !leaving && lastLine && said ? (beat.ask ?? null) : null
@@ -579,8 +599,8 @@ export function Storyteller() {
   // An install is running: nothing goes back from it.
   const [busy, setBusy] = useState(false)
   // The TLA+ tools, set up in the background. The quiet line says how it goes while nothing went wrong.
-  const toolsLine = useProofTools(setTrouble)
-  const quietLine = trouble ?? toolsLine
+  const toolsLine = useProofTools(sayTrouble)
+  const quietLine = troubleAt(trouble, tale.at) ?? toolsLine
 
   // The kept cards, and the message that asks main hobkin to write them, from what was answered.
   const goals = answers.goals ?? []
@@ -600,7 +620,7 @@ export function Storyteller() {
       setWritten(done)
       tell('answered', { ...facts, written: done })
     },
-    onTrouble: setTrouble,
+    onTrouble: sayTrouble,
   })
 
   const on = () => {
@@ -640,7 +660,7 @@ export function Storyteller() {
     const now = useSetup.getState().answers
     const picked = cardPicksOf(cardsNow.current ?? [], now.cards ?? NO_PICKS)
     runCommand('setup.save', setupAnswersOf(now, picks.current, picked)).catch((error: unknown) => {
-      setTrouble(`I could not keep your answers: ${reasonOf(error)}`)
+      sayTrouble(`I could not keep your answers: ${reasonOf(error)}`)
     })
   }
 
@@ -662,12 +682,12 @@ export function Storyteller() {
       (done) => {
         if (asked !== handed.current) return
         setWorked(done)
-        if (done.folder.problem) setTrouble(`I could not keep ${folder} for work mode. ${done.folder.problem}`)
+        if (done.folder.problem) sayTrouble(`I could not keep ${folder} for work mode. ${done.folder.problem}`)
       },
       (error: unknown) => {
         if (asked !== handed.current) return
         setWorked('failed')
-        setTrouble(`I could not put your projects in Work: ${reasonOf(error)}`)
+        sayTrouble(`I could not put your projects in Work: ${reasonOf(error)}`)
       },
     )
   }
@@ -679,7 +699,16 @@ export function Storyteller() {
     const value = text.trim()
 
     if (ask.field.kind === 'reply') {
-      replied(ask.field.question, value)
+      const { question } = ask.field
+      // A folder for the projects that is not on this Mac is said in hobkin's bubble, and the field asks again.
+      const isFolder = goalQuestions(answers.goals ?? []).some(({ id, kind }) => id === question && kind === 'folder')
+      if (value && isFolder && hasHost && !(await folderThere(value))) {
+        const at = useSetup.getState().tale.at
+        setMissing((before) => ({ folder: value, at, tries: (before?.tries ?? 0) + 1 }))
+        return null
+      }
+      setMissing(null)
+      replied(question, value)
       return null
     }
 
@@ -726,8 +755,9 @@ export function Storyteller() {
       firstRun.current = { routineId: routine.id, title: routine.title, startedAt }
       answer({ firstRun: 'run' }, facts)
     } catch (error) {
-      setTrouble(`I could not run ${routine.title} now: ${reasonOf(error)}`)
+      // Said once the story is on the beat after, where it stays up.
       answer({ firstRun: 'later' }, facts)
+      sayTrouble(`I could not run ${routine.title} now: ${reasonOf(error)}`)
     } finally {
       setBusy(false)
     }
@@ -741,7 +771,7 @@ export function Storyteller() {
     const upload = usageAnswer(value)
     answer({ usage: upload }, facts)
     void keepUsage(upload, (name, args) => runCommand(name, args)).then((trouble) => {
-      if (trouble) setTrouble(trouble)
+      if (trouble) sayTrouble(trouble)
     })
   }
 
@@ -762,7 +792,7 @@ export function Storyteller() {
     const computer = value as ComputerKind
     // The story goes on at once. If hobkin could not keep it, that is said, since the questions still follow it.
     void keep({ computer }).then((refused) => {
-      if (refused) setTrouble(`I could not keep that in my profile: ${refused}`)
+      if (refused) sayTrouble(`I could not keep that in my profile: ${refused}`)
     })
     answer({ computer }, facts)
   }
@@ -797,6 +827,7 @@ export function Storyteller() {
 
   /** What was typed for a question before, when the user comes back to it, or the last time the setup ran. Own words start the project. */
   const typedBefore = (ask: InputAsk): string => {
+    if (ask.field.kind === 'reply' && folderMissing) return folderMissing
     if (ask.field.kind === 'reply' && ask.field.question === 'project') return startingReply(answers, earlier, 'project') || projectStart(answers.own ?? [])
     if (ask.field.kind === 'reply') return startingReply(answers, earlier, ask.field.question)
     if (ask.field.kind === 'launcher') return ''
@@ -948,7 +979,8 @@ export function Storyteller() {
         <AnimatePresence>
           {asking?.kind === 'input' ? (
             <AnswerField
-              key={tale.at}
+              // By the bubble, so a field that asks again after a folder that is not there starts anew.
+              key={bubble}
               ask={asking}
               label={spokenText(line)}
               initial={typedBefore(asking)}
