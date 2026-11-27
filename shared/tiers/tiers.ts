@@ -88,7 +88,7 @@ export function resolveTier(config: TiersConfig, tier: TierId): TierSetting & { 
 }
 
 /** The effort to use on a model: the one asked for, or the nearest one the model supports. A tie goes to the lower effort. */
-export function clampEffort(model: ModelChoice, effort: Effort): Effort {
+export function clampEffort(model: Pick<ModelChoice, 'efforts'>, effort: Effort): Effort {
   if (model.efforts.includes(effort)) return effort
   const wanted = EFFORTS.indexOf(effort)
   let nearest = model.efforts[0] ?? effort

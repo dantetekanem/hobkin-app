@@ -33,6 +33,8 @@ export interface ModelChoice {
   thinking: string[]
   /** Its context window in tokens, when Pi knows it. */
   contextWindow: number | null
+  /** What Pi says a million tokens cost, in and out, in US dollars. Left out when Pi knows no price. */
+  cost?: { input: number; output: number }
 }
 
 export interface ModelsState {
