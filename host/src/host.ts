@@ -47,6 +47,7 @@ import { piMcpSourceFor } from './integrations-pi.ts'
 import { PiExtensions } from './pi-extensions.ts'
 import { piExtensionSourceFor, piSkillSourceFor } from './pi-resources.ts'
 import { Skills } from './skills.ts'
+import { setFirstModels } from './first-models.ts'
 import { whyNotUsable } from './main-model.ts'
 import { folderPickHandlers } from './folder-pick.ts'
 import { openableUrl } from './open.ts'
@@ -677,6 +678,24 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       }
       try {
         return await owner.applyTiers(change)
+      } catch (error) {
+        throw new Unavailable(error instanceof Error ? error.message : String(error))
+      }
+    },
+    // The first-run setup's account step, once: hobkin's model and tiers from the account Pi reaches, on a home that never chose any.
+    'tiers.first': async () => {
+      if (owner.held) throw new Unavailable(whyNotLive(owner.state))
+      if (!live) throw new Unavailable("The scripted model answers whatever is chosen, so nothing is saved. Start the host with --live to set hobkin's models.")
+      try {
+        return await setFirstModels({
+          models: async () => {
+            await signIn.refresh()
+            return signIn.models!
+          },
+          tiers: () => owner.tiers(),
+          selectModel: (model, effort) => owner.selectModel(model, effort),
+          applyTiers: (change) => owner.applyTiers(change),
+        })
       } catch (error) {
         throw new Unavailable(error instanceof Error ? error.message : String(error))
       }
