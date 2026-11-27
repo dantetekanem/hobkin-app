@@ -12,6 +12,25 @@ hobkin is in early release and runs on macOS. Windows and Linux aren't supported
 
 ## Install
 
+You can let a coding agent such as Claude Code or Codex do the steps below. Paste this into it:
+
+```text
+Install hobkin from https://github.com/dantetekanem/hobkin-client on this Mac and start it.
+1. Check each tool, and install only the ones that are missing, each with its official installer:
+   - Xcode Command Line Tools: check with `xcode-select -p`. If missing, run `xcode-select --install`,
+     tell me to press Install in the window that opens, and wait until it finishes.
+   - Node 22.19 or newer: check with `node -v`. If missing or older, install it from https://nodejs.org.
+   - pnpm 11: check with `pnpm -v`. If missing, run `npm install -g pnpm@11`.
+   - Rust: check with `cargo -V`. If missing, install it with rustup (https://rustup.rs),
+     then run `. "$HOME/.cargo/env"`.
+2. Clone the repository, go into it and run `pnpm run bootstrap`.
+3. Run `pnpm tauri dev` and leave it running. The first build takes a few minutes.
+4. When the hobkin window opens, tell me to follow its setup there. Don't sign in to anything for me.
+If a step fails, stop and show me its last lines of output.
+```
+
+Or do it yourself:
+
 1. Install the tools hobkin is built with. Skip any you already have; the second column checks.
 
    | Tool | Check | Install |
