@@ -16,6 +16,7 @@ import { ChatAvatar } from './ChatAvatar.tsx'
 import { composerKey, type ComposerKeyAction } from './composer-keys.ts'
 import { PromptEditor } from './PromptEditor.tsx'
 import { useReportReply } from '@/features/reports/reply.ts'
+import { watchRoutineSuggestion } from '@/features/routines/ask.ts'
 import { slashList, type SlashKey } from './slash.ts'
 import { SlashPanel, slashRowId } from './SlashPanel.tsx'
 import { StatusLine } from './StatusLine.tsx'
@@ -117,6 +118,9 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
     element.style.height = 'auto'
     element.style.height = `${Math.min(element.scrollHeight, MAX_INPUT_HEIGHT)}px`
   }, [text])
+
+  // A message the Routines screen suggests goes into the input, to edit and send. It is never sent by itself.
+  useEffect(() => watchRoutineSuggestion(useChat, () => input.current?.focus()), [])
 
   // A file dropped anywhere in the window would make the browser open it in place of the app.
   // Over the chat it is attached. Anywhere else nothing happens.
