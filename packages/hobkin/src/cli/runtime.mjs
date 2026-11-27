@@ -778,7 +778,7 @@ export class HobkinRuntime {
       }
       if (result.status === 'interrupted' && this.active.get(id)?.userStop) run.userStop = this.active.get(id).userStop;
       // A durable hobkin's turn answers on its own page and keeps no report.
-      if (run.kind !== 'main' && !run.hobkin && !isQuietRun({ trigger: run.trigger, status: result.status, result })) {
+      if (run.kind !== 'main' && !run.hobkin && !isQuietRun({ status: result.status, result })) {
         saveReport(this.directory, id, runReport(result));
       }
       Object.assign(run, {
@@ -817,7 +817,7 @@ export class HobkinRuntime {
         freshSession: run.wait?.freshSession === true,
       };
       run.userStop = { source: 'user', reason: String(stop.reason ?? 'Stopped by the user.').slice(0, 200) };
-      if (run.kind !== 'main' && !run.hobkin && !isQuietRun({ trigger: run.trigger, status: result.status, result })) {
+      if (run.kind !== 'main' && !run.hobkin && !isQuietRun({ status: result.status, result })) {
         saveReport(this.directory, id, runReport(result));
       }
       Object.assign(run, { status: 'interrupted', result, finishedAt: new Date().toISOString() });

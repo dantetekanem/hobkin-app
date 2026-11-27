@@ -91,7 +91,7 @@ import { safeSteps, turnFrom } from './turn-metrics.mjs';
 import { withoutSinceNote } from './prompt-parts.mjs';
 import { PastedImages } from './paste-image.mjs';
 import { forgetUnread, readUnread } from './unread.mjs';
-import { deletedReportIds, isQuietRun, readReport, referToReport, reportNoticeId, reportText, reportTriage, runOutcomeText, savedReportPath, splitReportCoverage, splitReportReference } from './reports.mjs';
+import { deletedReportIds, isQuietRun, readReport, referToReport, reportNoticeId, reportText, reportTriage, runOutcomeText, savedReportPath, saysNothingNew, splitReportCoverage, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
 
 const textOf = message => (typeof message.content === 'string' ? message.content
@@ -810,7 +810,9 @@ export class HobkinApplication {
       noticeIds.add(line.id);
     }
     const handedLines = handedOver.map(entry => inboxNotice(entry, this.now()));
-    for (const notice of [...sessionsEnded.map(sessionNotice), ...cardActions.map(cardActionNotice), ...handedLines, ...clientLines.map(clientNotice)]) {
+    // A session that found nothing new has nothing to tell Chat. It is still marked posted below, and the main agent still hears it ended.
+    const sessionsSaid = sessionsEnded.filter(session => !saysNothingNew(session));
+    for (const notice of [...sessionsSaid.map(sessionNotice), ...cardActions.map(cardActionNotice), ...handedLines, ...clientLines.map(clientNotice)]) {
       if (noticeIds.has(notice.id)) continue;
       notices.push(notice);
       noticeIds.add(notice.id);
@@ -869,11 +871,13 @@ export class HobkinApplication {
       .map(({ message }) => message)).slice(-100);
     // `read` once the user opened it, `caught-up` once a catch-up covered it, and nothing while unread (069-report-catch-up).
     const readStates = reportReadStates(this.runtime.directory);
+    // A nothing-new report saved before runs stopped keeping them, or imported, is hidden here too. Its file stays.
     const listedReports = [...reports, ...this.snapshot.history.reports.filter(report => {
       if (deleted.has(report.id) || reportIds.has(report.id)) return false;
       reportIds.add(report.id);
       return true;
-    })].map(report => readStates.has(report.id) ? { ...report, readState: readStates.get(report.id) } : report);
+    })].filter(report => !saysNothingNew(report))
+      .map(report => readStates.has(report.id) ? { ...report, readState: readStates.get(report.id) } : report);
     const currentAndRecentRuns = runs.filter((run, index) => run.status === 'running' || run.status === WAITING || index < 100);
     const visible = {
       version: 1,

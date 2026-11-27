@@ -40,7 +40,7 @@ const { chooseProject, fileItem, readItems, readProject, updateItem, writeMode }
 const { branched, git, repository } = await import('./helpers/work-fixture.mjs');
 const { readActions, saveState } = await import('../src/cli/learning/store.mjs');
 const { startSession } = await import('../src/cli/session.mjs');
-const { recordSessionEnd, recordSessionStart, sessionsToPost, sessionsToWake } = await import('../src/cli/session-log.mjs');
+const { markPosted, recordSessionEnd, recordSessionStart, sessionsToPost, sessionsToWake } = await import('../src/cli/session-log.mjs');
 const { allCardActions, cardActionsToTell, markCardActionsHeard } = await import('../src/cli/work/card-actions.mjs');
 const { listTemplates } = await import('../src/cli/routine-templates.mjs');
 
@@ -722,7 +722,7 @@ test('a report that needs the user shows its one call with the notice', async t 
   }
 });
 
-test('a scheduled check that found nothing new stays out of Reports, and a run the user asked for stays in', async t => {
+test('a check that found nothing new stays out of Reports and Chat, even one the user asked for', async t => {
   const h = fixture(t);
   const runHarness = async () => { throw Error('Unexpected provider call in synthetic report test.'); };
   const app = await h.openApp({ runHarness });
@@ -732,10 +732,42 @@ test('a scheduled check that found nothing new stays out of Reports, and a run t
       state.runs.quiet = backgroundRun('quiet', { result: quiet });
       state.runs.asked = backgroundRun('asked', { trigger: 'manual', result: quiet });
     });
+    // A report saved before this rule is hidden as it is read, and the file stays.
+    saveReport(h.root, 'asked', quiet.text);
 
     const view = await app.refresh();
 
-    assert.deepEqual(view.reports.map(report => report.id).filter(id => ['quiet', 'asked'].includes(id)), ['asked']);
+    assert.deepEqual(view.reports.map(report => report.id).filter(id => ['quiet', 'asked'].includes(id)), []);
+    assert.deepEqual(view.messages.filter(message => message.role === 'notice'), []);
+    assert.equal(readReport(h.root, 'asked', null), quiet.text);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a nothing-new report a session saved before is hidden as Reports reads it, and a run that was stopped still shows', async t => {
+  const h = fixture(t);
+  const runHarness = async () => { throw Error('Unexpected provider call in synthetic report test.'); };
+  const app = await h.openApp({ runHarness });
+  try {
+    const name = 'hobkin-look-1a2b';
+    const report = join(h.root, 'runtime', 'handoffs', `${name}.report.md`);
+    recordSessionStart(h.root, { name, title: 'Look', report });
+    recordSessionEnd({ name, report, outcome: 'completed' });
+    markPosted(h.root, [{ name }]);
+    saveReport(h.root, `session:${name}`, '**Nothing new.**\n\nLooked at every branch.');
+    await app.runtime.change(state => {
+      state.runs.stopped = backgroundRun('stopped', {
+        status: 'interrupted',
+        result: { status: 'interrupted', text: 'Nothing new.', error: 'The user stopped it.' },
+      });
+    });
+    saveReport(h.root, 'stopped', 'Nothing new.\n\n---\n\n**Execution failure:** The user stopped it.');
+
+    const ids = (await app.refresh()).reports.map(({ id }) => id);
+
+    assert.equal(ids.includes(`session:${name}`), false);
+    assert.equal(ids.includes('stopped'), true);
   } finally {
     await app.close();
   }
@@ -990,7 +1022,7 @@ test('completion outcomes prove absence only for quiet or deleted reports', { ti
   saveReport(h.root, 'deleted', 'Previously available.');
   deleteReports(h.root, ['deleted']);
   for (let attempt = 0; attempt < 2; attempt++) {
-    assert.deepEqual((await app.refresh()).completedJobReports, { quiet: null, deleted: null });
+    assert.deepEqual((await app.refresh()).completedJobReports, { quiet: null, manual: null, deleted: null });
   }
 });
 

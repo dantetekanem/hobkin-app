@@ -92,8 +92,19 @@ export const reportTriage = run => {
   };
 };
 
-/** A run nobody asked for that found nothing new. Its receipt and log line stay, but no report is kept or shown. */
-export const isQuietRun = run => run.trigger !== 'manual' && reportTriage(run)?.level === 'nothing';
+// A run that failed, stopped short or was stopped says so, whatever its first line reads.
+const wentWrong = new Set(['failed', 'incomplete', 'interrupted']);
+
+/**
+ * A report that found nothing new: it opens with the triage's nothing-new line, whatever follows it, and its run did not
+ * go wrong. It is no report, whoever started the run: nothing keeps, lists, counts or tells it. The window reads a report
+ * the same way (`shared/reports/nothing-new.ts`).
+ */
+export const saysNothingNew = ({ outcome, body }) => !wentWrong.has(outcome)
+  && nothingNewLine.test(trimmedLines(String(body ?? '').trim()).next().value);
+
+/** A run that found nothing new. Its receipt, log line and counts stay, but no report is kept or shown. */
+export const isQuietRun = run => saysNothingNew({ outcome: run.status, body: run.result?.text });
 
 // `Useful:` marks an ordinary report for hobkin and tells a reader nothing, so a report shown on screen starts at its point. The saved text keeps the word.
 const usefulWord = /^\s*useful:[ \t]+/i;

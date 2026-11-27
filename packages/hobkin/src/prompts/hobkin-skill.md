@@ -119,7 +119,7 @@ These change things. Use them only when the user asked, except the three in Hand
 
 The line after it may say `Next: ...`, the one call the report asks of the user.
 
-Reports without a triage line and failed runs also appear, so check `outcome` too. It is `completed`, `failed`, `incomplete`, `interrupted` or `no_change`, or `imported` for old history. Filter by `routineId` to follow one check. A scheduled run that found nothing new is not in Reports, so its line in the run history below is its only record.
+Reports without a triage line and failed runs also appear, so check `outcome` too. It is `completed`, `failed`, `incomplete`, `interrupted` or `no_change`, or `imported` for old history. Filter by `routineId` to follow one check. A run that found nothing new is not in Reports, even one started by hand, so its line in the run history below is its only record.
 
 `read` says whether the user has seen a report. `read` means they opened it for at least 3 seconds or messaged about it. `caught-up` means they never opened it, but a catch-up report covered it. `unread` means neither.
 

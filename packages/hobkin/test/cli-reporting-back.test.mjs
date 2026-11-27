@@ -8,9 +8,9 @@ import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { fileDecision, openDecisions } from '../src/cli/decisions.mjs';
 import { createMemoryExtension } from '../src/cli/memory.mjs';
 import { openPiSession } from '../src/cli/pi-session.mjs';
-import { saveReport } from '../src/cli/reports.mjs';
+import { readReport, saveReport } from '../src/cli/reports.mjs';
 import { startSession } from '../src/cli/session.mjs';
-import { recordSessionEnd, recordSessionStart, sessionsToWake } from '../src/cli/session-log.mjs';
+import { recordSessionEnd, recordSessionStart, sessionsToTell, sessionsToWake } from '../src/cli/session-log.mjs';
 import { recordCardAction } from '../src/cli/work/card-actions.mjs';
 import { foldFinishedLines, finishedLine } from '../src/cli/work/chat.mjs';
 import { chooseProject, fileItem, paths, readItems, readMode, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
@@ -88,6 +88,24 @@ test('a session that stopped with no report says so, and leaves nothing to open'
 
     assert.match(chat(view)[0].content, /Quiet one stopped without a report/);
     assert.equal(view.reports.some(({ title }) => title === 'Quiet one'), false);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a session whose report found nothing new tells Chat nothing and keeps no report, and the main agent still hears it ended', async t => {
+  const h = fixture(t);
+  const app = await h.openApp();
+  try {
+    endSession(h.root, 'hobkin-look-1a2b', 'Look around', 'Nothing new.\n\nLooked at every branch.');
+
+    await app.refresh();
+    const view = await app.refresh();
+
+    assert.deepEqual(chat(view), []);
+    assert.equal(view.reports.some(({ title }) => title === 'Look around'), false);
+    assert.equal(readReport(h.root, 'session:hobkin-look-1a2b', null), null);
+    assert.deepEqual(sessionsToTell(h.root).map(({ said }) => said), ['Nothing new. Looked at every branch.']);
   } finally {
     await app.close();
   }

@@ -1,7 +1,7 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { noteOutcome } from './autonomy.mjs';
-import { readReport, reportNoticeId, reportTriage, runReport, saveReport } from './reports.mjs';
+import { readReport, reportNoticeId, reportTriage, runReport, saveReport, saysNothingNew } from './reports.mjs';
 
 const LOG = 'sessions.jsonl';
 const MOST_READ_BYTES = 1048576;
@@ -111,11 +111,14 @@ const withWhatItSaid = session => {
   return { ...session, body, said: firstLines(body) };
 };
 
-/** What Chat has yet to hear. Each report is kept with the others now, so it stays readable whatever becomes of the session's folder. */
+/**
+ * What Chat has yet to hear. Each report is kept with the others now, so it stays readable whatever becomes of the session's folder.
+ * One that found nothing new is no report, so none is kept for it.
+ */
 export function sessionsToPost(root) {
   const sessions = endedSessions(root).filter(({ posted }) => !posted).map(withWhatItSaid);
-  for (const { name, body, said } of sessions) {
-    if (said) saveReport(root, reportId(name), body);
+  for (const session of sessions) {
+    if (session.said && !saysNothingNew(session)) saveReport(root, reportId(session.name), session.body);
   }
   return sessions;
 }
