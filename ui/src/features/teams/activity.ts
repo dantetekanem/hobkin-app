@@ -50,11 +50,7 @@ export function activityAgents(teams: readonly ShownTeamsAgent[], helpers: reado
   return rows.sort((a, b) => RANK[standingOf(a)] - RANK[standingOf(b)])
 }
 
-/**
- * A helper stays under the input while it is out, and once it failed or hobkin never saw it end, as a teams agent does:
- * those may need the user. One that reported, completed or was cancelled leaves.
- */
-export const helperStays = (child: RunChild): boolean => HELPER_STANDING[child.state] !== 'ended'
+export const helperStays = (child: RunChild): boolean => RANK[HELPER_STANDING[child.state]] <= RANK.waiting
 
 /** "38s", "1m05s", and past the hour "1h05m": pi-extended-teams' clock, with hours. */
 export function elapsedText(ms: number): string {
@@ -179,11 +175,6 @@ export function activityHeader(agents: readonly ActivityAgent[]): string {
     .filter((part) => part.count > 0)
     .map((part) => `${part.count} ${part.word}`)
     .join(' · ')
-}
-
-/** The rows the strip draws, and how many more the navigator holds. */
-export function shownRows(agents: readonly ActivityAgent[]): { rows: readonly ActivityAgent[]; more: number } {
-  return agents.length <= MOST_ROWS ? { rows: agents, more: 0 } : { rows: agents.slice(0, MOST_ROWS), more: agents.length - MOST_ROWS }
 }
 
 /**

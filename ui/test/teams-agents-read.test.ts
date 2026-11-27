@@ -37,10 +37,10 @@ const agents = (teams: TeamsAgent['state'], helper: RunChild['state']): HostMess
 send({ type: 'hello', protocol: 1, home: '/fake/home', model: 'live', models: null, viewState: null, owner: { state: 'live', limits: { images: 4, imageBytes: 1 } }, signIn: { status: 'signed-in' } })
 send({ type: 'state', rev: rev++, reset: true, set: { runs: [{ id: 'worker', kind: 'background', state: 'running', title: 'Agent worker', cwd: '/fake/app' }], reports: [] } })
 
-test('an agent the navigator shows stays in it once it finishes, marked as it ended, and leaves when the navigator closes', async () => {
+test('the open navigator follows the live roster as agents finish', async () => {
   let shown: readonly ActivityAgent[] = []
   const Probe = () => {
-    shown = useSubagents('worker', useNavigator((state) => state.open?.agent === 'worker'))
+    shown = useSubagents('worker')
     return null
   }
   const mounted = await mountCounting(() => createElement(Probe))
@@ -50,7 +50,7 @@ test('an agent the navigator shows stays in it once it finishes, marked as it en
   assert.deepEqual(states(), ['teams:scout:running', 'helper:reader:running'])
   await mounted.change(() => useNavigator.setState({ open: { agent: 'worker', at: shown[0]!.id, from: null, side: null } }))
   await mounted.change(() => send(agents('done', 'reported')))
-  assert.deepEqual(states(), ['teams:scout:done', 'helper:reader:reported'], 'what the user is reading does not vanish under them')
+  assert.deepEqual(states(), [], 'finished rows leave even while navigating')
   await mounted.change(() => useNavigator.setState({ open: null }))
   assert.deepEqual(states(), [], 'closed, those that ended leave')
   await mounted.unmount()

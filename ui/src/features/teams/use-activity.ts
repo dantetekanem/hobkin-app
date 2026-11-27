@@ -1,6 +1,5 @@
-import { useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import { create } from 'zustand'
-import type { RunChild } from '#shared/protocol/snapshot.ts'
 import { useAgentJobs, useJobsHelpers } from '@/features/agent-activity/agent-jobs.ts'
 import { activityAgents, helperStays, type ActivityAgent } from './activity.ts'
 import { useTeamsAgents } from './use-teams-agents.ts'
@@ -46,25 +45,9 @@ export const useHasSubagents = (agent: string): boolean => useNavigator((state) 
 
 export const moveNavigator = (at: string) => useNavigator.setState((state) => (state.open ? { open: { ...state.open, at } } : state))
 
-const keyOf = (child: RunChild) => child.id ?? child.name
-const NOTHING_READ: ReadonlySet<string> = new Set()
-
-/**
- * An agent's agents as its strip and navigator show them: the pi-extended-teams agents of all its jobs, done ones left
- * out, and the helpers hobkin started for them, those that reported, completed or were cancelled left out; what is still
- * out first. While the user is `reading` them in the navigator, every one it has shown stays, marked as it ends, so
- * nothing leaves under them; closed, those that ended leave.
- */
-export function useSubagents(agentId: string, reading: boolean): readonly ActivityAgent[] {
+export function useSubagents(agentId: string): readonly ActivityAgent[] {
   const jobs = useAgentJobs(agentId)
-  const teams = useTeamsAgents(jobs, { list: reading })
+  const teams = useTeamsAgents(jobs)
   const helpers = useJobsHelpers(jobs)
-  // The helpers shown since the navigator opened, by key. Read from what was read before, as `useTeamsAgents` does.
-  const read = useRef<ReadonlySet<string>>(NOTHING_READ)
-  return useMemo(() => {
-    const readBefore = reading ? read.current : NOTHING_READ
-    const shownHelpers = helpers.filter((child) => helperStays(child) || readBefore.has(keyOf(child)))
-    read.current = reading ? new Set([...readBefore, ...shownHelpers.map(keyOf)]) : NOTHING_READ
-    return activityAgents(teams, shownHelpers)
-  }, [teams, helpers, reading])
+  return useMemo(() => activityAgents(teams, helpers.filter(helperStays)), [teams, helpers])
 }

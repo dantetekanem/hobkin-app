@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { RunChild } from '../../shared/protocol/snapshot.ts'
 import type { TeamsAgent } from '../../shared/protocol/teams.ts'
 import type { ModelChoice } from '../../shared/tiers/tiers.ts'
-import { activityAgents, activityHeader, activityLine, elapsedText, helperStays, shownRows, stepAgent, tokenCount } from '../src/features/teams/activity.ts'
+import { activityAgents, activityHeader, activityLine, elapsedText, helperStays, stepAgent, tokenCount } from '../src/features/teams/activity.ts'
 import type { ShownTeamsAgent } from '../src/features/teams/rules.ts'
 
 const NOW = 1_800_000_000_000
@@ -26,9 +26,9 @@ test('teams agents and helpers make one list, what is still out first, teams age
   assert.equal(activityAgents([], [helper('legacy', 'running', { id: undefined })])[0]!.id, 'helper:legacy', 'a legacy row goes by its name')
 })
 
-test("a helper that reported, completed or was cancelled leaves; one still out, failed or never seen to end stays", () => {
+test("only running, queued or cancelling helpers belong in the active roster", () => {
   const states: RunChild['state'][] = ['running', 'queued', 'cancelling', 'unknown', 'failed', 'stopped', 'reported', 'completed', 'cancelled']
-  assert.deepEqual(states.filter((state) => helperStays(helper('x', state))), ['running', 'queued', 'cancelling', 'unknown', 'failed', 'stopped'])
+  assert.deepEqual(states.filter((state) => helperStays(helper('x', state))), ['running', 'queued', 'cancelling'])
 })
 
 /** The row one teams agent alone makes. */
@@ -136,14 +136,6 @@ test('the heading counts what is out, then what failed or was lost, as the activ
   assert.equal(activityHeader(agents), '3 active · 1 failed · 2 unknown')
   assert.equal(activityHeader(activityAgents([teams('c', 'failed')], [])), '1 failed')
   assert.equal(activityHeader([]), '')
-})
-
-test('the strip draws ten rows at most and counts the rest', () => {
-  const agents = activityAgents(Array.from({ length: 13 }, (_, index) => teams(`a${index}`, 'running')), [])
-  const { rows, more } = shownRows(agents)
-  assert.equal(rows.length, 10)
-  assert.equal(more, 3)
-  assert.deepEqual(shownRows(agents.slice(0, 2)), { rows: agents.slice(0, 2), more: 0 })
 })
 
 test('in the navigator Down walks to the next agent, Up back, and Up from the first leaves it; Left and Right go round', () => {

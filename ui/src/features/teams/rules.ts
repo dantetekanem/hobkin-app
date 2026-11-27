@@ -26,34 +26,9 @@ export function teamsAgentsOf(all: TeamsAgents | undefined, runs: readonly strin
     .map(({ row }) => row)
 }
 
-const NONE_READ: ReadonlySet<string> = new Set()
-
-/**
- * What a screen still shows: a done agent leaves, and a failed or unknown one stays, since it may need the user. One
- * the user is reading (`stillRead`) stays, marked done, until they close it.
- */
-export function stillShown(agents: readonly ShownTeamsAgent[], reading: ReadonlySet<string> = NONE_READ): ShownTeamsAgent[] {
-  return agents.filter((agent) => agent.state !== 'done' || reading.has(agent.id))
-}
-
-/** What the user has open of a strip: its whole list, under the line or in the sheet, and the one agent in the sheet. */
-export interface Reading {
-  list: boolean
-  agent?: string
-}
-
-/**
- * The agents the user is reading, by id, from those they were reading before: while a list is open, every one it has
- * shown since it opened; while an agent's sheet is open, that one. Nothing open, none.
- */
-export function stillRead(before: ReadonlySet<string>, agents: readonly ShownTeamsAgent[], open: Reading): ReadonlySet<string> {
-  const reading = new Set(open.list ? before : NONE_READ)
-  if (open.agent) reading.add(open.agent)
-
-  if (open.list) {
-    for (const agent of stillShown(agents, reading)) reading.add(agent.id)
-  }
-  return reading
+/** The activity strip and its navigator are a live roster; reports stay in the conversation. */
+export function stillShown(agents: readonly ShownTeamsAgent[]): ShownTeamsAgent[] {
+  return agents.filter((agent) => agent.state === 'running' || agent.state === 'queued')
 }
 
 const FIRST_LINE = 96

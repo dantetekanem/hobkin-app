@@ -269,10 +269,21 @@ test('an agent never seen to end reads unknown once its run ended or teams no lo
   await teams.read();
   assert.deepEqual(view(teams.snapshot().r1, ['state', 'phase', 'from']), [{ state: 'running', phase: 'grep', from: 'teams' }]);
 
+  time.tick(100_000);
+  await teams.read();
+  assert.equal(teams.snapshot().r1[0].state, 'unknown', 'a stale membership is not liveness, even while the lead runs');
+  writeFileSync(join(at, 'runtime', 'scout.json'), JSON.stringify({ lifecycleRunId: 'run-1', lastHeartbeatAt: time.now }));
+  await teams.read();
+  assert.equal(teams.snapshot().r1[0].state, 'running', 'a heartbeat without any progress is enough');
+
   session(dir, 'abc');
   time.tick(5000);
   await teams.read();
   assert.deepEqual(view(teams.snapshot().r1, ['state', 'endedAt']), [{ state: 'unknown', endedAt: undefined }], 'gone from teams with no report');
+
+  rmSync(at, { recursive: true });
+  await teams.read();
+  assert.equal(teams.snapshot().r1[0].state, 'unknown', 'removing the team folder cannot resurrect a departed agent');
 
   // Once its run has ended, a member still listed runs only while its heartbeat is fresh.
   const kept = layer(dir, time);
@@ -285,6 +296,31 @@ test('an agent never seen to end reads unknown once its run ended or teams no lo
   assert.equal(kept.snapshot().r1[0].state, 'running');
   time.tick(120_000);
   assert.equal(kept.snapshot(new Set()).r1[0].state, 'unknown');
+});
+
+test('a stopped queued agent leaves even without teams files', t => {
+  const teams = layer(folder(t), clock());
+  teams.observe('r1', ended('call', 'spawn_agent', { session: 'session-abc', name: 'scout', queued: true }));
+  teams.observe('r1', ended('other-stop', 'stop_teammate', { session: 'session-other', agentName: 'scout', stopped: true }));
+  assert.equal(teams.snapshot().r1[0].state, 'queued');
+  teams.observe('r1', ended('stop', 'stop_teammate', { session: 'session-abc', agentName: 'scout', stopped: true }));
+  assert.equal(teams.snapshot().r1[0].state, 'unknown');
+});
+
+test('a quarantined incarnation is no longer live, even with a recent heartbeat', async t => {
+  const time = clock();
+  const dir = folder(t);
+  const at = session(dir, 'abc', { members: [member('scout', time.now, 'new-run')] });
+  const teams = layer(dir, time);
+  spawnScout(teams, time);
+  writeFileSync(join(at, 'runtime', 'scout.json'), JSON.stringify({ lifecycleRunId: 'new-run', lastHeartbeatAt: time.now }));
+  const fences = join(at, 'lifecycle', 'quarantine');
+  mkdirSync(fences, { recursive: true });
+  for (const [runId, expected] of [['old-run', 'running'], ['new-run', 'unknown']]) {
+    writeFileSync(join(fences, 'scout.json'), JSON.stringify({ version: 1, team: 'session-abc', agent: 'scout', runId, phase: 'closing' }));
+    await teams.read();
+    assert.equal(teams.snapshot().r1[0].state, expected);
+  }
 });
 
 test("an agent's steps and messages come from its own session and the inboxes, cut to size", async t => {

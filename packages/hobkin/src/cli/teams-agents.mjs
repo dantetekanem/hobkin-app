@@ -114,6 +114,16 @@ export class TeamsAgents {
       if (tool === 'send_message') return !event.isError && this.said(run, started);
       return this.spawned(run, event, started);
     }
+    if (type === 'tool_execution_end' && tool === 'stop_teammate' && !event.isError) {
+      const details = event.result?.details;
+      if (details?.stopped !== true) return false;
+      const team = teamOf(details.session);
+      const row = team && this.runs.get(runId)?.rows.findLast(other =>
+        other.team === team && other.name === details.agentName && OUT.has(other.state));
+      if (!row) return false;
+      row.state = 'unknown'; // The roster exit was confirmed, not the outcome of its work.
+      return true;
+    }
     if (type === 'message_end' && event.message?.role === 'custom') {
       const run = this.runs.get(runId);
       const { customType, details } = event.message;
@@ -321,8 +331,9 @@ export class TeamsAgents {
     const slot = this.groupOf(row)?.slots.get(row.name);
     if (slot && !UNSETTLED.has(slot)) return { state: slot === 'reported' ? 'done' : 'failed' };
 
-    const listed = facts?.member && facts.member.isActive !== false;
-    if (listed && (run.endedAt === undefined || this.beating(facts.runtime))) {
+    if (facts?.member) {
+      const starting = run.endedAt === undefined && this.now() - facts.member.joinedAt <= HEARTBEAT_MS;
+      if (!facts.member.active || !(starting || this.beating(facts.runtime))) return { state: 'unknown' };
       return { state: 'running', phase: facts.runtime?.activeToolName ?? facts.runtime?.currentAction };
     }
     if (run.endedAt !== undefined) return { state: 'unknown' };
@@ -369,7 +380,10 @@ export class TeamsAgents {
     this.touched = new Set();
     for (const [team, rows] of wanted) {
       try {
-        this.sessions.set(team, await this.readSession(team, rows));
+        const session = await this.readSession(team, rows);
+        // A torn read or a removed directory cannot undo an observed departure or report.
+        // Previously matched members still age out on their last heartbeat.
+        if (session.valid || !this.sessions.has(team)) this.sessions.set(team, session);
       } catch {
         /* What was read before stays. */
       }
@@ -419,9 +433,11 @@ export class TeamsAgents {
       const member = matched.find(record => record.member)?.member;
       const runtime = member ? await this.json(join(dir, 'runtime', `${row.name}.json`)) : undefined;
       const ownRuntime = runtime && (!runId || runtime.lifecycleRunId === runId);
+      const fence = member && runId && await this.json(join(dir, 'lifecycle', 'quarantine', `${row.name}.json`));
+      const quarantined = fence?.team === team && fence.agent === row.name && fence.runId === runId;
       facts.set(row.key, {
         report: report && { status: report.status, createdAt: report.createdAt, summary: cut(report.summary, 400) },
-        member: member && { isActive: member.isActive },
+        member: member && { active: member.isActive !== false && !quarantined, joinedAt: timeOf(member.joinedAt) },
         ranOn: member && ranOn(member),
         prompt: cut(member?.prompt ?? report?.metadata?.initialPrompt, 2000),
         runtime: ownRuntime ? fields({
