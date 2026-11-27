@@ -23,7 +23,8 @@ export const PAGE_TOP = 82
 export const AGENT_PAGE_TOP = PAGE_TOP + 36
 
 /** The scroller that fills the canvas. Each screen adds its own bottom padding. */
-export const SCREEN_SCROLLER = 'scroll-quiet h-full overflow-y-auto px-6 pt-(--page-top)'
+export const PAGE_SCROLLER = 'canvas-page-scroller'
+export const SCREEN_SCROLLER = `${PAGE_SCROLLER} scroll-quiet h-full overflow-y-auto px-6 pt-(--page-top)`
 
 /** The column inside it: `--page-width` of content (tokens.css), centered. */
 export const SCREEN_COLUMN = 'px-[max(0px,calc((100%_-_var(--page-width))_/_2))]'

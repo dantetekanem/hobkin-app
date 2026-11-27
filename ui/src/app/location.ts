@@ -4,11 +4,12 @@ import type { Place } from '../features/main-agent/mind.ts'
 import { useReports } from '../features/reports/store.ts'
 import { useRoutines } from '../features/routines/store.ts'
 import { hostStore } from '../lib/host/client.ts'
+import { arrive, readKeep } from './kept-place.ts'
 import { depth } from './overlays.ts'
 import { isPartScreen } from '../integration/screens.ts'
 import { screenIndex, screens, type ScreenId } from './screens.ts'
 import { MOST_PLACES, namesItsPage, samePlace, stopOf, type Keep, type Stop } from './trail.ts'
-import { useView, type ScreenMotion } from './view-store.ts'
+import { arrivalMotion, useView, type ScreenMotion } from './view-store.ts'
 
 /**
  * Where the user is in the window, as small ids and never content: the screen, what is open on it, and the ways
@@ -223,8 +224,9 @@ function land(): void {
   if (openReport || openRoutine) last = spotNow()
 }
 
-let last = spotNow()
-let trail: { back: Spot[]; forward: Spot[] } = { back: [], forward: [] }
+type Visit = Spot & { keep?: Keep }
+let last: Visit = spotNow()
+let trail: { back: Visit[]; forward: Visit[] } = { back: [], forward: [] }
 let applying = false
 let queued = false
 land()
@@ -257,10 +259,13 @@ export function travel(way: -1 | 1): boolean {
   const to = (way < 0 ? trail.back : trail.forward).at(-1)
   if (!to) return false
   const here = spotNow()
-  trail = way < 0 ? { back: trail.back.slice(0, -1), forward: [...trail.forward, last] } : { back: [...trail.back, last], forward: trail.forward.slice(0, -1) }
+  const leaving = samePlace(stopOf(last), stopOf(here)) ? { ...last, keep: readKeep(here.screen) } : last
+  trail = way < 0 ? { back: trail.back.slice(0, -1), forward: [...trail.forward, leaving] } : { back: [...trail.back, leaving], forward: trail.forward.slice(0, -1) }
   applying = true
   try {
-    show(to, motionBetween(here, to))
+    const changesPage = !samePlace(stopOf(here), stopOf(to))
+    if (changesPage) arrive(to.screen, to.keep)
+    show(to, arrivalMotion(motionBetween(here, to), changesPage ? to.keep?.scroll : 0))
     const reports = useReports.getState()
     if (to.report !== reports.openId) {
       reports.close()
@@ -280,6 +285,10 @@ export function travel(way: -1 | 1): boolean {
 
 const unsubscribe = [
   useView.subscribe((view, before) => {
+    // Read the outgoing page before React unmounts it, not in settle's microtask.
+    if (!applying && samePlace(stopOf(last), stopOf(before)) && !samePlace(stopOf(before), stopOf(view))) {
+      last = { ...last, keep: readKeep(before.screen) }
+    }
     // A screen entered anew starts on its list and its first tab, as it did before it remembered them. One the trail
     // goes back to is not entered anew.
     const returning = before.trail.some((stop) => samePlace(stop, stopOf(view)))

@@ -1,5 +1,5 @@
 import { AnimatePresence, animate, motion, useMotionValue, type MotionValue, type Transition, type Variants } from 'motion/react'
-import { Suspense, useEffect, useLayoutEffect, useRef, type ComponentType, type CSSProperties } from 'react'
+import { Suspense, useLayoutEffect, useRef, type ComponentType, type CSSProperties, type ReactNode } from 'react'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { HomeScreen } from '@/features/home/HomeScreen.tsx'
 import { ReportsScreen } from '@/features/reports/ReportsScreen.tsx'
@@ -23,6 +23,7 @@ import { useCanvasPlace } from '@/features/canvas-panel/use-place.ts'
 import { HobkinScreen } from '@/features/hobkins/HobkinScreen.tsx'
 import { NotWiredYet } from './NotWiredYet.tsx'
 import { dragLeft, useDragEdge } from './drag-edge.ts'
+import { useKeptPlace } from './kept-place.ts'
 import { keepAgentPreview } from './keep-agent.ts'
 import { ScreenBoundary } from './ScreenBoundary.tsx'
 import { PAGE_TOP } from './screen-layout.ts'
@@ -92,15 +93,18 @@ const travel: Variants = {
   enter: ({ axis, direction, still }: Travel) =>
     still ? { opacity: 0 } : { opacity: 1, transform: axis === 'x' ? place(direction * 100, 0, 1) : place(0, direction * 100, 1) },
   // Under Still a screen never travels, and one caught mid-travel when Still was chosen is set straight at once.
-  center: ({ still, agent }: Travel) => ({
+  center: ({ still, agent, resumed }: Travel) => ({
     opacity: 1,
+    pointerEvents: 'auto',
     transform: place(0, 0, 1),
-    transition: entryTransition(agent, still, { transform: still ? { duration: 0 } : spring.push, opacity: tween.enter }),
+    transition: resumed ? { duration: 0 } : entryTransition(agent, still, { transform: still ? { duration: 0 } : spring.push, opacity: tween.enter }),
   }),
-  exit: ({ axis, direction, still, agent }: Travel) =>
-    still
+  exit: ({ axis, direction, still, agent, resumed }: Travel) => {
+    if (resumed) return { opacity: 0, pointerEvents: 'none', transition: { duration: 0 } }
+    return still
       ? { opacity: 0, transition: entryTransition(agent, still, { opacity: { duration: 0.2, ease: 'linear' } }) }
-      : { transform: axis === 'x' ? place(-direction * 100, 0, 1) : place(0, -direction * 100, 1), transition: entryTransition(agent, still, { transform: spring.push }) },
+      : { transform: axis === 'x' ? place(-direction * 100, 0, 1) : place(0, -direction * 100, 1), transition: entryTransition(agent, still, { transform: spring.push }) }
+  },
 }
 
 /**
@@ -114,17 +118,25 @@ const arrive: Variants = {
   center: { transition: { staggerChildren: stagger } },
 }
 
+/** Mount inside Suspense, once the destination's scroller exists. */
+function ScreenContent({ screen, variants, resumed, children }: { screen: ScreenId; variants: Variants; resumed?: boolean; children: ReactNode }) {
+  const content = useRef<HTMLDivElement>(null)
+  useKeptPlace(screen, content)
+  return <motion.div ref={content} className="h-full" variants={variants} initial={resumed ? false : 'enter'} animate="center">{children}</motion.div>
+}
+
 /**
  * How the right side grows over the chat: on the screens' spring, as it always has. A durable hobkin's split forms on
  * that spring and undoes on the exit spring. Under Still it is set at once.
  */
-function useGrowth(split: boolean, enteringAgent: boolean, still: boolean): Transition {
-  const was = useRef(split)
-  const undoing = was.current && !split
-  useEffect(() => {
-    was.current = split
+function useGrowth(split: boolean, enteringAgent: boolean, still: boolean, move: ScreenMotion): Transition {
+  const was = useRef({ split, move })
+  const undoing = was.current.split && !split
+  const resuming = move.resumed && was.current.move !== move
+  useLayoutEffect(() => {
+    was.current = { split, move }
   })
-  if (still) return { duration: 0 }
+  if (still || resuming) return { duration: 0 }
   if (split) return spring.screen
   if (undoing) return spring.screenExit
   return entryTransition(enteringAgent, still, spring.screen)
@@ -182,7 +194,7 @@ export function Canvas() {
   const grow = canvasGrowth({ screen, canvasEngaged: engaged, conversationWidth, trail, split: split !== null })
   // The main canvas moves the view, unless the right side covers the chat right then.
   useCanvasPlace({ covered: grow > 0, split: split ? { owner: split.owner, revision: split.canvas.revision } : null })
-  const growth = useGrowth(split !== null, enteringAgent, still)
+  const growth = useGrowth(split !== null, enteringAgent, still, motionOf)
   const pageInset = usePageInset(enteringAgent, split !== null, sizes.canvasWidth, still)
   // While the split grows the right side over the chat, what floats over the canvas moves back by as much.
   const shift = split ? grow : 0
@@ -237,7 +249,7 @@ export function Canvas() {
             key={section}
             custom={travelOf}
             variants={travel}
-            initial="enter"
+            initial={motionOf.resumed ? false : 'enter'}
             animate="center"
             exit="exit"
             tabIndex={-1}
@@ -248,9 +260,9 @@ export function Canvas() {
           >
             <ScreenBoundary of={key}>
               <Suspense fallback={null}>
-                <motion.div className="h-full" variants={enteringAgent ? { enter: {}, center: { transition: agentEntry(still) } } : arrive} initial="enter" animate="center">
+                <ScreenContent screen={screen} variants={enteringAgent ? { enter: {}, center: { transition: agentEntry(still) } } : arrive} resumed={motionOf.resumed}>
                   {hasHost && !needsModel && NOT_WIRED.has(screen) ? <NotWiredYet screen={screen} /> : <View />}
-                </motion.div>
+                </ScreenContent>
               </Suspense>
             </ScreenBoundary>
           </motion.section>

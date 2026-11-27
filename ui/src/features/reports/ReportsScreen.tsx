@@ -19,7 +19,7 @@ import { replyToReport } from './reply.ts'
 import { DayHeading, ReportRow } from './ReportRow.tsx'
 import { useStill } from './still.ts'
 import { useReports, watchFirstReport } from './store.ts'
-import { SCREEN_PANES } from '@/app/screen-layout.ts'
+import { PAGE_SCROLLER, SCREEN_PANES } from '@/app/screen-layout.ts'
 
 /** Where the keyboard is, as the screen's key map counts it. */
 function whereOf(target: Element): Where {
@@ -345,7 +345,7 @@ export function ReportsScreen() {
             <TitleFilter value={title} onChange={chooseTitle} field={titleField} />
           </Rise>
 
-          <motion.div ref={scroller} layoutScroll className="scroll-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain pb-20">
+          <motion.div ref={scroller} layoutScroll className={`${PAGE_SCROLLER} scroll-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain pb-20`}>
             <ul className="relative flex flex-col" aria-label="Reports" onFocusCapture={(event) => drawMoreFor(event.target)}>
               <AnimatePresence mode="popLayout" custom={leaving}>
                 {drawnGroups.flatMap((group) => [

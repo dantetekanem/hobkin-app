@@ -74,9 +74,14 @@ test('Work comes back from a review opened on AI Reviews on that tab, with what 
   useWorkTab.getState().choose('work')
   view().leave()
   assert.equal(view().screen, 'work')
+  assert.equal(view().screenMotion.resumed, true, 'returning below the top skips the entrance')
   assert.equal(useWorkTab.getState().tab, 'reviews', 'the tab is chosen again before Work draws')
   assert.deepEqual(takeArrival('work'), { tab: 'reviews', focus: '[data-review-id="change:storefront:12"]', scroll: 420 }, 'the page is given the rest as it arrives')
   assert.equal(takeArrival('work'), null, 'once')
+  view().openScreen('yolo')
+  assert.ok(!view().screenMotion.resumed, 'a fresh destination still animates')
+  view().back()
+  assert.ok(!view().screenMotion.resumed, 'restoring a tab at the top still animates')
 })
 
 test("Work comes back from a project opened from a chart's list on Numbers with that list open at the row it was opened from", () => {

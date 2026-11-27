@@ -24,9 +24,9 @@ const rest = 'translateX(0px) translateY(0px) scale(1)'
  * `center` takes the row's place in the arrival (its `custom`), or -1 for a row that arrives on its own.
  * `gone` takes the reason it leaves, which AnimatePresence hands to a leaving row.
  */
-export function rowVariants(still: boolean): Variants {
+export function rowVariants(still: boolean, resumed = false): Variants {
   return {
-    enter: { opacity: 0, transform: still ? rest : 'translateX(0px) translateY(18px) scale(0.97)' },
+    enter: resumed ? { opacity: 1, transform: rest } : { opacity: 0, transform: still ? rest : 'translateX(0px) translateY(18px) scale(0.97)' },
     center: (order: number = -1) => {
       const delay = order < 0 ? 0 : Math.min(order, MOST_IN_TURN) * stagger
       // Under Still both ends hold the row where it rests, so a row caught mid-rise when Still was chosen is set straight at once.
@@ -47,11 +47,12 @@ export function rowVariants(still: boolean): Variants {
 export const rowLayout: Transition = { layout: spring.sheet }
 
 /** True while the screen is arriving, so its rows know to land in turn. */
-export function useArriving(): boolean {
-  const [arriving, setArriving] = useState(true)
+export function useArriving(playEntrance = true): boolean {
+  const [arriving, setArriving] = useState(playEntrance)
   useEffect(() => {
+    if (!arriving) return
     const timer = setTimeout(() => setArriving(false), 1000)
     return () => clearTimeout(timer)
-  }, [])
+  }, [arriving])
   return arriving
 }

@@ -2,7 +2,6 @@ import { Map as MapIcon, Zap } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
-import { useKeptPlace } from '@/app/kept-place.ts'
 import { useView } from '@/app/view-store.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
@@ -133,11 +132,15 @@ export function WorkScreen() {
   const finishedPart = useSame(useMemo(() => (parts && filtered && only ? { ...parts.finished, finished: filtered.finished } : (parts?.finished ?? null)), [parts, filtered, only]))
   // An item opened from another screen, such as an issue's chip on the GitHub page, takes the keyboard as Work arrives.
   useLayoutEffect(() => bindWorkTarget(main.current), [])
-  // Coming back along the trail, the row in focus and the scroll come back too (053). After the handoff above, which goes first.
-  useKeptPlace('work', main)
   const still = useStill()
-  const arriving = useArriving()
-  const variants = useMemo(() => rowVariants(still), [still])
+  const [resumed] = useState(() => useView.getState().screenMotion.resumed === true)
+  const arriving = useArriving(!resumed)
+  // The first work snapshot belongs to the restored page even if it comes after mount.
+  const [resumeRows, setResumeRows] = useState(resumed)
+  useEffect(() => {
+    if (resumeRows && parts) setResumeRows(false)
+  }, [resumeRows, parts])
+  const variants = useMemo(() => rowVariants(still, resumeRows), [still, resumeRows])
   const tab = useWorkTab((state) => state.tab)
   const chooseTab = useWorkTab((state) => state.choose)
   // The changes behind a chart of the Numbers tab, open over the page, which waits under it.
@@ -294,6 +297,7 @@ export function WorkScreen() {
   let order = 0
   const turn = arriving ? () => order++ : ARRIVED
   const shared = { live, variants, turn }
+  const resumeTab = resumed && way === 0
 
   return (
     <div ref={root} onKeyDownCapture={onKeyDownCapture} onFocus={onFocus} onBlur={onBlur} className="relative h-full overflow-hidden">
@@ -305,15 +309,15 @@ export function WorkScreen() {
         <div className="flex flex-col gap-6">
           <WorkTabs tab={tab} waits={waits} onChoose={chooseTab} />
           {tab === 'reviews' ? (
-            <WorkPage key="reviews" way={way} role="tabpanel" id="work-panel-reviews" aria-labelledby="work-tab-reviews">
+            <WorkPage key="reviews" resumed={resumeTab} way={way} role="tabpanel" id="work-panel-reviews" aria-labelledby="work-tab-reviews">
               <Reviews live={live} reviews={reviews} priorityOf={reviewPriority} />
             </WorkPage>
           ) : tab === 'numbers' ? (
-            <WorkPage key="numbers" way={way} role="tabpanel" id="work-panel-numbers" aria-labelledby="work-tab-numbers">
+            <WorkPage key="numbers" resumed={resumeTab} way={way} role="tabpanel" id="work-panel-numbers" aria-labelledby="work-tab-numbers">
               <Numbers />
             </WorkPage>
           ) : (
-            <WorkPage key="work" way={way} role="tabpanel" id="work-panel-work" aria-labelledby="work-tab-work" className="flex flex-col gap-10">
+            <WorkPage key="work" resumed={resumeTab} way={way} role="tabpanel" id="work-panel-work" aria-labelledby="work-tab-work" className="flex flex-col gap-10">
               <Rise>
                 <div className="flex flex-col gap-4">
                 {view ? <ProjectChips chips={view.chips} value={only} onChoose={chooseProject} /> : null}
@@ -329,7 +333,7 @@ export function WorkScreen() {
                 </div>
               </Rise>
               {parts ? (
-                <WhenWorkComes>
+                <WhenWorkComes resumed={resumeRows}>
                   <Rise>
                     <Queue work={queuePart ?? parts.queue} only={view?.name} onShowAll={openQueue} {...shared} />
                   </Rise>

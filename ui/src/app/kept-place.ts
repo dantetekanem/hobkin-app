@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react'
+import { PAGE_SCROLLER } from './screen-layout.ts'
 import type { ScreenId } from './screens.ts'
 import type { Keep } from './trail.ts'
 
@@ -161,11 +162,11 @@ export function restorePage(root: HTMLElement, keep: Keep): () => void {
  * far it was scrolled, and gets both back as it arrives along the trail. Call it after the page's other handoffs of the
  * keyboard, such as an item opened on it from another screen, so they go first.
  */
-export function useKeptPlace(screen: ScreenId, scroller: RefObject<HTMLElement | null>): void {
+export function useKeptPlace(screen: ScreenId, content: RefObject<HTMLElement | null>): void {
   // Kept for the page's life, so a second run of the effect (StrictMode) still has what the arrival gave.
   const given = useRef<Keep | null | undefined>(undefined)
   useLayoutEffect(() => {
-    const root = scroller.current
+    const root = content.current?.querySelector<HTMLElement>(`.${PAGE_SCROLLER}`)
     if (!root) return
     let last: Element | null = null
     const touch = (event: Event) => {
@@ -182,5 +183,5 @@ export function useKeptPlace(screen: ScreenId, scroller: RefObject<HTMLElement |
       root.removeEventListener('pointerdown', touch, true)
       root.removeEventListener('focusin', touch)
     }
-  }, [screen, scroller])
+  }, [screen, content])
 }

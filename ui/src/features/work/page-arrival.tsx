@@ -21,18 +21,18 @@ const page = (still: boolean): Variants => ({
 })
 
 /** One of Work's pages. Give each page its own key, so it mounts as the user comes to it. `way` is -1 or 1, or 0 for the first page, which the screen's own arrival carries. */
-export function WorkPage({ way, className, children, ...aria }: { way: number; className?: string; children: ReactNode; role?: string; id?: string; 'aria-labelledby'?: string }) {
+export function WorkPage({ way, resumed, className, children, ...aria }: { way: number; resumed: boolean; className?: string; children: ReactNode; role?: string; id?: string; 'aria-labelledby'?: string }) {
   return (
-    <motion.div variants={page(useStill())} custom={way} initial="enter" animate="center" className={className} {...aria}>
+    <motion.div variants={page(useStill())} custom={way} initial={resumed ? false : 'enter'} animate="center" className={className} {...aria}>
       {children}
     </motion.div>
   )
 }
 
 /** What waits for hobkin's work: it lands when the work comes, with the same spacing as the page around it. */
-export function WhenWorkComes({ children }: { children: ReactNode }) {
+export function WhenWorkComes({ children, resumed }: { children: ReactNode; resumed: boolean }) {
   return (
-    <motion.div variants={together} initial="enter" animate="center" className="flex flex-col gap-10">
+    <motion.div variants={together} initial={resumed ? false : 'enter'} animate="center" className="flex flex-col gap-10">
       {children}
     </motion.div>
   )

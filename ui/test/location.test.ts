@@ -20,6 +20,7 @@ sessionStorage.setItem(KEY, JSON.stringify({
 
 const { motionBetween, moveKey, readSpot, remembered, travel } = await import('../src/app/location.ts')
 const { useView } = await import('../src/app/view-store.ts')
+const { keepPart, takeArrival } = await import('../src/app/kept-place.ts')
 const { useReports } = await import('../src/features/reports/store.ts')
 const { useRoutines } = await import('../src/features/routines/store.ts')
 const { hostStore } = await import('../src/lib/host/client.ts')
@@ -131,6 +132,31 @@ test('Home is a restorable location and back/forward preserves report and routin
   travel(1)
   travel(1)
   assert.equal(useView.getState().screen, 'routines')
+})
+
+test('history keeps the scroll of each Home visit, including changes made after going back', async (t) => {
+  const view = () => useView.getState()
+  let scroll = 620
+  t.after(keepPart('home', 'page', { read: () => ({ scroll }) }))
+  view().openMenuScreen('home')
+  await settled()
+  view().openMenuScreen('work')
+  await settled()
+  view().openMenuScreen('home')
+  await settled()
+  scroll = 180
+
+  travel(-1)
+  travel(-1)
+  assert.equal(takeArrival('home')?.scroll, 620)
+  assert.equal(view().screenMotion.resumed, true)
+  scroll = 315
+  travel(1)
+  travel(1)
+  assert.equal(takeArrival('home')?.scroll, 180)
+  travel(-1)
+  travel(-1)
+  assert.equal(takeArrival('home')?.scroll, 315)
 })
 
 test('the canvas place is a move of its own along the side, and Command+R keeps its way back', async () => {

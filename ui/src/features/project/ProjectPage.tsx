@@ -1,5 +1,4 @@
 import { useMemo, useRef } from 'react'
-import { useKeptPlace } from '@/app/kept-place.ts'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStops } from '@/app/stops.ts'
 import { useWorkMetrics } from '@/features/numbers/use-work-metrics.ts'
@@ -44,7 +43,6 @@ const NO_PRESS: GuideControl = { pressing: false, said: null, press: () => {} }
 export function ProjectView({ slug, page, live, guide = NO_PRESS }: { slug: string; page: Page; live: boolean; /** The run guide's button. */ guide?: GuideControl }) {
   const root = useRef<HTMLDivElement | null>(null)
   useStops(root)
-  useKeptPlace('project', root)
 
   return (
     <div ref={root} className={`${SCREEN_SCROLLER} pb-20`}>

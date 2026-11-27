@@ -79,6 +79,8 @@ export function pageInsetMove(now: { onPage: boolean; wasOnPage: boolean; split:
 
 /** How the canvas moves to its next screen: along the menu (x) or along the agents list (y), and which way. */
 export interface ScreenMotion {
+  /** A return below the top shows the screen and its contents already in place. */
+  resumed?: true
   axis: 'x' | 'y'
   direction: 1 | -1
 }
@@ -217,8 +219,9 @@ function moved(view: ViewState, next: Partial<ViewState>, how: How): Partial<Vie
   }
   const at = how === 'push' ? -1 : view.trail.findIndex((stop) => samePlace(stop, to))
   if (at >= 0) {
-    arrive(to.screen, how === 'back' ? view.trail[at]!.keep : undefined)
-    return { ...next, trail: view.trail.slice(0, at) }
+    const keep = how === 'back' ? view.trail[at]!.keep : undefined
+    arrive(to.screen, keep)
+    return { ...next, screenMotion: arrivalMotion(next.screenMotion ?? view.screenMotion, keep?.scroll), trail: view.trail.slice(0, at) }
   }
   arrive(to.screen)
   if (how === 'back' || how === 'stay' || samePlace(stopOf(view), to)) return next
@@ -232,10 +235,15 @@ function backMotion(from: Over, to: Stop): ScreenMotion {
   return from.screen === 'agent' ? { axis: 'y', direction: -1 } : { axis: 'x', direction: -1 }
 }
 
+export function arrivalMotion({ axis, direction }: ScreenMotion, scroll = 0): ScreenMotion {
+  return scroll > 0 ? { axis, direction, resumed: true } : { axis, direction }
+}
+
 /** Back on `stop`, with `trail` before it. Its page gets what it kept. */
 function restored(view: ViewState, stop: Stop, trail: Stop[]): Partial<ViewState> {
   arrive(stop.screen, stop.keep)
-  return { ...whereOf(stop, view), trail, previewReturn: null, previewFrom: null, screenMotion: backMotion(view, stop) }
+  const screenMotion = arrivalMotion(backMotion(view, stop), stop.keep?.scroll)
+  return { ...whereOf(stop, view), trail, previewReturn: null, previewFrom: null, screenMotion }
 }
 
 /** A screen opened along the menu: it comes in from the side of its item. */
