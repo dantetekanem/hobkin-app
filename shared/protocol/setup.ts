@@ -275,8 +275,15 @@ export interface SetupSaved {
   projects: ProjectFolder[]
   goals: Goal[]
   cards: SetupCardPick[]
+  /** The answer to the setup's question about usage counts: yes or no. Left out while it was not asked. */
+  telemetry?: boolean
   /** When it was saved, as an ISO time. */
   savedAt: string
+}
+
+/** What `setup.telemetry` did: whether hobkin sends its usage counts from this home now. */
+export interface SetupTelemetry {
+  upload: boolean
 }
 
 /**
