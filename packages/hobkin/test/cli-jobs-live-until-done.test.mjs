@@ -210,7 +210,8 @@ test("a job started through a configured launcher is given hobkin_done and its o
   assert.equal(args[args.indexOf(doneExtension) - 1], '--extension', 'hobkin_done is loaded');
   assert.equal(args.includes('--no-extensions'), false, "the launcher's Pi keeps the extensions it finds itself");
   assert.ok(args.join('\n').includes(readFileSync(new URL('../src/prompts/session-job.md', import.meta.url), 'utf8')));
-  assert.equal(buildInvocation(request(t, { launcher })).args.includes(doneExtension), false, 'a run not asked to live until done is not');
+  const notLiving = buildInvocation(request(t, { launcher }));
+  assert.equal(notLiving.args.includes(doneExtension), false, 'a run not asked to live until done is not');
 });
 
 test('a session job started through a configured launcher that asks lives on, hears the answer and ends with the report hobkin_done gave', { timeout: 20000 }, async t => {
@@ -221,7 +222,11 @@ test('a session job started through a configured launcher that asks lives on, he
     else done('Useful: Fixed on fix-totals.', () => { say('Ending.'); settled(); });
   `, { provider: 'fixture', id: 'local' });
   // hobkin's own harness, as the app starts it through the launcher: Pi's extensions are the launcher's to find.
-  const app = await h.open({ runHarness: (request, options) => (request.purpose ? Promise.resolve(notHere) : runHarness(request, { ...options, spawnProcess: fake(program, pids) })) });
+  const throughLauncher = (request, options) => {
+    if (request.purpose) return Promise.resolve(notHere);
+    return runHarness(request, { ...options, spawnProcess: fake(program, pids) });
+  };
+  const app = await h.open({ runHarness: throughLauncher });
   const started = await fixTotals(h);
   const id = `session:${started.name}`;
   const status = async () => (await app.runtime.state()).runs[id].status;

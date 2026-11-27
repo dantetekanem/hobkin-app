@@ -93,8 +93,12 @@ const livesUntilDone = request => request.untilDone === true
  */
 function launcherExtensions(request) {
   if (!launcherFindsExtensions(request)) return [];
-  return [...(request.untilDone === true ? [doneExtension] : []), ...(request.schedules === true ? [scheduleExtension] : [])]
-    .flatMap(path => ['--extension', path]);
+
+  const hobkinsOwn = [
+    ...(request.untilDone === true ? [doneExtension] : []),
+    ...(request.schedules === true ? [scheduleExtension] : []),
+  ];
+  return hobkinsOwn.flatMap(path => ['--extension', path]);
 }
 /** A call of `hobkin_schedule` or `hobkin_schedules` that reached the host over the run's bridge (`schedule-extension.mjs`). */
 const isScheduleCall = placeholder => {
