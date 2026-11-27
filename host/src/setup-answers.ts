@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { setTelemetryUpload, telemetryUploadEnabled } from 'hobkin/src/cli/config.mjs'
 import { SETUP_FACTS_MAX, SETUP_TEXT_MAX, writeSetupFacts, type SetupFact } from 'hobkin/src/cli/setup-facts.mjs'
-import { COMPUTER_KINDS, GOALS, type ProjectFolder, type SetupAnswer, type SetupAnswers, type SetupCardPick, type SetupSaved } from '#shared/protocol/setup.ts'
+import { COMPUTER_KINDS, GOALS, type ProjectFolder, type SetupAnswer, type SetupAnswers, type SetupCardPick, type SetupSaved, type SetupTelemetry } from '#shared/protocol/setup.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
 
 /**
@@ -71,44 +72,88 @@ export function readSetupSaved(root: string): SetupSaved | null {
   try {
     const saved = JSON.parse(readFileSync(fileIn(root), 'utf8')) as Record<string, unknown> | null
     if (saved?.version !== 1) return null
-    // A file from before goals and cards has none of them.
-    const { computer, answers, projects, goals = [], cards = [], savedAt } = saved
+    // A file from before goals and cards has none of them, and one from before the usage question has no answer to it.
+    const { computer, answers, projects, goals = [], cards = [], telemetry, savedAt } = saved
     const kind = COMPUTER_KINDS.find((one) => one === computer) ?? null
     if ((computer !== null && !kind) || !isText(savedAt)) return null
     if (!Array.isArray(answers) || !answers.every(isAnswer) || !Array.isArray(projects) || !projects.every(isProject)) return null
     if (!Array.isArray(goals) || !goals.every(isGoal) || !Array.isArray(cards) || !cards.every(isCard)) return null
-    return { computer: kind, answers, projects, goals, cards, savedAt }
+    if (telemetry !== undefined && typeof telemetry !== 'boolean') return null
+    return { computer: kind, answers, projects, goals, cards, ...(telemetry === undefined ? {} : { telemetry }), savedAt }
   } catch {
     // No file yet, or one that cannot be read: the setup starts with empty fields, and nothing else depends on it.
     return null
   }
 }
 
-/** Saves both copies, hobkin's first: when it refuses, nothing is written at all and its words say why. */
+/** The app's own copy, whole, written under another name and moved into place, private to the user. */
+function writeSaved(root: string, saved: SetupSaved): void {
+  const file = fileIn(root)
+  mkdirSync(join(root, 'client'), { recursive: true, mode: 0o700 })
+  const draft = `${file}.${process.pid}.tmp`
+  writeFileSync(draft, `${JSON.stringify({ version: 1, ...saved })}\n`, { mode: 0o600 })
+  renameSync(draft, file)
+}
+
+/**
+ * Saves both copies, hobkin's first: when it refuses, nothing is written at all and its words say why. The answer to
+ * the usage question is not one of the window's answers, so the one kept before stays.
+ */
 export function saveSetup(root: string, { computer, answers, projects, goals = [], cards = [] }: SetupAnswers, now = new Date()): SetupSaved {
-  const saved: SetupSaved = { computer: computer ?? null, answers, projects, goals, cards, savedAt: now.toISOString() }
+  const telemetry = readSetupSaved(root)?.telemetry
+  const saved: SetupSaved = {
+    computer: computer ?? null,
+    answers,
+    projects,
+    goals,
+    cards,
+    ...(telemetry === undefined ? {} : { telemetry }),
+    savedAt: now.toISOString(),
+  }
   try {
     writeSetupFacts(root, factsOf(saved))
   } catch (error) {
     throw new Unavailable(error instanceof Error ? error.message : String(error))
   }
 
-  const file = fileIn(root)
-  mkdirSync(join(root, 'client'), { recursive: true, mode: 0o700 })
-  const draft = `${file}.${process.pid}.tmp`
-  writeFileSync(draft, `${JSON.stringify({ version: 1, ...saved })}\n`, { mode: 0o600 })
-  renameSync(draft, file)
+  writeSaved(root, saved)
   return saved
+}
+
+/** Where the usage answer may change hobkin's setting: only a live host on the real home, the one the user runs. */
+interface TelemetryHere {
+  live: boolean
+  real: boolean
+}
+
+/**
+ * The answer to the setup's question about usage counts (025-onboarding). A live host on the real home saves it as
+ * hobkin's own setting, which nothing changes until the user answers. Any other host leaves the setting alone. Either
+ * keeps the answer with the setup's, and says whether usage counts go from this home now.
+ */
+export function keepTelemetryAnswer(root: string, upload: boolean, { live, real }: TelemetryHere, now = new Date()): SetupTelemetry {
+  if (live && real) setTelemetryUpload(root, upload)
+
+  const before = readSetupSaved(root)
+  const base = before ?? { computer: null, answers: [], projects: [], goals: [], cards: [] }
+  writeSaved(root, { ...base, telemetry: upload, savedAt: now.toISOString() })
+
+  return { upload: live && real && telemetryUploadEnabled(root) }
 }
 
 export interface SetupAnswerOptions {
   /** The folder the home's data is in. */
   root: () => string
+  /** The host runs the real model. Without it the usage answer is kept, and hobkin's setting is left alone. */
+  live?: boolean
+  /** The host runs on the real home, the one the user runs. Without it the same. */
+  real?: boolean
 }
 
-export function setupAnswerHandlers({ root }: SetupAnswerOptions): HostHandlers {
+export function setupAnswerHandlers({ root, live = false, real = false }: SetupAnswerOptions): HostHandlers {
   return {
     'setup.save': (answers) => saveSetup(root(), answers),
     'setup.saved': () => readSetupSaved(root()),
+    'setup.telemetry': ({ upload }) => keepTelemetryAnswer(root(), upload, { live, real }),
   }
 }
