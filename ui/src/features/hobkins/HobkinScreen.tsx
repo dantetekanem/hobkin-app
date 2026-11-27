@@ -54,8 +54,6 @@ import {
   pageTurns,
   talkOpen,
   waitsForTurn,
-  withKept,
-  withReceipts,
   type Delivery,
   type PageRow,
   type PageState,
@@ -68,12 +66,13 @@ import { AgentPromptEditor } from '@/features/chat/PromptEditor.tsx'
 import { SubagentActivity } from '@/features/teams/SubagentActivity.tsx'
 import { openNavigator, useHasSubagents } from '@/features/teams/use-activity.ts'
 import { ContinueButton, imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
-import { CONTINUE_WORDS, waitingRows, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
+import { CONTINUE_WORDS, draftWithTakenBack, waitingRows, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
 import { useTalkControls } from '@/features/work/use-talk-controls.ts'
 import { PageHeader, pageGutter, PartFrame, splitSpring } from './PageHeader.tsx'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
 import { KEPT_PAGES, keptPage, keptPagesOn, useKeptPage, useShownPage } from './page-store.ts'
+import { refuse, useRefused, useSentNotes } from './sent-notes.ts'
 import { timeOfTurn, useDrawnSteps, useHeldJobs, useNewestFirst, useWholeJobs } from './turn-steps.ts'
 import { useConversation, useMarkSeen, usePageShown } from './use-conversation.ts'
 import { useOnClaudeCode } from './use-pal.ts'
@@ -222,52 +221,6 @@ function useKeptJobs(agent: string): readonly string[] {
   const { drawn } = useKeptPage(id)
   const live = useHost((state) => (id ? (state.snapshot.hobkins?.find((summary) => summary.id === id)?.run ?? null) : null))
   return useMemo(() => [...new Set([...lines, ...drawn, ...(live ? [live] : [])])], [lines, drawn, live])
-}
-
-/**
- * What the user sent from the page, by hobkin, and the message on its way now. Kept while the page is open, and read back
- * from what hobkin keeps with each turn once the page is back from a reload, a hot update or another screen. hobkin's
- * receipts mark what each turn read in as they come.
- */
-function useSentNotes() {
-  const [sent, setSent] = useState<Readonly<Record<string, readonly SentNote[]>>>({})
-  const [sending, setSending] = useState<Record<string, SendingNote | null>>({})
-
-  const add = useCallback((id: string, note: SentNote) => {
-    setSent((all) => {
-      // A read can bring hobkin's copy back before the say answers: this window's own, with its images, takes its place.
-      const others = (all[id] ?? []).filter((each) => note.noteId === undefined || each.noteId !== note.noteId)
-      // A receipt that came before the say answered counts too.
-      return withReceipts({ ...all, [id]: [...others, note] }, hostStore.getState().snapshot.steeringReceipts)
-    })
-  }, [])
-
-  const recall = useCallback((id: string, turns: readonly HobkinTurn[]) => {
-    setSent((all) => {
-      const notes = all[id] ?? NO_NOTES
-      const recalled = withKept(notes, turns)
-      return recalled === notes ? all : withReceipts({ ...all, [id]: recalled }, hostStore.getState().snapshot.steeringReceipts)
-    })
-  }, [])
-
-  useEffect(() => {
-    return hostStore.subscribe(({ snapshot }, { snapshot: before }) => {
-      if (snapshot.steeringReceipts === before.steeringReceipts) return
-      setSent((all) => withReceipts(all, snapshot.steeringReceipts))
-    })
-  }, [])
-
-  const sendingTo = useCallback((id: string, note: SendingNote | null) => {
-    setSending((all) => ({ ...all, [id]: note }))
-  }, [])
-
-  // Notes the user took back into the box leave the page.
-  const drop = useCallback((id: string, noteIds: readonly string[]) => {
-    if (!noteIds.length) return
-    setSent((all) => ({ ...all, [id]: (all[id] ?? []).filter((note) => !note.noteId || !noteIds.includes(note.noteId)) }))
-  }, [])
-
-  return { sent, sending, add, recall, sendingTo, drop }
 }
 
 /**
@@ -844,6 +797,12 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
   /** What a /model or /effort line did, under the box. */
   const [said, setSaid] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Words a send could not get to the hobkin come back ahead of what is being typed, with why: at once, or when the
+  // box is back after the user moved to another agent or screen while the send was out.
+  useRefused(id, (back) => {
+    setDraft((now) => draftWithTakenBack(now, back))
+    setProblem(back.at(-1)!.why)
+  })
   const name = hobkin?.title ?? 'the new hobkin'
   const working = hobkin?.state === 'working'
   const text = draft.trim()
@@ -924,9 +883,10 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
       onSent({ text, at, run: said.run, started: said.started, noteId, ...pictures, ...(waits && !said.started ? { queue: waits } : {}) })
       controls.giveBack(said.unsent)
     } catch (error) {
-      setProblem(message(error))
-      // Nothing was sent: the words and images come back to the box, unless the user has written or attached again.
-      if (words === undefined) setDraft((now) => now || text)
+      // Nothing was sent: the words come back into the box, with why, and the images to its tray. A box the user
+      // left while the send was out gets them when it is back.
+      if (words === undefined) refuse(id, { text, why: message(error) })
+      else setProblem(message(error))
       useAgentImages.getState().restore(agent, attached)
     } finally {
       onSending(null)

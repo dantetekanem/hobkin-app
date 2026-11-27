@@ -376,17 +376,20 @@ export function withReceipts(
   return changed ? next : sent
 }
 
+const NONE_TAKEN_BACK: ReadonlySet<string> = new Set()
+
 /**
  * The notes the user sent, with what hobkin kept of those this window no longer has: sent from a page that a reload, a
  * hot update or another screen has taken away since. Each joins in the order it was sent, under its turn's run, as the
  * page would have it had it sent it now, without its images. A note this window still has stays as it is, so with nothing
- * new the same notes come back.
+ * new the same notes come back. One the user took back into the box, by its id in `takenBack`, never comes back: a
+ * conversation read before then still holds it.
  */
-export function withKept(sent: readonly SentNote[], turns: readonly HobkinTurn[]): readonly SentNote[] {
+export function withKept(sent: readonly SentNote[], turns: readonly HobkinTurn[], takenBack: ReadonlySet<string> = NONE_TAKEN_BACK): readonly SentNote[] {
   const known = new Set(sent.map((note) => note.noteId))
   const kept = turns.flatMap(({ run, notes = [] }) =>
     notes
-      .filter(({ noteId }) => !known.has(noteId))
+      .filter(({ noteId }) => !known.has(noteId) && !takenBack.has(noteId))
       .map(({ noteId, text, at, queue, receivedAt }): SentNote => ({
         text,
         at,
