@@ -25,8 +25,6 @@ const MATCH_PI = `${INSTALL_PI} \`pi update\` moves Pi past that version, so ski
 const SIGN_IN = 'Sign in to a provider. While Pi has no model it can use, hobkin\'s window shows Connect a model, with every way in. /login in `pi` is the same sign-in.';
 const GH_USE = 'Work mode uses it for GitHub PRs. A repository on another host works without it, through that host\'s own CLI, with less to read.';
 const INSTALL_QMD = 'Run `npm install -g @tobilu/qmd`. Hobkin finds it the next time it opens, and qmd downloads a 330 MB model the first time it indexes.';
-const PI_CODER_ADDS = 'With it, d on a local PR opens the branch\'s diff.';
-const INSTALL_PI_CODER = 'Run `pi install npm:pi-coder`.';
 const TLC_ADDS = 'Work mode checks TLA+ models of state machines with it.';
 const INSTALL_JAVA = 'Install Java 21 from https://adoptium.net, then run `hobkin proof setup`.';
 const SETUP_TLC = `Run \`hobkin proof setup\`. It downloads tla2tools.jar ${TLA2TOOLS.version} into Hobkin's folder and checks it.`;
@@ -292,14 +290,6 @@ async function qmdRow(ask) {
   return optional('qmd', `${why} Agents read Hobkin's files directly instead of searching them.`, INSTALL_QMD);
 }
 
-async function piCoderRow(ask, launcher) {
-  const answer = await askPi(ask, launcher, ['list']);
-  if (answer.failed) return optional('pi-coder', `\`pi list\` failed. ${PI_CODER_ADDS}`, INSTALL_PI_CODER);
-  if (!answer.text.includes('pi-coder')) return optional('pi-coder', `Not installed. ${PI_CODER_ADDS}`, INSTALL_PI_CODER);
-
-  return ready('pi-coder', `Installed. ${PI_CODER_ADDS}`);
-}
-
 /** TLC needs Java and the pinned jar, and TLAPS adds proofs. Each row says what it adds, since none of it is needed. */
 async function tlcRow(proofTools, root) {
   let home = root;
@@ -346,7 +336,6 @@ export async function setupChecks(root, {
   ]);
   const extras = await Promise.all([
     qmdRow(ask),
-    piCoderRow(ask, launcher),
     tlcRow(proofTools, root),
   ]);
 

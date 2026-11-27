@@ -26,7 +26,6 @@ const installed = {
   'hobkin --help': 'Hobkin\nUsage: hobkin [command] [options]\n',
   'gh auth status': 'github.com\n  Logged in to github.com account someone\n',
   'qmd --version': 'qmd 2.1.0\n',
-  'pi list': 'User packages:\n  npm:pi-coder\n',
 };
 
 const absent = Object.assign(Error('spawn ENOENT'), { code: 'ENOENT' });
@@ -103,17 +102,16 @@ test('a ready machine reads as ok, and setup only asks tools about themselves', 
   });
 
   assert.deepEqual(rows.filter(row => row.state !== 'ok'), []);
-  const optionalRows = rows.slice(-3);
-  assert.deepEqual(optionalRows.map(row => row.name), ['qmd', 'pi-coder', 'tlc']);
+  const optionalRows = rows.slice(-2);
+  assert.deepEqual(optionalRows.map(row => row.name), ['qmd', 'tlc']);
   assert.ok(optionalRows.every(row => row.group === 'optional'));
-  assert.ok(rows.slice(0, -3).every(row => row.group === 'needed'));
+  assert.ok(rows.slice(0, -2).every(row => row.group === 'needed'));
   assert.deepEqual(calls.toSorted(), [
     'gh auth status',
     'git --version',
     'hobkin --help',
     'pi --no-approve --list-models',
     'pi --version',
-    'pi list',
     'qmd --version',
   ]);
 });
@@ -358,16 +356,6 @@ test('qmd is optional: search works with it and agents read files without it', a
   assert.match(row.fix, /npm install -g @tobilu\/qmd/);
 });
 
-test('pi-coder is optional: it is how a local PR\'s diff opens, and setup says how to get it', async t => {
-  const root = home(t);
-  assert.equal((await checks(root))['pi-coder'].state, 'ok');
-
-  const row = (await checks(root, { tools: { 'pi list': 'User packages:\n  npm:pi-other\n' } }))['pi-coder'];
-
-  assert.equal(row.state, 'optional');
-  assert.match(row.fix, /pi install npm:pi-coder/);
-});
-
 test('tlc is optional: it needs Java and the pinned jar, and setup says how to get each', async t => {
   const root = home(t);
   const ready = (await checks(root)).tlc;
@@ -388,7 +376,7 @@ test('tlc is optional: it needs Java and the pinned jar, and setup says how to g
 });
 
 test('a tool that is missing or broken never throws', async t => {
-  const everyRow = ['Pi', 'Node', 'git', 'hobkin', 'gh', 'Chat model', 'Checks model', 'Routines', 'qmd', 'pi-coder', 'tlc'];
+  const everyRow = ['Pi', 'Node', 'git', 'hobkin', 'gh', 'Chat model', 'Checks model', 'Routines', 'qmd', 'tlc'];
 
   for (const answer of [absent, broken]) {
     const rows = await checks(home(t), { tools: everyToolIs(answer) });
@@ -431,7 +419,7 @@ test('the report groups needed and optional rows, and names the guide last', () 
   const rows = [
     { name: 'Pi', state: 'missing', detail: 'Not there.', fix: 'Install it.', group: 'needed' },
     { name: 'Node', state: 'ok', detail: '26.0.0.', fix: null, group: 'needed' },
-    { name: 'pi-coder', state: 'optional', detail: 'Adds diffs.', fix: 'Get it.', group: 'optional' },
+    { name: 'tlc', state: 'optional', detail: 'Adds model checks.', fix: 'Get it.', group: 'optional' },
     { name: 'qmd', state: 'ok', detail: 'Has search.', fix: 'Type /help.', group: 'optional' },
   ];
 
@@ -440,7 +428,7 @@ test('the report groups needed and optional rows, and names the guide last', () 
   const [neededPart, optionalPart] = text.split('\nOptional\n');
   assert.match(neededPart, /\/some\/home/);
   assert.match(neededPart, /\nNeeded\n {2}missing\s+Pi: Not there\.\n\s+Fix: Install it\.\n {2}ok\s+Node: 26\.0\.0\.\n/);
-  assert.match(optionalPart, /^ {2}optional\s+pi-coder: Adds diffs\.\n\s+To add: Get it\.\n {2}ok\s+qmd: Has search\.\n\s+Next: Type \/help\.\n/);
+  assert.match(optionalPart, /^ {2}optional\s+tlc: Adds model checks\.\n\s+To add: Get it\.\n {2}ok\s+qmd: Has search\.\n\s+Next: Type \/help\.\n/);
   assert.match(optionalPart, /1 needed thing is missing/);
   assert.equal(text.trimEnd().split('\n').at(-1), `Setup guide: ${setupGuide}`);
 
