@@ -1,23 +1,27 @@
 import { motion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button.tsx'
-import { SigningIn } from '@/features/signin/ConnectModels.tsx'
+import { ConnectModels, SigningIn } from '@/features/signin/ConnectModels.tsx'
 import { runCommand, useHost, useModels } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { codexProvider } from './accounts.ts'
 
 const reasonOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
 const LANDED = 'translateX(-50%) translateY(0px) scale(1)'
+const API_KEYS = ['apiKey'] as const
 
 interface ConnectPanelProps {
-  onDone: (outcome: 'connected' | 'later') => void
+  /** A provider connected, by the sign-in or a key. */
+  onDone: () => void
   still: boolean
 }
 
 /**
- * The one sign-in the setup offers for now: the OpenAI subscription, through Pi. One button starts Pi's own
- * sign-in, which opens the browser, and while it runs this shows what Pi says and asks, as "Connect a model" does
- * (`004-signin`). A provider that turns connected ends it. Pi keeps the account, and the app never sees it.
+ * The two ways in the setup offers: the OpenAI subscription, through Pi, and an API key. The sign-in button starts
+ * Pi's own sign-in, which opens the browser, and while it runs this shows what Pi says and asks, as "Connect a model"
+ * does (`004-signin`). Use an API key shows Connect a model's own keys, whose steps keep the key out of the app. A
+ * provider that turns connected ends it. There is no putting it off: without an account hobkin cannot think. Pi keeps
+ * the account, and the app never sees it.
  */
 export function ConnectPanel({ onDone, still }: ConnectPanelProps) {
   const signIn = useHost((state) => state.signIn)
@@ -27,6 +31,8 @@ export function ConnectPanel({ onDone, still }: ConnectPanelProps) {
   const [refused, setRefused] = useState<string | null>(null)
   const primary = useRef<HTMLButtonElement | null>(null)
   const signingIn = signIn.status === 'signing-in'
+  // The keys are open from the start when Pi lists no OpenAI sign-in, since they are then the only way in.
+  const [keys, setKeys] = useState(provider === null)
   const problem = signIn.status === 'signed-in' || signIn.status === 'signed-out' ? signIn.problem : undefined
 
   const run = (command: Promise<unknown>) => {
@@ -44,7 +50,7 @@ export function ConnectPanel({ onDone, still }: ConnectPanelProps) {
   useEffect(() => {
     const idsNow = connectedKey.split(' ').filter(Boolean)
     const newlyConnected = idsNow.some((id) => !connectedAtFirst.current.has(id))
-    if (newlyConnected) done.current('connected')
+    if (newlyConnected) done.current()
   }, [connectedKey])
 
   useEffect(() => {
@@ -76,16 +82,23 @@ export function ConnectPanel({ onDone, still }: ConnectPanelProps) {
         </div>
       ) : (
         <>
+          {keys ? (
+            <div className="tale-glassy tale-glass scroll-quiet max-h-[32vh] w-full overflow-y-auto rounded-3xl p-3">
+              <ConnectModels routes={API_KEYS} />
+            </div>
+          ) : null}
           {provider ? (
             <Button ref={primary} size="lg" className="h-12 px-7 text-[15px]" onClick={() => run(runCommand('signin.start', { provider: provider.id }))}>
-              {problem ? 'Try again' : 'Connect OpenAI Codex'}
+              {problem ? 'Try again' : 'Connect OpenAI (ChatGPT subscription)'}
             </Button>
           ) : (
-            <p className="max-w-[46ch] rounded-2xl bg-card px-4 py-2.5 text-center text-[13px] leading-relaxed shadow-panel">Pi does not list the OpenAI sign-in here. The app shows every other way to connect a model once you are in.</p>
+            <p className="max-w-[46ch] rounded-2xl bg-card px-4 py-2.5 text-center text-[13px] leading-relaxed shadow-panel">Pi does not list the OpenAI sign-in here, so connect with an API key.</p>
           )}
-          <Button ref={provider ? undefined : primary} variant="ghost" size="lg" className="px-3.5" onClick={() => onDone('later')}>
-            Not now
-          </Button>
+          {provider ? (
+            <Button variant="ghost" size="lg" className="px-3.5" aria-expanded={keys} onClick={() => setKeys((open) => !open)}>
+              {keys ? 'Hide the API keys' : 'Use an API key'}
+            </Button>
+          ) : null}
         </>
       )}
     </motion.section>

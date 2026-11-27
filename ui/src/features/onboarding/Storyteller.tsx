@@ -35,8 +35,8 @@ import { PiPanel } from './PiPanel.tsx'
 import { checksWanted, goalAnswersOf, goalQuestions, GOAL_WORDS, goalsOf, projectStart, setupAnswersOf } from './goals.ts'
 import { SAMPLE_PROJECTS, startingReply } from './questions.ts'
 import { sampleGoalCards } from './sample-cards.ts'
-import { beatOf, checkAnswer, followUpOf, piBlocks, skipShows, spokenText, troubleAt, type Answers, type Ask, type BeatId, type Facts, type Tale, type Trouble } from './story.ts'
-import { endedAs, tourFollows } from './first-run.ts'
+import { beatOf, checkAnswer, followUpOf, holdsAt, piBlocks, skipShows, spokenText, troubleAt, type Answers, type Ask, type BeatId, type Facts, type Tale, type Trouble } from './story.ts'
+import { endedAs, markSetupEnded, tourFollows } from './first-run.ts'
 import { useSetup } from './store.ts'
 import { keepUsage, usageAnswer } from './usage-ask.ts'
 import { useProofTools } from './use-proof-tools.ts'
@@ -900,6 +900,13 @@ export function Storyteller() {
     // Once, as the story ends, with what was answered by then.
   }, [leaving])
 
+  // A step that holds the story until Pi or an account is here marks the setup unfinished at once, so a window closed
+  // there opens the setup again before it. Ending the setup marks it again, finished or not.
+  const holds = holdsAt(tale.at, facts)
+  useEffect(() => {
+    if (holds) markSetupEnded('unfinished', useSetup.getState().answers.computer)
+  }, [holds])
+
   // Good news is cheered: an account found or connected, Pi ready.
   const cheering = beat.mood === 'celebrating' && talking && !leaving
   useEffect(() => {
@@ -1042,7 +1049,7 @@ export function Storyteller() {
               still={still}
             />
           ) : null}
-          {asking?.kind === 'connect' ? <ConnectPanel key="connect" onDone={(outcome) => answer({ account: outcome }, facts)} still={still} /> : null}
+          {asking?.kind === 'connect' ? <ConnectPanel key="connect" onDone={() => answer({ account: 'connected' }, facts)} still={still} /> : null}
           {asking?.kind === 'needs' ? (
             <NeedsPanel
               key="needs"

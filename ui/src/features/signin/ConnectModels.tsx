@@ -30,6 +30,8 @@ export interface ConnectModelsProps {
   onConnected?: (provider: ProviderAccess) => void
   /** Pi can use a model now, and could not when this was shown. A page that needs the state at the start reads `useModels().ready`. */
   onReady?: () => void
+  /** The ways in this page holds, all of them when left out. Without sign-ins, a sign-in and its problem are not shown here. */
+  routes?: readonly ConnectRoute[]
   className?: string
 }
 
@@ -40,7 +42,7 @@ export interface ConnectModelsProps {
  *
  * The page that holds it walks its controls with `useStops`: each one carries `data-stop`.
  */
-export function ConnectModels({ onConnected, onReady, className }: ConnectModelsProps) {
+export function ConnectModels({ onConnected, onReady, routes, className }: ConnectModelsProps) {
   const signIn = useHost((state) => state.signIn)
   const models = useModels()
   // Null until the host has said, so what was connected before this was shown is never news.
@@ -66,7 +68,8 @@ export function ConnectModels({ onConnected, onReady, className }: ConnectModels
     if (news.ready) readyNow()
   }, [told, models.ready])
 
-  const problem = signIn.status === 'signed-in' || signIn.status === 'signed-out' ? signIn.problem : undefined
+  const signIns = !routes || routes.includes('signIn')
+  const problem = signIns && (signIn.status === 'signed-in' || signIn.status === 'signed-out') ? signIn.problem : undefined
   const nameOf = (id: string | undefined) => models.providers.find((provider) => provider.id === id)?.name ?? id ?? ''
 
   return (
@@ -78,10 +81,10 @@ export function ConnectModels({ onConnected, onReady, className }: ConnectModels
         </motion.p>
       ) : null}
 
-      {signIn.status === 'signing-in' ? (
+      {signIns && signIn.status === 'signing-in' ? (
         <SigningIn signIn={signIn} onAnswer={(prompt, value) => void run(runCommand('signin.answer', { prompt, value }))} onCancel={() => void run(runCommand('signin.cancel'))} />
       ) : (
-        connectSections(models).map((section) => (
+        connectSections(models, routes).map((section) => (
           <motion.section key={section.key} variants={piece} aria-label={section.title} className="flex flex-col gap-1">
             <h2 className="eyebrow px-1 pb-1">{section.title}</h2>
             <ul className="flex flex-col gap-1">

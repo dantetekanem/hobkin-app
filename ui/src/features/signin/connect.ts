@@ -1,7 +1,8 @@
 import type { ModelsState, ProviderAccess } from '#shared/protocol/models.ts'
 
 /** The three ways in, in the order "Connect a model" shows them. */
-export type ConnectRoute = 'signIn' | 'apiKey' | 'cloud'
+export const CONNECT_ROUTES = ['signIn', 'apiKey', 'cloud'] as const
+export type ConnectRoute = (typeof CONNECT_ROUTES)[number]
 
 export interface ConnectSection {
   key: ConnectRoute
@@ -41,15 +42,16 @@ export function reachSince(seen: Reach | null, models: ModelsState, ready: boole
 
 /**
  * The providers grouped by how they connect: sign-ins first, the subscriptions among them leading, then API keys
- * with the ones already connected on top, then cloud credentials. A provider with two routes is in both lists.
+ * with the ones already connected on top, then cloud credentials. A provider with two routes is in both lists. A page
+ * that holds only some of the ways in names them.
  */
-export function connectSections({ providers }: ModelsState): ConnectSection[] {
+export function connectSections({ providers }: ModelsState, routes: readonly ConnectRoute[] = CONNECT_ROUTES): ConnectSection[] {
   const sections: ConnectSection[] = [
     { key: 'signIn', title: TITLES.signIn, providers: providers.filter((provider) => provider.signIn).toSorted(subscriptionsFirst) },
     { key: 'apiKey', title: TITLES.apiKey, providers: providers.filter((provider) => provider.apiKey).toSorted(connectedFirst) },
     { key: 'cloud', title: TITLES.cloud, providers: providers.filter((provider) => provider.cloud).toSorted(byName) },
   ]
-  return sections.filter((section) => section.providers.length > 0)
+  return sections.filter((section) => routes.includes(section.key) && section.providers.length > 0)
 }
 
 /** The models slice as the host last sent it, or null before it sent one. */

@@ -40,6 +40,10 @@ test('sign-ins come first, then keys, then cloud credentials', () => {
   // An empty route has no section at all.
   assert.deepEqual(connectSections({ providers: [MODELS.providers[2]!], models: [] }).map(({ key }) => key), ['signIn', 'apiKey'])
   assert.deepEqual(connectSections({ providers: [], models: [] }), [])
+
+  // A page may hold only some of the ways in, as the setup's account step holds the keys.
+  assert.deepEqual(connectSections(MODELS, ['apiKey']).map(({ key }) => key), ['apiKey'])
+  assert.deepEqual(connectSections(MODELS, ['apiKey'])[0]!.providers.map(({ id }) => id), ['alpha', 'openai', 'anthropic', 'openrouter', 'zeta'])
 })
 
 test('a page holding the provider list hears of each provider that connects, and of the first usable model', () => {

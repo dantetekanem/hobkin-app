@@ -46,7 +46,6 @@ export type BeatId =
   | 'found'
   | 'connect'
   | 'connected'
-  | 'no-account'
   | 'more'
   | QuestionBeat
   | 'projects-said'
@@ -123,8 +122,8 @@ export interface Answers {
   email?: string
   /** Pi was installed from the setup, or put off. */
   pi?: 'installed' | 'later'
-  /** The sign-in the setup offered connected, or was put off. */
-  account?: 'connected' | 'later'
+  /** A provider connected at the account step, by the sign-in or a key. Nothing puts the step off. */
+  account?: 'connected'
   /** The command that starts Pi, asked on a work computer without an account: kept as the launcher, or put off. */
   launcher?: 'saved' | 'later'
   /** The person wants their routines set up. */
@@ -460,7 +459,7 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
         mood: 'thinking',
         lines: [
           'Perfect! Before we go on, I need something to think with.',
-          'I run on Pi, with a subscription you already have. I work with Claude too.',
+          'I run on Pi, with a subscription or an API key you already have. I work with Claude too.',
           'And I will not charge you a single cent for any of this.',
           'If you are signed in already, I will find it myself. If not, I will help you set it up.',
           'Ready?',
@@ -497,13 +496,11 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
     case 'connect':
       return {
         mood: 'wink',
-        lines: ['You have no account yet. Click here and we start! For now I only work with the OpenAI Codex subscription.'],
+        lines: ['You have no account yet. Connect your ChatGPT subscription, or use an API key, and we start!'],
         ask: { kind: 'connect' },
       }
     case 'connected':
       return { mood: 'celebrating', lines: accountLines([CONNECTED], facts) }
-    case 'no-account':
-      return { mood: 'idle', lines: ["Okay. I can't answer until a model is connected, so the app will ask you again."] }
     case 'more':
       return {
         mood: 'thinking',
@@ -634,6 +631,15 @@ export function skipShows(answers: Answers, facts: Facts): boolean {
   return piReady && hasAccount(answers, facts)
 }
 
+/**
+ * The story holds here until something is on this Mac: Pi itself at the Pi step, or an account at the account step
+ * (the user's word of 2026-11-26: without Pi and an account hobkin "wont even work"). A setup that stops here is
+ * unfinished, and opens again before these steps.
+ */
+export function holdsAt(at: BeatId, facts: Facts): boolean {
+  return at === 'connect' || (at === 'pi' && piBlocks(facts.pi))
+}
+
 /** Projects were picked for code, with a host to hand them to work mode, so hobkin says what it did with them. */
 function handsToWork(index: number, answers: Answers, facts: Facts): boolean {
   const question = goalQuestions(goalsOf(answers))[index]
@@ -675,10 +681,10 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
     // Then who the person is and what they are working toward, with an account or without one.
     case 'found':
     case 'connected':
-    case 'no-account':
       return 'name'
+    // Only a provider that connects answers it, so it goes on to the account found.
     case 'connect':
-      return answers.account === 'connected' ? 'connected' : 'no-account'
+      return 'connected'
     case 'name':
       return 'name-hi'
     case 'name-hi':

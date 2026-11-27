@@ -23,6 +23,7 @@ import {
   spokenText,
   startTale,
   tellOn,
+  holdsAt,
   troubleAt,
   workSaid,
   type Answers,
@@ -281,19 +282,26 @@ test('with its first models set, hobkin says in one more bubble, after the other
   assert.equal(line.split('GPT-6.1 Sol').length, 2, line)
 })
 
-test('putting the sign-in off still asks who the person is and the goals, and skips the routines, which need a model to hand them to', () => {
-  const later: Answers = { ...none, account: 'later' }
+test('the account holds the story like Pi: nothing puts it off, and a provider that connects moves it on', () => {
+  const at: Tale = { at: 'connect', line: 0, trail: [], ended: null }
 
-  assert.equal(beatAfter('connect', later, bare), 'no-account')
-  assert.equal(beatAfter('no-account', later, bare), 'name')
-  assert.equal(beatAfter('goals-said', { ...later, goals: ['code'] }, bare), 'settings')
-  assert.equal(beatAfter('connect', { ...none, account: 'connected' }, bare), 'connected')
+  assert.deepEqual(tellOn(at, 'on', none, bare), at, 'going on waits for an account')
+  assert.deepEqual(tellOn(at, 'skip', none, { ...bare, pi: pi() }), at, 'and so does skipping')
+  assert.equal(tellOn(at, 'answered', { ...none, account: 'connected' }, bare).at, 'connected')
+  assert.equal(beatAfter('connected', { ...none, account: 'connected' }, bare), 'name')
+
+  // An unfinished setup comes back to the step that holds it: Pi itself missing, or no account.
+  assert.equal(holdsAt('connect', bare), true)
+  assert.equal(holdsAt('pi', { ...bare, pi: pi({ installed: false, version: null, matches: false }) }), true)
+  assert.equal(holdsAt('pi', { ...bare, pi: pi({ packages: [{ name: 'pi-coder', adds: '', installed: false }] }) }), false, 'missing packages can wait')
+  assert.equal(holdsAt('found', { ...bare, connected: ['OpenAI'] }), false)
+  assert.equal(holdsAt('name', bare), false)
 })
 
 test('with a host, the question about usage counts and the review of what hobkin needs come just before the settings, however the story got there', () => {
   const host: Facts = { ...bare, host: true }
 
-  assert.equal(beatAfter('goals-said', { ...none, account: 'later', goals: ['code'] }, host), 'usage', 'no account: no routines')
+  assert.equal(beatAfter('goals-said', { ...none, goals: ['code'] }, host), 'usage', 'no account: no routines')
   assert.equal(beatAfter('more', { ...none, more: false }, host), 'usage')
   assert.equal(beatAfter('thanks', none, host), 'usage')
   assert.equal(beatAfter('goals-said', { ...none, account: 'connected' }, host), 'usage', 'with no goal no routines are offered')
@@ -368,7 +376,6 @@ test('skip shows only once Pi is in and a model account answers, and before that
   assert.equal(skipShows(none, { ...bare, pi: pi() }), false, 'Pi, and no account')
   assert.equal(skipShows(none, { ...ready, pi: pi({ installed: false, version: null, matches: false }) }), false, 'an account, and no Pi')
   assert.equal(skipShows(none, { ...ready, pi: pi({ version: '1.4.2', matches: false }) }), false, 'a Pi older than hobkin runs on')
-  assert.equal(skipShows({ ...none, account: 'later' }, { ...bare, pi: pi() }), false, 'the sign-in put off')
   assert.deepEqual(tell(['on', 'skip']), tell(['on']), 'skip does nothing before both')
 
   assert.equal(skipShows(none, ready), true)
@@ -399,7 +406,7 @@ test('every beat has words, and only the last bubble of a beat asks', () => {
   const long = followUpOf(pending({ question: `${'Which of your projects should I watch first, and how often, '.repeat(3)}and why?` }))
   const ids: BeatId[] = [
     'hello', 'sound', 'goals', 'goals-said', 'computer', 'computer-work', 'name', 'name-hi', 'email', 'subscription', 'computer-late', 'launcher', 'pi', 'pi-ready',
-    'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'q3', 'q4', 'projects-said', 'q5', 'q6', 'cards-job', 'cards-business',
+    'pi-later', 'found', 'connect', 'connected', 'more', 'q1', 'q2', 'q3', 'q4', 'projects-said', 'q5', 'q6', 'cards-job', 'cards-business',
     'cards-project', 'cards-life', 'cards-code', 'routines-need', 'writing', 'written', 'first-run', 'first-run-started', 'thanks', 'usage', 'needs', 'settings', 'tour',
   ]
 
@@ -821,7 +828,6 @@ test('each picked goal asks its own question in the goals\' order, and none or n
   // No goal, or no account: no routines, and on to the settings.
   assert.equal(beatAfter('goals-said', { ...none, account: 'connected', goals: [] }, bare), 'settings')
   assert.equal(beatAfter('goals-said', { ...none, goals: [] }, smart), 'settings')
-  assert.equal(beatAfter('goals-said', { ...none, account: 'later', goals: ['code'] }, bare), 'settings')
   assert.equal(beatAfter('goals-said', { ...none, launcher: 'saved', goals: ['code'] }, bare), 'more', 'a launcher kept is an account')
 })
 
