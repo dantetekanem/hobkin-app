@@ -17,6 +17,9 @@ const asItIs = { value: 'keep', label: 'Keep it as it is' };
 const UNREAD = [notNow, turnOff, { value: 'rework', label: 'Rework it with hobkin' }, asItIs];
 const QUIET = [notNow, { value: 'less', label: 'Run it less often' }, turnOff, asItIs];
 const NEW_TEMPLATE = [{ value: 'try', label: 'Set one up with hobkin' }, { value: 'no', label: 'Not for me' }];
+const NEW_TEMPLATES = [{ value: 'some', label: 'Set some up with hobkin' }, { value: 'no', label: 'Not for me' }];
+// An action item's text is cut at 1000 characters, so a long list names the templates by title alone rather than lose its end.
+const LONGEST_LIST = 1000;
 const NEWER_TEMPLATE = [{ value: 'update', label: 'Bring it into my routine' }, { value: 'no', label: 'I do not use it' }];
 
 /** What each answer asks the main agent to do, in the user's words. Every other answer only closes the item. */
@@ -25,6 +28,7 @@ export const ROUTINE_ASKS = {
   rework: 'Rework this routine with me.',
   less: 'Run this routine less often.',
   try: 'Set up a routine from this template with me.',
+  some: 'Set up routines from some of these templates with me.',
   update: 'Bring the newer version of this template into my routine.',
 };
 
@@ -116,29 +120,51 @@ export function tickRoutineCare(root, { loaded, attention, now = Date.now() }) {
 
 const lowerFirst = text => text.charAt(0).toLowerCase() + text.slice(1);
 
-/** Each new or newer template hobkin ships, as an item the user can take up or turn down. A version is its own key, so a newer one asks again. */
+function oneNew(template) {
+  return {
+    key: `${TEMPLATE_KEY}${template.id}:${template.version}`,
+    title: `Try the ${template.title} template`,
+    detail: `${template.summary} It fits ${lowerFirst(template.fits)}`,
+    choices: NEW_TEMPLATE,
+    answerTo: { kind: 'routines', subject: 'template', id: template.id, file: template.file },
+  };
+}
+
+/** Several new templates from one update are one item, so an update never fills Action Items. Its key is the set it lists. */
+function severalNew(templates) {
+  const ids = templates.map(({ id, version }) => `${id}@${version}`).toSorted();
+  const full = templates.map(({ title, summary }) => `- ${title}: ${summary}`).join('\n');
+  return {
+    key: `${TEMPLATE_KEY}new:${ids.join(',')}`,
+    title: `${templates.length} new routine templates`,
+    detail: full.length <= LONGEST_LIST ? full : templates.map(({ title }) => `- ${title}`).join('\n'),
+    choices: NEW_TEMPLATES,
+    answerTo: { kind: 'routines', subject: 'templates', ids },
+  };
+}
+
+function newerOne(template) {
+  return {
+    key: `${TEMPLATE_KEY}${template.id}:${template.version}`,
+    title: `The ${template.title} template has a newer version`,
+    detail: `${template.summary} A routine made from the older version keeps working as it is until you bring the change in.`,
+    choices: NEWER_TEMPLATE,
+    answerTo: { kind: 'routines', subject: 'template', id: template.id, file: template.file },
+  };
+}
+
+/**
+ * What an update brought, as items the user can take up or turn down: one for a new template, one for all of them when it brought several,
+ * and one for each newer version, since each asks about the one routine made from it. A version is in the key, so a newer one asks again.
+ */
 export function fileTemplateNews(root, { added = [], updated = [] }, now = Date.now()) {
-  const items = [
-    ...added.map(template => ({
-      template,
-      title: `Try the ${template.title} template`,
-      detail: `${template.summary} It fits ${lowerFirst(template.fits)}`,
-      choices: NEW_TEMPLATE,
-    })),
-    ...updated.map(template => ({
-      template,
-      title: `The ${template.title} template has a newer version`,
-      detail: `${template.summary} A routine made from the older version keeps working as it is until you bring the change in.`,
-      choices: NEWER_TEMPLATE,
-    })),
-  ];
+  const items = [...(added.length > 1 ? [severalNew(added)] : added.map(oneNew)), ...updated.map(newerOne)];
   const waiting = new Set(openDecisions(root).map(({ key }) => key));
   const filed = [];
-  for (const { template, ...item } of items) {
-    const key = `${TEMPLATE_KEY}${template.id}:${template.version}`;
-    if (waiting.has(key) || answered(root, key, now)) continue;
-    fileActionItem(root, { ...item, key, from: 'hobkin', answerTo: { kind: 'routines', subject: 'template', id: template.id, file: template.file } }, now);
-    filed.push(key);
+  for (const item of items) {
+    if (waiting.has(item.key) || answered(root, item.key, now)) continue;
+    fileActionItem(root, { ...item, from: 'hobkin' }, now);
+    filed.push(item.key);
   }
   return filed;
 }

@@ -14,7 +14,8 @@ import { Learner } from '../src/cli/learning/learner.mjs';
 import { learningState, readActions, saveState } from '../src/cli/learning/store.mjs';
 import { attentionView, itemCounts } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, proposeProject, updateItem } from '../src/cli/work/store.mjs';
-import { fileTemplateNews, lookAfterRoutines } from '../src/cli/routine-care.mjs';
+import { fileTemplateNews, lookAfterRoutines, ROUTINE_ASKS } from '../src/cli/routine-care.mjs';
+import { carryOutAnswer } from '../src/cli/answer.mjs';
 
 const DAY_MS = 86400000;
 const NOW = Date.parse('2026-11-10T12:00:00Z');
@@ -314,4 +315,28 @@ test('each new or newer template becomes one item to try, and an answer holds fo
   answerDecision(root, tryIt.id, 'no', NOW);
   assert.deepEqual(fileTemplateNews(root, { added: [prep] }, NOW + 60 * DAY_MS), []);
   assert.equal(fileTemplateNews(root, { updated: [{ ...prep, version: 2 }] }, NOW + 60 * DAY_MS).length, 1, 'a newer version asks again');
+});
+
+test('new templates from one update file one item that lists them all, once, and a newer version keeps its own', async t => {
+  const root = home(t);
+  const roles = { id: 'job-openings', title: 'Roles that fit', version: 1, summary: 'New openings that fit the role they want.', fits: 'Someone looking for a job.', file: '/hobkin/routine-templates/job-openings.md' };
+  const runway = { ...roles, id: 'runway', title: 'Runway', summary: 'How many months the business can run.', file: '/hobkin/routine-templates/runway.md' };
+  const brief = { ...roles, id: 'morning-brief', title: 'Morning brief', version: 2 };
+
+  assert.equal(fileTemplateNews(root, { added: [roles, runway], updated: [brief] }, NOW).length, 2);
+  assert.deepEqual(fileTemplateNews(root, { added: [roles, runway], updated: [brief] }, NOW), [], 'filed once');
+
+  const [both, newer] = routineItems(root);
+  for (const { title, summary } of [roles, runway]) assert.ok(both.question.includes(`${title}: ${summary}`), title);
+  assert.deepEqual(both.choices.map(({ value }) => value), ['some', 'no']);
+  assert.deepEqual(both.answerTo, { kind: 'routines', subject: 'templates', ids: ['job-openings@1', 'runway@1'] });
+  assert.match(both.key, /job-openings@1/);
+  assert.equal(newer.answerTo.id, 'morning-brief', 'a newer version keeps its own item');
+
+  const told = [];
+  const deliverMain = async (decision, words, handOff) => { told.push([decision.id, words, handOff]); };
+  await carryOutAnswer(root, both.id, { value: 'some', deliverMain }, NOW);
+  assert.deepEqual(told, [[both.id, ROUTINE_ASKS.some, true]], 'one message to main hobkin');
+  assert.deepEqual(fileTemplateNews(root, { added: [runway, roles] }, NOW + 60 * DAY_MS), [], 'the same set is not filed again');
+  assert.equal(fileTemplateNews(root, { added: [roles, { ...runway, id: 'competitors', title: 'Competitors' }] }, NOW + 60 * DAY_MS).length, 1, 'another set is');
 });
