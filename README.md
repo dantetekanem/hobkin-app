@@ -21,14 +21,15 @@ hobkin is in early release and runs on macOS. Windows and Linux aren't supported
    | pnpm 11 | `pnpm -v` | `npm install -g pnpm@11` |
    | Rust | `cargo -V` | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`, then open a new terminal |
 
-2. Get the code and its packages. hobkin's runtime in `packages/hobkin` has packages of its own, so it goes first:
+2. Get the code and its packages:
 
    ```sh
    git clone https://github.com/dantetekanem/hobkin-client.git
    cd hobkin-client
-   (cd packages/hobkin && pnpm install --frozen-lockfile)
-   pnpm install --frozen-lockfile
+   pnpm run bootstrap
    ```
+
+   `bootstrap` installs hobkin's runtime in `packages/hobkin` first, then the app, each from its lockfile.
 
 3. Start the app:
 
