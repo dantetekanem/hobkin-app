@@ -17,6 +17,7 @@ import type { KeyHelp, ModelsState, ModelsUpdate } from '../protocol/models.ts'
 import { NUDGE_SCREENS } from '../protocol/nudge.ts'
 import { INTEGRATION_ID, type IntegrationManifest } from '../integration/manifest.ts'
 import type { SystemMetrics, UsageFacts } from '../protocol/system.ts'
+import type { VersionStatus, VersionUpdated } from '../protocol/version.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
 import type { ListedAgent, ShellFields } from '../protocol/snapshot.ts'
 import type { AgentScheduleRuns } from '../protocol/schedules.ts'
@@ -228,6 +229,15 @@ export const COMMANDS = {
   'host.restart': {
     description: "Restart the host alone, on the user's word, so it loads the code on disk: hobkin closes cleanly, and the app starts a new host. The window stays open and connects again. Agents and reviews that are running stop.",
     runs: 'host', args: nothing,
+  },
+  // A copy of hobkin run from git hears of a new version on GitHub, and Update brings it up to date (077-new-version).
+  'version.read': {
+    description: "Whether a new version of hobkin is out: this copy's version, the newest in package.json on the default branch of its origin on GitHub, and why Update can't bring this copy up to it, if it can't. It looks again once its last look is six hours old. A release build updates itself, so it answers with why it does not look.",
+    runs: 'host', args: nothing, hobkin: true,
+  },
+  'version.update': {
+    description: "Bring this copy of hobkin up to the newest version, on the user's word: fast-forward it to the default branch of its origin, install its packages with `pnpm run bootstrap`, and hobkin restarts into it once nothing runs. It leaves alone a copy on another branch, with uncommitted changes, or with commits its origin does not have.",
+    runs: 'host', args: nothing, outside: true,
   },
   // Local backup of hobkin's records in its home into timestamped zips outside it. Restore replaces the records, so it is the user's alone.
   'backup.list': {
@@ -1683,6 +1693,8 @@ export interface CommandResults {
   'app.refresh': AppStateRead
   'host.code': { startedAt: string; changed: number; newestAt: string | null }
   'host.restart': { ok: true }
+  'version.read': VersionStatus
+  'version.update': VersionUpdated
   'system.metrics': SystemMetrics
   'usage.facts': UsageFacts
   'backup.list': BackupState
