@@ -129,7 +129,7 @@ async function setupTlaps({ home, fetch, unpack, platform, arch, tlaps, tlapm })
     build,
     what,
     folder: tlapsFolder(home),
-    mismatch: `The ${what} download did not match hobkin's pinned sha256: the pre-release was rebuilt, so hobkin's pin needs updating.`,
+    mismatch: `The ${what} download did not match hobkin's pinned sha256, so it was damaged or changed on the way.`,
   });
   if (said.problem) return `${said.problem} hobkin kept no TLAPS.`;
   return `Installed ${what} into ${tlapsFolder(home)}, checked by its pinned sha256.`;

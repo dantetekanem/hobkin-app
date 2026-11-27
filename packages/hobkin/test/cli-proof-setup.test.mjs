@@ -203,7 +203,7 @@ test('setup on an Apple-silicon Mac without tlapm installs the pinned TLAPS whol
   assert.match(again.message, /^TLC 1\.7\.4 is already in .*, on Java 21\.0\.2\. TLAPS is already at .*tools\/tlaps\/bin\/tlapm\.$/);
 });
 
-test('a TLAPS download that does not match its pin is not kept, says the pre-release was rebuilt, and leaves Java and TLC installed', async t => {
+test('a TLAPS download that does not match its pin is not kept, says so, and leaves Java and TLC installed', async t => {
   const home = temp(t, 'hobkin-proof-setup-');
   const runtime = Buffer.from('the pinned runtime');
   const jarBody = Buffer.from('the pinned jar');
@@ -224,7 +224,7 @@ test('a TLAPS download that does not match its pin is not kept, says the pre-rel
   assert.equal(readFileSync(jarPath(home), 'utf8'), 'the pinned jar');
   assert.equal(existsSync(tlapsFolder(home)), false);
   assert.deepEqual(readdirSync(join(home, 'tools')).sort(), ['java', 'tla']);
-  assert.match(said.message, /^Installed Java 21\.0\.13\.1\+2 into .*tools\/java and TLC 1\.7\.4 into .*tla2tools\.jar, each checked by its pinned checksum\. The TLAPS 1\.6\.0-pre download did not match hobkin's pinned sha256: the pre-release was rebuilt, so hobkin's pin needs updating\. hobkin kept no TLAPS\.$/);
+  assert.match(said.message, /^Installed Java 21\.0\.13\.1\+2 into .*tools\/java and TLC 1\.7\.4 into .*tla2tools\.jar, each checked by its pinned checksum\. The TLAPS 1\.6\.0-pre download did not match hobkin's pinned sha256, so it was damaged or changed on the way\. hobkin kept no TLAPS\.$/);
   assert.doesNotMatch(said.message, /\n/);
 });
 
