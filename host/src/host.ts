@@ -24,6 +24,7 @@ import { profileHandlers } from './profile.ts'
 import { directionsHandlers } from './directions.ts'
 import { projectsHandlers } from './projects-folder.ts'
 import { setupAnswerHandlers } from './setup-answers.ts'
+import { usageUploadHandlers } from './usage-upload.ts'
 import { setupWorkHandlers } from './setup-work.ts'
 import { setupWatcherHandlers } from './setup-watchers.ts'
 import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
@@ -761,6 +762,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // The setup's answers, the first context: the app's own copy, and hobkin's facts in front of its directions.
     // The answer to its question about usage counts too, which only a live host on the real home makes hobkin's setting.
     ...setupAnswerHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root), live, real }),
+    // Settings' Usage events switch, the same setting the setup asks about, kept only by a live host on the real home.
+    ...usageUploadHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root), live, real }),
     // The routine cards for the goals picked in the setup, read from hobkin's templates and the user's own (044).
     ...setupWatcherHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root) }),
     // The folder and projects picked in the setup, handed to work mode as the Work screen's actions are: through
