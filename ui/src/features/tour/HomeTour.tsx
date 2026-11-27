@@ -12,7 +12,8 @@ import { cn } from '@/lib/utils.ts'
 import { resolveTourKey } from './keys.ts'
 import { holeOf, holePolygon, placeCard, type Box, type Size } from './place.ts'
 import { useTour } from './store.ts'
-import { TOUR_STEPS } from './steps.ts'
+import { firstReportStep, reportLanded } from './steps.ts'
+import { useHost } from '@/lib/host/index.ts'
 
 /**
  * A tour of the app, over the whole window: it dims everything, cuts a soft hole around one part at a time and says
@@ -68,8 +69,13 @@ function TourLayer() {
   // The first stop arrives where it stands. Every stop after it travels.
   const [arrived, setArrived] = useState(false)
 
-  const step = TOUR_STEPS[flow.at]!
-  const last = flow.at === TOUR_STEPS.length - 1
+  const steps = useTour((state) => state.steps)
+  const firstRun = useTour((state) => state.firstRun)
+  // The first run's report is named once it lands, whether the tour is on that stop or not yet.
+  const landed = useHost((state) => (firstRun ? reportLanded(state.snapshot.reports, firstRun) : false))
+  const planned = steps[flow.at]!
+  const step = planned.id === 'first-report' && firstRun ? firstReportStep(firstRun, landed) : planned
+  const last = flow.at === steps.length - 1
 
   // The frame stays behind the tour, out of reach, until it ends. Then the keyboard goes home.
   useLayoutEffect(() => {
@@ -203,7 +209,7 @@ function TourLayer() {
 
         {/* The dots on a line of their own, so ten stops and three buttons never crowd each other out of the card. */}
         <div className="mt-4 flex flex-col gap-3">
-          <Dots at={flow.at} still={still} />
+          <Dots at={flow.at} ids={steps.map(({ id }) => id)} still={still} />
           <div className="flex items-center justify-between gap-2">
             <Button variant="ghost" size="sm" className="-ml-2" onClick={() => go('end')}>
               Skip tour
@@ -222,17 +228,17 @@ function TourLayer() {
         </div>
       </motion.div>
 
-      <p className="sr-only" aria-live="polite">{`Stop ${flow.at + 1} of ${TOUR_STEPS.length}: ${step.title}. ${step.text}`}</p>
+      <p className="sr-only" aria-live="polite">{`Stop ${flow.at + 1} of ${steps.length}: ${step.title}. ${step.text}`}</p>
     </motion.div>
   )
 }
 
 /** One dot for each stop, and a pill that is thrown along them to the stop the tour is on. */
-function Dots({ at, still }: { at: number; still: boolean }) {
+function Dots({ at, ids, still }: { at: number; ids: readonly string[]; still: boolean }) {
   return (
     <div aria-hidden="true" className="flex items-center gap-1.5">
-      {TOUR_STEPS.map((step, index) => (
-        <span key={step.id} className="relative grid size-1.5 place-items-center">
+      {ids.map((id, index) => (
+        <span key={id} className="relative grid size-1.5 place-items-center">
           <span className={cn('size-1.5 rounded-full bg-border-strong/50')} />
           {index === at ? (
             <motion.span layoutId={still ? undefined : 'tour-dot'} className="absolute h-1.5 w-3.5 rounded-full bg-foreground" transition={spring.pill} />

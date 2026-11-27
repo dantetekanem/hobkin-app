@@ -5,7 +5,7 @@ import { resolveKey, type KeyContext } from '../src/app/key-map.ts'
 import { startTour, stepTour, type Tour, type TourEvent } from '../src/features/tour/flow.ts'
 import { resolveTourKey } from '../src/features/tour/keys.ts'
 import { holeOf, holePolygon, placeCard, type Box, type Size } from '../src/features/tour/place.ts'
-import { TOUR_STEPS } from '../src/features/tour/steps.ts'
+import { firstReportStep, reportLanded, TOUR_STEPS, tourSteps, type FirstRunStop } from '../src/features/tour/steps.ts'
 import { withFixturePart } from './integration-fixture.ts'
 
 withFixturePart()
@@ -15,8 +15,8 @@ const LAST = TOUR_STEPS.length - 1
 const toLast = (): TourEvent[] => Array.from({ length: LAST }, () => 'next')
 
 test('the tour starts at the first stop, and next goes on one stop at a time', () => {
-  assert.deepEqual(startTour(), { at: 0, direction: 1, ended: null })
-  assert.deepEqual(run(['next']), { at: 1, direction: 1, ended: null })
+  assert.deepEqual(startTour(), { at: 0, direction: 1, ended: null, stops: TOUR_STEPS.length })
+  assert.deepEqual(run(['next']), { at: 1, direction: 1, ended: null, stops: TOUR_STEPS.length })
   assert.equal(run(['next', 'next']).at, 2)
 })
 
@@ -24,7 +24,7 @@ test('next from the last stop ends the tour as done', () => {
   const atLast = run(toLast())
   assert.equal(atLast.at, LAST)
   assert.equal(atLast.ended, null)
-  assert.deepEqual(stepTour(atLast, 'next'), { at: LAST, direction: 1, ended: 'done' })
+  assert.deepEqual(stepTour(atLast, 'next'), { at: LAST, direction: 1, ended: 'done', stops: TOUR_STEPS.length })
 })
 
 test('back goes one stop back, and the first stop has nothing behind it', () => {
@@ -178,4 +178,28 @@ test('every key a stop shows is a key the app binds', () => {
     const letter = step.kbd.replace('⌘', '').toLowerCase() as keyof typeof press
     assert.ok(resolveKey({ ...press[letter], meta: true }, context), `${step.id}: ${step.kbd} does something in the key map`)
   }
+})
+
+test('the report stop comes after a first run and names the routine once its report lands, and Work is a stop only for code', () => {
+  const ids = (options: Parameters<typeof tourSteps>[0]) => tourSteps(options).map(({ id }) => id)
+  const first: FirstRunStop = { routineId: 'roles', title: 'Roles that fit', startedAt: Date.parse('2026-11-26T10:00:00Z') }
+
+  const plain = ids({ work: false, firstRun: null })
+  assert.deepEqual(plain, ['chat', 'memory', 'mind', 'home', 'reports', 'routines', 'actions', 'settings', 'end'])
+  assert.deepEqual(ids({ work: true, firstRun: null }), ['chat', 'memory', 'mind', 'home', 'reports', 'routines', 'actions', 'work', 'settings', 'end'])
+  assert.deepEqual(ids({ work: false, firstRun: first }).slice(-2), ['first-report', 'end'], 'the report stop comes before the last')
+
+  // The tour never waits for the run: the stop says the report is on its way, then names the routine once it lands.
+  assert.match(firstReportStep(first, false).text, /^Roles that fit is still looking\./)
+  assert.match(firstReportStep(first, true).text, /^Roles that fit just reported\./)
+  const report = (scheduleId: string, at: string) => ({ id: `run-${scheduleId}`, title: 'Report', scheduleId, at, outcome: 'completed', body: '' })
+  assert.equal(reportLanded([report('roles', '2026-11-26T09:00:00Z')], first), false, 'an older report of the same routine is not this one')
+  assert.equal(reportLanded([report('money', '2026-11-26T10:05:00Z')], first), false)
+  assert.equal(reportLanded([report('roles', '2026-11-26T10:05:00Z')], first), true)
+  assert.equal(reportLanded(undefined, first), false)
+
+  // Next from the last of these stops ends it.
+  const stops = tourSteps({ work: false, firstRun: first }).length
+  const walked = Array.from({ length: stops }, (): TourEvent => 'next').reduce(stepTour, startTour(stops))
+  assert.equal(walked.ended, 'done')
 })

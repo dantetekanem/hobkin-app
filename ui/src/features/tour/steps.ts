@@ -59,7 +59,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     id: 'routines',
     target: `${MENU} button[aria-label="Routines"]`,
     title: 'Routines',
-    text: 'Checks that run on their own, on a schedule you set. A morning brief, your review queue, the birthdays coming up.',
+    text: "Each routine watches one thing on its own schedule and remembers what it already told you, so you only hear what's new.",
     mood: 'wink',
   },
   {
@@ -93,3 +93,44 @@ export const TOUR_STEPS: readonly TourStep[] = [
     mood: 'celebrating',
   },
 ]
+
+/** The routine the setup ran, for the stop about its first report: its id, its name, and when the run started, in milliseconds. */
+export interface FirstRunStop {
+  routineId: string
+  title: string
+  startedAt: number
+}
+
+export interface TourOptions {
+  /** Code was picked in the setup, or work mode has a folder: the Work stop shows. */
+  work: boolean
+  /** The routine the setup ran, when it ran one: a stop on Reports comes before the last. */
+  firstRun: FirstRunStop | null
+}
+
+/** The stop about the first run's report: on its way while the run goes, then named once it lands. The tour never waits for it. */
+export function firstReportStep({ title }: Pick<FirstRunStop, 'title'>, landed: boolean): TourStep {
+  return {
+    id: 'first-report',
+    target: `${MENU} button[aria-label="Reports"]`,
+    title: 'Your first report',
+    text: landed ? `${title} just reported. Its report is here.` : `${title} is still looking. Its report lands here.`,
+    mood: landed ? 'celebrating' : 'searching',
+  }
+}
+
+/** Whether a report of the first run is in hobkin's reports: one of that routine's, from after the run started. */
+export function reportLanded(reports: unknown, { routineId, startedAt }: FirstRunStop): boolean {
+  if (!Array.isArray(reports)) return false
+  return reports.some((row: unknown) => {
+    const { scheduleId, at } = (row ?? {}) as { scheduleId?: unknown; at?: unknown }
+    return scheduleId === routineId && typeof at === 'string' && Date.parse(at) >= startedAt
+  })
+}
+
+/** The stops of this tour: Work only for code, and the first report's stop before the last after a first run. */
+export function tourSteps({ work, firstRun }: TourOptions): TourStep[] {
+  const steps = TOUR_STEPS.filter((step) => work || step.id !== 'work')
+  if (!firstRun) return steps
+  return [...steps.slice(0, -1), firstReportStep(firstRun, false), ...steps.slice(-1)]
+}

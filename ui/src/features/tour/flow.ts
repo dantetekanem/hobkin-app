@@ -10,12 +10,14 @@ export interface Tour {
   direction: 1 | -1
   /** How the tour ended, once it has: gone through to the end, or left on the way. */
   ended: 'done' | 'left' | null
+  /** How many stops this tour has. */
+  stops: number
 }
 
 export type TourEvent = 'next' | 'back' | 'end'
 
-export function startTour(): Tour {
-  return { at: 0, direction: 1, ended: null }
+export function startTour(stops: number = TOUR_STEPS.length): Tour {
+  return { at: 0, direction: 1, ended: null, stops }
 }
 
 /** One move. Going on from the last stop ends the tour as done. There is nothing behind the first stop, and nothing moves once it ended. */
@@ -23,12 +25,12 @@ export function stepTour(tour: Tour, event: TourEvent): Tour {
   if (tour.ended) return tour
   switch (event) {
     case 'next': {
-      const onLastStop = tour.at === TOUR_STEPS.length - 1
+      const onLastStop = tour.at === tour.stops - 1
       if (onLastStop) return { ...tour, ended: 'done' }
-      return { at: tour.at + 1, direction: 1, ended: null }
+      return { ...tour, at: tour.at + 1, direction: 1 }
     }
     case 'back':
-      return tour.at === 0 ? tour : { at: tour.at - 1, direction: -1, ended: null }
+      return tour.at === 0 ? tour : { ...tour, at: tour.at - 1, direction: -1 }
     case 'end':
       return { ...tour, ended: 'left' }
   }
