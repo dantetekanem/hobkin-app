@@ -13,12 +13,39 @@ test('a run begins with the prompt estimate, the arrow up and the phase working'
   assert.equal(pulses.get('run-2').tokens, 0);
 });
 
-test('a request sets the arrow up and counts as token activity', () => {
+test('a request sets the arrow up, counts as token activity and starts the thinking', () => {
   const pulses = createPulses();
   pulses.begin('r', 0, '');
   pulses.arrive('r', 10, { delta: 'abcd' });
   pulses.requestSent('r', 50);
-  assert.deepEqual(pulses.get('r'), { startedAt: 0, lastTokenAt: 50, phase: 'working', direction: 'up', tokens: 1 });
+  assert.deepEqual(pulses.get('r'), { startedAt: 0, lastTokenAt: 50, phase: 'thinking', direction: 'up', tokens: 1 });
+});
+
+test('a model that streams no thinking still thinks from its request until its words or a tool call arrive', () => {
+  const pulses = createPulses();
+  const feed = (event, now) => feedPiEvent(pulses, 'r', event, now);
+  const phase = () => pulses.get('r').phase;
+  feed({ type: 'agent_start' }, 0);
+  assert.equal(phase(), 'working', 'starting up, nothing asked yet');
+
+  // The model is asked. Its message opens with nothing in it for as long as it thinks out of sight.
+  feed({ type: 'turn_start' }, 10);
+  feed({ type: 'message_start', message: assistant }, 20);
+  assert.equal(phase(), 'thinking');
+
+  // Its first tool call ends the thinking, and the tool runs as work.
+  feed(update('toolcall_start'), 9000);
+  assert.equal(phase(), 'working');
+  feed({ type: 'message_end', message: { role: 'assistant', usage: { output: 4 } } }, 9010);
+  feed({ type: 'tool_execution_start' }, 9020);
+  assert.equal(phase(), 'working');
+
+  // The tool's result goes back: it thinks again, until it writes.
+  feed({ type: 'turn_start' }, 20000);
+  feed({ type: 'message_start', message: assistant }, 20010);
+  assert.equal(phase(), 'thinking');
+  feed(update('text_delta', 'abcd'), 26000);
+  assert.equal(phase(), 'working');
 });
 
 test('arriving text turns the arrow down and adds the delta estimate', () => {
@@ -81,7 +108,9 @@ test('the Pi adapter follows the raw events of a run', () => {
   assert.deepEqual(pulses.get('r'), { startedAt: 100, lastTokenAt: 100, phase: 'working', direction: 'up', tokens: 2 });
   feed({ type: 'turn_start' }, 110);
   assert.equal(pulses.get('r').lastTokenAt, 110);
+  assert.equal(pulses.get('r').phase, 'thinking');
   feed({ type: 'message_start', message: assistant }, 120);
+  assert.equal(pulses.get('r').phase, 'thinking', 'its message opening is not yet its words');
   feed(update('thinking_delta', 'abcdabcd'), 130);
   assert.deepEqual(pulses.get('r'), { startedAt: 100, lastTokenAt: 130, phase: 'thinking', direction: 'down', tokens: 4 });
   feed(update('text_delta', 'abcd'), 140);
@@ -156,6 +185,7 @@ test("a reply that comes in parts counts once, and the provider's count for it t
   feed({ type: 'tool_execution_start' }, 60);
   feed({ type: 'turn_start' }, 70);
   assert.equal(pulses.get('r').direction, 'up');
+  assert.equal(pulses.get('r').phase, 'thinking');
   feed({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', contentIndex: 1, delta: 'c'.repeat(8) } }, 80);
   replyEnded(1, 90);
   assert.deepEqual(pulses.get('r'), { startedAt: 0, lastTokenAt: 80, phase: 'working', direction: 'down', tokens: 2 + 25 + 2 });

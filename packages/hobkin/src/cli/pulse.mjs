@@ -1,5 +1,10 @@
 // A pulse says how a working run is doing: since when, when a token last moved, what it does, which way tokens flow and how many.
 // This file only observes. Nothing here reads a clock, so every step takes the time it happened.
+//
+// A run thinks from the moment the model is asked until its words or a tool call arrive, whether or not the provider
+// streams the thinking: many keep it out of sight, and the run would read as working all the while (the user,
+// 2026-11-27: "the agent doesnt show Thinking", "just working", "I need thinking"). It works while it writes, calls a
+// tool or runs one, and before its first request.
 
 /** The key of the main turn's pulse. */
 export const MAIN_PULSE_KEY = '#main';
@@ -60,20 +65,20 @@ export function createPulses() {
       });
     },
 
-    /** A request goes to the model: arrow up, token activity now. */
+    /** A request goes to the model: arrow up, token activity now, and it thinks until its words or a tool call arrive. */
     requestSent(key, now) {
       withRun(key, run => {
         markTokenActivity(run, now, 'up');
         run.replyFrom = run.finishedTokens + run.messageTokens;
+        run.phase = 'thinking';
       });
     },
 
-    /** A message starts: a message left unended is kept as counted, and the phase is working. */
+    /** A message starts: a message left unended is kept as counted. The phase stays, as an opened message is not yet its words. */
     messageStarted(key) {
       withRun(key, run => {
         run.finishedTokens += run.messageTokens;
         run.messageTokens = 0;
-        run.phase = 'working';
       });
     },
 

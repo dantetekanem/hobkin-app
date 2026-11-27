@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "done",
   "depends": ["011-work", "034-durable-hobkins"],
-  "updated": "2026-11-23"
+  "updated": "2026-11-27"
 }
 ---
 # Every hobkin's working line: time, tokens and when it goes quiet
@@ -23,7 +23,7 @@ While any hobkin works, the main agent, a durable hobkin or an agent hobkin star
 ### What the line says
 
 - It mirrors `pi-thinking-messaging` (`~/Poetry/pi-thinking-messaging/src/index.ts`), whose line is `Working… (7m 7s · ↓ 30.0k tokens)`.
-- The phase is "Thinking" while the model's thinking arrives, and "Working" the rest of the time.
+- The phase is "Thinking" from the moment the model is asked until its words or a tool call arrive, whether or not its thinking is streamed, and "Working" the rest of the time: before its first request, while it writes, and while it calls or runs a tool. Here it leaves the extension, which says "Thinking" only while thinking arrives: many models keep their thinking out of sight, and a run read as working all the while (the user, 2026-11-27: "the agent doesnt show Thinking", "just working", "I need thinking").
 - The time counts from when the run began: `7s`, `7m 7s`, `1h 2m 3s`.
 - The arrow is `↑` once a request goes to the model and `↓` once tokens of an answer arrive.
 - The count is an estimate for the run. It starts with the prompt's characters over four. An answer adds each delta's characters over four, and when a message ends the output the provider reports takes that estimate's place if it is more. The count never goes down. It leaves out the system prompt, the tool definitions and cached context, so it is no bill.
@@ -52,7 +52,7 @@ While any hobkin works, the main agent, a durable hobkin or an agent hobkin star
 
 ## Acceptance
 
-- A1. A pulse follows a run's events as the extension does. It starts with the prompt's estimate and the arrow up, turns down as an answer's tokens arrive, says thinking while thinking arrives, takes the provider's output count at a message's end when that is more, and never counts down.
+- A1. A pulse follows a run's events as the extension does. It starts with the prompt's estimate and the arrow up, turns down as an answer's tokens arrive, says thinking from each request until words or a tool call arrive, takes the provider's output count at a message's end when that is more, and never counts down.
 - A2. For a pulse and a time the line reads as the extension's does, `Working… (7m 7s · ↓ 30.0k tokens)`, with the quiet notices after one, three and five minutes without a token: a warning, a warning and trouble.
 - A3. While the main agent, a durable hobkin or a started agent works, the snapshot carries its pulse, on Pi and on Claude Code, and none once it stops. A run's pulse changes on the wire at most once a second.
 - A4. The window shows the line for each of the three where its working sign is today, and nothing moves when the line appears, changes or goes.
