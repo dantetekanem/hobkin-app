@@ -312,8 +312,10 @@ function questionBeat(id: QuestionBeat, { goals = [], replies }: Answers): Omit<
  */
 function goalsWithCards(answers: Answers, facts: Facts): Goal[] {
   const picked = GOALS.filter((goal) => goalsOf(answers).includes(goal))
-  if (!facts.cards) return picked
-  return picked.filter((goal) => facts.cards!.some((group) => group.goal === goal && group.starters.length + group.more.length > 0))
+  const { cards } = facts
+  if (!cards) return picked
+  const hasCards = (goal: Goal) => cards.some((group) => group.goal === goal && group.starters.length + group.more.length > 0)
+  return picked.filter(hasCards)
 }
 
 /** The cards kept so far, in card order. */
@@ -496,6 +498,7 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
       return { mood: written ? 'celebrating' : 'idle', lines: [routinesSaid(keptOf(answers, facts).length, written)] }
     }
     case 'first-run': {
+      // Reached only with a routine to offer. Without one it still has words, and names none.
       const routine = firstRunFor(facts)
       return {
         mood: 'wink',

@@ -34,7 +34,7 @@ import { PiPanel } from './PiPanel.tsx'
 import { checksWanted, goalAnswersOf, GOAL_WORDS, goalsOf, projectStart, setupAnswersOf } from './goals.ts'
 import { SAMPLE_PROJECTS, startingReply } from './questions.ts'
 import { sampleGoalCards } from './sample-cards.ts'
-import { beatOf, checkAnswer, followUpOf, spokenText, type Ask, type Facts, type Tale } from './story.ts'
+import { beatOf, checkAnswer, followUpOf, spokenText, type Answers, type Ask, type Facts, type Tale } from './story.ts'
 import { endedAs, tourFollows } from './first-run.ts'
 import { useSetup } from './store.ts'
 import { useProofTools } from './use-proof-tools.ts'
@@ -345,6 +345,13 @@ function bubbleOf(tale: Tale, facts: Facts): string {
   return `${tale.at}:${tale.line}`
 }
 
+/** The message that asks main hobkin to write the kept routines: the goals, their answers, the cards and the projects' checks. */
+function writingRequestOf(answers: Answers, cards: readonly GoalCards[]): string | null {
+  const goals = answers.goals ?? []
+  const { replies } = answers
+  return writeRequest({ goals, answers: goalAnswersOf(goals, replies), cards, picks: answers.cards ?? NO_PICKS, checks: checksWanted(goals, replies) })
+}
+
 /** The routines in hobkin's snapshot, as far as the writing reads them: id, title, the template each names, and whether it is on. */
 function namedRoutines(schedules: unknown): NamedRoutine[] {
   return routinesFromHost({ schedules, errors: [] }).routines.map(({ id, title, template, enabled }) => ({ id, title, template, enabled }))
@@ -554,7 +561,7 @@ export function Storyteller() {
   const goals = answers.goals ?? []
   const picksNow = answers.cards ?? NO_PICKS
   const kept = useMemo(() => keptCards(cardsInOrder(cards ?? []), picksNow), [cards, picksNow])
-  const request = writeRequest({ goals, answers: goalAnswersOf(goals, answers.replies), cards: cards ?? [], picks: picksNow, checks: checksWanted(goals, answers.replies) })
+  const request = writingRequestOf(answers, cards ?? [])
 
   // Main hobkin writes the kept routines. The story goes on by itself once that is over.
   const writing = useWriting({
