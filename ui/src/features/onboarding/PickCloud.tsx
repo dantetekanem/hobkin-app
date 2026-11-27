@@ -40,9 +40,9 @@ const ARRIVE = { step: 0.012, atMost: 28 }
 /**
  * A cloud of small bubbles to pick from, as many as one likes, over the hill under hobkin. Typing narrows them to
  * what holds the typed words, and at most fifty show at once. Where the list takes new ones, Enter makes the typed
- * words a bubble of their own. Once something is picked, Continue shows where Skip was, and it, Enter with nothing
- * typed, or Done keeps what was picked. A bubble picked with the pointer gives the keyboard back to the field, so
- * Enter goes on.
+ * words a bubble of their own. Continue, Enter with nothing typed, or Done keeps what was picked. Continue shows once
+ * something is picked, in the place Skip has while nothing is. A bubble picked with the pointer gives the keyboard back
+ * to the field, so Enter goes on.
  */
 export function PickCloud({ label, options, state, note, initial, allowOwn, remark, top, onAnswer, still }: PickCloudProps) {
   const id = useId()

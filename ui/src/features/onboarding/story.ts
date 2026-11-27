@@ -594,8 +594,10 @@ const hasAccount = (answers: Answers, facts: Facts): boolean =>
  * Once the goals are said, and whose computer it is when that matters: set them up or go in when an account answers and
  * there is a goal to offer routines for. Main hobkin writes them in the chat, which needs a model, so without one none are offered.
  */
-const afterGoals = (answers: Answers, facts: Facts): BeatId =>
-  goalsOf(answers).length > 0 && hasAccount(answers, facts) ? 'more' : beforeSettings(facts)
+function afterGoals(answers: Answers, facts: Facts): BeatId {
+  const offersRoutines = goalsOf(answers).length > 0 && hasAccount(answers, facts)
+  return offersRoutines ? 'more' : beforeSettings(facts)
+}
 
 /**
  * Whose computer this is matters only for the goals whose routines read the person's own accounts. Asked already, for
@@ -612,7 +614,10 @@ function whoseComputer(answers: Answers, facts: Facts): BeatId {
  * works (the user's word of 2026-11-26: "\"Skip Setup\" is not an option, honestly ... otherwise wont even work, you can
  * show that after sub/pi is connected"). Missing packages can wait. With no host there is no Pi, so no skipping.
  */
-export const skipShows = (answers: Answers, facts: Facts): boolean => facts.pi !== null && !piBlocks(facts.pi) && hasAccount(answers, facts)
+export function skipShows(answers: Answers, facts: Facts): boolean {
+  const piReady = facts.pi !== null && !piBlocks(facts.pi)
+  return piReady && hasAccount(answers, facts)
+}
 
 /** Projects were picked for code, with a host to hand them to work mode, so hobkin says what it did with them. */
 function handsToWork(index: number, answers: Answers, facts: Facts): boolean {
