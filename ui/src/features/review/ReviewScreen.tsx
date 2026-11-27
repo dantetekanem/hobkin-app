@@ -14,6 +14,7 @@ import { sampleLanding } from './preparing/sample-landing.ts'
 import { sampleHost } from './preparing/sample-run.ts'
 import { ReviewLoad } from './ReviewLoad.ts'
 import { isSamplePull } from './sample/pull-id.ts'
+import { useShownReview } from './shown-review.ts'
 import { escapeReview, reviewTakesEscape } from './entry.ts'
 import { handOffCanvasFocus, hearStrayKeys, takeKeyboardIfNowhere } from '@/app/focus.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
@@ -103,7 +104,7 @@ const SWITCH_KEYS = new Set([LOOK_KEY, MODE_KEYS.roam, MODE_KEYS.story].flatMap(
  * Specs: 005-review-model, 006-review-graph, 007-review-story, 008-review-code, 032-change-review.
  */
 export function ReviewScreen() {
-  const reviewId = useView((view) => view.openReview)
+  const reviewId = useShownReview()
   const closeReview = useView((view) => view.closeReview)
   const home = useHost((state) => state.home)
   const live = Boolean(home) && !SAMPLE_REVIEWS.includes(reviewId ?? 'sample')
