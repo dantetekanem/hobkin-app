@@ -759,7 +759,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     ...projectsHandlers(),
     // The setup's answers, the first context: the app's own copy, and hobkin's facts in front of its directions.
-    ...setupAnswerHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root) }),
+    // The answer to its question about usage counts too, which only a live host on the real home makes hobkin's setting.
+    ...setupAnswerHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root), live, real }),
     // The routine cards for the goals picked in the setup, read from hobkin's templates and the user's own (044).
     ...setupWatcherHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root) }),
     // The folder and projects picked in the setup, handed to work mode as the Work screen's actions are: through
