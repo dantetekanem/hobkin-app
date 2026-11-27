@@ -51,6 +51,7 @@ import type { ActivityEntry } from '../protocol/activity.ts'
 import { GRADES, ISSUE_PICKUPS, PR_MODES, PROJECT_KINDS, REVIEW_PULLS, type FolderLook, type FolderPicked, type NewProjectDone, type RunGuide, type RunGuideAsked, type WholeQueue, type Workload, type YoloRules } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
+import type { FirstModels } from '../tiers/first-models.ts'
 import { EFFORTS, TIER_IDS, type HostTiers } from '../tiers/tiers.ts'
 
 /**
@@ -429,6 +430,13 @@ export const COMMANDS = {
       { additionalProperties: false },
     ),
     rule: ({ tiers, review }) => (Object.keys(tiers ?? {}).length + Object.keys(review ?? {}).length > 0 ? null : 'need a tier or a review tier to save'),
+    outside: true,
+  },
+  'tiers.first': {
+    description:
+      "Set hobkin's own model and its four tiers from the account Pi reaches, once, as the first-run setup finds or signs in to one: only while hobkin's config names no model for the chat, the checks or any tier, so a choice already made is never overwritten. Answers what it set, or why it set nothing.",
+    runs: 'host',
+    args: nothing,
     outside: true,
   },
   'claude-code.read': {
@@ -1682,6 +1690,7 @@ export interface CommandResults {
   'tiers.read': HostTiers
   /** The tiers as hobkin holds them once saved. */
   'tiers.apply': HostTiers
+  'tiers.first': FirstModels
   'claude-code.read': ClaudeCodeState
   /** The settings as saved, with what the host found of Claude Code. */
   'claude-code.apply': ClaudeCodeState
