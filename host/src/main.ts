@@ -7,13 +7,17 @@ import { startHost } from './host.ts'
 import { chooseFolder } from './folder-pick.ts'
 import { openFileInSystem, openInSystem } from './open.ts'
 import { watchParent } from './parent-watch.ts'
-import { installPackage, installPi, piAgentFolder } from './pi/install.ts'
+import { findProgram, installPackage, installPi, piAgentFolder } from './pi/install.ts'
 import { configLauncher } from './setup-launcher.ts'
 import { refreshPath } from './pi/login-path.ts'
 import { addOwnNode, installNode, nodeBin } from './pi/node.ts'
 import { setupProofTools } from './setup-proof.ts'
 import { openInBrowser } from './signin.ts'
-import { spawnGh } from './review/gh.ts'
+import { findGh, spawnGh } from './review/gh.ts'
+import { findClaude } from './claude-code/install.ts'
+import { addOwnGh, installGh } from './setup/gh.ts'
+import { installClaude, installCommandLineTools, installQmd } from './setup/programs.ts'
+import { ProgramSignIns } from './setup/sign-in.ts'
 import { stayAwake } from 'hobkin/src/cli/stay-awake.mjs'
 
 const isFolder = (path: string) => {
@@ -69,6 +73,8 @@ async function main(args: readonly string[]): Promise<void> {
   // A Node hobkin installed for itself on an earlier run goes on the PATH before anything starts, so its npm, the Pi
   // that npm installed, and everything hobkin starts find them.
   if (options.live) addOwnNode(home.root)
+  // And so does a gh hobkin installed for itself, for Change Review and everything else hobkin starts.
+  if (options.live) addOwnGh(home.root)
 
   // A scripted sign-in has no page to approve on, so nothing is ever opened in the browser for it.
   // Only a live host, started on purpose, opens pages in the browser: a real provider's sign-in page.
@@ -100,6 +106,17 @@ async function main(args: readonly string[]): Promise<void> {
           refreshPath: () => refreshPath(),
           // The first-run setup sets up the TLA+ tools by default, through hobkin's own proof setup (050-tla-proofs).
           installProofTools: (root: string) => setupProofTools(root),
+          // The setup's review installs these and runs their sign-ins on the user's press, so no one needs Terminal.
+          installPrograms: {
+            git: () => installCommandLineTools(),
+            gh: async () => {
+              await installGh({ root: home.root })
+              return { finished: true }
+            },
+            claude: () => installClaude(),
+            qmd: () => installQmd({ findNpm: () => findProgram('npm', { ownNode: nodeBin(home.root) }) }),
+          },
+          programSignIns: new ProgramSignIns({ find: (name) => (name === 'gh' ? findGh() : findClaude()) }),
         }
       : {}),
     // A live host runs gh: Change Review reads pull requests through it, and only a live host posts a verdict the user
