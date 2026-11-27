@@ -257,6 +257,12 @@ export class HobkinRunner {
     return { ...routines, schedules: [...routines.schedules, ...flows.schedules], errors: [...routines.errors, ...flows.errors] };
   }
 
+  /**
+   * Starts every routine, reminder and workflow whose time has come. None of them waits for a place: several due at the
+   * same time all start then, however many already work (the user, 2026-11-27: "they cant run all 3 at 10am ... this
+   * should be supported, we just need to spawn more agents"). `concurrency` holds back only a run that was asked for
+   * (`trigger`, `startWorkflow`, a `hobkin session` job), and a routine's run counts toward it while it works.
+   */
   async performTick() {
     const now = new Date(this.now());
     this.loaded = this.loadAll();
@@ -266,12 +272,11 @@ export class HobkinRunner {
     // weigh them. Read once a tick, as before, so every routine in it sees the same runs.
     let whole = null;
     const wholeState = async () => (whole ??= await this.runtime.state());
-    let capacity = this.config.concurrency - this.scheduledJobCount(index);
     for (const schedule of this.loaded.schedules) {
-      if (this.stopped || capacity <= 0) break;
+      if (this.stopped) break;
       if (schedule.cadence === 'compatibility') {
         try {
-          if (await this.startCompatibility(schedule, await wholeState(), now)) capacity--;
+          await this.startCompatibility(schedule, await wholeState(), now);
         } catch (error) {
           this.loaded.errors.push({ path: schedule.path, message: error.message });
         }
@@ -291,7 +296,6 @@ export class HobkinRunner {
       if (checkHold(schedule, Object.values(state.runs), now.getTime())) continue;
       try {
         await this.startNative(schedule, occurrence, state);
-        capacity--;
       } catch (error) {
         this.loaded.errors.push({ path: schedule.path, message: error.message });
       }
@@ -326,8 +330,9 @@ export class HobkinRunner {
   }
 
   /**
-   * Work runs have their own pool, and a durable hobkin's turn is the user's, so neither takes a place from ordinary
-   * checks. Nor does a living job while it sits idle between turns (072-jobs-live-until-done).
+   * How many places are taken, for a run that was asked for and waits for one. Work runs have their own pool, and a
+   * durable hobkin's turn is the user's, so neither takes a place. Nor does a living job while it sits idle between
+   * turns (072-jobs-live-until-done). A routine's run at its own time takes one while it works, though it waited for none.
    */
   scheduledJobCount(state) {
     const tracked = [...this.jobs.keys()].filter(id => !id.startsWith('work:') && !isTurnRunId(id) && !this.idle.has(id));

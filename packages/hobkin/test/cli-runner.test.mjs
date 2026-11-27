@@ -696,7 +696,33 @@ test('reload rejects malformed cached authority and unsafe/missing context befor
   assert.deepEqual(Object.keys(fixtureData.runtime.data.runs), ['check:2026-04-27']);
 });
 
-test('capacity is bounded, schedule runs never overlap, and stop cancels only owned work', async t => {
+test('a report, a routine and a one-time reminder due at the same time all start then, whatever the limit', async t => {
+  const h = await fixture(t, { id: 'morning-report', title: 'Morning report', at: '10:00' });
+  await h.save({ ...h.schedule, id: 'inbox-routine', title: 'Inbox routine' });
+  await mkdir(join(h.root, 'routines/once'), { recursive: true });
+  await h.save({ ...h.schedule, id: 'dentist', title: 'Dentist reminder', cadence: 'once', date: '2026-04-27' });
+  const runner = new HobkinRunner({
+    ...h,
+    // What a new home is written with.
+    config: { ...config, concurrency: 2 },
+    now: () => new Date('2026-04-27T10:00:01Z'),
+    runHarness: request => new Promise(resolve => {
+      request.signal.addEventListener('abort', () => resolve({ status: 'interrupted' }), { once: true });
+    }),
+  });
+  t.after(() => runner.stop());
+
+  await runner.tick();
+
+  const started = Object.values(h.runtime.data.runs).map(run => [run.title, run.scheduledAt, run.status]);
+  assert.deepEqual(started.toSorted(), [
+    ['Dentist reminder', '2026-04-27T10:00:00.000Z', 'running'],
+    ['Inbox routine', '2026-04-27T10:00:00.000Z', 'running'],
+    ['Morning report', '2026-04-27T10:00:00.000Z', 'running'],
+  ]);
+});
+
+test('routines due together start past the limit, a routine never overlaps its own run, and stop cancels only owned work', async t => {
   const fixtureData = await fixture(t);
   await fixtureData.save({ ...fixtureData.schedule, id: 'other' });
   let calls = 0;
@@ -714,19 +740,21 @@ test('capacity is bounded, schedule runs never overlap, and stop cancels only ow
   });
 
   await Promise.all([runner.tick(), runner.tick()]);
-  assert.equal(calls, 1);
+  assert.equal(calls, 2, 'both start at their time, with a limit of one');
   date = new Date('2026-04-28T10:00:00Z');
   await runner.tick();
-  assert.equal(calls, 1);
+  assert.equal(calls, 2, 'neither starts again while its run of the day before still works');
 
   await runner.stop();
-  assert.equal(Object.values(fixtureData.runtime.data.runs)[0].status, 'interrupted');
+  assert.deepEqual(Object.values(fixtureData.runtime.data.runs).map(run => run.status), ['interrupted', 'interrupted']);
   assert.throws(() => new HobkinRunner({ ...fixtureData, config: { ...config, concurrency: 17 } }), /concurrency must be 1–16/);
 });
 
-test('sixteen routines run at once and the seventeenth waits for a place, and a saved four still reads as four', async t => {
+test('seventeen routines due at once all run, a run asked for by hand waits for a place, and a saved four still reads as four', async t => {
   const h = await fixture(t);
   for (let n = 1; n < 17; n++) await h.save({ ...h.schedule, id: `check-${n}` });
+  // One whose time has not come, to run by hand.
+  await h.save({ ...h.schedule, id: 'later', at: '23:00' });
   const started = [];
   const runner = new HobkinRunner({
     ...h,
@@ -744,20 +772,15 @@ test('sixteen routines run at once and the seventeenth waits for a place, and a 
   };
 
   await runner.tick();
-  await settled(16);
-  await runner.tick();
-  assert.equal(started.length, 16);
-  assert.equal(running().length, 16, 'the seventeenth waits while all sixteen run');
-  const routines = ['check', ...Array.from({ length: 16 }, (_, n) => `check-${n + 1}`)];
-  const waiting = routines.find(id => !h.runtime.data.runs[`${id}:2026-04-27`]);
-  await assert.rejects(runner.trigger(waiting, 'by-hand'), /Background capacity is full\./);
-
-  started[0].resolve({ status: 'completed', text: 'ok' });
-  for (let wait = 0; runner.jobs.size > 15 && wait < 200; wait++) await new Promise(resolve => setTimeout(resolve, 5));
-  await runner.tick();
   await settled(17);
-  assert.equal(started.length, 17, 'a place that frees takes the one that waited');
-  assert.equal(h.runtime.data.runs[`${waiting}:2026-04-27`].status, 'running');
+  assert.equal(started.length, 17);
+  assert.equal(running().length, 17, 'the seventeenth starts at its time too, past the most the limit may say');
+  await assert.rejects(runner.trigger('later', 'by-hand'), /Background capacity is full\./);
+
+  // Two end, so fifteen work: a run asked for by hand has a place again.
+  for (const { resolve } of started.slice(0, 2)) resolve({ status: 'completed', text: 'ok' });
+  for (let wait = 0; runner.jobs.size > 15 && wait < 200; wait++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal((await runner.trigger('later', 'by-hand')).status, 'running');
 
   const home = await realpath(await mkdtemp(join(tmpdir(), 'hobkin-limits-')));
   t.after(() => rm(home, { recursive: true, force: true }));

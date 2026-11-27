@@ -144,7 +144,11 @@ export function applySelection(root, change, catalog) {
   return resourceSelection;
 }
 
-/** The most routines and `hobkin session` jobs that `concurrency` may let run at once. A new home starts at 2 (`initialize`). */
+/**
+ * The most `concurrency` may say. It is how many runs may be working when one that was asked for starts: a
+ * `hobkin session` job, a routine run by hand, a workflow its integration starts. Those wait, or are refused, at the
+ * limit. A routine or a reminder at its own time never waits for a place. A new home starts at 2 (`initialize`).
+ */
 export const MOST_CONCURRENCY = 16;
 
 export function validateConfig(config, { allowLegacyHarness = false } = {}) {
