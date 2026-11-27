@@ -12,7 +12,9 @@ export const efforts = {
   pi: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
 };
 const legacyClaudeEfforts = ['low', 'medium', 'high', 'xhigh', 'max'];
-const fields = new Set(['id', 'title', 'at', 'window', 'timezone', 'enabled', 'enabledAt', 'harness', 'model', 'effort', 'cwd', 'context', 'weekday', 'day', 'date']);
+const fields = new Set(['id', 'title', 'at', 'window', 'timezone', 'enabled', 'enabledAt', 'harness', 'model', 'effort', 'cwd', 'context', 'weekday', 'day', 'date', 'template']);
+// The template a routine came from, by its file name and version, such as `job-openings@1`, so setup can tell which cards were written.
+const TEMPLATE_NAMED = /^[a-z0-9]+(?:-[a-z0-9]+)*@[1-9]\d*$/;
 const controls = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/;
 const text = value => typeof value === 'string' && value.trim().length > 0 && !controls.test(value);
 const frontMatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
@@ -119,6 +121,9 @@ export function parseSchedule(source, cadence, path) {
       ? !Number.isInteger(value.day) || value.day < 1 || value.day > 31
       : value.day !== undefined) {
       throw Error('day must be 1–31 for monthly routines only');
+    }
+    if (value.template !== undefined && !(typeof value.template === 'string' && TEMPLATE_NAMED.test(value.template))) {
+      throw Error('template must name a template and its version, such as job-openings@1');
     }
     if (cadence === 'once') scheduleDate(value.date);
     else if (value.date !== undefined) throw Error('date is for once routines only');

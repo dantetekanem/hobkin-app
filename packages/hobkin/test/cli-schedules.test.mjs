@@ -329,3 +329,13 @@ test('a routine turns on or off and takes new times in its own file, and the res
   assert.equal(readFileSync(path, 'utf8'), source);
   assert.deepEqual(readdirSync(folder).filter(name => name.endsWith('.tmp')), []);
 });
+
+test('a routine may name the template it came from, and a template named another way is refused', () => {
+  const named = parseSchedule(file({ template: 'job-openings@1' }), 'daily', '/routines/daily/recap.md');
+
+  assert.equal(named.template, 'job-openings@1');
+  assert.deepEqual(parseSchedule(formatSchedule(named), 'daily', named.path), named, 'it keeps the name when written back');
+  for (const template of ['job-openings', 'job-openings@0', 'job-openings@v2', 'Job-Openings@1', '../job@1', 'job openings@1', 7, '']) {
+    assert.throws(() => parseSchedule(file({ template }), 'daily', '/routines/daily/recap.md'), /template/, String(template));
+  }
+});
