@@ -3,16 +3,23 @@ import { test } from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadSkills } from '@earendil-works/pi-coding-agent';
 import shippedSkills, { SHIPPED_SKILLS, TLA_SKILL, skillsExtension, withShippedSkills } from '../src/cli/skills-extension.mjs';
 
-test('Pi loads the TLA+ skill hobkin ships, with nothing to warn about', t => {
+const skillFile = name => fileURLToPath(new URL(`../src/skills/${name}/SKILL.md`, import.meta.url));
+
+test('Pi loads the TLA+, copywriting and stop-slop skills hobkin ships, with nothing to warn about', t => {
   const agentDir = mkdtempSync(join(tmpdir(), 'hobkin-shipped-skills-'));
   t.after(() => rmSync(agentDir, { recursive: true, force: true }));
 
   const { skills, diagnostics } = loadSkills({ cwd: agentDir, agentDir, skillPaths: SHIPPED_SKILLS, includeDefaults: false });
 
-  assert.deepEqual(skills.map(({ name, filePath }) => ({ name, filePath })), [{ name: 'tla-plus', filePath: TLA_SKILL }]);
+  assert.deepEqual(skills.map(({ name, filePath }) => ({ name, filePath })), [
+    { name: 'tla-plus', filePath: TLA_SKILL },
+    { name: 'copywriting', filePath: skillFile('copywriting') },
+    { name: 'stop-slop', filePath: skillFile('stop-slop') },
+  ]);
   assert.deepEqual(diagnostics, []);
 });
 

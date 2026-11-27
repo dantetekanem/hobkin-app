@@ -5,8 +5,11 @@ import { fileURLToPath } from 'node:url';
  * (`pi-extensions.mjs`), or with `--skill` under a launcher (`rpc-session.mjs`). A work run gets them from this file, a Pi
  * extension that adds them through Pi's own `resources_discover` event.
  */
-export const TLA_SKILL = fileURLToPath(new URL('../skills/tla-plus/SKILL.md', import.meta.url));
-export const SHIPPED_SKILLS = Object.freeze([TLA_SKILL]);
+const shippedSkill = name => fileURLToPath(new URL(`../skills/${name}/SKILL.md`, import.meta.url));
+
+export const TLA_SKILL = shippedSkill('tla-plus');
+// copywriting and stop-slop are vendored under MIT, each with its LICENSE beside it.
+export const SHIPPED_SKILLS = Object.freeze([TLA_SKILL, shippedSkill('copywriting'), shippedSkill('stop-slop')]);
 
 export const skillsExtension = fileURLToPath(import.meta.url);
 
