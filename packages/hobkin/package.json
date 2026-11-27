@@ -1,6 +1,6 @@
 {
   "name": "hobkin",
-  "version": "0.1.7",
+  "version": "0.2.5",
   "private": true,
   "license": "MIT",
   "packageManager": "pnpm@11.12.0",
