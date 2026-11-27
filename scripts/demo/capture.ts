@@ -25,6 +25,9 @@ const HOME = join(DEMO, 'home')
 interface Cut {
   /** Where the 8:3 band starts, in CSS pixels from the page's top. */
   bandY: number
+  /** Where the band starts from the left and how wide it is, in CSS pixels, when it is not the page's whole width. */
+  bandX?: number
+  bandW?: number
   /** Where the 4:5 phone cut starts, in CSS pixels from the page's left. It is as tall as the band. */
   phoneX: number
   /** Where the phone cut starts from the top, when not where the band does. */
@@ -50,7 +53,7 @@ interface Shot extends Cut {
 const SHOTS: Shot[] = [
   { n: 1, name: 'hero', caption: 'Hero (dark): a durable hobkin mid-run, with its tasks, its loaded skill and its steps, beside the chat and every agent hobkin runs', query: 'theme=dark', place: { screen: 'agent', openAgent: 'hobkin:a3f19c42' }, bandY: 0, phoneX: 0, phoneY: 378 },
   { n: 2, name: 'engines', caption: 'Pi and Claude Code (light): a durable hobkin on Claude Code (the crab pal beside its face) mid-run, beside agents on Pi', query: 'theme=light', place: { screen: 'agent', openAgent: 'hobkin:7c2e90b1' }, bandY: 0, phoneX: 0, phoneY: 378 },
-  { n: 3, name: 'work', caption: 'Work mode (dark): four agents at work under hobkin, and the queue graded by priority across the projects', query: 'theme=dark&scroll=434', place: { screen: 'work' }, bandY: 0, phoneX: 614, phoneY: 58, phoneW: 560 },
+  { n: 3, name: 'work', caption: 'Work mode (dark): four agents at work under hobkin, one on each project, and the queue graded by priority across the projects', query: 'theme=dark&scroll=300', place: { screen: 'work' }, bandY: 224, bandX: 542, bandW: 1184, phoneX: 604, phoneY: 180, phoneW: 576 },
   { n: 4, name: 'review', caption: "Code review (dark): a Change Review in Story mode, step 4 of 6. The user's own capture of the real app, 2000 px wide (the others are full Retina width)", picture: process.env.REVIEW_PICTURE ?? '', bandY: 112, phoneX: 960, phoneY: 140, phoneW: 880 },
   { n: 5, name: 'routines', caption: "Routines and reports (dark): the morning brief, among the day's reports from seven routines", query: 'theme=dark', place: { screen: 'reports' }, bandY: 0, phoneX: 614, phoneY: 76, phoneW: 648 },
   { n: 6, name: 'github', caption: "GitHub (light): pull requests waiting for review, a stack of two among them, from the scripted host's sample GitHub data", query: 'theme=light&click=GitHub', place: { screen: 'home' }, seconds: 8, bandY: 220, phoneX: 614, phoneY: 212, phoneW: 560 },
@@ -163,7 +166,9 @@ function cut(shot: Shot) {
   const [width, tall] = sh('magick', ['identify', '-format', '%w %h', full]).split(' ').map(Number) as [number, number]
   // The pictures taken here are at the screen's scale; a picture from elsewhere is taken as it is.
   const scale = shot.picture !== undefined ? 1 : page().scale
-  const bandTall = Math.round((width * 3) / 8)
+  const bandWide = shot.bandW ? Math.round(shot.bandW * scale) : width
+  const bandLeft = Math.min(Math.max(0, Math.round((shot.bandX ?? 0) * scale)), width - bandWide)
+  const bandTall = Math.round((bandWide * 3) / 8)
   const y = Math.min(Math.max(0, Math.round(shot.bandY * scale)), tall - bandTall)
   const phoneWide = shot.phoneW ? Math.round(shot.phoneW * scale) : Math.round((bandTall * 4) / 5)
   const phoneTall = shot.phoneW ? Math.round((phoneWide * 5) / 4) : bandTall
@@ -171,12 +176,12 @@ function cut(shot: Shot) {
   const phoneTop = Math.min(Math.max(0, Math.round((shot.phoneY ?? shot.bandY) * scale)), tall - phoneTall)
   const band = join(OUT, `${shot.n}-${shot.name}.png`)
   const phone = join(OUT, `${shot.n}-${shot.name}-m.png`)
-  sh('magick', [full, '-crop', `${width}x${bandTall}+0+${y}`, '+repage', band])
+  sh('magick', [full, '-crop', `${bandWide}x${bandTall}+${bandLeft}+${y}`, '+repage', band])
   // The themes shot shows its other theme in the phone cut.
   const phoneSource = shot.name === 'themes' ? join(OUT, `${shot.n}-${shot.name}-a-full.png`) : full
   sh('magick', [phoneSource, '-crop', `${phoneWide}x${phoneTall}+${x}+${phoneTop}`, '+repage', phone])
   for (const file of [band, phone]) sh('cwebp', ['-quiet', '-q', '90', file, '-o', file.replace(/\.png$/, '.webp')])
-  return { band: `${width}x${bandTall}`, phone: `${phoneWide}x${phoneTall}` }
+  return { band: `${bandWide}x${bandTall}+${bandLeft}+${y}`, phone: `${phoneWide}x${phoneTall}+${x}+${phoneTop}` }
 }
 
 // ---------------------------------------------------------------------------------------------------------------

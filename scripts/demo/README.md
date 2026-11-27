@@ -33,11 +33,16 @@ scripts/demo/shoot.sh stop               # quit Safari, stop everything, remove 
 - The host is `host/src/main.ts` with the scripted model, on its own home and port, with `HOME` and `PATH` pointing at
   the demo folder: it never reads the real `~/.hobkin`, `~/.pi`, `~/.claude` or git settings. The `claude` it finds is
   a stub that reports a version and a sign-in and runs nothing.
-- `seed.ts` writes the home with hobkin's own code: projects, their queues, grades, finished branches in throwaway git
-  repositories (made-up author), token use, memories and routine files. It then opens hobkin itself on the home with
-  a scripted model whose words it supplies: the routines run and report (with the clock set back, so each report has
-  its own time) and the chat has one exchange.
-- `page/agents.ts` adds the agents at work: two durable hobkins (one on Claude Code) and four runs, with their steps,
-  tasks and loaded skills, in the host's own wire shapes. A scripted host runs no agent, so these are the only part
-  of a shot that does not come from the host.
+- `seed.ts` writes the home with hobkin's own code: projects with their study notes and recent looks (so the queue
+  holds their work, not looks that are due), their queues, grades, finished branches in throwaway git repositories
+  (made-up author), the change reviews' grades of most of those branches through hobkin's own door for them
+  (`recordGrades`), token use, memories and routine files. It then opens hobkin itself on the home with a scripted
+  model whose words it supplies: the routines run and report (with the clock set back, so each report has its own
+  time) and the chat has one exchange.
+- `page/agents.ts` adds the agents at work: two durable hobkins (one on Claude Code) and four runs, one on each
+  project, with their steps, tasks and loaded skills, in the host's own wire shapes. A scripted host runs no agent and
+  no change review, so these, and the finished change review it adds to the host's answer for each change the seed
+  graded (at the commit graded), are the only parts of a shot that do not come from the host.
+- The Work shot is cut from the main pane only, leaving out the chat column (`bandX`, `bandW`), from the page
+  scrolled inside so the project chips sit clear of the menu.
 - Every project, person, path, report and memory is invented. The GitHub page is the scripted host's own sample data.

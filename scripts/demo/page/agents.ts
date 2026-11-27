@@ -2,9 +2,15 @@
 // runs no agent. They speak the host's own wire shapes (`shared/protocol`), so the window draws them as it would draw
 // real ones: runs in `runs`, durable hobkins in `hobkins`, their steps as `activity`, and the answers their pages ask
 // for (`hobkin.read`, `activity.before`, `agent.notes`). Every name, folder and line here is invented.
+//
+// A scripted host runs no change review either, so the finished changes the seed graded through hobkin's own door for
+// a review's grades (`recordGrades`) would still say "Not reviewed yet". For those alone, and at the commit they were
+// graded at, the host's own answer to `review.status` gets the finished change review those grades came from.
 import type { ActivityEntry, ActivityStep } from '#shared/protocol/activity.ts'
 import type { HobkinConversation, HobkinSummary, HobkinTurn } from '#shared/protocol/hobkins.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
+import type { FinishedGroup } from '#shared/protocol/work.ts'
+import type { AssessmentStatus } from '#shared/review/assessment.ts'
 
 const NOW = Date.now()
 const MIN = 60_000
@@ -140,10 +146,12 @@ const offline: ActivityEntry[] = [
   say('Outbox and merge both pass. Writing the conflict case next: two devices edit the same draft offline.', 3),
 ]
 
-const sweep: ActivityEntry[] = [
-  say('Looking for pull requests that wait on you or went quiet.', 3),
-  tool('bash', { command: 'gh pr list --search "review-requested:@me" --json number,title' }, '#212 Add Apple Pay to checkout\n#87 Partner sandbox keys', 2),
-  tool('bash', { command: 'gh pr list --state open --json number,updatedAt' }, '', 1, 'running'),
+const ledgerRetry: ActivityEntry[] = [
+  say('The nightly sync gives up on the first ledger timeout and leaves the night unsynced. Retrying with backoff, and only the batch that failed.', 14),
+  tool('read', { path: 'src/sync/nightly.ts' }, "export async function syncNight(day: string) {\n  for (const batch of batchesOf(day)) await ledger.post('/entries', batch)\n}", 12),
+  tool('write', { path: 'src/sync/retry.ts', content: 'export async function withRetry<T>(run: () => Promise<T>, waits = [2_000, 8_000, 30_000]): Promise<T> { /* ... */ }' }, 'Successfully wrote 604 bytes to src/sync/retry.ts', 8),
+  say('Each batch is posted with its own idempotency key, so a retry after a timeout cannot book it twice.', 5),
+  tool('bash', { command: 'pnpm vitest run test/sync' }, ' ✓ test/sync/retry.test.ts (6 tests) 22ms\n ❯ test/sync/nightly.test.ts (4 tests)', 1, 'running'),
 ]
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -203,7 +211,7 @@ const runs: { summary: RunSummary; steps: ActivityEntry[] }[] = [
   { summary: run('job-5d81c3', 'Fix the flaky cart total test', 'storefront', 19), steps: flakyCart },
   { summary: run('job-9e04ab', 'Update the Postgres driver to 8.13', 'atlas-api', 22, { effort: 'medium', tier: 'mid', model: 'openai/gpt-6.1-sol' }), steps: driver },
   { summary: run('job-2b77fd', 'Offline drafts that sync later', 'field-notes', 31, { onClaudeCode: true, model: 'claude/opus' }), steps: offline },
-  { summary: { ...run('job-c41e07', 'Pull request sweep', 'storefront', 3, { effort: 'low', tier: 'fast' }), kind: 'background', scheduleId: 'pr-sweep', work: undefined, cwd: CODE }, steps: sweep },
+  { summary: run('job-c41e07', 'Retry the nightly sync on timeouts', 'ledger-sync', 14, { effort: 'medium', tier: 'mid' }), steps: ledgerRetry },
 ]
 
 const fakeJobs = new Map<string, ActivityEntry[]>([...runs.map((each) => [each.summary.id!, each.steps] as const), ...durables.map((each) => [each.summary.run!, each.steps] as const)])
@@ -262,6 +270,38 @@ function answer(name: string, args: Record<string, unknown>): unknown {
   return { ok: true }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// The change reviews behind the seed's grades.
+
+/** Each graded finished change by its review id (`reviewIdOf` in `shared/review/ids.ts`): the commit graded, when, and whether a score is under its floor. */
+const graded = new Map<string, { head: string; at: string; held: boolean }>()
+/** The `review.status` commands on their way to the host for a graded change, by command id. */
+const askedStatus = new Map<string, string>()
+
+/** Work mode comes whole on a state message, beside its `set` (`ui/src/lib/host/state.ts`). */
+function noteGraded(work: { finished?: FinishedGroup[] } | null): void {
+  if (!work?.finished) return
+  graded.clear()
+  for (const change of work.finished.flatMap(({ changes }) => changes)) {
+    if (change.scoring && change.head) graded.set(`change:${change.slug}:${change.item}`, { head: change.head, at: change.at ?? new Date(NOW).toISOString(), held: change.scoring.floors.length > 0 })
+  }
+}
+
+/** A finished change review at the commit graded: nothing found that breaks, so safe to deploy, with one part shown by no test when a score is under its floor. */
+function reviewed({ head, at, held }: { head: string; at: string; held: boolean }): AssessmentStatus {
+  return { state: 'ready', head, summary: { level: held ? 'mid' : 'safe', critical: false, needsYou: 0, worthALook: held ? 1 : 0, safe: held ? 4 : 5, storyBy: 'model', at, deploy: 'safe' } }
+}
+
+function withReview(message: Message): Message {
+  const about = askedStatus.get(String(message.id))
+  if (!about) return message
+  askedStatus.delete(String(message.id))
+  const known = graded.get(about)
+  const value = message.value as { head?: string | null } | undefined
+  if (message.ok && known && value && (value.head ?? known.head) === known.head) message.value = { ...value, assessment: reviewed(known) }
+  return message
+}
+
 let deliver: (text: string) => void = () => {}
 
 export const overlay = {
@@ -270,11 +310,14 @@ export const overlay = {
   },
   fromHost(text: string): string[] {
     const message = JSON.parse(text) as Message
+    if (message.type === 'state' && message.work !== undefined) noteGraded(message.work as { finished?: FinishedGroup[] } | null)
+    if (message.type === 'result' && askedStatus.size) return [JSON.stringify(withReview(message))]
     return message.type === 'state' ? [JSON.stringify(withFake(message))] : [text]
   },
   /** What goes on to the host, or null when the answer came from here. */
   fromPage(text: string): string | null {
     const message = JSON.parse(text) as { type: string; id?: string; name?: string; args?: Record<string, unknown> }
+    if (message.type === 'command' && message.name === 'review.status' && graded.has(String(message.args?.id))) askedStatus.set(String(message.id), String(message.args!.id))
     if (message.type !== 'command' || !aboutFake(message.args ?? {})) return text
     const value = answer(message.name!, message.args ?? {})
     setTimeout(() => deliver(JSON.stringify({ type: 'result', id: message.id, ok: true, value })), 5)

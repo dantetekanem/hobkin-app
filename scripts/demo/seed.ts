@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import { setTimeout as pause } from 'node:timers/promises'
 import * as workStore from 'hobkin/src/cli/work/store.mjs'
 import * as memoryStore from 'hobkin/src/cli/memories.mjs'
+import * as reviewGrades from 'hobkin/src/cli/work/review-grades.mjs'
 import * as unmerged from 'hobkin/src/cli/work/unmerged.mjs'
 import { createScriptedModel, type ScriptedCall, type ScriptedReply } from '../../host/src/scripted.ts'
 import { after as refundAfter, before as refundBefore } from './refund-change.ts'
@@ -31,15 +32,21 @@ interface WorkStore {
   writeMode(root: string, change: Record<string, unknown>): unknown
   recordTokens(root: string, entry: { slug: string; lane: string; tokens: number }, now?: number): unknown
   prFile(root: string, slug: string, id: string): string
+  paths(root: string, slug: string): { project: string }
+  writeState(root: string, slug: string, change: Record<string, unknown>): void
 }
 interface Unmerged {
   surveyUnmerged(root: string): Promise<unknown>
 }
+interface ReviewGrades {
+  recordGrades(root: string, slug: string, id: string, grades: Review, now?: number): unknown
+}
 interface MemoryStore {
   addMemory(root: string, fields: Record<string, unknown>, actor: { by: { kind: string }; now: number }): unknown
 }
-const { chooseProject, fileItem, prFile, proposeProject, recordTokens, setProjectPriority, updateItem, workName, writeMode } = workStore as unknown as WorkStore
+const { chooseProject, fileItem, paths, prFile, proposeProject, recordTokens, setProjectPriority, updateItem, workName, writeMode, writeState } = workStore as unknown as WorkStore
 const { surveyUnmerged } = unmerged as unknown as Unmerged
+const { recordGrades } = reviewGrades as unknown as ReviewGrades
 const { addMemory } = memoryStore as unknown as MemoryStore
 
 const DEMO = process.argv[2]
@@ -104,9 +111,18 @@ function makeRepos() {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Work: four projects at four priorities, their queues, and finished changes waiting on branches.
+// Work: four projects at four priorities, each with an agent at work (`page/agents.ts`), a queue graded across them,
+// and finished changes waiting on branches, most of them graded by a change review.
 
 type Kind = 'security' | 'fix' | 'update' | 'chore' | 'improvement' | 'feature'
+
+/** A change review's answer as hobkin keeps it (`assertReview` in its `classified.mjs`): a kind and five scores with their evidence. */
+interface Review {
+  kind: 'performance' | 'bug-fix' | 'state-machine' | 'package-update' | 'small-change' | 'feature' | 'unclear'
+  scores: Record<'coverage' | 'proof' | 'safety' | 'visibility' | 'rollback', { score: number; evidence: string }>
+  head: string
+}
+
 interface Item {
   key: string
   kind: Kind
@@ -115,56 +131,212 @@ interface Item {
   grade: 'P0' | 'P1' | 'P2' | 'P3'
   impact?: 'high' | 'medium' | 'low'
   effort?: 'small' | 'medium' | 'large'
-  /** Finished on a branch: the file it changed, what it says, and how it was shown to work. */
-  finished?: { files: Record<string, string>; summary: string; proof: string }
-  doing?: true
+  /**
+   * Finished on a branch: the files it changed, what it says, how it was shown to work, how many hours ago, and the
+   * change review's grades when one ran (`review`, without the commit, which is the branch's).
+   */
+  finished?: { files: Record<string, string>; summary: string; proof: string; hoursAgo: number; review?: Omit<Review, 'head'> }
 }
 
-const PROJECTS: { slug: string; level: 'critical' | 'important' | 'casual'; priority: 'P0' | 'P1' | 'P2' | 'P3'; items: Item[] }[] = [
+/** Five scores in hobkin's order: coverage, proof, deploy and data, visibility, rollback. */
+const scored = (kind: Review['kind'], ...rows: [score: number, evidence: string][]): Omit<Review, 'head'> => {
+  const [coverage, proof, safety, visibility, rollback] = rows.map(([score, evidence]) => ({ score, evidence }))
+  return { kind, scores: { coverage: coverage!, proof: proof!, safety: safety!, visibility: visibility!, rollback: rollback! } }
+}
+
+/**
+ * What hobkin's study of each project wrote, and its looks are recent, so the queue holds the projects' own work and
+ * no look is due. The agent at work on each project is not in its items: a scripted host runs nothing, so a started
+ * item would stay in the queue beside the agent that has it.
+ */
+const PROJECTS: { slug: string; level: 'critical' | 'important' | 'casual'; priority: 'P0' | 'P1' | 'P2' | 'P3'; studied: string; items: Item[] }[] = [
   {
     slug: 'storefront',
     level: 'critical',
     priority: 'P0',
+    studied: 'The shop: catalog, cart and checkout in React, built with Vite. Tests: `pnpm test` (Vitest) and `pnpm playwright test` (WebKit). Staging deploys from main every 30 minutes.',
     items: [
-      { key: 'sf-samesite', kind: 'security', grade: 'P0', impact: 'high', effort: 'small', title: 'Session cookie is sent on cross-site requests', brief: 'The session cookie has no SameSite attribute, so a cross-site form can ride a signed-in session.', finished: { files: { ['src/auth/session.ts']: "export const SESSION_COOKIE = { name: 'sid', httpOnly: true, secure: true, sameSite: 'lax' as const }\n" }, summary: 'Sets SameSite=Lax and Secure on the session cookie, with a test that a cross-site POST arrives signed out.', proof: 'pnpm test src/auth: 31 passed; a cross-site POST from the test origin now arrives without the session.' } },
-      { key: 'sf-weekend', kind: 'fix', grade: 'P0', impact: 'high', effort: 'small', title: 'Cart total ignores the weekend discount after midnight UTC', brief: 'Totals computed between midnight UTC and local midnight miss the weekend discount.', doing: true },
+      {
+        key: 'sf-samesite',
+        kind: 'security',
+        grade: 'P0',
+        impact: 'high',
+        effort: 'small',
+        title: 'Session cookie is sent on cross-site requests',
+        brief: 'The session cookie has no SameSite attribute, so a cross-site form can ride a signed-in session.',
+        finished: {
+          files: {
+            ['src/auth/session.ts']: "export const SESSION_COOKIE = { name: 'sid', httpOnly: true, secure: true, sameSite: 'lax' as const }\n",
+            ['test/auth/session.test.ts']: "it('drops the session on a cross-site POST', async () => {\n  const answer = await post('/cart', { from: 'https://elsewhere.example', signedIn: true })\n  expect(answer.session).toBeNull()\n})\n\nit('keeps it on a top-level sign-in link', async () => {\n  const answer = await get('/account', { from: 'https://mail.example', signedIn: true })\n  expect(answer.session).not.toBeNull()\n})\n",
+          },
+          summary: 'Sets SameSite=Lax and Secure on the session cookie, with a test that a cross-site POST arrives signed out.',
+          proof: 'pnpm test src/auth: 31 passed; a cross-site POST from the test origin now arrives without the session.',
+          hoursAgo: 3,
+          review: scored(
+            'bug-fix',
+            [9, 'A new test sends a cross-site POST and checks it arrives without the session.'],
+            [9, 'pnpm test src/auth: 31 passed at this commit, the cross-site case among them.'],
+            [9, 'One cookie attribute; Lax still lets top-level sign-in links carry the session.'],
+            [8, 'Sign-in failures are counted per route on the auth dashboard, so a lockout would show within minutes.'],
+            [10, 'One line in one file: a revert restores the old cookie on the next deploy.'],
+          ),
+        },
+      },
+      {
+        key: 'sf-a11y',
+        kind: 'fix',
+        grade: 'P1',
+        impact: 'medium',
+        effort: 'small',
+        title: 'Size picker cannot be used with the keyboard',
+        brief: 'Arrow keys do nothing in the size picker on product pages.',
+        finished: {
+          files: {
+            ['src/product/SizePicker.tsx']: "export const keys = { next: 'ArrowRight', previous: 'ArrowLeft', pick: ' ' }\n\nexport function onKey(event: KeyboardEvent, sizes: Size[], at: number): number {\n  if (event.key === keys.next) return Math.min(sizes.length - 1, at + 1)\n  if (event.key === keys.previous) return Math.max(0, at - 1)\n  return at\n}\n",
+            ['test/product/size-picker.spec.ts']: "test('arrow keys move between sizes', async ({ page }) => {\n  await page.keyboard.press('ArrowRight')\n  await expect(page.getByRole('radio', { name: 'M' })).toBeFocused()\n})\n",
+          },
+          summary: 'Arrow keys move between sizes, Space picks one, and the picker announces the chosen size.',
+          proof: 'pnpm playwright test product --project=webkit: 22 passed, including 3 new keyboard cases.',
+          hoursAgo: 5,
+          review: scored(
+            'bug-fix',
+            [8, 'Three new keyboard cases cover moving, picking and the announcement.'],
+            [9, 'pnpm playwright test product --project=webkit: 22 passed at this commit.'],
+            [9, 'The picker keeps its markup; only key handlers and an aria-live region are new.'],
+            [7, 'Add-to-cart events per size still show on the product dashboard.'],
+            [10, 'One component: a revert brings the old picker back.'],
+          ),
+        },
+      },
       { key: 'sf-images', kind: 'improvement', grade: 'P1', impact: 'medium', effort: 'medium', title: 'Lazy-load product images below the fold', brief: 'The category page loads 48 full-size images up front; only the first row is visible.' },
-      { key: 'sf-coupons', kind: 'chore', grade: 'P2', impact: 'low', effort: 'small', title: 'Remove the unused coupon v1 endpoints', brief: 'Nothing has called /api/v1/coupons in 90 days.' },
-      { key: 'sf-a11y', kind: 'fix', grade: 'P1', impact: 'medium', effort: 'small', title: 'Size picker cannot be used with the keyboard', brief: 'Arrow keys do nothing in the size picker on product pages.', finished: { files: { ['src/product/SizePicker.tsx']: "export const keys = { next: 'ArrowRight', previous: 'ArrowLeft' }\n" }, summary: 'Arrow keys move between sizes, Space picks one, and the picker announces the chosen size.', proof: 'pnpm playwright test product --project=webkit: 22 passed, including 3 new keyboard cases.' } },
     ],
   },
   {
     slug: 'atlas-api',
     level: 'important',
     priority: 'P1',
+    studied: 'Orders, refunds and webhooks for partners, on Express and Postgres. Tests: `pnpm vitest run`. Webhooks come from payment providers and are never rate limited.',
     items: [
-      { key: 'aa-limits', kind: 'feature', grade: 'P1', impact: 'high', effort: 'medium', title: 'Rate limits for partner API keys', brief: 'Bursts from partners take the order routes down. Limit per key, leave webhooks alone.', doing: true },
-      { key: 'aa-pg', kind: 'update', grade: 'P1', impact: 'medium', effort: 'small', title: 'Update the Postgres driver to 8.13', brief: 'pg 8.11 has a pooling fix we need in 8.13.', doing: true },
-      { key: 'aa-refund', kind: 'fix', grade: 'P1', impact: 'high', effort: 'small', title: 'Refund webhook is retried twice on a timeout', brief: 'A slow refund answer makes the provider retry, and the refund is recorded twice.', finished: { files: refundAfter, summary: 'Refunds are recorded once per idempotency key; a retry gets the first answer back.', proof: 'pnpm vitest run test/routes/refunds.test.ts: 9 passed, including the double-delivery case.' } },
+      { key: 'aa-jwt', kind: 'security', grade: 'P0', impact: 'high', effort: 'small', title: 'Update jsonwebtoken to 9.0.3', brief: 'jsonwebtoken 9.0.1 has a published advisory for key confusion; 9.0.3 fixes it. Filed by the dependency watch.' },
+      {
+        key: 'aa-refund',
+        kind: 'fix',
+        grade: 'P1',
+        impact: 'high',
+        effort: 'small',
+        title: 'Refund webhook is retried twice on a timeout',
+        brief: 'A slow refund answer makes the provider retry, and the refund is recorded twice.',
+        finished: {
+          files: refundAfter,
+          summary: 'Refunds are recorded once per idempotency key; a retry gets the first answer back.',
+          proof: 'pnpm vitest run test/routes/refunds.test.ts: 9 passed, including the double-delivery case.',
+          hoursAgo: 4,
+          review: scored(
+            'bug-fix',
+            [9, 'The double-delivery case is tested, and so is a retry after the first answer was lost.'],
+            [9, 'pnpm vitest run test/routes/refunds.test.ts: 9 passed at this commit.'],
+            [8, 'A new unique index on the idempotency key; existing rows hold no duplicates.'],
+            [8, 'Refund volume and webhook retries are on the partner dashboard.'],
+            [8, 'The index stays after a revert, which is harmless; the handler goes back as it was.'],
+          ),
+        },
+      },
       { key: 'aa-rates', kind: 'improvement', grade: 'P2', impact: 'medium', effort: 'small', title: 'Cache currency rates for an hour', brief: 'Every order asks the rates service again.' },
-      { key: 'aa-openapi', kind: 'chore', grade: 'P3', impact: 'low', effort: 'small', title: 'Publish the OpenAPI file with each release', brief: 'Partners ask for the spec by email.' },
+      {
+        key: 'aa-openapi',
+        kind: 'chore',
+        grade: 'P3',
+        impact: 'low',
+        effort: 'small',
+        title: 'Publish the OpenAPI file with each release',
+        brief: 'Partners ask for the spec by email.',
+        finished: {
+          files: {
+            ['scripts/release.ts']: "export const assets = ['dist/atlas-api.tgz', 'openapi.yaml']\n\nexport async function checkSpec(spec: string, routes: Route[]) {\n  const missing = routes.filter((route) => !specHas(spec, route))\n  if (missing.length) throw Error(`openapi.yaml lacks ${missing.length} routes`)\n}\n",
+          },
+          summary: 'Each release attaches openapi.yaml, checked against the routes before it is published.',
+          proof: 'pnpm release --dry-run: openapi.yaml validated, 41 routes, attached to the draft release.',
+          hoursAgo: 0.6,
+        },
+      },
     ],
   },
   {
     slug: 'field-notes',
     level: 'casual',
     priority: 'P2',
+    studied: 'A notes app that works on the train: React Native, with drafts saved through the API. Tests: `pnpm test`.',
     items: [
-      { key: 'fn-offline', kind: 'feature', grade: 'P2', impact: 'high', effort: 'large', title: 'Offline drafts that sync later', brief: 'Drafts written on the train are lost when the app closes offline.', doing: true },
-      { key: 'fn-accents', kind: 'fix', grade: 'P2', impact: 'medium', effort: 'small', title: 'Search misses notes with accented words', brief: 'Searching "cafe" does not find "café".', finished: { files: { ['src/search/normalize.ts']: "export const fold = (text: string) => text.normalize('NFD').replace(/\\p{Diacritic}/gu, '').toLowerCase()\n" }, summary: 'Search folds accents on both sides, so "cafe" finds "café" and the other way round.', proof: 'pnpm test src/search: 18 passed; 4 new cases in French, Portuguese and German.' } },
-      { key: 'fn-markdown', kind: 'update', grade: 'P3', impact: 'low', effort: 'small', title: 'Upgrade the Markdown renderer', brief: 'Two minor versions behind, with a table fix we want.' },
+      {
+        key: 'fn-accents',
+        kind: 'fix',
+        grade: 'P2',
+        impact: 'medium',
+        effort: 'small',
+        title: 'Search misses notes with accented words',
+        brief: 'Searching "cafe" does not find "café".',
+        finished: {
+          files: {
+            ['src/search/normalize.ts']: "export const fold = (text: string) => text.normalize('NFD').replace(/\\p{Diacritic}/gu, '').toLowerCase()\n",
+            ['test/search/normalize.test.ts']: "it.each([['cafe', 'café'], ['acao', 'ação'], ['uber', 'über'], ['ete', 'été']])('%s finds %s', (typed, written) => {\n  expect(fold(written)).toBe(fold(typed))\n})\n",
+          },
+          summary: 'Search folds accents on both sides, so "cafe" finds "café" and the other way round.',
+          proof: 'pnpm test src/search: 18 passed; 4 new cases in French, Portuguese and German.',
+          hoursAgo: 7,
+          review: scored(
+            'bug-fix',
+            [9, 'Four new cases fold accents in French, Portuguese and German, both ways.'],
+            [9, 'pnpm test src/search: 18 passed at this commit.'],
+            [9, 'Search only: nothing stored changes, and the index is built the same way.'],
+            [7, 'Searches with no results are counted, so a regression would raise that count.'],
+            [10, 'One function: a revert restores exact matching.'],
+          ),
+        },
+      },
+      { key: 'fn-pinned', kind: 'fix', grade: 'P2', impact: 'medium', effort: 'small', title: 'Pinned notes drop to the bottom after a sync', brief: 'The list sorts by updated time after a sync and forgets the pins.' },
     ],
   },
   {
     slug: 'ledger-sync',
     level: 'casual',
     priority: 'P3',
+    studied: 'Nightly sync of orders into the ledger, and the month-end CSV that finance reads every Monday at 8:00. Tests: `pnpm vitest run`.',
     items: [
-      { key: 'ls-stream', kind: 'improvement', grade: 'P3', impact: 'medium', effort: 'medium', title: 'Stream the CSV export instead of buffering it', brief: 'The month-end export holds 400 MB in memory.', finished: { files: { ['src/export/csv.ts']: 'export async function* rows(cursor: AsyncIterable<Entry>) {\n  for await (const entry of cursor) yield line(entry)\n}\n' }, summary: 'The export writes rows as the cursor reads them; peak memory falls from 410 MB to 38 MB.', proof: 'pnpm test src/export: 12 passed; month-end fixture exported in 9.1 s at 38 MB.' } },
+      {
+        key: 'ls-stream',
+        kind: 'improvement',
+        grade: 'P3',
+        impact: 'medium',
+        effort: 'medium',
+        title: 'Stream the CSV export instead of buffering it',
+        brief: 'The month-end export holds 400 MB in memory.',
+        finished: {
+          files: {
+            ['src/export/csv.ts']: 'export async function* rows(cursor: AsyncIterable<Entry>) {\n  for await (const entry of cursor) yield line(entry)\n}\n\nexport async function exportMonth(cursor: AsyncIterable<Entry>, out: Writable) {\n  await pipeline(Readable.from(rows(cursor)), out)\n}\n',
+            ['test/export/csv.test.ts']: "it('writes the month-end fixture byte for byte', async () => {\n  const written = await exportToString(monthEndFixture())\n  expect(written).toBe(readFixture('month-end.csv'))\n})\n",
+          },
+          summary: 'The export writes rows as the cursor reads them; peak memory falls from 410 MB to 38 MB.',
+          proof: 'pnpm test src/export: 12 passed; month-end fixture exported in 9.1 s at 38 MB.',
+          hoursAgo: 9,
+          review: scored(
+            'performance',
+            [8, 'The month-end fixture is exported whole and compared byte for byte with the old export.'],
+            [8, 'pnpm test src/export: 12 passed at this commit; the fixture ran in 9.1 s at 38 MB.'],
+            [8, 'Same columns in the same order; only how rows are written changes.'],
+            [6, 'Nothing records how much memory or time the nightly export takes, so a slow night would go unseen.'],
+            [9, 'One module: a revert brings back the buffered export.'],
+          ),
+        },
+      },
+      { key: 'ls-durations', kind: 'improvement', grade: 'P3', impact: 'medium', effort: 'small', title: 'Log how long each nightly sync takes', brief: 'Nobody can tell a slow night from a normal one.' },
+      { key: 'ls-csv', kind: 'update', grade: 'P3', impact: 'medium', effort: 'small', title: 'Update csv-stringify to 6.5', brief: 'Two minor versions behind, with a quoting fix.' },
       { key: 'ls-rename', kind: 'chore', grade: 'P3', impact: 'low', effort: 'small', title: 'Rename the nightly export job', brief: 'Its name still says "temp".' },
     ],
   },
 ]
+
+/** The grades to record once the survey has read each branch's commit: hobkin takes them only for the commit it last read. */
+const toGrade: { slug: string; id: string; review: Omit<Review, 'head'>; branch: string; path: string; at: number }[] = []
 
 function seedWork() {
   for (const [index, project] of PROJECTS.entries()) {
@@ -172,10 +344,15 @@ function seedWork() {
     proposeProject(HOME, { slug: project.slug, name: project.slug, path, level: project.level, first: [] }, NOW - (40 - index) * HOUR)
     chooseProject(HOME, project.slug, project.level, NOW - (39 - index) * HOUR)
     setProjectPriority(HOME, project.slug, project.priority)
+    // Its study, and the looks after it, as hobkin stamps them when a look starts (`startLook` in its `director.mjs`).
+    const notes = paths(HOME, project.slug).project
+    mkdirSync(join(notes, '..'), { recursive: true })
+    writeFileSync(notes, `# ${project.slug}\n\n${project.studied}\n`)
+    const stamp = (hoursAgo: number) => new Date(NOW - hoursAgo * HOUR).toISOString()
+    writeState(HOME, project.slug, { lastLookAt: stamp(0.1), lastLensAt: stamp(0.1), lensIndex: 3, newCommits: 0, lastMachinesAt: stamp(30), lastMachinesTlcAt: stamp(30), lastSignalsAt: stamp(2), lastIdeasAt: stamp(1) })
     for (const [at, item] of project.items.entries()) {
       const filed = fileItem(HOME, project.slug, { key: item.key, kind: item.kind, title: item.title, brief: item.brief, impact: item.impact, effort: item.effort }, NOW - (30 - at) * HOUR)
       updateItem(HOME, project.slug, filed.id, { grade: item.grade }, NOW - (29 - at) * HOUR)
-      if (item.doing) updateItem(HOME, project.slug, filed.id, { state: 'doing' }, NOW - HOUR)
       if (!item.finished) continue
       // The finished work is a real branch in the throwaway repository, named as hobkin names its branches.
       const branch = `hobkin/${workName(filed)}`
@@ -187,7 +364,9 @@ function seedWork() {
       git(path, 'add', '-A')
       git(path, 'commit', '-q', '-m', item.title)
       git(path, 'checkout', '-q', 'main')
-      updateItem(HOME, project.slug, filed.id, { state: 'branch', branch, summary: item.finished.summary, proof: item.finished.proof }, NOW - (3 + at) * HOUR)
+      const finishedAt = NOW - item.finished.hoursAgo * HOUR
+      updateItem(HOME, project.slug, filed.id, { state: 'branch', branch, summary: item.finished.summary, proof: item.finished.proof }, finishedAt)
+      if (item.finished.review) toGrade.push({ slug: project.slug, id: filed.id, review: item.finished.review, branch, path, at: finishedAt + HOUR / 4 })
       // Its description, as the agent that made it writes one. Without it, hobkin would send an agent to write it.
       const description = prFile(HOME, project.slug, filed.id)
       mkdirSync(join(description, '..'), { recursive: true })
@@ -195,13 +374,23 @@ function seedWork() {
     }
   }
   // Work mode is on and starts nothing by itself (auto-pick off), so the scripted host's runner, which runs nothing,
-  // is never asked to. What it spent today is what agents would have.
-  writeMode(HOME, { enabled: true, folder: CODE, autoPick: false, autoPickChoice: false, agents: 4, lastDiscoveryAt: new Date(NOW).toISOString() })
+  // is never asked to. Five may run at once: the four agents at work and one free, so the queue says why each row
+  // waits its turn rather than that every worker is busy. What it spent today is what agents would have.
+  writeMode(HOME, { enabled: true, folder: CODE, autoPick: false, autoPickChoice: false, agents: 5, lastDiscoveryAt: new Date(NOW).toISOString() })
   for (const [slug, lane, tokens, hoursAgo] of [['storefront', 'do', 9_400_000, 9], ['atlas-api', 'do', 12_100_000, 7], ['atlas-api', 'look', 2_300_000, 6], ['field-notes', 'do', 8_800_000, 4], ['ledger-sync', 'do', 5_600_000, 2]] as const) {
     recordTokens(HOME, { slug, lane, tokens }, NOW - hoursAgo * HOUR)
   }
   // One more project hobkin found and proposes, for the user to take or skip.
   proposeProject(HOME, { slug: 'pulse-mobile', name: 'pulse-mobile', path: join(CODE, 'pulse-mobile'), level: 'important', why: 'Active this week, with 14 open issues and no tests on the sync code.', first: [] }, NOW - 2 * HOUR)
+}
+
+/**
+ * The change reviews' grades, through the door Change Review's ratings come in by (`recordGrades` in hobkin's
+ * `review-grades.mjs`), each for the commit its branch is at, so the finished changes show their rate and five grades
+ * and the ones rated 8 or more offer Merge. The last one finished has no review yet.
+ */
+function gradeFinished() {
+  for (const { slug, id, review, branch, path, at } of toGrade) recordGrades(HOME, slug, id, { ...review, head: git(path, 'rev-parse', branch) }, at)
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -381,7 +570,7 @@ const CHAT: { ask: string; reply: string }[] = [
       '2. **Refund webhook fix** in atlas-api is ready too: 9 tests pass, including the double delivery.',
       '3. **#212 Add Apple Pay to checkout** waits for your review since yesterday.',
       '',
-      'Six agents are at work: two you started, three from the queue and the pull request sweep. Nothing is blocked.',
+      'Six agents are at work: two you started and four from the queue, one on each project. Nothing is blocked.',
     ].join('\n'),
   },
 ]
@@ -443,6 +632,7 @@ makeRepos()
 seedWork()
 // What hobkin's half-hourly survey of unmerged branches would have found, so the finished changes are listed now.
 await surveyUnmerged(HOME)
+gradeFinished()
 seedMemories()
 seedRoutines()
 await seedHobkin()
