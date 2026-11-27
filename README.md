@@ -10,6 +10,36 @@ hobkin runs on the [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-
 
 hobkin is in early release and runs on macOS. Windows and Linux aren't supported yet.
 
+## Install
+
+1. Install the tools hobkin is built with. Skip any you already have; the second column checks.
+
+   | Tool | Check | Install |
+   | --- | --- | --- |
+   | Xcode Command Line Tools | `xcode-select -p` | `xcode-select --install` |
+   | Node 22.19 or newer | `node -v` | https://nodejs.org, or `brew install node` |
+   | pnpm 11 | `pnpm -v` | `npm install -g pnpm@11` |
+   | Rust | `cargo -V` | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`, then open a new terminal |
+
+2. Get the code and its packages. hobkin's runtime in `packages/hobkin` has packages of its own, so it goes first:
+
+   ```sh
+   git clone https://github.com/dantetekanem/hobkin-client.git
+   cd hobkin-client
+   (cd packages/hobkin && pnpm install --frozen-lockfile)
+   pnpm install --frozen-lockfile
+   ```
+
+3. Start the app:
+
+   ```sh
+   pnpm tauri dev
+   ```
+
+   The first start builds the Mac shell, which takes a few minutes.
+
+4. Follow the setup. The first time the app opens, hobkin checks this Mac and offers to install what's missing: its own copy of Node, Pi, the Pi packages its agents use, and the TLA+ tools. Nothing installs until you press Install. Then you connect a model. Settings › Check this Mac runs the same check at any time.
+
 ## A tour
 
 ### Talk to it
@@ -84,27 +114,11 @@ Some data does leave your Mac:
 
 The runtime's README has the details, in [what leaves your machine](packages/hobkin/README.md#what-leaves-your-machine).
 
-## Run it from source
-
-You need a Mac, Node 22.19 or newer, pnpm, and Rust, which Tauri needs. hobkin's runtime is the part that runs the agents and keeps `~/.hobkin`. It lives in `packages/hobkin` and installs its own packages, so you run `pnpm install` in both places:
-
-```sh
-git clone https://github.com/dantetekanem/hobkin-client.git
-cd hobkin-client
-(cd packages/hobkin && pnpm install)
-pnpm install
-pnpm tauri dev
-```
-
-The first time the app opens, setup looks for what hobkin needs and installs what it can: its own copy of Node if it can't find one, Pi, the Pi packages its agents use, and the TLA+ tools. Then you connect a model, and you're ready.
-
-- To build an app you can open from the Dock: `pnpm tauri build`
-- To run the tests: `pnpm test`
-- To check the types: `pnpm typecheck`
-
 ## How it's built
 
 hobkin has three parts: a Tauri 2 window, a React 19 interface, and a Node host that runs hobkin's runtime from `packages/hobkin`. Every feature has a spec in [`_specs/`](_specs) that says what it must do and which tests prove it.
+
+Run the tests with `pnpm test` and check the types with `pnpm typecheck`.
 
 ## License
 
