@@ -74,14 +74,18 @@ export async function configLauncher(root: string): Promise<Launcher | undefined
   return loadConfig(root).launcher as Launcher | undefined
 }
 
-/** hobkin's own checks and write for the home's config, as `useLauncher` takes them. */
+/**
+ * hobkin's own checks and write for the home's config, as `useLauncher` takes them. A new home has no config until its
+ * main conversation first opens (`prepareHome` in owner.ts), and on a work computer that cannot open before the launcher
+ * is kept. So reading the config makes it first, the same way, for a home that has none; one that has it is only read.
+ */
 export async function configDeps(root: string): Promise<Pick<UseLauncherDeps, 'validate' | 'read' | 'write'>> {
-  const { atomicJson, loadConfig, validateConfig } = await import('hobkin/src/cli/config.mjs')
+  const { atomicJson, initialize, validateConfig } = await import('hobkin/src/cli/config.mjs')
   const { validateLauncher } = await import('hobkin/src/cli/launcher.mjs')
   const { resolveDataRoot } = await import('hobkin/src/cli/migration/admission.mjs')
   return {
     validate: (launcher) => validateLauncher(launcher),
-    read: () => ({ ...loadConfig(root) }),
+    read: () => ({ ...initialize(root, { cwd: root }) }),
     write: (config) => {
       validateConfig(config, { allowLegacyHarness: true })
       atomicJson(join(resolveDataRoot(root), 'config.json'), config)
