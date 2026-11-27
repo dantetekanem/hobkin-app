@@ -77,16 +77,24 @@ const bridgeCall = (placeholder, op) => {
     return null;
   }
 };
-/** A job that lives until its agent says it is done (072-jobs-live-until-done): one asked to, that was given `hobkin_done`. */
-const livesUntilDone = request => request.untilDone === true && request.extensions?.includes(doneExtension) === true;
+/** A launcher's Pi finds its own extensions, so hobkin names none for a run started through it (`namingExtensions`). */
+const launcherFindsExtensions = request => request.launcher !== undefined && request.extensions === undefined;
 /**
- * A launcher's Pi finds its own extensions, so hobkin names none for it (`namingExtensions`). A run there that keeps
- * schedules still gets hobkin's schedule tools, beside the launcher's extensions and never in place of them, so a
- * durable hobkin or a `hobkin session` run schedules the same way with a launcher as without one (056-agent-schedules).
+ * A job that lives until its agent says it is done (072-jobs-live-until-done): one asked to, that was given `hobkin_done`,
+ * by name or beside a launcher's own extensions (`launcherExtensions`).
+ */
+const livesUntilDone = request => request.untilDone === true
+  && (request.extensions?.includes(doneExtension) === true || launcherFindsExtensions(request));
+/**
+ * A run started through a launcher still gets hobkin's own tools it needs, beside the launcher's extensions and never in
+ * place of them: `hobkin_done` for a job that lives until it is done, so it does not end when a turn that asks ends
+ * (072-jobs-live-until-done), and the schedule tools for one that keeps schedules, so a durable hobkin or a
+ * `hobkin session` run schedules the same way with a launcher as without one (056-agent-schedules).
  */
 function launcherExtensions(request) {
-  const keepsSchedules = request.launcher !== undefined && request.extensions === undefined && request.schedules === true;
-  return keepsSchedules ? ['--extension', scheduleExtension] : [];
+  if (!launcherFindsExtensions(request)) return [];
+  return [...(request.untilDone === true ? [doneExtension] : []), ...(request.schedules === true ? [scheduleExtension] : [])]
+    .flatMap(path => ['--extension', path]);
 }
 /** A call of `hobkin_schedule` or `hobkin_schedules` that reached the host over the run's bridge (`schedule-extension.mjs`). */
 const isScheduleCall = placeholder => {

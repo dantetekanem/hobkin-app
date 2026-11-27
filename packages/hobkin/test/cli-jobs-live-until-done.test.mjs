@@ -112,7 +112,7 @@ function isolatedPi(t) {
 }
 
 /** A temporary home whose main chat is a fake Pi. The home goes once every app opened on it has closed. */
-function home(t, { concurrency, now } = {}) {
+function home(t, { concurrency, now, launcher } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-until-done-home-')));
   const opened = [];
   t.after(async () => {
@@ -124,12 +124,14 @@ function home(t, { concurrency, now } = {}) {
   config.main.model = 'fixture/local';
   config.background.model = 'fixture/check';
   if (concurrency) config.concurrency = concurrency;
+  if (launcher) config.launcher = launcher;
   atomicJson(join(root, 'config.json'), config);
 
   const main = fakePi(root);
   const open = async options => {
     const app = await HobkinApplication.open(root, {
-      createMain: main.createMain,
+      // The main chat is the fake Pi itself, never started through a configured launcher.
+      createMain: mainOptions => main.createMain({ ...mainOptions, config: { ...mainOptions.config, launcher: undefined } }),
       intervalMs: 60000,
       runHarness: async () => notHere,
       ...(now ? { now } : {}),
@@ -198,6 +200,42 @@ test('a job that lives until it is done outlives its turn, idle and taking messa
   assert.equal(result.status, 'completed');
   assert.equal(result.text, 'Useful: The totals add up again, on fix-totals, merged into main.', 'its report is the one hobkin_done gave');
   await until(() => gone(pids[0]));
+});
+
+test("a job started through a configured launcher is given hobkin_done and its own prompt beside the launcher's extensions", t => {
+  const launcher = { command: ['fake-launcher', 'pi'] };
+  const { command, args } = buildInvocation(request(t, { launcher, untilDone: true, schedules: true }));
+
+  assert.deepEqual([command, args[0]], ['fake-launcher', 'pi']);
+  assert.equal(args[args.indexOf(doneExtension) - 1], '--extension', 'hobkin_done is loaded');
+  assert.equal(args.includes('--no-extensions'), false, "the launcher's Pi keeps the extensions it finds itself");
+  assert.ok(args.join('\n').includes(readFileSync(new URL('../src/prompts/session-job.md', import.meta.url), 'utf8')));
+  assert.equal(buildInvocation(request(t, { launcher })).args.includes(doneExtension), false, 'a run not asked to live until done is not');
+});
+
+test('a session job started through a configured launcher that asks lives on, hears the answer and ends with the report hobkin_done gave', { timeout: 20000 }, async t => {
+  const h = home(t, { launcher: { command: ['fake-launcher', 'pi'] } });
+  const pids = [];
+  const program = rpc(`
+    if (prompts === 1) { say(${JSON.stringify(ASKED)}); settled(); }
+    else done('Useful: Fixed on fix-totals.', () => { say('Ending.'); settled(); });
+  `, { provider: 'fixture', id: 'local' });
+  // hobkin's own harness, as the app starts it through the launcher: Pi's extensions are the launcher's to find.
+  const app = await h.open({ runHarness: (request, options) => (request.purpose ? Promise.resolve(notHere) : runHarness(request, { ...options, spawnProcess: fake(program, pids) })) });
+  const started = await fixTotals(h);
+  const id = `session:${started.name}`;
+  const status = async () => (await app.runtime.state()).runs[id].status;
+
+  void app.tickSessions();
+  await until(() => app.runner.idle.has(id));
+
+  assert.equal(await status(), 'running', 'its turn asked and it lives on');
+  assert.equal(gone(pids[0]), false);
+  await app.runner.messageCheck({ scheduleId: `session.${started.name}`, message: 'Put it on fix-totals.' });
+  await until(async () => (await status()) !== 'running');
+  const run = (await app.runtime.state()).runs[id];
+  assert.equal(run.status, 'completed');
+  assert.equal(run.result.text, 'Useful: Fixed on fix-totals.');
 });
 
 test('a stop ends a living job while it sits idle', { timeout: 8000 }, async t => {
