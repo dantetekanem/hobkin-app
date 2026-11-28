@@ -71,7 +71,9 @@ export function requestCanvasFocus(selector?: string): void {
   cancelEntry = cancel
   events.forEach((event) => document.addEventListener(event, cancel, true))
   requestAnimationFrame(() => {
-    const take = pending && document.activeElement === owner
+    // An agent switch unmounts the old composer. Focus falling to the body is not a new user interaction.
+    const lostOwner = owner?.isConnected === false && keyboardNowhere(document.activeElement)
+    const take = pending && (document.activeElement === owner || lostOwner)
     cancel()
     if (take) {
       const section = activeCanvasScreen()

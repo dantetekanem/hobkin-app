@@ -7,6 +7,7 @@ import { bindStops } from '../src/app/stops.ts'
 // Exercise focus ownership without a browser; React mounting and native focus events need a rendered check.
 const interactions = new EventTarget()
 const page = {
+  body: {},
   activeElement: null as unknown,
   activeKey: 'screen',
   querySelector: () => ({ dataset: { activeCanvasScreen: page.activeKey } }),
@@ -152,6 +153,22 @@ test('a targeted Settings return selects its opener only inside the active scree
   requestCanvasFocus('[data-opens="integrations"]')
   frames.shift()!(0)
   assert.equal(page.activeElement, settings.section, 'missing opener falls back to the active section')
+})
+
+test('agent switch focuses the arriving composer after the old composer unmounts', () => {
+  const frames: FrameRequestCallback[] = []
+  Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true, value: (run: FrameRequestCallback) => frames.push(run) })
+  const next = screen('agent:next')
+  mount(next)
+  const previous = { isConnected: true }
+  page.activeElement = previous
+  const composer = { focus() { page.activeElement = composer } }
+  Object.assign(next.section, { querySelector: () => composer })
+  requestCanvasFocus('[data-agent-input]')
+  previous.isConnected = false
+  page.activeElement = document.body
+  frames.shift()!(0)
+  assert.equal(page.activeElement, composer)
 })
 
 test('targeted returns cancel on interactions or a newer navigation and remove their listeners', () => {

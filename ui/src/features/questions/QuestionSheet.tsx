@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils.ts'
 import { CardFactsLine, ChoiceText, PickMark } from './CardParts.tsx'
 import { WAIT_MS, onSheet, timeLeft, type Question } from './queue.ts'
 import { useQuestions } from './store.ts'
+import { watchAskTyping } from './typing.ts'
 // hobkin's own questions rise on this sheet, and the answers go back to it (022 S4).
 import './host-bridge.ts'
 
@@ -31,6 +32,15 @@ export function QuestionSheet() {
   const touring = useTour((state) => state.open)
   const covered = setupOpen || touring
   const question = onSheet(queue, covered)
+  const still = useStill()
+  const [typing, setTyping] = useState(false)
+  const [opened, setOpened] = useState<string>()
+  const id = question?.id
+  useEffect(() => watchAskTyping(document, setTyping), [])
+  useEffect(() => {
+    if (!typing || !id) setOpened(id)
+  }, [typing, id])
+  const peek = question && typing && opened !== id
 
   // Stepping aside and coming back, the question gets its whole wait.
   useEffect(() => {
@@ -39,7 +49,21 @@ export function QuestionSheet() {
 
   return (
     <AnimatePresence>
-      {question ? (
+      {peek ? (
+        <div key={`peek:${id}`} className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-4">
+          <motion.button
+            type="button"
+            aria-label="Open waiting question"
+            onClick={() => setOpened(id)}
+            initial={still ? false : { y: 4 }}
+            animate={{ y: still ? 0 : [4, 0, 2] }}
+            transition={{ duration: 0.24, ease: 'easeOut' }}
+            className="pointer-events-auto h-6 w-full max-w-[760px] rounded-t-[30px] border border-b-0 border-input bg-background text-sm font-semibold text-muted-foreground shadow-float"
+          >
+            ?
+          </motion.button>
+        </div>
+      ) : question ? (
         <Sheet key={question.id} question={question} at={1} of={queue.waiting.length} left={timeLeft(queue)} />
       ) : null}
     </AnimatePresence>
@@ -92,6 +116,7 @@ function Sheet({ question, at, of, left }: { question: Question; at: number; of:
     <motion.div
       role="dialog"
       aria-modal="true"
+      data-ask-sheet=""
       aria-label={question.question}
       className="fixed inset-0 z-50"
       initial="away"

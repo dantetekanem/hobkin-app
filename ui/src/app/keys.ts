@@ -85,6 +85,7 @@ function contextOf(target: EventTarget | null): KeyContext {
     asking: safely(() => runningAgents().some((agent) => agent.asks), false),
     outOfMenu: useSettings.getState().screensOutOfMenu,
     typing: typingIn(target),
+    agentComposer: target instanceof Element && target.matches('[data-agent-input]'),
     board: safely(() => boardAt(target), null),
     canvasShowing: safely(() => canvasShowingNow(), null),
   }
@@ -224,10 +225,8 @@ function perform(action: KeyAction): boolean {
     case 'switch-agent': {
       const next = besideAgent(agentGroups(runningAgents()).walk.map((agent) => agent.id), view.openAgent, action.step)
       if (next === null) return false
-      // Typing to one agent, the keyboard goes on typing to the next; anywhere else on the page it lands on the next page.
-      const typing = document.activeElement?.matches('[data-agent-input]') ?? false
       view.openAgentCanvas(next)
-      requestCanvasFocus(typing ? '[data-agent-input]' : undefined)
+      requestCanvasFocus('[data-agent-input]')
       return true
     }
   }

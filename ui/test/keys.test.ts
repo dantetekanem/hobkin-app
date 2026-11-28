@@ -376,6 +376,14 @@ test('on an agent’s page control tab and control shift tab move to the next an
   assert.equal(resolveKey(right, context({ screen: 'agent', zone: 'other', inOverlay: true })), null, 'a dialog keeps it')
 })
 
+test('Shift+Tab from an agent composer switches back; other controls keep reverse tabbing', () => {
+  const press = { key: 'Tab', shift: true }
+  const composer = context({ screen: 'agent', zone: 'canvas', agentComposer: true })
+  assert.deepEqual(resolveKey(press, composer), { do: 'switch-agent', step: -1 })
+  assert.equal(resolveKey(press, { ...composer, inOverlay: true }), null)
+  assert.equal(resolveKey(press, { ...composer, agentComposer: false }), null)
+})
+
 test('the agent beside the one open follows the agents list, wrapping round', () => {
   const walk = ['h1', 'a1', 'a2']
   assert.equal(besideAgent(walk, 'h1', 1), 'a1')

@@ -41,6 +41,7 @@ export interface KeyContext {
   outOfMenu: readonly string[]
   /** The keyboard is in a text field: an input, a textarea, the prompt editor, anything editable. */
   typing?: boolean
+  agentComposer?: boolean
   /** The canvas that has the keyboard (its area, its drawing or its controls in the menu): whose it is and what it shows. */
   board?: { owner: string; kind: 'page' | 'drawing' } | null
   /**
@@ -104,9 +105,8 @@ function besideTab(tabs: readonly ScreenId[], screen: ScreenId, step: 1 | -1): S
 }
 
 /**
- * What the frame does for a key, or null when the key is not the frame's. Tab is never the frame's: it moves the
- * keyboard between controls as it does anywhere, and Command with a number changes the screen. Control+Tab moves
- * along the menu's tabs.
+ * Plain Tab moves between controls. Shift+Tab in an agent composer steps back one agent;
+ * Control+Tab cycles agents or menu tabs. A dialog keeps its own keys.
  */
 export function resolveKey(press: KeyPress, context: KeyContext): KeyAction | null {
   // Command+R reloads the window, as it does in a browser, and the app reopens where it was (location.ts). A screen's own
@@ -155,6 +155,10 @@ export function resolveKey(press: KeyPress, context: KeyContext): KeyAction | nu
     return { do: 'end-agent' }
   }
   if (context.inOverlay) return null
+
+  if (context.screen === 'agent' && context.agentComposer && press.key === 'Tab' && press.shift && !press.ctrl && !press.meta && !press.alt) {
+    return { do: 'switch-agent', step: -1 }
+  }
 
   // Control+Tab and Control+Shift+Tab move right and left through the menu's tabs, as in a browser, from anywhere. On an
   // agent's page they move to the next and the previous agent instead, as the agents list orders them.
