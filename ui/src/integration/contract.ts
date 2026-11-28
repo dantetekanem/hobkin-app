@@ -27,6 +27,8 @@ export interface WindowPart<State = unknown> {
   sample(now: number): State
   /** One for each screen of its manifest. */
   screens?: readonly ScreenPart[]
+  /** Mounted only for the visible native page belonging to this conversation. */
+  canvasNavigation?: ComponentType<{ owner: string; revision: number; scope: string }>
   /** Its card on the Integrations screen, above the MCP servers. */
   card?: ComponentType<{ still: boolean }>
   /** Its mark in the app's palette: up to two letters and a hue. */

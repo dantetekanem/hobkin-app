@@ -69,7 +69,7 @@ test('input that could not run is refused in plain words, before anything runs',
   // A field left undefined is a field not given, and an empty `text` is how a field is cleared.
   assert.equal(browserSteps({ do: 'read', within: undefined, steps: undefined }).length, 1)
   assert.equal(browserSteps({ do: 'fill', on: 'Email', text: '' }).length, 1)
-  assert.equal(VERBS.length, 17)
+  assert.equal(VERBS.length, 20)
 })
 
 test('open takes only http and https addresses, with a host and no sign-in, and asks the engine nothing otherwise', async () => {

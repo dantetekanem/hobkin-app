@@ -7,7 +7,7 @@
 //! and every command here answers the main window's own webview only. It keeps its own cookies and storage, apart from
 //! the app's. Only http and https pages load, with the canvas's rule, and never the app's own address.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{mpsc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -49,6 +49,7 @@ pub struct Shown {
 pub struct Browser {
     current: Mutex<Option<String>>,
     made: AtomicU32,
+    visible: AtomicBool,
 }
 
 impl Browser {
@@ -198,9 +199,14 @@ pub fn shell_features<R: Runtime>(webview: Webview<R>) -> Result<serde_json::Val
 
 /// Opens the page over the area, or takes the browser that is open there and to the page.
 #[tauri::command]
-pub async fn browser_open<R: Runtime>(app: AppHandle<R>, webview: Webview<R>, url: String, area: Area) -> Result<(), String> {
+pub async fn browser_open<R: Runtime>(app: AppHandle<R>, webview: Webview<R>, url: String, area: Area, scope: Option<String>) -> Result<(), String> {
     from_main(&webview)?;
     let url = page(&url)?;
+    if scope.as_ref().is_some_and(|id| id.len() != 36 || !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')) {
+        return Err("Invalid canvas view.".into());
+    }
+    let scoped = scope.is_some();
+    if scoped { close(&app); }
     if let Some(open) = browser(&app) {
         open.navigate(url).map_err(text)?;
         open.set_bounds(bounds(area)).map_err(text)?;
@@ -208,11 +214,15 @@ pub async fn browser_open<R: Runtime>(app: AppHandle<R>, webview: Webview<R>, ur
     }
     let own = app.config().build.dev_url.clone();
     let (on_load, on_title, on_new) = (app.clone(), app.clone(), app.clone());
-    let label = format!("{LABEL}-{}", app.state::<Browser>().made.fetch_add(1, Ordering::Relaxed) + 1);
+    let label = match scope {
+        Some(id) => format!("{LABEL}-{id}"),
+        None => format!("{LABEL}-{}", app.state::<Browser>().made.fetch_add(1, Ordering::Relaxed) + 1),
+    };
     let builder = WebviewBuilder::new(&label, WebviewUrl::External(url))
         .focused(false)
+        .disable_drag_drop_handler()
         .data_store_identifier(DATA_STORE)
-        .on_navigation(move |next| may_visit(next, own.as_ref()))
+        .on_navigation(move |next| may_visit(next, own.as_ref()) && (!scoped || !matches!(next.port(), Some(5187 | 4848))))
         // A link that would open a window opens here instead, when it is a page the browser may show.
         .on_new_window(move |next, _features| {
             if page(next.as_str()).is_ok() {
@@ -237,6 +247,7 @@ pub async fn browser_open<R: Runtime>(app: AppHandle<R>, webview: Webview<R>, ur
         .map_err(text)?;
     escape::keep(&child);
     *app.state::<Browser>().current() = Some(label);
+    app.state::<Browser>().visible.store(true, Ordering::Release);
     Ok(())
 }
 
@@ -245,6 +256,7 @@ pub async fn browser_open<R: Runtime>(app: AppHandle<R>, webview: Webview<R>, ur
 pub async fn browser_place<R: Runtime>(app: AppHandle<R>, webview: Webview<R>, area: Option<Area>) -> Result<(), String> {
     from_main(&webview)?;
     let Some(open) = browser(&app) else { return Ok(()) };
+    app.state::<Browser>().visible.store(area.is_some(), Ordering::Release);
     match area {
         Some(area) => {
             open.set_bounds(bounds(area)).map_err(text)?;
@@ -306,6 +318,10 @@ pub async fn browser_close<R: Runtime>(app: AppHandle<R>, webview: Webview<R>) -
     close(&app);
     Ok(())
 }
+
+pub mod navigation;
+#[cfg(target_os = "macos")]
+mod native_input;
 
 /// Closes the browser, if it is open. Also when the window's own page loads again, since a reloaded window no longer
 /// drives the browser it had.

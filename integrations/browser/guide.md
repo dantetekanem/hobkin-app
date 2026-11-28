@@ -1,6 +1,12 @@
 # The browser tool
 
-`browser_run` drives a real Chrome that belongs to you. It takes one step, or a list of steps, and tells you what the page showed.
+Use `target: "canvas"` on each call when the user wants to see or share the page. Open the URL, then read the page before acting on it. The user's clicks and the tool's actions work on the same page. After navigation, read again. Leave the canvas open unless asked to close it. No Chrome installation is needed, and a failed canvas step never falls back to Chrome.
+
+Canvas `read` gives refs for controls, including buttons, links, text fields, file inputs and selects. Use a ref, an exact label, or `css:selector`. `fill` replaces a value, `type` inserts at the caret, `press` sends a key to the focused control, and `select` chooses a native option. Use `drag` with `on` and `to` for page drag/drop; hover, scroll, back, forward and reload are also available. Verify the resulting page state rather than assuming that an event was accepted.
+
+For uploads, use `{target:"canvas",do:"upload",on:"e7"}` on a file input, or click the site's upload button. The Mac picker lets the user choose files or a folder according to the site's input. The tool accepts no filesystem paths. Read the file count or the site's confirmation after selection. Asking to prepare a form is not permission to submit it. Do not place credentials or payment details in tool arguments: let the user enter them in the canvas. DevTools commands such as arbitrary JavaScript are not available on the shared page.
+
+Without a target, `browser_run` drives a real Chrome that belongs to you. It takes one step, or a list of steps, and tells you what the page showed.
 
 ```js
 browser_run({ do: "open", url: "http://localhost:3000" })

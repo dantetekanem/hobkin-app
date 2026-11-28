@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useStill } from '@/app/still.ts'
 import { sameFields } from '@/lib/host/frame.ts'
 import { shell, type BrowserShell, type BrowserShown } from '@/lib/native.ts'
+import { windowParts } from '@/integration/registry.ts'
 import { PanelButton } from './PanelButton.tsx'
 import { addressFrom, areaOf, barOf, covered, createNativeView, nativeShown, type NativeView } from './browser.ts'
 import { everyWhileVisible, followArea } from './placement.ts'
@@ -38,7 +39,8 @@ const focusEnclosingBoard = (from: Element) => from.closest<HTMLElement>('[data-
  * menu's canvas group (040-canvas-board). A native view draws over everything, so it hides whenever anything covers the
  * area or the canvas is leaving. What the user browses to stays here: hobkin's canvas keeps the page hobkin showed.
  */
-export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInBrowser }: {
+export function BrowserPane({ owner, browser, url, title, revision, onEscape, onOpenInBrowser }: {
+  owner: string
   browser: BrowserShell
   url: string
   title: string | null
@@ -49,6 +51,8 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
   onOpenInBrowser: ((page: string) => void) | null
 }) {
   const present = useIsPresent()
+  const [scope] = useState(() => crypto.randomUUID())
+  const [visible, setVisible] = useState(false)
   const still = useStill()
   const area = useRef<HTMLDivElement | null>(null)
   const view = useRef<NativeView | null>(null)
@@ -67,7 +71,7 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
   // change reaches the shell.
   useEffect(() => {
     const element = area.current
-    const native = createNativeView(browser)
+    const native = createNativeView(browser, scope)
     view.current = native
     // The first look always counts as a change, so the pane also looks on the frame after it, once the slide of the
     // screen it arrives with has started and shows as running.
@@ -79,6 +83,7 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
         return hit !== null && element?.contains(hit) === true
       }
       const show = at !== null && nativeShown({ open: wanted.current.present, covered: covered(at, ours), area: at })
+      setVisible(show)
       void native.sync({ url: wanted.current.url, visit: wanted.current.visit, area: show ? at : null })
       const now = show ? `${at.x},${at.y},${at.width},${at.height}` : 'hidden'
       const changed = now !== placed
@@ -93,7 +98,7 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
       view.current = null
       void native.close()
     }
-  }, [browser])
+  }, [browser, scope])
 
   // The pane leaving, or hobkin showing another page, is looked at on the next frame.
   useEffect(() => {
@@ -151,6 +156,8 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
 
   return (
     <>
+      {present && visible && shown && !shown.loading && windowParts().map(({ manifest, canvasNavigation: Navigation }) =>
+        Navigation ? <Navigation key={manifest.id} owner={owner} revision={revision ?? 0} scope={scope} /> : null)}
       <header className="flex h-10 shrink-0 items-center gap-1 border-b border-border pr-1.5 pl-2">
         <PanelButton label="Back" disabled={!bar.back} onClick={() => void view.current?.back()}>
           <ArrowLeft className="size-3.5" />

@@ -59,6 +59,16 @@ const page = (title: string, body: string): string => `<!doctype html><html lang
 
 const pages: Record<string, string> = {
   '/': HOME,
+  '/canvas-form': page('Canvas interaction check', `<form id="form">
+<label>Title <input name="title" required></label>
+<label>Status <select name="status"><option>Draft</option><option>Ready</option></select></label>
+<label>Files <input name="files" type="file" multiple></label>
+<label>Folder <input name="folder" type="file" webkitdirectory></label>
+<div draggable="true" aria-label="Card" ondragstart="event.dataTransfer.setData('text/plain','Card')">Card</div>
+<div tabindex="0" aria-label="Done" ondragover="event.preventDefault()" ondrop="event.preventDefault();this.textContent=event.dataTransfer.getData('text/plain')+' dropped'">Done</div>
+<button>Save locally</button></form><output id="receipt"></output><script>
+form.onsubmit = event => {event.preventDefault(); const fields=form.elements; receipt.textContent = [fields.title.value, fields.status.value, fields.files.files.length+' files', fields.folder.files.length+' folder entries'].join(' / ')}
+</script>`),
   '/about': page('About Core', '<h1>About this site</h1><p>The about page text.</p><a href="/">Home</a>'),
   '/more': page('More Core', '<h1>More</h1><a href="/">Home</a>'),
   '/long': page('Long Core', `<h1>Long</h1><ul>${Array.from({ length: 300 }, (_, n) => `<li><a href="/more?n=${n}">Item number ${n}</a></li>`).join('')}</ul><p>${'word '.repeat(6000)}</p>`),

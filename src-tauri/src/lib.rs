@@ -353,6 +353,7 @@ pub fn run() {
             browser::shell_features,
             backdrop::window_backdrop,
             browser::browser_open,
+            browser::navigation::browser_canvas_action,
             browser::browser_place,
             browser::browser_navigate,
             browser::browser_back,

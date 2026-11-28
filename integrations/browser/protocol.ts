@@ -4,8 +4,21 @@
  * installed and which agents have a browser open now.
  */
 
+export interface CanvasRequest { id: string; owner: string; revision: number }
+export type CanvasAction =
+  | { do: 'read'; what?: 'elements' | 'text' | 'all'; within?: string }
+  | { do: 'back' | 'forward' | 'reload' }
+  | { do: 'click' | 'hover' | 'upload'; on: string }
+  | { do: 'fill' | 'type'; on: string; text: string }
+  | { do: 'press'; key: string }
+  | { do: 'select'; on: string; option: string }
+  | { do: 'scroll'; by?: number; to?: string }
+  | { do: 'drag'; on: string; to: string }
+  | { do: 'wait'; on?: string; text?: string; url?: string }
+
 /** What the window is told. Nothing secret. */
 export interface BrowserState {
+  navigation?: CanvasRequest[]
   engine: {
     /** unknown before the first look; missing; installing; ready; failed (the last install or look went wrong). */
     state: 'unknown' | 'missing' | 'installing' | 'ready' | 'failed'
@@ -33,6 +46,8 @@ export interface BrowserSession {
 }
 
 export interface BrowserResults {
+  'browser.canvas.claim': CanvasAction | null
+  'browser.canvas.finish': null
   'browser.status': BrowserState
   'browser.install': BrowserState
   'browser.close': { closed: number }

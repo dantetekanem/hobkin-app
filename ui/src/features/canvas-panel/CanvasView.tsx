@@ -54,6 +54,8 @@ export function CanvasView({ owner, arrived, className, style, ref }: {
       {canvas && note ? <SavedNoteRow note={note} onOpen={openSaved} /> : null}
       {!canvas ? null : browser && kind === 'page' ? (
         <BrowserPane
+          key={owner + ':' + canvas.revision}
+          owner={owner}
           browser={browser}
           url={canvas.url}
           title={canvas.title}

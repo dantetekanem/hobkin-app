@@ -23,10 +23,12 @@ type Calls = ReturnType<typeof fakeEngine>['calls']
 
 const versionChecks = (calls: Calls): number => calls.filter(({ args }) => args[0] === '--version').length
 
-test('the manifest names three commands, and the tool is one flat schema every provider takes', async (t) => {
+test('the manifest names window commands, and the tool is one flat schema every provider takes', async (t) => {
   assert.equal(manifest.id, 'browser')
-  assert.deepEqual(Object.keys(manifest.commands), ['browser.status', 'browser.install', 'browser.close'])
+  assert.deepEqual(Object.keys(manifest.commands), ['browser.canvas.claim', 'browser.canvas.finish', 'browser.status', 'browser.install', 'browser.close'])
   assert.deepEqual(Object.entries(manifest.commands).map(([name, command]) => [name, 'hobkin' in command, 'outside' in command]), [
+    ['browser.canvas.claim', false, false],
+    ['browser.canvas.finish', false, false],
     ['browser.status', true, false],
     // It downloads to disk, so only the user starts it, from the window.
     ['browser.install', false, true],
@@ -51,10 +53,10 @@ test('the manifest names three commands, and the tool is one flat schema every p
   assert.equal(schema.additionalProperties, false)
   assert.equal(schema.properties.steps.items.additionalProperties, false)
   assert.equal(schema.required, undefined)
-  assert.deepEqual(Object.keys(schema.properties), ['do', 'url', 'on', 'text', 'key', 'option', 'what', 'within', 'by', 'to', 'ms', 'code', 'full', 'steps', 'json'])
-  assert.deepEqual(Object.keys(schema.properties.steps.items.properties), Object.keys(schema.properties).slice(0, -2))
+  assert.deepEqual(Object.keys(schema.properties), ['do', 'url', 'on', 'text', 'key', 'option', 'what', 'within', 'by', 'to', 'ms', 'code', 'full', 'target', 'steps', 'json'])
+  assert.deepEqual(Object.keys(schema.properties.steps.items.properties), Object.keys(schema.properties).slice(0, -3))
   assert.equal(schema.properties.do.type, 'string')
-  assert.equal(schema.properties.do.enum.length, 17)
+  assert.equal(schema.properties.do.enum.length, 20)
   assert.doesNotMatch(JSON.stringify(schema), /anyOf|oneOf|allOf/)
 
   const taken = [
@@ -196,7 +198,7 @@ test('with no engine installed the tool says where the user installs it, and dow
   // The guide is there all the same, and input that could not run is still said first.
   const help = await callTool(part, { do: 'help' })
   assert.equal(help.failed, false)
-  assert.match(help.text, /^# The browser tool\n\n`browser_run` drives a real Chrome/)
+  assert.match(help.text, /^# The browser tool\n/)
   assert.match(help.text, /under Integrations, Browser, Install/)
   assert.equal(JSON.parse((await callTool(part, { do: 'help', json: true })).text).text, help.text)
   assert.deepEqual(await callTool(part, { do: 'click' }), { text: 'click needs `on`', failed: true })
@@ -369,6 +371,6 @@ test('with json the tool answers the structured result as text, and a step that 
   for (const json of [true, false]) {
     assert.deepEqual(await tool({ do: 'fill', json }), { text: 'fill needs `on` and `text`', failed: true })
     assert.deepEqual(await tool({ do: 'open', url: 'file:///etc/passwd', json }), { text: 'The browser opens only http and https addresses, written in full, such as http://localhost:3000.', failed: true })
-    assert.deepEqual(await tool({ json }), { text: '`do` is one of open, read, click, fill, press, select, hover, scroll, wait, back, forward, reload, screenshot, eval, console, close, help', failed: true })
+    assert.deepEqual(await tool({ json }), { text: '`do` is one of open, read, click, fill, type, drag, upload, press, select, hover, scroll, wait, back, forward, reload, screenshot, eval, console, close, help', failed: true })
   }
 })

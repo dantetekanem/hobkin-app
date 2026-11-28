@@ -123,7 +123,7 @@ export type NativeView = ReturnType<typeof createNativeView>
  * The window's side of one native view: it is opened when it first shows, told only what changed, and closed once.
  * Calls go to the shell in the order they were made, and one that fails does not stop the next.
  */
-export function createNativeView(shell: BrowserShell) {
+export function createNativeView(shell: BrowserShell, scope?: string) {
   let chain: Promise<void> = Promise.resolve()
   let opened = false
   let closed = false
@@ -147,7 +147,7 @@ export function createNativeView(shell: BrowserShell) {
         visited = wanted
         placed = keyOf(area)
         typed = null
-        return run(() => shell.open(start, area))
+        return run(() => shell.open(start, area, scope))
       }
       if (wanted !== visited) {
         visited = wanted

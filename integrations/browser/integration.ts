@@ -9,12 +9,22 @@ import { defineIntegration } from '#shared/integration/manifest.ts'
 
 const nothing = Type.Object({}, { additionalProperties: false })
 
+const receipt = { id: Type.String({ maxLength: 64 }), owner: Type.String({ maxLength: 16 }) }
+
 export default defineIntegration({
   id: 'browser',
   name: 'Browser',
   line: 'A real Chrome for each agent, to open and test pages',
   screens: [],
   commands: {
+    'browser.canvas.claim': {
+      description: 'Take one pending navigation for the visible canvas.', runs: 'host',
+      args: Type.Object(receipt, { additionalProperties: false }),
+    },
+    'browser.canvas.finish': {
+      description: 'Return what happened in the visible canvas.', runs: 'host',
+      args: Type.Object({ ...receipt, text: Type.String({ maxLength: 32000 }), failed: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
+    },
     'browser.status': {
       description:
         "Look again at what is installed and answer the browser's state: `engine.state` is `missing`, `installing`, `ready` or `failed`, with the versions once it is there and a note saying what an install is doing or why it failed; `sessions` lists the agents that have a browser open now, each with the page it is on. It only reads.",

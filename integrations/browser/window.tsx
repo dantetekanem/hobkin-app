@@ -1,6 +1,7 @@
 import type { BrowserState } from './protocol.ts'
 import type { WindowPart } from '@/integration/contract.ts'
 import manifest from './integration.ts'
+import { CanvasNavigation } from './window/CanvasNavigation.tsx'
 import { BrowserCard } from './window/BrowserCard.tsx'
 import { browserHome } from './window/home.ts'
 import { BROWSER_UNKNOWN, sampleBrowser } from './window/sample.ts'
@@ -11,6 +12,7 @@ const part: WindowPart<BrowserState> = {
   unknown: BROWSER_UNKNOWN,
   sample: (now) => sampleBrowser(now),
   card: BrowserCard,
+  canvasNavigation: CanvasNavigation,
   mark: { symbol: 'Br', hue: 248 },
   home: browserHome,
 }

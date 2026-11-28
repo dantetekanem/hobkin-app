@@ -21,6 +21,7 @@ import {
 } from './host/engine.ts'
 import { buildFor, BUILDS, engineBinary, engineVersion, ENGINE_VERSION, findChrome, installEngine, type Build, type Chrome, type Fetch } from './host/install.ts'
 import { HOBKIN_WINDOW_PLACES } from './host/places.ts'
+import { canvasNavigation } from './host/canvas.ts'
 import { sessionFor } from './host/sessions.ts'
 
 /**
@@ -95,7 +96,7 @@ const stepFields = {
   what: Type.Optional(plainEnum<ReadKind>(READ_KINDS, 'read: elements (default), text or all.')),
   within: Type.Optional(Type.String({ description: 'read: a CSS selector to read only that part of the page.' })),
   by: Type.Optional(Type.Integer({ description: 'scroll: pixels down, or up when negative.' })),
-  to: Type.Optional(Type.String({ description: 'scroll: top, bottom, or a target to bring into view.' })),
+  to: Type.Optional(Type.String({ description: 'scroll: top, bottom, or a target. drag: the destination control.' })),
   ms: Type.Optional(Type.Integer({ description: 'wait: a plain delay in milliseconds, up to 60000.' })),
   code: Type.Optional(Type.String({ description: 'eval: JavaScript whose value comes back as JSON.' })),
   full: Type.Optional(Type.Boolean({ description: 'screenshot: the whole page, not just what is in view.' })),
@@ -104,6 +105,7 @@ const stepFields = {
 const runParameters = Type.Object(
   {
     ...stepFields,
+    target: Type.Optional(plainEnum(['isolated', 'canvas'] as const, 'Default: isolated Chrome. Use canvas for visible navigation with the user.')),
     steps: Type.Optional(
       Type.Array(Type.Object(stepFields, { additionalProperties: false }), {
         description: 'Several steps to run in order, instead of one. The chain stops at the first that fails.',
@@ -114,7 +116,7 @@ const runParameters = Type.Object(
   { additionalProperties: false },
 )
 
-const RUN_DESCRIPTION = `Drive your own browser, a real Chrome with a clean profile, to open and test web pages such as a local dev server. Pass one step, or \`steps\` to run several in order; a chain stops at the first step that fails and tells you which. Run { do: "help" } once before your first use for the full guide.
+const RUN_DESCRIPTION = `Use target: "canvas" to show and navigate a page with the user (forms, links, type, drag on→to, upload via the user’s file picker). Otherwise drive your isolated Chrome for tests. Pass one step, or \`steps\` to run several in order; a chain stops at the first step that fails and tells you which. Run { do: "help" } once before your first use for the full guide.
 
 Steps, by \`do\`:
 - \`open\` (\`url\`, http or https in full)
@@ -186,6 +188,7 @@ function sampleState(now: number): BrowserState {
 }
 
 const browserPart: HostPartFactory = (context: HostContext): HostPart => {
+  const canvas = canvasNavigation(context)
   const options = context.options as Options
   const clock = options.now ?? Date.now
   // On a scripted host nothing real is reached: only what a test handed in runs.
@@ -293,12 +296,14 @@ const browserPart: HostPartFactory = (context: HostContext): HostPart => {
   }
 
   function state(): BrowserState {
-    if (!exec) return sample
+    const requests = canvas.requests()
+    const navigation = requests.length ? { navigation: requests } : {}
+    if (!exec) return { ...sample, ...navigation }
 
     const newestFirst = [...open.values()].sort((a, b) => b.lastAt - a.lastAt)
     // The engine's name for a browser is the host's own business.
     const sessions = newestFirst.map(({ session: _session, ...shown }) => shown)
-    return { engine, sessions }
+    return { engine, sessions, ...navigation }
   }
 
   /** The Chrome for Testing that is there, or null. */
@@ -457,7 +462,7 @@ const browserPart: HostPartFactory = (context: HostContext): HostPart => {
   }
 
   async function run(args: Record<string, unknown>, agent: string, signal: AbortSignal | undefined): Promise<ToolAnswer> {
-    const { json, ...input } = args
+    const { json, target = 'isolated', ...input } = args
     const refuse = (text: string): ToolAnswer => ({ text, failed: true })
 
     let steps
@@ -473,6 +478,24 @@ const browserPart: HostPartFactory = (context: HostContext): HostPart => {
       return json ? JSON.stringify(result) : text
     }
 
+    if (target === 'canvas') {
+      return inTurn('canvas:' + sessionFor(agent).name, async () => {
+        const results: { do: string; ok: boolean; text: string }[] = []
+        for (const step of steps) {
+          try {
+            results.push({ do: step.do, ok: true, text: await canvas.run(agent, step, signal) })
+          } catch (error) {
+            results.push({ do: step.do, ok: false, text: message(error) })
+            break
+          }
+        }
+        const ok = results.every(step => step.ok)
+        return json ? JSON.stringify({ ok, steps: results }) : { text: results.map(step => step.text).join('\n'), failed: !ok }
+      })
+    }
+
+    const canvasOnly = steps.find(step => ['type', 'drag', 'upload'].includes(step.do))
+    if (canvasOnly) return refuse(`${canvasOnly.do} requires target: "canvas".`)
     const ready = await readyEngine()
     if ('refusal' in ready) return refuse(ready.refusal)
 
@@ -565,6 +588,8 @@ const browserPart: HostPartFactory = (context: HostContext): HostPart => {
   return {
     state,
     handlers: {
+      'browser.canvas.claim': canvas.claim,
+      'browser.canvas.finish': canvas.finish,
       'browser.status': async (): Promise<BrowserState> => {
         await look()
         await reconcile()
@@ -599,6 +624,7 @@ const browserPart: HostPartFactory = (context: HostContext): HostPart => {
     close: () => {
       clearInterval(firstLookTimer)
       clearInterval(reconcileTimer)
+      canvas.close()
       closeEverything()
     },
   }

@@ -19,7 +19,7 @@ import { blockPatterns, isRefusedPlace, OWN_WINDOW_REFUSAL, placeGuard, REFUSED_
  */
 
 export const VERBS = [
-  'open', 'read', 'click', 'fill', 'press', 'select', 'hover', 'scroll', 'wait',
+  'open', 'read', 'click', 'fill', 'type', 'drag', 'upload', 'press', 'select', 'hover', 'scroll', 'wait',
   'back', 'forward', 'reload', 'screenshot', 'eval', 'console', 'close', 'help',
 ] as const
 export type Verb = (typeof VERBS)[number]
@@ -38,7 +38,9 @@ export type BrowserStep =
   | { do: 'open'; url: string }
   | { do: 'read'; what?: ReadKind; within?: string }
   | { do: 'click' | 'hover'; on: string }
-  | { do: 'fill'; on: string; text: string }
+  | { do: 'fill' | 'type'; on: string; text: string }
+  | { do: 'drag'; on: string; to: string }
+  | { do: 'upload'; on: string }
   | { do: 'press'; key: string }
   | { do: 'select'; on: string; option: string }
   | { do: 'scroll'; by?: number; to?: string }
@@ -147,6 +149,9 @@ const FIELDS: Record<Verb, { needs?: readonly Field[]; takes?: readonly Field[] 
   read: { takes: ['what', 'within'] },
   click: { needs: ['on'] },
   fill: { needs: ['on', 'text'] },
+  type: { needs: ['on', 'text'] },
+  drag: { needs: ['on', 'to'] },
+  upload: { needs: ['on'] },
   press: { needs: ['key'] },
   select: { needs: ['on', 'option'] },
   hover: { needs: ['on'] },
@@ -994,6 +999,10 @@ function runStep(step: PageStep, browser: Engine): Promise<Outcome> {
     case 'click':
     case 'hover':
       return actOn(step.do, step.on, browser)
+    case 'drag':
+    case 'type':
+    case 'upload':
+      throw Error(`${step.do} requires target: "canvas".`)
     case 'fill':
       return fill(step.on, step.text, browser)
     case 'press':

@@ -45,7 +45,7 @@ export interface BrowserKey {
 
 export interface BrowserShell {
   /** Opens the page over the area, or takes the open browser there. */
-  open(url: string, area: BrowserArea): Promise<void>
+  open(url: string, area: BrowserArea, scope?: string): Promise<void>
   /** Moves it over the area, or hides it with null. */
   place(area: BrowserArea | null): Promise<void>
   navigate(url: string): Promise<void>
@@ -104,7 +104,7 @@ function inTurn<T>(command: string, args?: Record<string, unknown>): Promise<T> 
 }
 
 const browser: BrowserShell = {
-  open: (url, area) => inTurn('browser_open', { url, area }),
+  open: (url, area, scope) => inTurn('browser_open', { url, area, scope }),
   place: (area) => inTurn('browser_place', { area }),
   navigate: (url) => inTurn('browser_navigate', { url }),
   back: () => inTurn('browser_back'),

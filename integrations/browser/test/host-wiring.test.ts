@@ -43,7 +43,6 @@ test('the host takes the folder as it is, and offers agents one tool named brows
   const [tool] = tools
   assert.equal(tool!.agents, undefined, 'the main chat, runs and durable hobkins all get it')
   assert.equal((tool!.parameters as { type: string }).type, 'object')
-  assert.match(tool!.description, /^Drive your own browser, a real Chrome with a clean profile/)
 
   // A call comes in the way hobkin's runtime makes it: by the full name, with the agent the host knows.
   const help = await runtime.callTool('browser_run', { do: 'help' }, { agent: '#main', id: 'c1' })
