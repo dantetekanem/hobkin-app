@@ -73,7 +73,7 @@ export function ludicrousHome(t, { origin = true, tier = 30 } = {}) {
     base, root, folder, pis, clock, awake, tier,
     conductor(change = {}) {
       return new LudicrousConductor({
-        root, config: CONFIG, now: () => clock.now, start: pis.start, kill: pis.kill, left: async groups => groups, sweepRun: async () => 0,
+        root, config: CONFIG, now: () => clock.now, start: pis.start, kill: pis.kill, left: async agents => agents.map(agent => agent.pid), sweepRun: async () => 0,
         awake: () => {
           awake.holds += 1;
           return () => {

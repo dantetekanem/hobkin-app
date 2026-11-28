@@ -91,16 +91,28 @@ test('a restart kills the old process groups and builds again from the trails', 
   const directory = runDirectory(h.root, run.id);
   const sessions = join(directory, 'sessions');
   mkdirSync(sessions, { recursive: true });
-  // What a hobkin that stopped left running: a worker in its own process group.
-  const left = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)', join(sessions, '0001-worker-api.jsonl')], { detached: true, stdio: 'ignore' });
+  // What a hobkin that stopped left running: a worker in its own process group. Pi names its own process `pi`, so nothing in the process
+  // list says which run or session it is.
+  const startedAt = new Date().toISOString();
+  const left = spawn(process.execPath, ['-e', 'process.title = "pi"; setTimeout(() => {}, 60000)', join(sessions, '0001-worker-api.jsonl')], { detached: true, stdio: 'ignore' });
   t.after(() => killGroup(left.pid));
   const gone = new Promise(resolve => left.once('exit', resolve));
-  writeFileSync(join(directory, 'agents.json'), JSON.stringify([{ id: '0001-worker-api', role: 'worker', area: 'api', packet: 'api-1', pid: left.pid }]));
+  // A recorded pid that came back to another program, started long after the run recorded it, is left alone.
+  const other = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { detached: true, stdio: 'ignore' });
+  t.after(() => killGroup(other.pid));
+  const recorded = [
+    { id: '0001-worker-api', role: 'worker', area: 'api', packet: 'api-1', pid: left.pid, startedAt },
+    { id: '0002-leader-api', role: 'leader', area: 'api', packet: null, pid: other.pid, startedAt: new Date(Date.now() - 3600000).toISOString() },
+  ];
+  writeFileSync(join(directory, 'agents.json'), JSON.stringify(recorded));
   writeFileSync(join(directory, 'packets.json'), JSON.stringify({ 'api-1': { area: 'api', state: 'running', tries: 1 } }));
+  await new Promise(resolve => setTimeout(resolve, 300));
 
   const conductor = h.conductor({ kill: killGroup, left: groupsLeft });
   await conductor.open();
-  await gone;
+  const still = new Promise((_, refuse) => setTimeout(() => refuse(Error('the old worker was still running 5 seconds after the restart')), 5000).unref());
+  await Promise.race([gone, still]);
+  assert.doesNotThrow(() => process.kill(other.pid, 0), 'a pid that came back to another program was killed');
   assert.equal(packetsOf(h)['api-1'].state, 'back');
   assert.deepEqual(JSON.parse(readFileSync(join(directory, 'agents.json'), 'utf8')), []);
 

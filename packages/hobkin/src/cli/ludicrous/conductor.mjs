@@ -212,9 +212,7 @@ export class LudicrousConductor {
   }
 
   async killLeftovers(run, recorded) {
-    const groups = recorded.map(agent => agent.pid).filter(Boolean);
-    const sessions = join(this.directory(run), 'sessions');
-    for (const group of await this.left(groups, sessions)) this.kill(group);
+    for (const group of await this.left(recorded)) this.kill(group);
     await this.sweepRun(run.id);
   }
 

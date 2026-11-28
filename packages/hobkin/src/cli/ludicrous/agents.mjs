@@ -42,15 +42,36 @@ async function table(columns, { environment = false } = {}) {
   return stdout.split('\n').filter(line => line.trim());
 }
 
-/** The processes still in each recorded group that are this run's: a group whose leader went and whose number came back to another program is left alone. */
-export async function groupsLeft(groups, sessions) {
-  const wanted = new Set(groups);
-  const rows = (await table('pid=,pgid=,command=')).map(line => {
-    const [pid, pgid, ...command] = line.trim().split(/\s+/);
-    return { pid: Number(pid), pgid: Number(pgid), command: command.join(' ') };
-  });
-  const ours = new Set(rows.filter(row => wanted.has(row.pgid) && row.command.includes(sessions)).map(row => row.pgid));
-  return [...ours];
+// A recorded agent's process is still the run's when it is still running and started when the run recorded it, give or take this.
+const SAME_START_MS = 10000;
+
+// `ps` writes elapsed time as [[dd-]hh:]mm:ss.
+function secondsOf(elapsed) {
+  const [days, rest] = elapsed.includes('-') ? elapsed.split('-') : ['0', elapsed];
+  return rest.split(':').map(Number).reduce((total, part) => total * 60 + part, 0) + Number(days) * 86400;
+}
+
+/** How long each of these processes has run, in seconds, by pid. One that is gone is not in it. */
+async function ages(pids) {
+  if (!pids.length) return new Map();
+  const { stdout } = await exec('ps', ['-o', 'pid=,etime=', '-p', pids.join(',')]).catch(() => ({ stdout: '' }));
+  const rows = stdout.split('\n').filter(line => line.trim()).map(line => line.trim().split(/\s+/));
+  return new Map(rows.map(([pid, elapsed]) => [Number(pid), secondsOf(elapsed)]));
+}
+
+/**
+ * The recorded agents whose process group still runs and is still theirs. Pi names its own process `pi`, so nothing in the process list
+ * says which run it is; its age does. A group whose leader went and whose number came back to another program started at another time,
+ * and is left alone.
+ */
+export async function groupsLeft(recorded, { now = Date.now() } = {}) {
+  const running = await ages(recorded.map(agent => agent.pid).filter(Boolean));
+  const stillOurs = ({ pid, startedAt }) => {
+    const age = running.get(pid);
+    if (age === undefined || !startedAt) return false;
+    return Math.abs(now - age * 1000 - Date.parse(startedAt)) < SAME_START_MS;
+  };
+  return recorded.filter(stillOurs).map(agent => agent.pid);
 }
 
 /**
