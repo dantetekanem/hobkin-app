@@ -1,4 +1,4 @@
-import { Map as MapIcon, Zap } from 'lucide-react'
+import { Map as MapIcon, Rocket, Zap } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
@@ -463,6 +463,13 @@ function openYolo() {
   requestCanvasFocus()
 }
 
+/** Ludicrous mode is a page of its own beside YOLO (076), opened and left the same way. */
+function openLudicrous() {
+  useView.getState().openScreen('ludicrous')
+  useView.getState().engageCanvas()
+  requestCanvasFocus()
+}
+
 /**
  * Work's heading: what is going on, the ways to YOLO mode and World beside the mode switch on the same line, and what
  * the mode means. The buttons and the switch are one group of controls: the same height, centered on the title's line,
@@ -532,6 +539,10 @@ const Header = memo(function Header({
               <span className="text-muted-foreground tabular-nums">{yoloAtAGlance(yolo)}</span>
             </Button>
           ) : null}
+          <Button variant="outline" data-stop="" data-opens="ludicrous" onClick={openLudicrous}>
+            <Rocket aria-hidden="true" />
+            Ludicrous
+          </Button>
           {onOpenWorld ? (
             <Button variant="outline" data-stop="" data-opens="world" onClick={onOpenWorld}>
               <MapIcon aria-hidden="true" />

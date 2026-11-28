@@ -110,7 +110,7 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
   // New each time the menu draws. The second row is centered, so what the menu draws again for can move its agents.
   const drawn = {}
   // Work's own pages keep Work's tab marked.
-  const onWorkPage = screen === 'world' || screen === 'yolo' || screen === 'project' || screen === 'proof'
+  const onWorkPage = screen === 'world' || screen === 'yolo' || screen === 'ludicrous' || screen === 'project' || screen === 'proof'
 
   return (
     <motion.div

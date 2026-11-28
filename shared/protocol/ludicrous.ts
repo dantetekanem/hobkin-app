@@ -55,6 +55,8 @@ export interface LudicrousRun {
   round: number | 'answers' | null
   /** A plan was made, so Go Ludicrous builds, or carries on after a stop. */
   planned: boolean
+  /** While it compiles: after a stop, or because every area is done. */
+  compiling: 'stop' | 'done' | null
   /** When a used-up subscription lets the run start again, while it waits. */
   waitingUntil: string | null
   pr: { url: string; draft: boolean } | null

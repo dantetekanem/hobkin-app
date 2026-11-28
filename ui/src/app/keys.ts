@@ -181,7 +181,7 @@ function perform(action: KeyAction): boolean {
       // Leaving a review, a proof run or a project returns the keyboard to the page it was opened from, onto its row.
       if (view.screen === 'review' || view.screen === 'proof' || view.screen === 'project') {
         requestCanvasFocus()
-      } else if (view.screen === 'world' || view.screen === 'yolo') {
+      } else if (view.screen === 'world' || view.screen === 'yolo' || view.screen === 'ludicrous') {
         // Onto the control that opened it, where the page back there has one.
         requestCanvasFocus(`[data-opens="${view.screen}"]`)
       } else if (useView.getState().screen === 'settings') {

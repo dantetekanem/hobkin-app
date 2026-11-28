@@ -13,6 +13,7 @@ import { MainAgentScreen } from '@/features/main-agent/MainAgentScreen.tsx'
 import { WorkScreen } from '@/features/work/WorkScreen.tsx'
 import { WorldScreen } from '@/features/work/WorldScreen.tsx'
 import { YoloScreen } from '@/features/work/YoloScreen.tsx'
+import { LudicrousScreen } from '@/features/work/LudicrousScreen.tsx'
 import ProjectScreen from '@/features/project/ProjectScreen.tsx'
 import { ProofScreen } from '@/features/proofs/ProofScreen.tsx'
 import { ActionsScreen } from '@/features/actions/ActionsScreen.tsx'
@@ -60,6 +61,7 @@ const SCREEN_VIEWS: Record<CoreScreenId, ComponentType> = {
   work: WorkScreen,
   world: WorldScreen,
   yolo: YoloScreen,
+  ludicrous: LudicrousScreen,
   project: OpenProjectPage,
   proof: ProofScreen,
   routines: RoutinesScreen,

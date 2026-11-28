@@ -70,7 +70,7 @@ const hoodColor = (agent: ZoneAgent) => `oklch(0.62 0.11 ${agent.presentation?.h
 const landColor = (heat: number) => `color-mix(in oklab, var(--hb-accent) ${Math.round(14 + 86 * heat)}%, var(--world-soil))`
 
 /** The square an island is drawn in: its radius to every side of its centre. */
-function plotStyle(island: Island): CSSProperties {
+export function plotStyle(island: Island): CSSProperties {
   const side = span(island.radius * 2)
   const left = span(island.x - island.radius)
   const top = span(island.y - island.radius)
@@ -79,7 +79,7 @@ function plotStyle(island: Island): CSSProperties {
 }
 
 /** A name hangs below the island's southern shore, or stands above its northern one, in the sea its neighbours leave. */
-function nameStyle(island: Island): CSSProperties {
+export function nameStyle(island: Island): CSSProperties {
   const maxWidth = span(Math.max(130, Math.min(280, island.room * 0.95)))
 
   if (island.label === 'below') {
@@ -140,7 +140,7 @@ const CLOUDS: CSSProperties[] = [
 ]
 
 /** The sea: the pole, its rings and meridians, and the currents that turn about it. */
-const SEA = (
+export const SEA = (
   <div aria-hidden="true" className="world-sea absolute inset-0 overflow-hidden rounded-full">
     <svg viewBox={SQUARE} className="world-grid absolute inset-0 size-full">
       {LATITUDES.map((ring) => (
@@ -165,7 +165,7 @@ const SEA = (
 )
 
 /** The weather that drifts over the land and under the names. */
-const WEATHER = (
+export const WEATHER = (
   <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
     <div className="world-weather">
       {CLOUDS.map((cloud) => (
@@ -223,7 +223,7 @@ interface IslandLandProps {
   landing: number | undefined
 }
 
-function IslandLand({ island, order, live, paused, active, focused, still, landing }: IslandLandProps) {
+export function IslandLand({ island, order, live, paused, active, focused, still, landing }: IslandLandProps) {
   const style = {
     ...plotStyle(island),
     '--world-land': landColor(island.heat),

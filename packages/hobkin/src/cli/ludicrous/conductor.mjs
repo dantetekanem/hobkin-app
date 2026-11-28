@@ -574,7 +574,7 @@ export class LudicrousConductor {
     const { id, slug, name, branch, idea, tier, phase, step, round, planned, waitingUntil, pr, lines, spawned, tokens } = run;
     return {
       run: {
-        id, slug, name, branch, idea, tier, phase, step: step ?? null, round: round ?? null, planned, waitingUntil, pr, lines: lines ?? [],
+        id, slug, name, branch, idea, tier, phase, step: step ?? null, round: round ?? null, planned, compiling: run.compile?.reason ?? null, waitingUntil, pr, lines: lines ?? [],
         running: running.length, spawned, tokens: tokens ?? 0, buildingMs: buildingMs(run, this.now()), areas,
         plan: phase === 'plan-ready' || (phase === 'stopped' && planned) ? planView(run.folder) : null,
         history: this.history(run).map(({ at, running: most, spawned: total }) => ({ at, running: most, spawned: total })),

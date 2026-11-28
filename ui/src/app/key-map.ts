@@ -91,7 +91,7 @@ export function besideAgent(walk: readonly string[], open: string | null, step: 
 }
 
 /** Work's own pages sit under its tab, so moving along the tabs from one starts at Work. */
-const UNDER_WORK: readonly ScreenId[] = ['world', 'yolo', 'project', 'proof']
+const UNDER_WORK: readonly ScreenId[] = ['world', 'yolo', 'ludicrous', 'project', 'proof']
 
 /**
  * The tab beside the screen showing, in the order Command with a number walks: `step` 1 is right, -1 left, wrapping
@@ -223,7 +223,7 @@ export function keyboardHomeFor(screen: ScreenId): 'canvas' | 'input' {
   return screen === 'agent' ? 'canvas' : 'input'
 }
 
-const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integrations', 'skills', 'extensions', 'memory', 'world', 'yolo', 'project', 'proof']
+const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integrations', 'skills', 'extensions', 'memory', 'world', 'yolo', 'ludicrous', 'project', 'proof']
 
 /**
  * A review, Settings, Integrations, Work's World, YOLO mode, a project's page and a proof run are open only for now,

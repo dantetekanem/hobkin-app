@@ -1,4 +1,4 @@
-import { BookOpen, Bot, Brain, CalendarClock, FileText, FolderGit2, House, Inbox, NotebookPen, Plug, Presentation, Puzzle, Settings2, Sigma, Waypoints, Workflow, Zap, type LucideIcon } from 'lucide-react'
+import { BookOpen, Bot, Brain, CalendarClock, FileText, FolderGit2, House, Inbox, NotebookPen, Plug, Presentation, Puzzle, Rocket, Settings2, Sigma, Waypoints, Workflow, Zap, type LucideIcon } from 'lucide-react'
 import { isPartScreen, partScreens } from '../integration/screens.ts'
 
 /** The screens the app has in itself, in menu order. An integration's screens come after Work (`screens`). */
@@ -15,6 +15,8 @@ const AFTER_INTEGRATIONS = [
   { id: 'world', label: 'World', icon: Workflow, contextual: true },
   // YOLO mode's switch and each project's readiness, a page of Work's own as World is (049-yolo-mode).
   { id: 'yolo', label: 'YOLO mode', icon: Zap, contextual: true },
+  // Ludicrous mode, the page beside YOLO that builds a whole project with a swarm of agents (076-ludicrous-mode).
+  { id: 'ludicrous', label: 'Ludicrous mode', icon: Rocket, contextual: true },
   // One project's page under Work, by its slug (053).
   { id: 'project', label: 'Project', icon: FolderGit2, contextual: true },
   // A TLA+ proof run, a page of its own opened from a card, an agent's step or the YOLO page (050-tla-proofs).
