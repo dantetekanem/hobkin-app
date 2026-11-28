@@ -55,21 +55,29 @@ export const underWay = run => UNDER_WAY.includes(run?.phase);
 /** How long the run has built, stopped stretches left out. */
 export const buildingMs = (run, now = Date.now()) => (run.builtMs ?? 0) + (run.buildingSince ? Math.max(0, now - Date.parse(run.buildingSince)) : 0);
 
-// The stdio MCP servers Pi starts for each agent, from its own settings: each one is a process of its own in every agent.
-function stdioServers(agentDir) {
+/** The folder of the user's own Pi settings, where its MCP servers are. */
+export const piAgentDirectory = () => process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent');
+
+/** The MCP servers in the user's own Pi settings that are not turned off, by name, and whether each is a process of its own (stdio). */
+export function mcpServersOf(agentDir = piAgentDirectory()) {
   const servers = readJson(join(agentDir, 'mcp.json'), {})?.mcpServers;
-  if (!servers || typeof servers !== 'object') return 0;
-  return Object.values(servers).filter(server => typeof server?.command === 'string' && server.enabled !== false).length;
+  if (!servers || typeof servers !== 'object') return [];
+  return Object.entries(servers)
+    .filter(([, server]) => server?.enabled !== false)
+    .map(([name, server]) => ({ name, stdio: typeof server?.command === 'string' }));
 }
 
-/** The computer as the tier reads it. `mcp` says whether Ludicrous agents get the user's MCP servers, which decides what each one costs. */
-export function measureComputer({ folder = homedir(), agentDir = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'), mcp = true } = {}) {
+/**
+ * The computer as the tier reads it. `mcp` says whether Ludicrous agents reach MCP servers, which only a plan that names one asks for;
+ * then each agent starts a process of its own for every stdio server, which decides what each one costs.
+ */
+export function measureComputer({ folder = homedir(), agentDir = piAgentDirectory(), mcp = false } = {}) {
   const { bavail, bsize } = statfsSync(folder);
   return {
     cores: cpus().length,
     memoryMb: Math.round(totalmem() / 2 ** 20),
     freeDiskMb: Math.round((bavail * bsize) / 2 ** 20),
-    stdioMcp: mcp ? stdioServers(agentDir) : 0,
+    stdioMcp: mcp ? mcpServersOf(agentDir).filter(server => server.stdio).length : 0,
   };
 }
 

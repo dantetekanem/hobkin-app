@@ -66,6 +66,7 @@ export function assertPlan(plan) {
   };
   areas.forEach(area => reach(area.id));
   if (plan.checkCommands !== undefined && !strings(plan.checkCommands)) throw Error('checkCommands is a list of command names.');
+  if (plan.mcpServers !== undefined && !strings(plan.mcpServers)) throw Error('mcpServers is a list of the names of MCP servers the project needs.');
   for (const question of plan.questions ?? []) {
     if (typeof question?.id !== 'string' || typeof question.question !== 'string' || !Array.isArray(question.options) || !question.options.length) {
       throw Error('Each question has an id, its words and its options.');

@@ -23,13 +23,14 @@ function folder(t) {
   return base;
 }
 
-test('a Ludicrous Pi loads only skills and MCP servers', () => {
+test('a Ludicrous Pi loads only its skills, and MCP servers only when the plan names them', () => {
   const { command, args } = ludicrousInvocation(asked());
   assert.equal(command, 'pi');
   assert.deepEqual(args.slice(0, 3), ['--print', '--mode', 'text']);
-  // Discovery is off for extensions, so only the named ones load: load_skill and Pi's own MCP support.
+  // Discovery is off for extensions, so only the named one loads, load_skill, and Pi's MCP support is off: no server of the user's.
   assert.equal(args.filter(arg => arg === '--no-extensions').length, 1);
-  assert.deepEqual(valuesOf(args, '--extension'), [loadSkillExtension, 'builtin:mcp', 'builtin:codemode', 'builtin:tool-search']);
+  assert.deepEqual(valuesOf(args, '--extension'), [loadSkillExtension]);
+  assert.ok(args.includes('--no-mcp'));
   assert.deepEqual(valuesOf(args, '--skill'), [...SHIPPED_SKILLS, '/skills/ludicrous-worker/SKILL.md']);
   assert.ok(!args.includes('--no-skills'));
   assert.ok(!args.includes('--approve'));
@@ -37,10 +38,11 @@ test('a Ludicrous Pi loads only skills and MCP servers', () => {
   assert.equal(valuesOf(args, '--session')[0], '/runs/r1/sessions/0001-worker-api.jsonl');
   assert.equal(valuesOf(args, '--append-system-prompt')[0], 'You are a worker.');
 
-  // Without the user's MCP servers, Pi's MCP support is off too.
-  const bare = ludicrousInvocation(asked({ mcp: false })).args;
-  assert.deepEqual(valuesOf(bare, '--extension'), [loadSkillExtension]);
-  assert.ok(bare.includes('--no-mcp'));
+  // A plan that names a server the project needs turns Pi's own MCP support on, with every other server's tools left out.
+  const named = ludicrousInvocation(asked({ mcp: true, hideMcp: ['gmail', 'home-assistant'] })).args;
+  assert.deepEqual(valuesOf(named, '--extension'), [loadSkillExtension, 'builtin:mcp', 'builtin:codemode', 'builtin:tool-search']);
+  assert.ok(!named.includes('--no-mcp'));
+  assert.deepEqual(valuesOf(named, '--exclude-tools'), ['mcp__gmail__*,mcp__home_assistant__*']);
 
   assert.throws(() => ludicrousInvocation(asked({ launcher: { command: ['managed-pi'], managedExtensions: true } })), /starts with no extensions/);
 });

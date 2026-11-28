@@ -823,13 +823,16 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
 
 // Pi's own MCP support is three of its built-in extensions: the servers, and the two ways their tools are reached (076 S1).
 const MCP_BUILT_INS = ['mcp', 'codemode', 'tool-search'];
+// Pi names a server's tools `mcp__<server>__<tool>`, with every character other than letters, digits and `_` made `_`.
+const mcpToolsOf = server => `mcp__${server.replace(/[^A-Za-z0-9_]/g, '_')}__*`;
 
 /**
- * A Ludicrous agent's Pi (076): Pi's own tools, skills with `load_skill` (070), and the user's MCP servers through Pi's own MCP support,
- * with no other extension: no tasks, teams, subagents, schedules or durable jobs, so it has no tool that starts an agent. It answers its
- * one task and ends, with its session in the run's folder. `mcp` false leaves the MCP servers out too.
+ * A Ludicrous agent's Pi (076): Pi's own tools and skills with `load_skill` (070), with no other extension: no tasks, teams, subagents,
+ * schedules or durable jobs, so it has no tool that starts an agent. It answers its one task and ends, with its session in the run's
+ * folder. It reaches no MCP server unless `mcp` is on, which the plan asks for by naming a server the project needs; then the tools of
+ * every server in `hideMcp` are left out.
  */
-export function ludicrousInvocation({ prompt, system, model, effort, sessionFile, skills = [], mcp = true, launcher }) {
+export function ludicrousInvocation({ prompt, system, model, effort, sessionFile, skills = [], mcp = false, hideMcp = [], launcher }) {
   if (launcher?.managedExtensions) throw Error('Ludicrous needs a Pi that starts with no extensions, and this launcher loads its own.');
   if (!isAbsolute(sessionFile ?? '')) throw Error('A Ludicrous agent needs a session file in its run.');
   if (typeof prompt !== 'string' || !prompt.trim() || typeof system !== 'string' || !system.trim()) throw Error('A Ludicrous agent needs its directions and its task.');
@@ -838,6 +841,7 @@ export function ludicrousInvocation({ prompt, system, model, effort, sessionFile
     '--print', '--mode', 'text', '--session', sessionFile, '--model', model, '--thinking', effort,
     '--no-extensions', '--extension', loadSkillExtension,
     ...(mcp ? MCP_BUILT_INS.flatMap(name => ['--extension', `builtin:${name}`]) : ['--no-mcp']),
+    ...(mcp && hideMcp.length ? ['--exclude-tools', hideMcp.map(mcpToolsOf).join(',')] : []),
     ...[...SHIPPED_SKILLS, ...skills].flatMap(path => ['--skill', path]),
     '--no-prompt-templates', '--no-themes',
     '--append-system-prompt', system,

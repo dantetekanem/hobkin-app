@@ -50,6 +50,6 @@ The computer: a Mac17,8 with 18 cores (6 performance), 64 GB of memory and 1,068
 
 - A1 in the live window, A14's benchmarks with 100 agents, and A19's reading of real trails. Each needs the host to start again with this branch, and S10's real run needs the user's go-ahead.
 
-## Open question from S1
+## S1's question, answered
 
-- The user's MCP servers in every agent. (a) As decided: every agent gets them all. On this computer that is 100 Gmail processes for a full tier, which brings the pick down to 50, plus 100 connections to Home Assistant, and every agent can send mail or switch a light. (b) Ludicrous agents get no MCP server unless the plan names one the project needs, such as a documentation server. That keeps the tier at 100 and keeps mail and the house out of reach. Pick: (b). The code takes either as one setting.
+- The user's MCP servers in every agent. (a) Every agent gets them all: on this computer 100 Gmail processes for a full tier, which brings the pick down to 50, plus 100 connections to Home Assistant, and every agent can send mail or switch a light. (b) No MCP server unless the plan names one the project needs. The user took (b) on 2026-11-27. Pi has no flag to load only some servers, so a plan that names one turns Pi's MCP support on and leaves out the tools of every other server; those servers still start, and the tier's measure counts their processes.

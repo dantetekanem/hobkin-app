@@ -124,3 +124,29 @@ test('the computer is held awake only while building', async t => {
   await conductor.close();
   assert.equal(h.awake.releases, 1);
 });
+
+test('agents get no MCP server unless the plan names one the project needs', async t => {
+  const h = ludicrousHome(t);
+  // The user's own Pi MCP settings: a documentation server and their mail.
+  const piAgentDir = join(h.base, 'pi');
+  mkdirSync(piAgentDir);
+  writeFileSync(join(piAgentDir, 'mcp.json'), JSON.stringify({ mcpServers: { docs: { url: 'https://docs.invalid/mcp' }, gmail: { command: 'node', args: ['gmail.js'] } } }));
+  await h.building(PLAN, { statuses: { foundation: { contracts: true } }, queues: { api: packets('api', 1) } });
+  const conductor = h.conductor({ piAgentDir });
+
+  await h.ticks(conductor, 3);
+  assert.equal(h.pis.started.length, 3);
+  assert.ok(h.pis.started.every(agent => agent.args.includes('--no-mcp')));
+
+  // The planners named the documentation server: the next agents reach it, and never the mail.
+  write(h.folder, '_specs/ludicrous/plan.json', JSON.stringify({ ...PLAN, mcpServers: ['docs'] }));
+  h.clock.now += 120000;
+  h.pis.running().forEach(agent => agent.finish());
+  await h.ticks(conductor, 3);
+  const later = h.pis.started.slice(3);
+  assert.ok(later.length > 0);
+  for (const agent of later) {
+    assert.ok(!agent.args.includes('--no-mcp'));
+    assert.deepEqual(agent.args.filter((arg, at) => agent.args[at - 1] === '--exclude-tools'), ['mcp__gmail__*']);
+  }
+});

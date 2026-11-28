@@ -15,7 +15,7 @@ import { answersChangePlan, PLANNERS, planningTasks, planView, ROUND_OF } from '
 import { factsOf, fileReport, foldTrails, plainReport, publishRun, reportFile } from './compile.mjs';
 import { systemPrompt, taskPrompt } from './prompts.mjs';
 import { saveUnfinished } from './stop.mjs';
-import { approveRun, buildingMs, changeRun, machineTiers, measureComputer, planRun, readRun, runDirectory, START_SPACING_MS, underWay } from './run.mjs';
+import { approveRun, buildingMs, changeRun, machineTiers, mcpServersOf, measureComputer, piAgentDirectory, planRun, readRun, runDirectory, START_SPACING_MS, underWay } from './run.mjs';
 
 /**
  * The conductor (076): the runtime code that owns a Ludicrous run. Every agent of the run is a Pi it starts, in a process group of its own,
@@ -125,6 +125,15 @@ function fixWords({ fix }) {
   return `This packet fixes a failing check: \`${fix.check}\`, after commit ${fix.commit}${trail}. `;
 }
 
+/** The plan as the folder holds it, or null while it is missing or breaks a rule. */
+function planIn(folder) {
+  try {
+    return readPlan(folder);
+  } catch {
+    return null;
+  }
+}
+
 /** The final check's failures in one area, a line each, for its leader. */
 function failureLines(final, area) {
   return final.failures
@@ -134,8 +143,8 @@ function failureLines(final, area) {
 }
 
 export class LudicrousConductor {
-  constructor({ root, config, now = Date.now, start = startProcess, kill = killGroup, left = groupsLeft, sweepRun = sweep, awake = holdAwake, measure = measureComputer, spacingMs = START_SPACING_MS, mcp = true, onChange = () => {}, gh } = {}) {
-    Object.assign(this, { root, config, now, start, kill, left, sweepRun, awake, measure, spacingMs, mcp, onChange, gh });
+  constructor({ root, config, now = Date.now, start = startProcess, kill = killGroup, left = groupsLeft, sweepRun = sweep, awake = holdAwake, measure = measureComputer, spacingMs = START_SPACING_MS, piAgentDir = piAgentDirectory(), onChange = () => {}, gh } = {}) {
+    Object.assign(this, { root, config, now, start, kill, left, sweepRun, awake, measure, spacingMs, piAgentDir, onChange, gh });
     this.live = new Map();
     this.ended = [];
     this.lastStartAt = -Infinity;
@@ -156,7 +165,20 @@ export class LudicrousConductor {
   }
 
   machine() {
-    return machineTiers(this.measure({ mcp: this.mcp }));
+    const run = this.run;
+    const { mcp } = this.mcpFor(run ? planIn(run.folder) : null);
+    return machineTiers(this.measure({ mcp, agentDir: this.piAgentDir }));
+  }
+
+  /**
+   * The user's MCP servers stay out of a Ludicrous agent's reach unless the plan names one the project needs, such as a documentation
+   * server. Then Pi's own MCP support is on, and the tools of every other server are left out (076, the user's answer to S1's question).
+   */
+  mcpFor(plan) {
+    const named = plan?.mcpServers ?? [];
+    if (!named.length) return { mcp: false, hideMcp: [] };
+    const others = mcpServersOf(this.piAgentDir).map(({ name }) => name).filter(name => !named.includes(name));
+    return { mcp: true, hideMcp: others };
   }
 
   /** hobkin's settings as they are now, since the user can change a tier while a run builds. */
@@ -343,7 +365,8 @@ export class LudicrousConductor {
 
     const { launcher, ...config } = this.settings();
     const { model, effort } = tierBinding(config, tier ?? roleTier);
-    const invocation = ludicrousInvocation({ prompt, system: systemPrompt(system), model, effort, sessionFile: session, skills: [skill(own)], mcp: this.mcp, launcher });
+    const { mcp, hideMcp } = this.mcpFor(planIn(run.folder));
+    const invocation = ludicrousInvocation({ prompt, system: systemPrompt(system), model, effort, sessionFile: session, skills: [skill(own)], mcp, hideMcp, launcher });
     // What the agent reads first is the branch as it is now: `land` refuses to write over anything that changed after it.
     const read = (await branchHead(run)) || run.baseCommit;
     const env = this.environmentFor(run, { id, role, area, read, launcher });

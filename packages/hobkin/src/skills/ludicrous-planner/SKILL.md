@@ -59,6 +59,7 @@ The same plan for hobkin. hobkin refuses to build from a plan that breaks these 
 - `checks`: the commands the area's leader runs, in order, in a fresh checkout of the branch head: install, build, test, lint, and TLC for the area's models. They must run with no one at the keyboard and fail with a non-zero exit.
 - `leaderPaths`: only the foundation's: the package manifests and lockfiles. Nobody else writes them.
 - `checkCommands`: every program a check runs, by name: the package manager, the test runner, the compiler, the linter, and `java` for TLC. Workers are refused all of them.
+- `mcpServers`: only when building the project needs an MCP server, such as a documentation server, by the name the user's Pi settings give it. Leave it out otherwise, and the agents reach no MCP server. The user's mail, calendar and home are never for a Ludicrous run.
 - `questions`: only the questions whose answer changes the path. Each has a `pick` among its options. When the user leaves one unanswered, the build takes the pick.
 
 ## questions.md

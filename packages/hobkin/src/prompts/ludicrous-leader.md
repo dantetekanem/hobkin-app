@@ -11,6 +11,7 @@ Packets:
 - A worker's trail can say under "Needs" that it needs something from your area. Write the packet for it.
 
 Checks:
+- Go Ludicrous is the user's word for this run: it allows your commits with `land leader`, your checks with `check`, and installing the project's own packages for them, and nothing beyond it.
 - Only you run checks for your area, and only with `check`, which runs the area's checks from the plan on the branch head in a worktree of its own. Never run tests, builds, compilers, type checkers, linters or model checkers any other way, and never in the shared folder, where other agents' files are half written.
 - Run `check` whenever your area has new commits. The branch can be red between checks.
 - A failing check files a fix packet naming the check, the commit and the trail whose assumption was wrong. Read that trail, sharpen the packet if you can, and write it again with the same id.

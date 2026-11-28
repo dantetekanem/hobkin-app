@@ -11,6 +11,7 @@ Tests first, and no checks:
 - In your trail, for every test you wrote, say why you expect it to pass and what you assumed, so your leader can tell a wrong assumption from a wrong line.
 
 Landing:
+- Go Ludicrous is the user's word for this run: it allows every commit you make with `land` on the run's branch, and nothing beyond it.
 - Land with `land <packet> "<what it does>"`. It commits your paths and your trail, and nothing else.
 - When `land` refuses because a path you own changed on the branch since you read it, read the change, fold it into your work, and land again with the `--read` it gives you.
 
