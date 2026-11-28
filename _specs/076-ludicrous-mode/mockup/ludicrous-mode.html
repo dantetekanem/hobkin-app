@@ -1,0 +1,1210 @@
+<title>Ludicrous Mode Mockup</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one hobkin page column inside a window frame. Controls sit in one bar at the top and never move; the body under it swaps by state. */
+:root {
+  --bg: #f0ead6;
+  --surface: #f8f4e8;
+  --tone: #f3edda;
+  --tone-1: #e9e1c9;
+  --text: #16181f;
+  --muted: #5a5648;
+  --border: #dcd2b6;
+  --border-strong: #857d69;
+  --accent: #ffc940;
+  --on-accent: #16181f;
+  --stop: #b3261e;
+  --ok: #17633f;
+  --run-line: #7a4e00;
+  --code: oklch(0.52 0.11 265);
+  --r0: oklch(0.9 0.045 86);
+  --r1: oklch(0.855 0.071 79);
+  --focus: #16181f;
+  --font-head: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-text: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e0f13; --surface: #17191f; --tone: #1b1e26; --tone-1: #15171d; --text: #f0ead6; --muted: #a8a291;
+    --border: #2c303a; --border-strong: #6b6f7a; --accent: #ffc940; --on-accent: #16181f; --stop: #ff7a6e; --ok: #4cc38a;
+    --run-line: #ffc940; --code: oklch(0.72 0.1 265); --r0: oklch(0.25 0.03 262); --r1: oklch(0.32 0.045 262); --focus: #ffc940;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e0f13; --surface: #17191f; --tone: #1b1e26; --tone-1: #15171d; --text: #f0ead6; --muted: #a8a291;
+  --border: #2c303a; --border-strong: #6b6f7a; --accent: #ffc940; --on-accent: #16181f; --stop: #ff7a6e; --ok: #4cc38a;
+  --run-line: #ffc940; --code: oklch(0.72 0.1 265); --r0: oklch(0.25 0.03 262); --r1: oklch(0.32 0.045 262); --focus: #ffc940;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: var(--font-text); font-size: 14px; letter-spacing: -0.012em; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.wrap { max-width: 1100px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 18px; }
+.intro { display: flex; flex-direction: column; gap: 6px; }
+.intro h1 { font-family: var(--font-head); font-size: 22px; font-weight: 600; margin: 0; text-wrap: balance; }
+.intro p { margin: 0; color: var(--muted); max-width: 70ch; line-height: 1.5; }
+
+.eyebrow { font-family: var(--font-head); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+.states { display: flex; flex-wrap: wrap; gap: 6px; }
+.states button { font-family: var(--font-head); font-size: 12.5px; font-weight: 500; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
+.states button:hover { color: var(--text); border-color: var(--border-strong); }
+.states button[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+.window { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 20px 26px 30px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.tabs { display: flex; gap: 2px; background: var(--tone-1); padding: 4px; border-radius: 999px; width: fit-content; }
+.tabs span { font-family: var(--font-head); font-size: 13px; font-weight: 500; padding: 5px 14px; border-radius: 999px; color: var(--muted); }
+.tabs span.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgb(22 24 31 / 0.08); }
+.head { display: flex; align-items: center; gap: 10px; }
+.chip { font-family: var(--font-mono); font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--tone-1); color: var(--text); }
+
+/* The bar. Its height is fixed: a title line and two lines of words, so Start and Stop stay where they are in every state. */
+.bar { display: flex; flex-direction: column; align-items: stretch; gap: 16px; background: var(--tone); border-radius: 20px; padding: 16px 20px; }
+.phase { flex: 0 0 auto; min-width: 0; }
+.phase h2 { margin: 0; font-family: var(--font-head); font-size: 20px; font-weight: 600; letter-spacing: -0.02em; display: flex; align-items: baseline; gap: 10px; height: 28px; white-space: nowrap; overflow: hidden; }
+.phase h2 .tier { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+.phase p { margin: 4px 0 0; font-size: 13.5px; color: var(--muted); line-height: 20px; height: 40px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.buttons { display: flex; gap: 10px; }
+.btn { width: 156px; height: 46px; border-radius: 999px; font-family: var(--font-head); font-weight: 600; font-size: 15.5px; letter-spacing: 0.01em; cursor: pointer; transition: opacity 160ms ease, transform 140ms ease; }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn.start { background: var(--accent); color: var(--on-accent); border: 0; }
+.btn.stop { background: transparent; color: var(--stop); border: 1.5px solid currentColor; }
+.btn:disabled { opacity: 0.3; cursor: default; }
+.btn.stop { width: 112px; }
+.ask { display: flex; flex-direction: column; gap: 10px; }
+.ask label { font-family: var(--font-head); font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+.ask textarea { min-height: 128px; background: var(--surface); }
+.ask .say { min-height: 20px; }
+
+.panel { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* Opening */
+.what { display: flex; flex-direction: column; gap: 14px; padding: 6px 0 2px; }
+.what p { margin: 0; max-width: 62ch; line-height: 1.55; font-size: 16px; color: var(--muted); }
+.what strong { color: var(--text); font-weight: 600; }
+.what p.lead { font-family: var(--font-head); font-size: 32px; font-weight: 700; letter-spacing: -0.035em; line-height: 1.12; color: var(--text); max-width: 38ch; text-wrap: balance; margin-bottom: 4px; }
+.what p.end { font-family: var(--font-head); font-size: 20px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); }
+.what p.end .dim { color: var(--muted); font-weight: 500; }
+.form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px 28px; }
+.field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.field.wide { grid-column: 1 / -1; }
+.seg { display: inline-flex; gap: 2px; background: var(--tone-1); padding: 4px; border-radius: 999px; width: fit-content; max-width: 100%; flex-wrap: wrap; }
+.seg label { position: relative; font-family: var(--font-head); font-size: 13px; font-weight: 500; padding: 6px 14px; border-radius: 999px; color: var(--muted); cursor: pointer; }
+.seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg label:has(input:checked) { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgb(22 24 31 / 0.08); }
+.seg label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 1px; }
+.seg .pick { font-family: var(--font-mono); font-size: 10.5px; color: var(--run-line); margin-left: 6px; }
+.input { font-family: var(--font-mono); font-size: 13px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); width: 100%; }
+textarea.input { font-family: var(--font-text); font-size: 14px; line-height: 1.5; resize: vertical; min-height: 104px; }
+.say { font-size: 13px; color: var(--muted); line-height: 20px; min-height: 40px; margin: 0; }
+.say.hold { color: var(--stop); }
+.alone { border-radius: 14px; padding: 12px 14px; font-size: 13.5px; line-height: 20px; min-height: 92px; margin: 0; background: var(--bg); }
+.alone strong { font-family: var(--font-head); font-weight: 600; }
+.alone.warn { box-shadow: inset 0 0 0 1.5px var(--stop); }
+.models { font-size: 13px; color: var(--muted); margin: 0; }
+
+/* Numbers */
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.tile { background: var(--tone); border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tile b { font-family: var(--font-head); font-size: 26px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tile b small { font-size: 15px; color: var(--muted); font-weight: 500; }
+.tile span.sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Map */
+figure { margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+figcaption { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+figcaption svg { vertical-align: -2px; }
+/* Map: hobkin's Work world (WorldMap.tsx, world.css), with the plan's areas as its islands. */
+.worldhead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
+.worldhead p { margin: 0; font-size: 12px; color: var(--muted); }
+.globebox { overflow-x: auto; }
+.world {
+  position: relative; margin: 0 auto; width: 100%; min-width: 460px; max-width: 760px; aspect-ratio: 1; container-type: inline-size;
+  --hb-code: var(--code); --hb-surface: var(--surface); --hb-surface-2: var(--tone-1); --hb-bg: var(--bg); --hb-text: var(--text);
+  --hb-muted: var(--muted); --hb-accent: var(--accent); --hb-border-strong: var(--border-strong); --hb-sun-fg: var(--run-line);
+  --hb-bad: var(--stop); --hb-ok: var(--ok);
+  --world-sea: color-mix(in oklab, var(--hb-code) 24%, var(--hb-surface));
+  --world-sea-lit: color-mix(in oklab, var(--hb-code) 36%, var(--hb-surface));
+  --world-deep: color-mix(in oklab, var(--hb-code) 18%, var(--hb-bg));
+  --world-line: color-mix(in oklab, var(--hb-code) 70%, var(--hb-text));
+  --world-soil: color-mix(in oklab, var(--hb-muted) 40%, var(--hb-surface-2));
+  --world-cloud: light-dark(rgb(255 255 255 / 0.55), rgb(255 255 255 / 0.07));
+}
+.world > .layer { position: absolute; inset: 0; }
+.world-sea { border-radius: 50%; overflow: hidden; background: radial-gradient(circle at 36% 30%, var(--world-sea-lit), var(--world-sea) 55%, var(--world-deep)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--world-line) 40%, transparent), 0 0 56px color-mix(in oklab, var(--hb-code) 20%, transparent); }
+.world-sea svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.world-grid circle, .world-grid line, .world-grid path, .world-current circle { fill: none; stroke: var(--world-line); vector-effect: non-scaling-stroke; }
+.world-grid circle, .world-grid line { stroke-opacity: 0.14; }
+.world-grid path { stroke-opacity: 0.6; }
+.world-current { animation: world-turn 200s linear infinite; }
+.world-current circle { stroke-opacity: 0.42; stroke-width: 2px; stroke-linecap: round; }
+.world-clouds { border-radius: 50%; overflow: hidden; pointer-events: none; }
+.world-weather { position: absolute; inset: 0; animation: world-turn 320s linear infinite reverse; }
+.world-cloud { position: absolute; border-radius: 50%; background: radial-gradient(closest-side, var(--world-cloud), transparent); }
+.world-island { position: absolute; left: 0; top: 0; }
+.world-rise { position: absolute; inset: 0; animation: world-rise 600ms cubic-bezier(0.23, 1, 0.32, 1) var(--world-entry, 0ms) both; }
+.world-art, .world-ripple { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.world-art path, .world-ripple path { vector-effect: non-scaling-stroke; }
+.world-shelf { fill: color-mix(in oklab, var(--world-sea-lit) 70%, white); fill-opacity: calc(0.16 + 0.24 * var(--world-heat)); stroke: transparent; stroke-width: 2px; }
+.world-land { fill: var(--world-land); stroke: color-mix(in oklab, var(--world-land) 62%, white); stroke-width: 1.5px; transition: fill 900ms ease; }
+.world-height { fill: color-mix(in oklab, var(--world-land) 84%, white); stroke: color-mix(in oklab, var(--world-land) 70%, black); stroke-opacity: 0.25; stroke-width: 1px; }
+.world-height[data-tier='1'] { fill: color-mix(in oklab, var(--world-land) 70%, white); }
+.world-height[data-tier='2'] { fill: color-mix(in oklab, var(--world-land) 54%, white); }
+/* An island with agents on it glows at its coast, as a working island does on the World. */
+.world-glow { fill: none; stroke: var(--hb-accent); stroke-width: 1.5px; opacity: 0; transition: opacity 400ms ease; }
+.world-island[data-live] .world-glow { opacity: 0.85; }
+.world-island[data-paused] .world-art { opacity: 0.55; }
+.world-island[data-paused] .world-land { stroke-dasharray: 5 4; }
+.world-ripple { opacity: 0; color: var(--world-line); pointer-events: none; animation: world-ripple var(--world-beat, 9s) cubic-bezier(0.23, 1, 0.32, 1) var(--world-wait, 0s) infinite; }
+.world-ripple + .world-ripple { animation-delay: calc(var(--world-wait, 0s) + var(--world-beat, 9s) / 2); }
+.world-ripple path { fill: none; stroke: currentColor; stroke-width: 1.5px; }
+/* Its leader checking: the World's quick yellow waves. */
+.world-island[data-check] { --world-beat: 2.8s; --world-tide: 0.75; }
+.world-island[data-check] .world-ripple { color: var(--hb-accent); }
+/* A check that passed lands like a merge on the World. */
+.world-burst { position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 2px var(--hb-accent), inset 0 0 24px color-mix(in oklab, var(--hb-accent) 60%, transparent); opacity: 0; pointer-events: none; animation: world-burst 1.2s cubic-bezier(0.23, 1, 0.32, 1); }
+.world-name { position: absolute; translate: -50% 0; width: max-content; text-align: center; color: var(--hb-text); text-shadow: 0 0 5px var(--world-deep), 0 0 2px var(--world-deep); pointer-events: none; }
+.world-name b { display: block; font-family: var(--font-head); font-size: 13px; font-weight: 600; line-height: 1.25; }
+.world-name span { display: block; font-family: var(--font-mono); font-size: 10px; line-height: 1.35; color: var(--hb-muted); font-variant-numeric: tabular-nums; }
+.world-name .world-working { display: inline-flex; align-items: center; gap: 5px; color: var(--hb-sun-fg); }
+.world-name .world-working::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--hb-accent); animation: world-blink 1.4s cubic-bezier(0.77, 0, 0.175, 1) infinite alternate; }
+.world-name .world-working[data-done] { color: var(--hb-ok); }
+.world-name .world-working[data-done]::before { background: var(--hb-ok); animation: none; }
+.world-name .world-working[data-quiet] { visibility: hidden; }
+.world canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.world[data-still] *, .world[data-still] *::before, .world[data-still] *::after { animation: none !important; }
+.world[data-still] .world-ripple { opacity: 0; }
+.world[data-still] .world-land, .world[data-still] .world-glow { transition: none; }
+.world[data-still] .world-island[data-check] .world-shelf { stroke: var(--hb-accent); }
+figcaption.world-caption { display: block; margin: 6px auto 0; max-width: 78ch; text-align: center; font-size: 11.5px; line-height: 1.6; color: var(--muted); }
+@keyframes world-turn { to { transform: rotate(360deg); } }
+@keyframes world-rise { from { opacity: 0; transform: scale(0.96); } }
+@keyframes world-ripple { 0% { transform: scale(1.03); opacity: 0; } 14% { opacity: var(--world-tide, 0.3); } 100% { transform: scale(1.42); opacity: 0; } }
+@keyframes world-burst { 0% { transform: scale(0.7); opacity: 0.95; } 100% { transform: scale(1.8); opacity: 0; } }
+@keyframes world-blink { from { opacity: 0.35; } }
+
+/* History */
+.charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px 24px; }
+.charts svg { width: 100%; height: auto; display: block; }
+.charts .h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.charts .h b { font-family: var(--font-head); font-size: 14px; font-weight: 600; }
+.charts .h span { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.axis { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); }
+.grid { stroke: var(--border); stroke-width: 1; }
+.tierline { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 3 4; }
+
+/* Planning */
+.planners { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.planner { background: var(--tone); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.planner b { font-family: var(--font-head); font-size: 14.5px; font-weight: 600; }
+.planner span { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.rounds { display: flex; gap: 4px; margin-top: 4px; }
+.rounds i { width: 22px; height: 5px; border-radius: 3px; background: var(--tone-1); }
+.rounds i.done { background: var(--text); }
+.rounds i.now { background: var(--accent); }
+.steps3 { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; padding: 0; list-style: none; font-size: 13.5px; }
+.steps3 li { color: var(--muted); }
+.steps3 li.done { color: var(--text); }
+.steps3 li.now { color: var(--text); font-weight: 600; }
+.steps3 li .k { font-family: var(--font-mono); font-size: 12px; margin-right: 6px; }
+.quote { margin: 0; padding: 12px 16px; border-radius: 14px; background: var(--bg); font-size: 13.5px; line-height: 1.5; color: var(--muted); max-width: 80ch; }
+
+/* Questions */
+.qs { display: flex; flex-direction: column; gap: 12px; }
+.q { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 18px; padding: 12px 0; border-top: 1px solid var(--border); }
+.q p { margin: 0; flex: 1 1 360px; min-width: 0; line-height: 1.45; }
+.q p .area { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-right: 6px; }
+
+/* After a stop */
+.after { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px 24px; align-items: start; }
+.compile { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; font-size: 13.5px; }
+.compile li { display: grid; grid-template-columns: 18px 64px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.compile .ck { color: var(--ok); font-weight: 700; }
+.compile time { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.pr { border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+.pr .t { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pr .t b { font-family: var(--font-head); font-size: 16px; font-weight: 600; }
+.pill { font-family: var(--font-head); font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--tone-1); color: var(--muted); }
+.pill.ready { color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); background: transparent; }
+.pr .m { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); }
+.pr .m .add { color: var(--ok); }
+.pr .m .del { color: var(--stop); }
+.sample { font-size: 12px; color: var(--muted); margin: 0; }
+
+@media (max-width: 760px) {
+  .window { padding: 16px 16px 24px; border-radius: 20px; }
+  .form, .charts, .after { grid-template-columns: minmax(0, 1fr); }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .planners { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .what p.lead { font-size: 25px; }
+  .btn { width: 144px; }
+  .btn.stop { width: 96px; }
+  .phase p { height: 60px; -webkit-line-clamp: 3; }
+}
+/* The run's path. Done is solid, what is left is dotted, the two detours are fainter still, and the step at work glows. */
+.path { overflow-x: auto; }
+.path svg { width: 100%; max-width: 880px; min-width: 620px; height: auto; display: block; }
+.pl { fill: none; stroke-width: 3; stroke-linecap: round; transition: stroke 300ms ease, opacity 300ms ease; }
+.pl.todo { stroke: var(--border-strong); stroke-dasharray: 1 8; opacity: 0.8; }
+.pl.side { stroke: var(--border-strong); stroke-dasharray: 1 8; opacity: 0.4; }
+.pl.done { stroke: var(--text); }
+.pl.held { stroke: var(--text); opacity: 0.35; }
+.pl.live, .pl.now { stroke: var(--accent); filter: drop-shadow(0 0 4px var(--accent)) drop-shadow(0 0 12px var(--accent)); }
+.pf { fill: none; stroke-width: 3; stroke-linecap: round; stroke: var(--on-accent); opacity: 0; stroke-dasharray: 8 26; }
+.pf.on { opacity: 0.35; animation: flow 1.2s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -34; } }
+.pn { cursor: pointer; outline: none; }
+.pn .hit { fill: transparent; }
+.pn .dot { fill: var(--surface); stroke: var(--border-strong); stroke-width: 2; transition: fill 300ms ease; }
+.pn .ring { fill: none; stroke: var(--accent); stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; }
+.pn .plab { font-family: var(--font-head); font-size: 13.5px; font-weight: 500; fill: var(--muted); }
+.pn.side .plab { font-size: 12.5px; }
+.pn.done .dot { fill: var(--text); stroke: var(--text); }
+.pn.now .dot { fill: var(--accent); stroke: var(--accent); filter: drop-shadow(0 0 6px var(--accent)); }
+.pn.now .plab { fill: var(--text); font-weight: 700; }
+.pn.now .ring { animation: ping 1.8s ease-out infinite; }
+@keyframes ping { 0% { opacity: 0.7; transform: scale(1); } 100% { opacity: 0; transform: scale(2.6); } }
+.pn:hover .plab { fill: var(--text); }
+.pn:focus-visible .dot { stroke: var(--focus); stroke-width: 3; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  .pf.on, .pn.now .ring { animation: none; }
+}
+</style>
+
+<div class="wrap">
+  <div class="intro">
+    <h1>Ludicrous mode</h1>
+    <p>A design mockup of the Ludicrous page, the third page of Work mode beside YOLO. Press a step on the path to see the page there. The main button and Stop are the only controls, always under the box or the phase line. Pressing them moves the page on too.</p>
+  </div>
+
+
+  <div class="window">
+    <div class="top">
+      <div class="head"><span class="eyebrow">Ludicrous mode</span><span class="chip" id="projectChip">tidepool</span></div>
+      <div class="tabs" aria-hidden="true"><span>Work</span><span>YOLO</span><span class="on">Ludicrous</span></div>
+    </div>
+
+    <nav class="path" aria-label="Where the run is"><svg id="path" viewBox="0 0 1000 152"></svg></nav>
+
+    <!-- 1. Your idea -->
+    <div class="panel" id="p-opening">
+      <section class="what" aria-label="What Ludicrous does">
+        <p class="lead">Ludicrous builds a whole project at once, as fast as your computer allows and at the best quality it can reach.</p>
+        <p>Tell it what you want. <strong>Five planning agents</strong> pull your idea apart, challenge each other's drafts, and come back with <strong>a plan and a spec for every part of the project</strong>. When you approve it, <strong>a swarm of agents</strong> starts building and keeps going until it's done.</p>
+        <p><strong>It holds nothing back.</strong> It spends <strong>every token you have</strong> and runs your computer at <strong>full power</strong>, so expect the fan to spin like crazy. Your other work keeps going, only slower. If your subscription runs out, Ludicrous waits for the reset and carries on by itself.</p>
+        <p><strong>Nothing waits for your review.</strong> Agents commit to one branch as they go, and you get <strong>a single pull request</strong> at the end, maybe a million lines long. You won't see what each agent is doing. You'll see how many are working in each part of the project, and how far each part has come.</p>
+        <p><strong>Stop kills every agent instantly.</strong> hobkin keeps what they finished and puts it in the pull request.</p>
+        <p class="end">Save it for your most ambitious work. Don't think <span class="dim">&ldquo;add a feature&rdquo;</span>. Think &ldquo;create the whole platform&rdquo;.</p>
+      </section>
+
+      <div class="form">
+        <div class="field">
+          <span class="eyebrow" id="projLabel">Project</span>
+          <div class="seg" role="radiogroup" aria-labelledby="projLabel">
+            <label><input type="radio" name="proj" id="projNew" value="new" checked>New folder</label>
+            <label><input type="radio" name="proj" id="projOld" value="old">A project Work has</label>
+          </div>
+          <input class="input" id="folder" value="~/Code/tidepool" aria-label="Folder">
+          <p class="say" id="folderSay">An empty folder. hobkin starts a git repository here, with no remote.</p>
+        </div>
+        <div class="field">
+          <span class="eyebrow">Who else works here</span>
+          <p class="alone" id="alone"></p>
+        </div>
+        <div class="field wide">
+          <span class="eyebrow" id="tierLabel">How hard to push your computer</span>
+          <div class="seg" role="radiogroup" aria-labelledby="tierLabel">
+            <label><input type="radio" name="tier" value="30">30</label>
+            <label><input type="radio" name="tier" value="50">50</label>
+            <label><input type="radio" name="tier" value="100" checked>100<span class="pick">hobkin's pick</span></label>
+          </div>
+          <p class="say" id="tierSay"></p>
+          <p class="models">Agents at once. Same plan and same quality at every setting: more agents finish sooner and use more of your computer.</p>
+        </div>
+      </div>
+    </div>
+
+    <section class="bar" aria-label="Ludicrous controls">
+      <div class="phase">
+        <div class="ask" id="ask">
+          <label for="idea">Write what you want. Be as clear as possible.</label>
+          <textarea class="input" id="idea" rows="5">A marketplace where independent boat repair shops list open slots and boat owners book them. A web app and an iOS app for owners, a dashboard for shops, payments held until the repair is done, reviews, an admin console, and the API under all of it.</textarea>
+          <p class="say" id="askSay"></p>
+        </div>
+        <div id="phaseHead" hidden>
+          <h2><span id="phaseTitle"></span><span class="tier" id="phaseTier"></span></h2>
+          <p id="phaseLine" aria-live="polite"></p>
+        </div>
+      </div>
+      <div class="buttons">
+        <button type="button" class="btn start" id="startBtn">Let's plan this</button>
+        <button type="button" class="btn stop" id="stopBtn">Stop</button>
+      </div>
+    </section>
+
+    <!-- Numbers, from planning on -->
+    <div class="tiles" id="tiles" hidden>
+      <div class="tile"><span class="eyebrow">Running now</span><b id="tRun">97<small> / 100</small></b><span class="sub" id="tRunSub">agents</span></div>
+      <div class="tile"><span class="eyebrow">Spawned this run</span><b id="tSpawn">0</b><span class="sub">since planning began</span></div>
+      <div class="tile"><span class="eyebrow">Tokens used</span><b id="tTok">0</b><span class="sub" id="tTokSub">all providers</span></div>
+      <div class="tile"><span class="eyebrow">Running for</span><b id="tTime">0 m</b><span class="sub" id="tTimeSub">since planning began</span></div>
+    </div>
+
+    <!-- 2. Planning -->
+    <div class="panel" id="p-planning" hidden>
+      <ul class="steps3" aria-label="Planning rounds">
+        <li class="done"><span class="k">1</span>Each planner drafts alone</li>
+        <li class="now"><span class="k">2</span>Each reads the other four and answers them</li>
+        <li><span class="k">3</span>One plan, then a spec for every area</li>
+        <li><span class="k">4</span>Each checks the whole set against its view</li>
+      </ul>
+      <div class="planners">
+        <div class="planner"><b>Product</b><span>What people do with it, screen by screen</span><div class="rounds"><i class="done"></i><i class="now"></i><i></i><i></i></div></div>
+        <div class="planner"><b>Architecture</b><span>The parts and the contracts between them</span><div class="rounds"><i class="done"></i><i class="now"></i><i></i><i></i></div></div>
+        <div class="planner"><b>Data</b><span>What is stored, how it moves, and its state machines</span><div class="rounds"><i class="done"></i><i class="now"></i><i></i><i></i></div></div>
+        <div class="planner"><b>Quality</b><span>Tests, proofs, and the checks each leader runs</span><div class="rounds"><i class="done"></i><i class="done"></i><i></i><i></i></div></div>
+        <div class="planner"><b>Delivery</b><span>Order, risk and the tier each step needs</span><div class="rounds"><i class="done"></i><i class="now"></i><i></i><i></i></div></div>
+      </div>
+      <p class="say">So far: 8 areas, 19 specs drafted, 3 questions for you.</p>
+      <blockquote class="quote" id="ideaQuote"></blockquote>
+    </div>
+
+    <!-- Map: plan ready, building, waiting, stopped, done. hobkin's Work world, with the plan's areas as islands. -->
+    <figure id="mapFig" hidden>
+      <div class="worldhead">
+        <span class="eyebrow">tidepool · 7 islands</span>
+        <p id="mapTotals"></p>
+      </div>
+      <div class="globebox">
+        <div class="world" id="world" role="img" aria-label="The plan's seven areas as islands on hobkin's globe, with how many agents work on each and how many of its steps are done.">
+          <div class="layer world-sea" aria-hidden="true">
+            <svg viewBox="0 0 1000 1000" class="world-grid" id="worldGrid"></svg>
+            <svg viewBox="0 0 1000 1000" class="world-current" style="animation-duration: 170s"><circle cx="500" cy="500" r="190" stroke-dasharray="3 30"/></svg>
+            <svg viewBox="0 0 1000 1000" class="world-current" style="animation-duration: 240s; animation-direction: reverse"><circle cx="500" cy="500" r="315" stroke-dasharray="3 38"/></svg>
+            <svg viewBox="0 0 1000 1000" class="world-current" style="animation-duration: 320s"><circle cx="500" cy="500" r="440" stroke-dasharray="3 46"/></svg>
+          </div>
+          <div class="layer" id="worldLands" aria-hidden="true"></div>
+          <div class="layer world-clouds" aria-hidden="true">
+            <div class="world-weather">
+              <i class="world-cloud" style="left: 8%; top: 20%; width: 38%; height: 13%; rotate: -28deg"></i>
+              <i class="world-cloud" style="left: 52%; top: 10%; width: 30%; height: 10%; rotate: 24deg"></i>
+              <i class="world-cloud" style="left: 56%; top: 64%; width: 36%; height: 12%; rotate: -38deg"></i>
+              <i class="world-cloud" style="left: 12%; top: 70%; width: 26%; height: 9%; rotate: 32deg"></i>
+            </div>
+          </div>
+          <div class="layer" id="worldNames" aria-hidden="true"></div>
+          <canvas id="worldAgents" aria-hidden="true"></canvas>
+        </div>
+      </div>
+      <figcaption class="world-caption">Each area of the plan is an island, drawn from its name. The more agents work there, the stronger its colour, and the more of its steps pass their checks, the higher its peaks. Its leader stands on it and is the only one who runs its checks: yellow waves spread while it does. Workers come out of the leader and hop onto the work it wrote. Foundation sits at the pole, and each island sits nearer the more it builds on it.</figcaption>
+    </figure>
+
+    <!-- History -->
+    <div class="charts" id="charts" hidden>
+      <figure>
+        <div class="h"><b>Agents running</b><span id="runNow"></span></div>
+        <svg id="chartRun" viewBox="0 0 440 150" role="img" aria-label="Agents running over the run"></svg>
+      </figure>
+      <figure>
+        <div class="h"><b>Agents spawned</b><span id="spawnNow"></span></div>
+        <svg id="chartSpawn" viewBox="0 0 440 150" role="img" aria-label="Agents spawned in total over the run"></svg>
+      </figure>
+    </div>
+
+    <!-- 3. Plan ready: questions -->
+    <div class="panel" id="p-plan" hidden>
+      <span class="eyebrow">Questions that change the plan</span>
+      <div class="qs">
+        <div class="q">
+          <p><span class="area">Payments</span>Hold each booking's money until the repair is done, or pay the shop when the owner books?</p>
+          <div class="seg" role="radiogroup" aria-label="Payments">
+            <label><input type="radio" name="q1" checked>Hold until done<span class="pick">pick</span></label>
+            <label><input type="radio" name="q1">Pay at booking</label>
+          </div>
+        </div>
+        <div class="q">
+          <p><span class="area">iOS app</span>Native Swift, or React Native sharing the web app's components?</p>
+          <div class="seg" role="radiogroup" aria-label="iOS app">
+            <label><input type="radio" name="q2">Swift</label>
+            <label><input type="radio" name="q2" checked>React Native<span class="pick">pick</span></label>
+          </div>
+        </div>
+        <div class="q">
+          <p><span class="area">Foundation</span>Sign in with email links only, or with Apple and Google too?</p>
+          <div class="seg" role="radiogroup" aria-label="Sign in">
+            <label><input type="radio" name="q3">Email only</label>
+            <label><input type="radio" name="q3" checked>Email, Apple, Google<span class="pick">pick</span></label>
+          </div>
+        </div>
+      </div>
+      <p class="say">A question you leave takes the planners' pick when you Go Ludicrous. The plan is 24 specs in the project's _specs folder.</p>
+    </div>
+
+    <!-- 6 and 7. After a stop, and done -->
+    <div class="panel" id="p-after" hidden>
+      <div class="after">
+        <div class="field">
+          <span class="eyebrow" id="compileLabel">What the compile did</span>
+          <ul class="compile" id="compile"></ul>
+        </div>
+        <div class="pr" id="pr">
+          <div class="t"><b>tidepool #1</b><span class="pill" id="prPill">Draft</span></div>
+          <span class="m">ludicrous/tidepool into main</span>
+          <span class="m" id="prSize"></span>
+          <span class="m" id="prNote"></span>
+        </div>
+      </div>
+    </div>
+
+    <p class="sample">Sample data. tidepool and harbor are made-up projects.</p>
+  </div>
+</div>
+
+<script>
+(() => {
+  const NS = 'http://www.w3.org/2000/svg';
+  const $ = id => document.getElementById(id);
+  const el = (tag, attrs = {}, parent) => {
+    const node = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    if (parent) parent.appendChild(node);
+    return node;
+  };
+  const fmt = n => n.toLocaleString('en-US');
+  const hm = min => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h ? `${h} h ${String(m).padStart(2, '0')} m` : `${m} m`; };
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- The map: hobkin's Work world, with the plan's areas as islands ---------- */
+  // The layout is the World's own (world-layout.ts): a coast and islets from each slug, places like a sunflower's seeds,
+  // and agents on standing rings. Foundation sits at the pole.
+  const GLOBE = 1000, POLE = 500, TURN = Math.PI * 2, GOLDEN = Math.PI * (3 - Math.sqrt(5));
+  const SHORE = POLE - 26, SPREAD = POLE * 0.75, FIRST_BEARING = -2.2, LARGEST_ISLAND = POLE * 0.34;
+  const LAND_SHARE = 0.84, IDLE_SIZE = 0.84, NAME_DROP = 30, COAST_POINTS = 96;
+  const SWELLS = [[2, 0.24], [3, 0.18], [4, 0.11], [5, 0.08], [7, 0.05], [9, 0.035], [13, 0.026], [19, 0.016]];
+  const MOST_ISLETS = 2, ISLET_POINTS = 14, ISLET_SIDES = [-0.3, -0.15, 0, 0.15, 0.3];
+  const STANDING = [0.12, 0.26, 0.4, 0.54, 0.68], STANDING_BEARINGS = 36;
+  const LARGEST_AGENT = 54, SMALLEST_AGENT = 12, AGENT_SHARE = 1 - 2 * 0.1 - 0.02;
+  const HEIGHTS = [0.7, 0.44, 0.22];
+
+  function hash(value) { let r = 0; for (const c of value) r = (r * 31 + c.charCodeAt(0)) >>> 0; return r; }
+  function seeded(seed) {
+    let s = seed >>> 0;
+    return () => {
+      s = (s + 0x6d2b79f5) >>> 0;
+      let m = s;
+      m = Math.imul(m ^ (m >>> 15), m | 1);
+      m ^= m + Math.imul(m ^ (m >>> 7), m | 61);
+      return ((m ^ (m >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const between = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const along = (bearing, out) => ({ x: out * Math.cos(bearing), y: out * Math.sin(bearing) });
+  function closest(points) { let m = Infinity; for (let i = 0; i < points.length; i++) for (let j = i + 1; j < points.length; j++) m = Math.min(m, between(points[i], points[j])); return m; }
+  function leftBy(dent, bearing) { const off = Math.atan2(Math.sin(bearing - dent.at), Math.cos(bearing - dent.at)); return 1 - dent.depth * Math.exp(-((off / dent.width) ** 2)); }
+  function drawCoast(random) {
+    const swells = SWELLS.map(([capes, push]) => ({ capes, push: push * (0.45 + 0.55 * random()), phase: random() * TURN }));
+    const bay = { at: random() * TURN, depth: 0.2 + 0.28 * random(), width: 0.3 + 0.25 * random() };
+    const cove = { at: bay.at + 1.3 + 3.6 * random(), depth: 0.1 + 0.18 * random(), width: 0.14 + 0.14 * random() };
+    const unscaled = b => { let out = 1; for (const s of swells) out += s.push * Math.cos(s.capes * b + s.phase); return out * leftBy(bay, b) * leftBy(cove, b); };
+    const bearings = Array.from({ length: COAST_POINTS }, (_, i) => (i / COAST_POINTS) * TURN);
+    const longest = Math.max(...bearings.map(unscaled));
+    const reach = b => unscaled(b) / longest;
+    return { coast: bearings.map(b => along(b, reach(b))), reach, bay };
+  }
+  function isletCoast(size, turned) {
+    return Array.from({ length: ISLET_POINTS }, (_, i) => { const a = (i / ISLET_POINTS) * TURN; return along(a, (size * (1 + 0.25 * Math.cos(2 * a + turned) + 0.15 * Math.cos(3 * a - turned))) / 1.4); });
+  }
+  function drawIslets(random, reach, bayAt) {
+    const islets = [];
+    for (const bearing of [bayAt, bayAt + 2.1 + random(), random() * TURN]) {
+      const size = 0.07 + 0.06 * random();
+      const turned = random() * TURN;
+      const out = Math.max(...ISLET_SIDES.map(aside => reach(bearing + aside))) + size + 0.06;
+      const place = along(bearing, out);
+      if (islets.length === MOST_ISLETS || out + size > 1 || islets.some(o => between(o, place) < 0.35)) continue;
+      islets.push({ ...place, coast: isletCoast(size, turned) });
+    }
+    return islets;
+  }
+  function standingOrder(reach, facing) {
+    const ground = STANDING.flatMap((share, ring) => Array.from({ length: STANDING_BEARINGS }, (_, i) => { const b = facing + ((i + ring / 2) / STANDING_BEARINGS) * TURN; return along(b, share * reach(b)); }));
+    const taken = [];
+    const clear = p => Math.min(...taken.map(o => between(o, p)));
+    return count => {
+      while (taken.length < Math.min(count, ground.length)) taken.push(taken.length === 0 ? ground[0] : ground.reduce((best, p) => (clear(p) > clear(best) ? p : best)));
+      return taken.slice(0, count);
+    };
+  }
+  function shapeOf(slug) {
+    const random = seeded(hash(slug));
+    const { coast, reach, bay } = drawCoast(random);
+    const islets = drawIslets(random, reach, bay.at);
+    const stand = standingOrder(reach, random() * TURN);
+    const shores = [...coast.map(p => p.y), ...islets.flatMap(i => i.coast.map(p => i.y + p.y))];
+    return { coast, islets, north: Math.min(...shores), south: Math.max(...shores), peak: along(bay.at, -0.1), stand };
+  }
+  function coastline(points, scale = 1, shift = { x: 0, y: 0 }) {
+    const at = i => { const p = points[i % points.length]; return { x: p.x * scale + shift.x, y: p.y * scale + shift.y }; };
+    const w = p => `${p.x.toFixed(4)} ${p.y.toFixed(4)}`;
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    return `M ${w(mid(at(points.length - 1), at(0)))} ${points.map((_, i) => `Q ${w(at(i))} ${w(mid(at(i), at(i + 1)))}`).join(' ')} Z`;
+  }
+  function nameSide(is, all) {
+    const others = all.filter(o => o !== is);
+    const openSeaAt = y => Math.min(POLE - Math.hypot(is.x - POLE, y - POLE), ...others.map(o => Math.hypot(o.x - is.x, o.y - y) - o.radius));
+    return openSeaAt(is.y + is.south * is.radius + NAME_DROP) >= openSeaAt(is.y + is.north * is.radius - NAME_DROP) ? 'below' : 'above';
+  }
+
+  // The plan. share: its part of the workers. slots: the work spots on its land.
+  const PLAN = [
+    { slug: 'foundation', name: 'Foundation', specs: 2, share: 3, slots: 10, total: 14 },
+    { slug: 'api', name: 'API', specs: 4, share: 17, slots: 34, total: 61 },
+    { slug: 'web-app', name: 'Web app', specs: 5, share: 22, slots: 44, total: 88 },
+    { slug: 'ios-app', name: 'iOS app', specs: 4, share: 18, slots: 36, total: 70 },
+    { slug: 'shop-dashboard', name: 'Shop dashboard', specs: 3, share: 14, slots: 28, total: 41 },
+    { slug: 'payments', name: 'Payments', specs: 2, share: 10, slots: 22, total: 33 },
+    { slug: 'admin', name: 'Admin', specs: 4, share: 9, slots: 18, total: 36 },
+  ];
+  const TOTAL_STEPS = PLAN.reduce((s, p) => s + p.total, 0);
+  const TOTAL_SPECS = PLAN.reduce((s, p) => s + p.specs, 0);
+  // Steps done on each island, in the plan's order, for each state the map shows.
+  const DONE_AT = {
+    plan: PLAN.map(() => 0),
+    running: [12, 30, 41, 22, 19, 11, 8],
+    waiting: [14, 27, 33, 17, 15, 9, 6],
+    stopped: [14, 36, 52, 27, 23, 14, 12],
+    done: PLAN.map(p => p.total),
+  };
+  const TIER = 100, MAX_CHECKS = 3, PER_STEP = 8, SPACING = 0.12;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const pick = list => list[Math.floor(Math.random() * list.length)];
+  const easeOut = t => 1 - Math.pow(1 - t, 3);
+  const shuffle = list => { for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; } return list; };
+  function oklch(L, C, h) {
+    const a = C * Math.cos((h * Math.PI) / 180), b = C * Math.sin((h * Math.PI) / 180);
+    const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+    const f = x => { x = Math.max(0, Math.min(1, x)); return Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055)); };
+    return `rgb(${f(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)}, ${f(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)}, ${f(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)})`;
+  }
+  // Hood colours, as the World gives an agent: oklch(0.62 0.11 hue).
+  const TINTS = [262, 200, 150, 30, 330, 110, 0, 290].map(h => oklch(0.62, 0.11, h));
+  const LEADER_TINT = oklch(0.62, 0.11, 175);
+
+  const ISLANDS = (() => {
+    const sites = PLAN.map((p, i) => {
+      const fromPole = i === 0 ? 0 : SPREAD * Math.sqrt((i + 0.5) / PLAN.length);
+      const bearing = FIRST_BEARING + i * GOLDEN;
+      return { ...p, fromPole, x: POLE + fromPole * Math.cos(bearing), y: POLE + fromPole * Math.sin(bearing) };
+    });
+    const most = Math.max(...PLAN.map(p => p.share));
+    const islands = sites.map(site => {
+      const room = Math.min(GLOBE, ...sites.filter(o => o !== site).map(o => between(site, o)));
+      const largest = Math.min(LARGEST_ISLAND, SHORE - site.fromPole, (LAND_SHARE * room) / 2);
+      return { ...site, ...shapeOf(site.slug), room, radius: largest * (IDLE_SIZE + (1 - IDLE_SIZE) * Math.sqrt(site.share / most)) };
+    });
+    for (const is of islands) {
+      is.label = nameSide(is, islands);
+      const points = is.stand(is.slots + 1);
+      is.size = Math.max(SMALLEST_AGENT, Math.min(LARGEST_AGENT, closest(points) * is.radius * AGENT_SHARE));
+      const place = p => ({ x: is.x + p.x * is.radius, y: is.y + p.y * is.radius });
+      is.leaderAt = place(points[0]);
+      is.spotAt = points.slice(1).map(place);
+    }
+    return islands;
+  })();
+
+  // The globe, drawn once.
+  const span = length => `${((length / GLOBE) * 100).toFixed(3)}cqw`;
+  const worldEl = $('world');
+  const gridEl = $('worldGrid');
+  for (const ring of [125, 250, 375]) el('circle', { cx: POLE, cy: POLE, r: ring }, gridEl);
+  for (let t = 0; t < 12; t++) { const a = (t * Math.PI) / 6; el('line', { x1: POLE + 40 * Math.cos(a), y1: POLE + 40 * Math.sin(a), x2: POLE + POLE * Math.cos(a), y2: POLE + POLE * Math.sin(a) }, gridEl); }
+  el('path', { d: `M ${POLE - 9} ${POLE} H ${POLE + 9} M ${POLE} ${POLE - 9} V ${POLE + 9}` }, gridEl);
+  const view = ISLANDS.map((is, order) => {
+    const box = document.createElement('div');
+    box.className = 'world-island';
+    Object.assign(box.style, { width: span(is.radius * 2), height: span(is.radius * 2), transform: `translate(${span(is.x - is.radius)}, ${span(is.y - is.radius)})` });
+    box.style.setProperty('--world-wait', `${(order * 1.7) % 9}s`);
+    box.style.setProperty('--world-entry', `${order * 55}ms`);
+    const rise = document.createElement('div');
+    rise.className = 'world-rise';
+    box.appendChild(rise);
+    const shore = coastline(is.coast);
+    for (let w = 0; w < 2; w++) el('path', { d: shore }, el('svg', { viewBox: '-1 -1 2 2', class: 'world-ripple' }, rise));
+    const art = el('svg', { viewBox: '-1 -1 2 2', class: 'world-art' }, rise);
+    el('path', { d: shore, transform: 'scale(1.15)', class: 'world-shelf' }, art);
+    el('path', { d: shore, transform: 'scale(1.09)', class: 'world-glow' }, art);
+    for (const islet of is.islets) el('path', { d: coastline(islet.coast, 1, islet), class: 'world-land' }, art);
+    el('path', { d: shore, class: 'world-land' }, art);
+    const heights = el('g', {}, art);
+    $('worldLands').appendChild(box);
+    const name = document.createElement('div');
+    name.className = 'world-name';
+    name.style.left = span(is.x);
+    if (is.label === 'below') name.style.top = `calc(${span(is.y + is.south * is.radius)} + 5px)`;
+    else name.style.bottom = `calc(100cqw - ${span(is.y + is.north * is.radius)} + 5px)`;
+    name.innerHTML = '<b></b><span class="facts"></span><span class="world-working"></span>';
+    name.querySelector('b').textContent = is.name;
+    $('worldNames').appendChild(name);
+    return { box, rise, heights, tiers: -1, facts: name.querySelector('.facts'), working: name.querySelector('.world-working') };
+  });
+  function setTiers(i, tiers) {
+    const v = view[i], is = ISLANDS[i];
+    if (v.tiers === tiers) return;
+    v.tiers = tiers;
+    v.heights.replaceChildren();
+    HEIGHTS.slice(0, tiers).forEach((h, tier) => el('path', { d: coastline(is.coast, h, { x: is.peak.x * (1 - h), y: is.peak.y * (1 - h) }), class: 'world-height', 'data-tier': tier }, v.heights));
+  }
+
+  const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let worldStill = motionQuery.matches;
+  worldEl.toggleAttribute('data-still', worldStill);
+  if (motionQuery.addEventListener) motionQuery.addEventListener('change', e => { worldStill = e.matches; worldEl.toggleAttribute('data-still', worldStill); });
+
+  // The run on the map: leaders write work, workers come out of their leader and hop onto it, and only leaders check.
+  let isl = [], agents = [], simT = 0, spawned = 0, lastSpawn = 0, doneSince = null, mapMode = 'plan', loop = 0;
+  function freshIsland(is, done) {
+    return { stepsDone: done, credit: 0, packetsLeft: (is.total - done) * PER_STEP, checking: false, checkEnd: 0, lastCheck: -rnd(0, 6), nextWrite: rnd(0.4, 2.5), finished: done >= is.total, doneUnchecked: 0,
+      spots: is.spotAt.map(p => ({ x: p.x, y: p.y, state: 'empty', at: -9, reserved: false, fix: false, inCheck: false })) };
+  }
+  function seedRun() {
+    isl = ISLANDS.map((is, i) => freshIsland(is, DONE_AT.running[i]));
+    agents = []; simT = 0; lastSpawn = 0; doneSince = null;
+    ISLANDS.forEach((is, i) => {
+      const st = isl[i];
+      const free = shuffle(st.spots.slice());
+      const take = Math.min(is.share, free.length, st.packetsLeft);
+      for (let k = 0; k < take; k++) { const s = free.pop(); s.state = 'taken'; s.reserved = true; st.packetsLeft--; agents.push({ i, spot: s, state: 'work', end: rnd(0.5, 20), x: s.x, y: s.y, tint: pick(TINTS), size: is.size }); }
+      const done = Math.min(Math.round(is.share * rnd(0.2, 0.6)), free.length, st.packetsLeft);
+      for (let k = 0; k < done; k++) { const s = free.pop(); s.state = 'done'; st.doneUnchecked++; st.packetsLeft--; }
+      const open = Math.min(2 + Math.floor(rnd(0, 3)), free.length, st.packetsLeft);
+      for (let k = 0; k < open; k++) { const s = free.pop(); s.state = 'open'; st.packetsLeft--; }
+    });
+  }
+  const openOf = st => st.spots.filter(s => s.state === 'open' && !s.reserved);
+  const leadersNow = () => isl.filter(st => !st.finished).length;
+  const workersNow = () => agents.filter(a => a.state !== 'vanish').length;
+  function homeFor(live) {
+    let r = Math.random() * live.reduce((t, i) => t + ISLANDS[i].share, 0);
+    for (const i of live) { r -= ISLANDS[i].share; if (r <= 0) return i; }
+    return live[live.length - 1];
+  }
+  function spawn() {
+    if (workersNow() >= TIER - leadersNow() || simT - lastSpawn < (worldStill ? 0 : SPACING)) return;
+    let home = isl.findIndex(st => openOf(st).some(s => s.fix)), target = home, spot = home >= 0 ? openOf(isl[home]).find(s => s.fix) : null;
+    if (!spot) {
+      const live = isl.map((_, i) => i).filter(i => !isl[i].finished && (isl[i].packetsLeft > 0 || openOf(isl[i]).length));
+      if (!live.length) return;
+      home = homeFor(live);
+      const mine = openOf(isl[home]);
+      if (mine.length) { target = home; spot = pick(mine); }
+      else {
+        // Its island ran dry: the agent crosses to the nearest island with work waiting.
+        const others = isl.map((_, i) => i).filter(i => openOf(isl[i]).length).sort((a, b) => between(ISLANDS[a], ISLANDS[home]) - between(ISLANDS[b], ISLANDS[home]));
+        if (!others.length) return;
+        target = others[0]; spot = pick(openOf(isl[target]));
+      }
+    }
+    spot.reserved = true;
+    const from = ISLANDS[home].leaderAt;
+    agents.push({ i: target, home, spot, state: 'drop', t0: simT, dur: worldStill ? 0 : 0.38, fx: from.x, fy: from.y, x: from.x + rnd(-8, 8), y: from.y + 10 + rnd(0, 6), tint: pick(TINTS), size: ISLANDS[home].size });
+    spawned++;
+    lastSpawn = simT;
+  }
+  function startHop(a) {
+    const d = Math.hypot(a.spot.x - a.x, a.spot.y - a.y);
+    const cross = a.home !== a.i;
+    Object.assign(a, { state: 'hop', t0: simT, hx: a.x, hy: a.y, dur: worldStill ? 0 : cross ? 0.6 : 0.35 + Math.min(0.15, d / 1000), arc: cross ? Math.min(110, d * 0.3) : Math.min(40, 10 + d * 0.2) });
+  }
+  function endCheck(i) {
+    const st = isl[i], is = ISLANDS[i];
+    const covered = st.spots.filter(s => s.inCheck);
+    const failed = covered.length >= 4 && Math.random() < 0.12 ? pick(covered) : null;
+    for (const s of covered) {
+      s.inCheck = false;
+      if (s === failed) Object.assign(s, { state: 'open', fix: true, reserved: false, at: simT });
+      else Object.assign(s, { state: 'clearing', at: simT });
+    }
+    st.doneUnchecked -= covered.length;
+    st.credit += covered.length - (failed ? 1 : 0);
+    st.stepsDone = Math.min(is.total, DONE_AT.running[i] + Math.floor(st.credit / PER_STEP));
+    st.checking = false; st.lastCheck = simT;
+    if (!failed && covered.length && !worldStill) {
+      const ring = document.createElement('i');
+      ring.className = 'world-burst';
+      view[i].rise.appendChild(ring);
+      setTimeout(() => ring.remove(), 1300);
+    }
+  }
+  function step(dt) {
+    simT += dt;
+    for (const a of agents) {
+      if (a.state === 'drop' && simT - a.t0 >= a.dur) startHop(a);
+      else if (a.state === 'hop' && simT - a.t0 >= a.dur) Object.assign(a, { state: 'work', end: simT + rnd(10, 26), x: a.spot.x, y: a.spot.y, size: ISLANDS[a.i].size }), (a.spot.state = 'taken');
+      else if (a.state === 'work' && simT >= a.end) {
+        Object.assign(a.spot, { state: 'done', at: simT, reserved: false, fix: false });
+        isl[a.i].doneUnchecked++;
+        Object.assign(a, { state: 'vanish', t0: simT, dur: worldStill ? 0 : 0.3 });
+      } else if (a.state === 'vanish' && simT - a.t0 >= a.dur) a.state = 'gone';
+    }
+    agents = agents.filter(a => a.state !== 'gone');
+    ISLANDS.forEach((is, i) => {
+      const st = isl[i];
+      if (st.finished) return;
+      if (simT >= st.nextWrite) {
+        // A leader keeps a little more work written than its agents can take at once.
+        const empties = shuffle(st.spots.filter(s => s.state === 'empty'));
+        const count = Math.max(0, Math.min(st.packetsLeft, empties.length, Math.ceil(is.share * 0.3) + 2 - openOf(st).length));
+        for (let k = 0; k < count; k++) Object.assign(empties[k], { state: 'open', at: simT });
+        st.packetsLeft -= count;
+        st.nextWrite = simT + rnd(0.8, 1.6);
+      }
+      for (const s of st.spots) if (s.state === 'clearing' && simT - s.at >= (worldStill ? 0 : 0.8)) s.state = 'empty';
+      if (st.checking && simT >= st.checkEnd) endCheck(i);
+    });
+    let checking = isl.filter(st => st.checking).length;
+    const ready = isl.map((_, i) => i).filter(i => {
+      const st = isl[i];
+      if (st.checking || st.finished || simT - st.lastCheck < 1.5 || !st.doneUnchecked) return false;
+      const winding = st.packetsLeft === 0 && !st.spots.some(s => s.state === 'open' || s.state === 'taken');
+      return winding || st.doneUnchecked >= Math.max(5, Math.round(ISLANDS[i].share * 0.6));
+    }).sort((a, b) => isl[a].lastCheck - isl[b].lastCheck);
+    for (const i of ready) {
+      if (checking >= MAX_CHECKS) break;
+      const st = isl[i];
+      st.checking = true; st.checkEnd = simT + rnd(3, 4.5);
+      for (const s of st.spots) if (s.state === 'done') s.inCheck = true;
+      checking++;
+    }
+    ISLANDS.forEach((is, i) => {
+      const st = isl[i];
+      if (!st.finished && st.packetsLeft === 0 && !st.checking && st.spots.every(s => s.state === 'empty')) { st.finished = true; st.stepsDone = is.total; }
+    });
+    spawn();
+    // The sample keeps building: when every island is done, it starts again from the same point.
+    if (isl.every(st => st.finished) && !agents.length) {
+      if (doneSince === null) doneSince = simT;
+      else if (simT - doneSince > 6) seedRun();
+    }
+  }
+
+  // Agents and work spots, drawn as the World draws an agent: a round chip with the pet in its hood's colour.
+  const canvas = $('worldAgents');
+  const ctx = canvas.getContext('2d');
+  const BODY = new Path2D('M34 182 C34 120 60 70 100 70 C140 70 166 120 166 182 Q166 188 160 188 L40 188 Q34 188 34 182 Z');
+  let colors = {}, unit = 0.7;
+  function readColors() {
+    const css = getComputedStyle(worldEl);
+    const get = name => css.getPropertyValue(name).trim();
+    colors = { text: get('--hb-text'), surface: get('--hb-surface'), border: get('--hb-border-strong'), accent: get('--hb-accent'), bad: get('--hb-bad') };
+  }
+  function fitCanvas() {
+    const w = canvas.clientWidth;
+    if (!w) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(w * dpr);
+    unit = w / GLOBE;
+    readColors();
+    drawAgents();
+  }
+  new ResizeObserver(fitCanvas).observe(canvas);
+  new MutationObserver(() => { readColors(); drawAgents(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+  const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  if (darkQuery.addEventListener) darkQuery.addEventListener('change', () => { readColors(); drawAgents(); });
+
+  function chip(x, y, d, tint, leader, alpha) {
+    const r = d / 2;
+    ctx.globalAlpha = alpha * 0.25;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(x, y + 2 / unit, r + 1.2 / unit, 0, TURN); ctx.fill();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = colors.surface;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TURN); ctx.fill();
+    ctx.lineWidth = (leader ? 2.2 : 1.5) / unit;
+    ctx.strokeStyle = leader ? colors.accent : colors.border;
+    ctx.stroke();
+    const box = d * 1.18;
+    ctx.save();
+    ctx.translate(x - box / 2, y - box / 2);
+    ctx.scale(box / 256, box / 256);
+    ctx.translate(28, 28);
+    ctx.fillStyle = tint;
+    ctx.fill(BODY);
+    ctx.beginPath(); ctx.ellipse(74, 190, 14.5, 7.5, 0, 0, TURN); ctx.moveTo(140.5, 190); ctx.ellipse(126, 190, 14.5, 7.5, 0, 0, TURN); ctx.fill();
+    const eye = d * unit < 14 ? 13 : 9;
+    ctx.fillStyle = colors.surface;
+    ctx.beginPath(); ctx.arc(84, 138, eye, 0, TURN); ctx.moveTo(116 + eye, 138); ctx.arc(116, 138, eye, 0, TURN); ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+  function where(a) {
+    const e = a.dur ? easeOut(Math.min(1, (simT - a.t0) / a.dur)) : 1;
+    if (a.state === 'drop') return { x: a.fx + (a.x - a.fx) * e, y: a.fy + (a.y - a.fy) * e, alpha: e, scale: 0.5 + 0.5 * e };
+    if (a.state === 'hop') return { x: a.hx + (a.spot.x - a.hx) * e, y: a.hy + (a.spot.y - a.hy) * e - a.arc * 4 * e * (1 - e), alpha: 1, scale: 1 };
+    if (a.state === 'vanish') { const v = a.dur ? Math.min(1, (simT - a.t0) / a.dur) : 1; return { x: a.x, y: a.y, alpha: 1 - v, scale: 1 - 0.6 * v }; }
+    return { x: a.x, y: a.y, alpha: 1, scale: 1 };
+  }
+  function drawAgents() {
+    if (!canvas.width) return;
+    ctx.setTransform(canvas.width / GLOBE, 0, 0, canvas.height / GLOBE, 0, 0);
+    ctx.clearRect(0, 0, GLOBE, GLOBE);
+    if (mapMode !== 'running') return;
+    const dot = 2.7 / unit;
+    isl.forEach(st => {
+      for (const s of st.spots) {
+        if (s.state === 'empty' || s.state === 'taken') continue;
+        if (s.state === 'open') {
+          const grow = worldStill ? 1 : Math.min(1, Math.max(0, (simT - s.at) / 0.35));
+          ctx.globalAlpha = 0.7 * grow;
+          if (s.fix) { ctx.fillStyle = colors.bad; ctx.beginPath(); ctx.arc(s.x, s.y, dot * 1.25, 0, TURN); ctx.fill(); }
+          else { ctx.strokeStyle = colors.text; ctx.lineWidth = 1.3 / unit; ctx.beginPath(); ctx.arc(s.x, s.y, dot * grow, 0, TURN); ctx.stroke(); }
+        } else {
+          ctx.globalAlpha = 0.6 * (s.state === 'clearing' ? Math.max(0, 1 - (simT - s.at) / 0.8) : 1);
+          ctx.fillStyle = colors.text;
+          ctx.beginPath(); ctx.arc(s.x, s.y, dot, 0, TURN); ctx.fill();
+        }
+      }
+    });
+    ctx.globalAlpha = 1;
+    ISLANDS.forEach((is, i) => { if (!isl[i].finished) chip(is.leaderAt.x, is.leaderAt.y, is.size * 1.45, LEADER_TINT, true, 1); });
+    for (const a of agents) { const p = where(a); chip(p.x, p.y, a.size * p.scale, a.tint, false, p.alpha); }
+  }
+
+  // The words on the globe: each island's name, its steps, and who works there.
+  const tiersOf = share => (share >= 0.25) + (share >= 0.5) + (share >= 0.8);
+  const onIsland = i => (mapMode === 'running' ? agents.filter(a => a.i === i && a.state !== 'vanish').length : 0);
+  function paintWorldWords() {
+    const counts = ISLANDS.map((_, i) => onIsland(i));
+    const work = ISLANDS.map((_, i) => isl[i].stepsDone + 2 * counts[i]);
+    const most = Math.max(0, ...work);
+    const paused = mapMode === 'waiting' || mapMode === 'stopped';
+    ISLANDS.forEach((is, i) => {
+      const st = isl[i], v = view[i];
+      const heat = most ? Math.sqrt(work[i] / most) : 0;
+      v.box.style.setProperty('--world-land', `color-mix(in oklab, var(--hb-accent) ${Math.round(14 + 86 * heat)}%, var(--world-soil))`);
+      v.box.style.setProperty('--world-heat', heat.toFixed(2));
+      v.box.toggleAttribute('data-live', counts[i] > 0);
+      v.box.toggleAttribute('data-check', mapMode === 'running' && st.checking);
+      v.box.toggleAttribute('data-paused', paused);
+      setTiers(i, tiersOf(st.stepsDone / is.total));
+      v.facts.textContent = mapMode === 'plan' ? `${is.specs} specs · ${is.total} steps`
+        : paused ? `${mapMode} · ${st.stepsDone} of ${is.total} steps`
+        : `${st.stepsDone} of ${is.total} steps`;
+      const w = v.working;
+      w.removeAttribute('data-done'); w.removeAttribute('data-quiet');
+      if (mapMode === 'done' || (mapMode === 'running' && st.finished)) { w.textContent = 'done'; w.setAttribute('data-done', ''); }
+      else if (mapMode === 'running') w.textContent = `${counts[i]} working${st.checking ? ' · checking' : ''}`;
+      else { w.textContent = 'none working'; w.setAttribute('data-quiet', ''); }
+    });
+  }
+  const stepsNow = () => isl.reduce((t, st) => t + st.stepsDone, 0);
+  function runLine() {
+    const building = isl.filter(st => !st.finished).length;
+    return `${building} of 7 islands building. ${stepsNow()} of ${TOTAL_STEPS} steps done. The computer is at full power.`;
+  }
+  function paintRunNumbers() {
+    const running = workersNow() + leadersNow();
+    $('tRun').innerHTML = `${running}<small> / 100</small>`;
+    $('tSpawn').textContent = fmt(spawned);
+    $('runNow').textContent = `${running} now`;
+    $('spawnNow').textContent = `${fmt(spawned)} in all`;
+    $('mapTotals').textContent = `${stepsNow()} of ${TOTAL_STEPS} steps done · ${running} agents working now`;
+    $('phaseLine').textContent = runLine();
+  }
+
+  // What the map shows in each state. Building runs the sample; every other state is still.
+  function paintMap(mode) {
+    mapMode = mode;
+    if (mode === 'running') seedRun();
+    else { agents = []; isl = ISLANDS.map((is, i) => freshIsland(is, DONE_AT[mode][i])); }
+    paintWorldWords();
+    const steps = stepsNow();
+    $('mapTotals').textContent = mode === 'plan' ? `${ISLANDS.length} islands · ${TOTAL_SPECS} specs · ${TOTAL_STEPS} steps`
+      : mode === 'done' ? `${TOTAL_STEPS} of ${TOTAL_STEPS} steps done · no agent running`
+      : mode === 'running' ? `${steps} of ${TOTAL_STEPS} steps done · ${workersNow() + leadersNow()} agents working now`
+      : `${steps} of ${TOTAL_STEPS} steps done · no agent running`;
+    readColors();
+    drawAgents();
+  }
+
+  // History. Minutes since the first Start: planning, the wait for the second Start, a slow start on the foundation, then the full tier.
+  function series(mode) {
+    const end = { running: 372, waiting: 300, stopped: 380, done: 1264 }[mode];
+    const out = [];
+    let spawned = 0;
+    for (let t = 0; t <= end; t += 2) {
+      let r;
+      if (t < 38) r = 5;
+      else if (t < 52) r = 0;
+      else if (t < 90) r = Math.round(8 + ((t - 52) / 38) * 4);
+      else if (t < 170) r = Math.round(12 + ((t - 90) / 80) * 85);
+      else r = Math.min(100, Math.round(96 + 3 * Math.sin(t / 7) + 1.5 * Math.sin(t / 2.3)));
+      if (mode === 'waiting' && t >= 288) r = 0;
+      if (mode === 'stopped' && t > 372) r = 1;
+      if (mode === 'done' && t > 1100) r = t > 1250 ? 1 : Math.max(4, Math.round(r * (1 - (t - 1100) / 150)));
+      if (t === 0) spawned = 5;
+      else if (t >= 52) spawned += (r * 2) / 20;
+      out.push([t, r, Math.round(spawned)]);
+    }
+    return out;
+  }
+
+  function chart(svg, pts, { max, ticks, color, fill, tier, end }) {
+    svg.replaceChildren();
+    const L = 40, R = 430, T = 12, B = 118;
+    const x = t => L + (t / end) * (R - L);
+    const y = v => B - (v / max) * (B - T);
+    for (const v of ticks) {
+      el('line', { x1: L, x2: R, y1: y(v), y2: y(v), class: v === tier ? 'tierline' : 'grid' }, svg);
+      const lab = el('text', { x: L - 6, y: y(v) + 3.5, 'text-anchor': 'end', class: 'axis' }, svg);
+      lab.textContent = v >= 1000 ? `${v / 1000}k` : v;
+    }
+    const stepH = end > 480 ? 240 : 60;
+    for (let t = 0; t <= end; t += stepH) {
+      const lab = el('text', { x: x(t), y: 138, 'text-anchor': t === 0 ? 'start' : 'middle', class: 'axis' }, svg);
+      lab.textContent = `${t / 60} h`;
+    }
+    const line = pts.map(([t, v]) => `${x(t).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    el('polygon', { points: `${x(0)},${B} ${line} ${x(pts.at(-1)[0])},${B}`, style: `fill: ${fill}; opacity: 0.32` }, svg);
+    el('polyline', { points: line, style: `fill: none; stroke: ${color}; stroke-width: 1.8; stroke-linejoin: round` }, svg);
+    const [lt, lv] = pts.at(-1);
+    el('circle', { cx: x(lt), cy: y(lv), r: 3.6, style: `fill: ${color}` }, svg);
+  }
+
+  function paintCharts(mode) {
+    const s = series(mode);
+    const end = s.at(-1)[0];
+    chart($('chartRun'), s.map(([t, r]) => [t, r]), { max: 100, ticks: [0, 50, 100], tier: 100, color: 'var(--run-line)', fill: 'var(--accent)', end });
+    const top = s.at(-1)[2];
+    const nice = Math.ceil(top / 1000) * 1000;
+    chart($('chartSpawn'), s.map(([t, , sp]) => [t, sp]), { max: nice, ticks: [0, nice / 2, nice], color: 'var(--code)', fill: 'var(--code)', end });
+    $('runNow').textContent = `${s.at(-1)[1]} now`;
+    $('spawnNow').textContent = `${fmt(top)} in all`;
+    return { spawned: top, minutes: end };
+  }
+
+  // Each state: what the bar says, which button works, and what the body shows.
+  const STATES = {
+    opening: { title: '', start: true, stop: false },
+    planning: { title: 'Planning · round 2 of 4', line: 'Five planners on the max tier. Each is reading the other four drafts and answering them.', start: false, stop: true },
+    plan: { title: 'Plan ready', line: 'The plan is ready. Read it, answer what you want to, and Go Ludicrous when it is right.', start: true, stop: true },
+    running: { title: 'Building', start: false, stop: true },
+    waiting: { title: 'Waiting for your subscription', line: 'Your 5-hour window is used up. Ludicrous starts again by itself at 14:05, in 1 h 22 m.', start: false, stop: true },
+    stopped: { title: 'Stopped and compiled', line: 'Stop killed 97 agents at 18:40. tidepool #1 is open as a draft. Go Ludicrous picks up where they stopped.', start: true, stop: false },
+    done: { title: 'Done', line: 'Every step is done and every acceptance has its proof. tidepool #1 is ready for review.', start: false, stop: false },
+  };
+  const NEXT_START = { opening: 'planning', plan: 'running', stopped: 'running' };
+  const NEXT_STOP = { planning: 'opening', plan: 'opening', running: 'stopped', waiting: 'stopped' };
+
+  let state = 'opening';
+  let ticker = null;
+
+  const oldProject = () => $('projOld').checked;
+  const TIER_SAYS = {
+    30: 'Takes the longest and leaves most of your computer free.',
+    50: 'Faster, with room left for your other work.',
+    100: "The fastest. It uses everything this computer has: 16 cores and 64 GB, hobkin's pick.",
+  };
+
+  function paintOpening() {
+    const old = oldProject();
+    $('folder').value = old ? '~/Code/harbor' : '~/Code/tidepool';
+    const say = $('folderSay');
+    say.textContent = old
+      ? 'Work has this project. 2 files are changed and not committed: commit them or put them away first, since Ludicrous works in this folder on its own branch.'
+      : 'An empty folder. hobkin starts a git repository here, with no remote.';
+    say.classList.toggle('hold', old);
+    const alone = $('alone');
+    alone.classList.toggle('warn', old);
+    alone.innerHTML = old
+      ? '<strong>Nobody else should work on harbor while Ludicrous runs.</strong> Not you, not another agent, not hobkin\'s own Work. Anything else that changes these files will conflict with the run\'s agents. hobkin pauses its own Work on harbor until the run\'s pull request is merged or closed.'
+      : '<strong>Nobody else is on tidepool.</strong> A new project is Ludicrous\'s alone, so nothing else can conflict with its agents.';
+    $('projectChip').textContent = old ? 'harbor' : 'new project';
+    const tier = document.querySelector('input[name="tier"]:checked').value;
+    $('tierSay').textContent = TIER_SAYS[tier];
+    const line = old
+      ? 'Commit or put away the 2 changed files in harbor first. Planning waits until the folder is clean.'
+      : 'Five agents plan it first. Nothing gets built until you approve their plan.';
+    $('askSay').textContent = line;
+    $('askSay').classList.toggle('hold', old);
+    $('startBtn').disabled = old;
+  }
+
+  function paintTiles(mode, numbers) {
+    const set = (id, html) => { $(id).innerHTML = html; };
+    const T = {
+      planning: { run: '5<small> / 100</small>', runSub: 'planners', spawn: '5', tok: '3.1 M', time: '22 m' },
+      plan: { run: '0<small> / 100</small>', runSub: 'waiting for your go', spawn: '5', tok: '9.8 M', time: '38 m' },
+      running: { run: '97<small> / 100</small>', runSub: 'agents, 7 of them leaders', tok: '412 M' },
+      waiting: { run: '0<small> / 100</small>', runSub: 'starts again at 14:05', tok: '331 M' },
+      stopped: { run: '0<small> / 100</small>', runSub: 'all killed at 18:40', tok: '414 M' },
+      done: { run: '0<small> / 100</small>', runSub: 'nothing left to do', tok: '1.9 B' },
+    }[mode];
+    set('tRun', T.run);
+    $('tRunSub').textContent = T.runSub;
+    set('tSpawn', T.spawn ?? fmt(numbers.spawned));
+    set('tTok', T.tok);
+    set('tTime', T.time ?? hm(numbers.minutes));
+  }
+
+  function paintAfter(mode) {
+    const done = mode === 'done';
+    const rows = done
+      ? [['✓', '09:02', 'The last step passed its checks. 343 of 343 steps done.'], ['✓', '09:04', 'The whole suite passed on the branch, every area at once.'], ['✓', '09:11', 'Folded the trails into each spec\'s notes and took the trail folder out.'], ['✓', '09:12', 'Pushed ludicrous/tidepool.'], ['✓', '09:12', 'Marked tidepool #1 ready for review.']]
+      : [['✓', '18:40', 'Killed 97 agents.'], ['✓', '18:41', 'Kept 1,906 commits on ludicrous/tidepool, 1,840 of them checked by their area\'s leader.'], ['✓', '18:43', 'Saved the unfinished edits of 23 files as a patch for the next Go Ludicrous.'], ['✓', '18:46', 'Ticked 178 of 343 steps in the specs.'], ['✓', '18:47', 'Pushed ludicrous/tidepool and opened tidepool #1 as a draft.']];
+    const list = $('compile');
+    list.replaceChildren();
+    for (const [ck, at, words] of rows) {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="ck" aria-hidden="true">${ck}</span><time>${at}</time><span></span>`;
+      li.lastChild.textContent = words;
+      list.appendChild(li);
+    }
+    $('compileLabel').textContent = done ? 'How it finished' : 'What the compile did';
+    const pill = $('prPill');
+    pill.textContent = done ? 'Ready for review' : 'Draft';
+    pill.classList.toggle('ready', done);
+    $('prSize').innerHTML = done
+      ? '<span class="add">+1,041,880</span> <span class="del">−3,114</span> · 7,206 files'
+      : '<span class="add">+684,210</span> <span class="del">−1,902</span> · 4,812 files';
+    $('prNote').textContent = done ? 'hobkin never merges it. That is yours.' : 'The next Go Ludicrous pushes to this same pull request.';
+  }
+
+  function stopTicker() { if (loop) { cancelAnimationFrame(loop); loop = 0; } }
+
+  // While building, workers finish and new ones take their place on the map, so the counts move. Held still, the run
+  // moves on in one jump every three seconds, with nothing hopping or pulsing.
+  function startTicker(numbers) {
+    spawned = numbers.spawned;
+    let last = performance.now(), wordsAt = 0, heldFor = 0;
+    const frame = now => {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      if (worldStill) {
+        heldFor += dt;
+        if (heldFor >= 3) { for (let k = 0; k < 30; k++) step(0.1); heldFor = 0; drawAgents(); paintWorldWords(); paintRunNumbers(); }
+      } else {
+        step(dt);
+        drawAgents();
+        if (now - wordsAt > 250) { paintWorldWords(); paintRunNumbers(); wordsAt = now; }
+      }
+      loop = requestAnimationFrame(frame);
+    };
+    loop = requestAnimationFrame(frame);
+  }
+
+  // The run's path: one line from the idea to done. Building is a stretch of that line, and the two detours, the wait
+  // for the subscription above and a stop below, leave it and join it again.
+  const pathSvg = $('path');
+  const PATH_SEGS = {
+    s1: 'M40 76 H230', s2: 'M230 76 H420', s3: 'M420 76 H560', sb: 'M560 76 H860', s5: 'M860 76 H960',
+    sw: 'M596 76 C622 28 648 28 710 28 C772 28 798 28 824 76',
+    ss: 'M596 76 C622 124 648 124 710 124 C772 124 798 124 824 76',
+  };
+  const PATH_NODES = {
+    opening: { x: 40, y: 76, label: 'Your idea', lx: 40, ly: 106, anchor: 'start' },
+    planning: { x: 230, y: 76, label: 'Planning', lx: 230, ly: 106 },
+    plan: { x: 420, y: 76, label: 'Plan ready', lx: 420, ly: 106 },
+    running: { x: 710, y: 76, label: 'Building', lx: 710, ly: 104 },
+    done: { x: 960, y: 76, label: 'Done', lx: 960, ly: 106, anchor: 'end' },
+    waiting: { x: 710, y: 28, label: 'Waiting for reset', lx: 710, ly: 13, side: true },
+    stopped: { x: 710, y: 124, label: 'Stopped', lx: 710, ly: 148, side: true },
+  };
+  const segEls = {};
+  for (const [k, d] of Object.entries(PATH_SEGS)) {
+    const g = el('g', {}, pathSvg);
+    segEls[k] = { line: el('path', { d, class: 'pl' }, g), flow: el('path', { d, class: 'pf' }, g) };
+  }
+  const nodeEls = {};
+  for (const [k, n] of Object.entries(PATH_NODES)) {
+    const g = el('g', { class: 'pn', tabindex: 0, role: 'button', 'aria-label': n.label }, pathSvg);
+    el('circle', { cx: n.x, cy: n.y, r: 18, class: 'hit' }, g);
+    el('circle', { cx: n.x, cy: n.y, r: 7, class: 'ring' }, g);
+    el('circle', { cx: n.x, cy: n.y, r: n.side ? 5.5 : 7, class: 'dot' }, g);
+    const t = el('text', { x: n.lx, y: n.ly, 'text-anchor': n.anchor ?? 'middle', class: 'plab' }, g);
+    t.textContent = n.label;
+    g.addEventListener('click', () => go(k));
+    g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } });
+    nodeEls[k] = g;
+  }
+  const BEFORE_BUILD = { opening: 'done', planning: 'done', plan: 'done' };
+  const BUILT_TO = { s1: 'done', s2: 'done', s3: 'done' };
+  const PATH_STATE = {
+    opening: { nodes: { opening: 'now' }, segs: {} },
+    planning: { nodes: { opening: 'done', planning: 'now' }, segs: { s1: 'done', s2: 'live' } },
+    plan: { nodes: { opening: 'done', planning: 'done', plan: 'now' }, segs: { s1: 'done', s2: 'done' } },
+    running: { nodes: { ...BEFORE_BUILD, running: 'now' }, segs: { ...BUILT_TO, sb: 'live' } },
+    waiting: { nodes: { ...BEFORE_BUILD, running: 'done', waiting: 'now' }, segs: { ...BUILT_TO, sb: 'held', sw: 'now' } },
+    stopped: { nodes: { ...BEFORE_BUILD, running: 'done', stopped: 'now' }, segs: { ...BUILT_TO, sb: 'held', ss: 'now' } },
+    done: { nodes: { ...BEFORE_BUILD, running: 'done', done: 'now' }, segs: { ...BUILT_TO, sb: 'done', s5: 'done' } },
+  };
+  function paintPath(next) {
+    const S = PATH_STATE[next];
+    for (const [k, s] of Object.entries(segEls)) {
+      const st = S.segs[k] ?? (k === 'sw' || k === 'ss' ? 'side' : 'todo');
+      s.line.setAttribute('class', `pl ${st}`);
+      s.flow.setAttribute('class', st === 'live' ? 'pf on' : 'pf');
+    }
+    for (const [k, g] of Object.entries(nodeEls)) {
+      const st = S.nodes[k] ?? (PATH_NODES[k].side ? 'side' : 'todo');
+      g.setAttribute('class', `pn ${st}${PATH_NODES[k].side ? ' side' : ''}`);
+      if (st === 'now') g.setAttribute('aria-current', 'step'); else g.removeAttribute('aria-current');
+    }
+  }
+
+  function go(next) {
+    state = next;
+    paintPath(next);
+    stopTicker();
+    const S = STATES[next];
+    document.querySelectorAll('[data-go]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.go === next)));
+    $('phaseTitle').textContent = S.title;
+    $('ask').hidden = next !== 'opening';
+    $('phaseHead').hidden = next === 'opening';
+    $('startBtn').textContent = next === 'opening' || next === 'planning' ? "Let's plan this" : 'Go Ludicrous';
+    $('phaseTier').textContent = '';
+    $('startBtn').disabled = !S.start;
+    $('stopBtn').disabled = !S.stop;
+    if (S.line) $('phaseLine').textContent = S.line;
+    if (next !== 'opening') $('projectChip').textContent = 'tidepool';
+
+    $('p-opening').hidden = next !== 'opening';
+    $('p-planning').hidden = next !== 'planning';
+    $('p-plan').hidden = next !== 'plan';
+    $('p-after').hidden = !(next === 'stopped' || next === 'done');
+    $('tiles').hidden = next === 'opening';
+    $('mapFig').hidden = next === 'opening' || next === 'planning';
+    $('charts').hidden = !['running', 'waiting', 'stopped', 'done'].includes(next);
+
+    if (next === 'opening') { paintOpening(); return; }
+    if (next === 'planning') $('ideaQuote').textContent = $('idea').value;
+    if (next !== 'planning') paintMap(next);
+    const numbers = ['running', 'waiting', 'stopped', 'done'].includes(next) ? paintCharts(next) : { spawned: 5, minutes: 0 };
+    paintTiles(next, numbers);
+    if (next === 'stopped' || next === 'done') paintAfter(next);
+    if (next === 'running') {
+      $('phaseLine').textContent = runLine();
+      startTicker(numbers);
+    }
+  }
+
+  document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => go(b.dataset.go)));
+  $('startBtn').addEventListener('click', () => { if (NEXT_START[state]) go(NEXT_START[state]); });
+  $('stopBtn').addEventListener('click', () => { if (NEXT_STOP[state]) go(NEXT_STOP[state]); });
+  document.querySelectorAll('input[name="proj"], input[name="tier"]').forEach(i => i.addEventListener('change', () => { if (state === 'opening') paintOpening(); }));
+
+  go('running');
+})();
+</script>

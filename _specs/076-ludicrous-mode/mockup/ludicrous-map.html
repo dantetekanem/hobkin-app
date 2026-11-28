@@ -1,0 +1,833 @@
+<title>Ludicrous Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one hobkin page column in a window frame: the phase bar, four numbers, then the Work world's globe with Ludicrous on it, and the running line under it. */
+:root {
+  --hb-bg: #f0ead6;
+  --hb-surface: #f8f4e8;
+  --hb-surface-2: #e7dec4;
+  --hb-tone: #f3edda;
+  --hb-tone-1: #e9e1c9;
+  --hb-text: #16181f;
+  --hb-muted: #5a5648;
+  --hb-border: #dcd2b6;
+  --hb-border-strong: #857d69;
+  --hb-accent: #ffc940;
+  --hb-focus: #16181f;
+  --hb-sun-fg: #7a4e00;
+  --hb-code: oklch(0.52 0.11 265);
+  --hb-bad: #b3261e;
+  --hb-ok: #17633f;
+  --world-cloud-tone: rgb(255 255 255 / 0.55);
+  --font-head: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-text: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --hb-bg: #0e0f13; --hb-surface: #17191f; --hb-surface-2: #20232b; --hb-tone: #1b1e26; --hb-tone-1: #15171d;
+    --hb-text: #f0ead6; --hb-muted: #a8a291; --hb-border: #2c303a; --hb-border-strong: #6b6f7a; --hb-accent: #ffc940;
+    --hb-focus: #ffc940; --hb-sun-fg: #ffc940; --hb-code: oklch(0.66 0.11 265); --hb-bad: #ff7a6e; --hb-ok: #4cc38a;
+    --world-cloud-tone: rgb(255 255 255 / 0.07);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --hb-bg: #0e0f13; --hb-surface: #17191f; --hb-surface-2: #20232b; --hb-tone: #1b1e26; --hb-tone-1: #15171d;
+  --hb-text: #f0ead6; --hb-muted: #a8a291; --hb-border: #2c303a; --hb-border-strong: #6b6f7a; --hb-accent: #ffc940;
+  --hb-focus: #ffc940; --hb-sun-fg: #ffc940; --hb-code: oklch(0.66 0.11 265); --hb-bad: #ff7a6e; --hb-ok: #4cc38a;
+  --world-cloud-tone: rgb(255 255 255 / 0.07);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--hb-bg); color: var(--hb-text); font-family: var(--font-text); font-size: 14px; letter-spacing: -0.012em; }
+:focus-visible { outline: 2px solid var(--hb-focus); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.wrap { max-width: 1100px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 18px; }
+.intro { display: flex; flex-direction: column; gap: 6px; }
+.intro h1 { font-family: var(--font-head); font-size: 22px; font-weight: 600; margin: 0; text-wrap: balance; }
+.intro p { margin: 0; color: var(--hb-muted); max-width: 72ch; line-height: 1.5; }
+.eyebrow { font-family: var(--font-head); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--hb-muted); }
+
+.window { background: var(--hb-surface); border: 1px solid var(--hb-border); border-radius: 24px; padding: 20px 26px 30px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.head { display: flex; align-items: center; gap: 10px; }
+.chip { font-family: var(--font-mono); font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--hb-tone-1); color: var(--hb-text); }
+.tabs { display: flex; gap: 2px; background: var(--hb-tone-1); padding: 4px; border-radius: 999px; width: fit-content; }
+.tabs span { font-family: var(--font-head); font-size: 13px; font-weight: 500; padding: 5px 14px; border-radius: 999px; color: var(--hb-muted); }
+.tabs span.on { background: var(--hb-surface); color: var(--hb-text); box-shadow: 0 1px 2px rgb(22 24 31 / 0.08); }
+
+.bar { background: var(--hb-tone); border-radius: 20px; padding: 16px 20px; }
+.bar h2 { margin: 0; font-family: var(--font-head); font-size: 20px; font-weight: 600; letter-spacing: -0.02em; display: flex; align-items: baseline; gap: 10px; height: 28px; white-space: nowrap; overflow: hidden; }
+.bar h2 .tier { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--hb-muted); letter-spacing: 0; }
+.bar p { margin: 4px 0 0; font-size: 13.5px; color: var(--hb-muted); line-height: 20px; height: 40px; overflow: hidden; }
+
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.tile { background: var(--hb-tone); border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tile b { font-family: var(--font-head); font-size: 26px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tile b small { font-size: 15px; color: var(--hb-muted); font-weight: 500; }
+.tile .sub { font-size: 12px; color: var(--hb-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.worldhead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
+.worldhead p { margin: 0; font-size: 12px; color: var(--hb-muted); }
+.globebox { overflow-x: auto; }
+
+/* The Work world, as WorldMap.tsx and world.css draw it. */
+.world {
+  position: relative; margin: 0 auto; width: 100%; min-width: 460px; max-width: 760px; aspect-ratio: 1; container-type: inline-size;
+  --world-sea: color-mix(in oklab, var(--hb-code) 24%, var(--hb-surface));
+  --world-sea-lit: color-mix(in oklab, var(--hb-code) 36%, var(--hb-surface));
+  --world-deep: color-mix(in oklab, var(--hb-code) 18%, var(--hb-bg));
+  --world-line: color-mix(in oklab, var(--hb-code) 70%, var(--hb-text));
+  --world-soil: color-mix(in oklab, var(--hb-muted) 40%, var(--hb-surface-2));
+  --world-cloud: var(--world-cloud-tone);
+}
+.world > .layer { position: absolute; inset: 0; }
+.world-sea { border-radius: 50%; overflow: hidden; background: radial-gradient(circle at 36% 30%, var(--world-sea-lit), var(--world-sea) 55%, var(--world-deep)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--world-line) 40%, transparent), 0 0 56px color-mix(in oklab, var(--hb-code) 20%, transparent); }
+.world-sea svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.world-grid circle, .world-grid line, .world-grid path, .world-current circle { fill: none; stroke: var(--world-line); vector-effect: non-scaling-stroke; }
+.world-grid circle, .world-grid line { stroke-opacity: 0.14; }
+.world-grid path { stroke-opacity: 0.6; }
+.world-current { animation: world-turn 200s linear infinite; }
+.world-current circle { stroke-opacity: 0.42; stroke-width: 2px; stroke-linecap: round; }
+.world-clouds { border-radius: 50%; overflow: hidden; pointer-events: none; }
+.world-weather { position: absolute; inset: 0; animation: world-turn 320s linear infinite reverse; }
+.world-cloud { position: absolute; border-radius: 50%; background: radial-gradient(closest-side, var(--world-cloud), transparent); }
+
+.world-island { position: absolute; left: 0; top: 0; }
+.world-rise { position: absolute; inset: 0; animation: world-rise 600ms cubic-bezier(0.23, 1, 0.32, 1) var(--world-entry, 0ms) both; }
+.world-art, .world-ripple { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.world-art path, .world-ripple path { vector-effect: non-scaling-stroke; }
+.world-shelf { fill: color-mix(in oklab, var(--world-sea-lit) 70%, white); fill-opacity: calc(0.16 + 0.24 * var(--world-heat)); stroke: transparent; stroke-width: 2px; }
+.world-land { fill: var(--world-land); stroke: color-mix(in oklab, var(--world-land) 62%, white); stroke-width: 1.5px; transition: fill 900ms ease; }
+.world-height { fill: color-mix(in oklab, var(--world-land) 84%, white); stroke: color-mix(in oklab, var(--world-land) 70%, black); stroke-opacity: 0.25; stroke-width: 1px; }
+.world-height[data-tier='1'] { fill: color-mix(in oklab, var(--world-land) 70%, white); }
+.world-height[data-tier='2'] { fill: color-mix(in oklab, var(--world-land) 54%, white); }
+.world-ripple { opacity: 0; color: var(--world-line); pointer-events: none; animation: world-ripple var(--world-beat, 9s) cubic-bezier(0.23, 1, 0.32, 1) var(--world-wait, 0s) infinite; }
+.world-ripple + .world-ripple { animation-delay: calc(var(--world-wait, 0s) + var(--world-beat, 9s) / 2); }
+.world-ripple path { fill: none; stroke: currentColor; stroke-width: 1.5px; }
+/* Ludicrous: a leader checking its island gets the World's quick yellow waves. */
+.world-island[data-check] { --world-beat: 2.8s; --world-tide: 0.75; }
+.world-island[data-check] .world-ripple { color: var(--hb-accent); }
+/* A check that passed lands like a merge on the World. */
+.world-burst { position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 2px var(--hb-accent), inset 0 0 24px color-mix(in oklab, var(--hb-accent) 60%, transparent); opacity: 0; pointer-events: none; animation: world-burst 1.2s cubic-bezier(0.23, 1, 0.32, 1); }
+
+.world-name { position: absolute; translate: -50% 0; width: max-content; text-align: center; color: var(--hb-text); text-shadow: 0 0 5px var(--world-deep), 0 0 2px var(--world-deep); pointer-events: none; }
+.world-name b { display: block; font-family: var(--font-head); font-size: 13px; font-weight: 600; line-height: 1.25; }
+.world-name span { display: block; font-family: var(--font-mono); font-size: 10px; line-height: 1.35; color: var(--hb-muted); font-variant-numeric: tabular-nums; }
+.world-name .world-working { display: inline-flex; align-items: center; gap: 5px; color: var(--hb-sun-fg); }
+.world-name .world-working::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--hb-accent); animation: world-blink 1.4s cubic-bezier(0.77, 0, 0.175, 1) infinite alternate; }
+.world-name .world-working[data-done] { color: var(--hb-ok); }
+.world-name .world-working[data-done]::before { background: var(--hb-ok); animation: none; }
+
+.world canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+.world[data-still] *, .world[data-still] *::before, .world[data-still] *::after { animation: none !important; }
+.world[data-still] .world-ripple { opacity: 0; }
+.world[data-still] .world-land { transition: none; }
+.world[data-still] .world-island[data-check] .world-shelf { stroke: var(--hb-accent); }
+
+@keyframes world-turn { to { transform: rotate(360deg); } }
+@keyframes world-rise { from { opacity: 0; transform: scale(0.96); } }
+@keyframes world-ripple { 0% { transform: scale(1.03); opacity: 0; } 14% { opacity: var(--world-tide, 0.3); } 100% { transform: scale(1.42); opacity: 0; } }
+@keyframes world-burst { 0% { transform: scale(0.7); opacity: 0.95; } 100% { transform: scale(1.8); opacity: 0; } }
+@keyframes world-blink { from { opacity: 0.35; } }
+
+.legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; font-size: 12px; color: var(--hb-muted); margin: 0; padding: 0; list-style: none; }
+.legend li { display: inline-flex; align-items: center; gap: 6px; }
+.legend svg { flex: none; }
+
+.run { display: flex; flex-direction: column; gap: 6px; }
+.run .h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.run .h b { font-family: var(--font-head); font-size: 14px; font-weight: 600; }
+.run .h span { font-family: var(--font-mono); font-size: 12px; color: var(--hb-muted); }
+.run svg { width: 100%; height: auto; display: block; }
+.axis { font-family: var(--font-mono); font-size: 10.5px; fill: var(--hb-muted); }
+.grid0 { stroke: var(--hb-border); stroke-width: 1; }
+.tierline { stroke: var(--hb-border-strong); stroke-width: 1; stroke-dasharray: 3 4; }
+.sample { font-size: 12px; color: var(--hb-muted); margin: 0; }
+
+@media (max-width: 760px) {
+  .window { padding: 16px 16px 24px; border-radius: 20px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bar p { height: 60px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .world-land { transition: none; }
+}
+</style>
+
+<div class="wrap">
+  <div class="intro">
+    <h1>Ludicrous map</h1>
+    <p>A mock of the Ludicrous page while it builds: 100 agents across seven islands of work, drawn the way hobkin's Work world draws projects. You see where agents are and how far each island has come, never what any one of them is doing.</p>
+  </div>
+
+  <div class="window">
+    <div class="top">
+      <div class="head"><span class="eyebrow">Ludicrous mode</span><span class="chip">tidepool</span></div>
+      <div class="tabs" aria-hidden="true"><span>Work</span><span>YOLO</span><span class="on">Ludicrous</span></div>
+    </div>
+
+    <section class="bar" aria-label="Phase">
+      <h2><span id="phaseTitle">Building</span><span class="tier">100 agents</span></h2>
+      <p id="phaseLine"></p>
+    </section>
+
+    <div class="tiles">
+      <div class="tile"><span class="eyebrow">Running now</span><b id="tRun">100<small> / 100</small></b><span class="sub" id="tRunSub">7 leaders, 93 workers</span></div>
+      <div class="tile"><span class="eyebrow">Spawned this run</span><b id="tSpawn">4,213</b><span class="sub">since planning began</span></div>
+      <div class="tile"><span class="eyebrow">Steps done</span><b id="tSteps">130<small> / 330</small></b><span class="sub">checked by their leaders</span></div>
+      <div class="tile"><span class="eyebrow">Leaders checking</span><b id="tCheck">0<small> / 3</small></b><span class="sub" id="tCheckSub">none right now</span></div>
+    </div>
+
+    <div class="worldhead">
+      <span class="eyebrow">tidepool · 7 islands</span>
+      <p>Foundation is at the pole. Each island sits closer the more it builds on it.</p>
+    </div>
+
+    <div class="globebox">
+      <div class="world" id="world" role="img" aria-label="The seven islands of tidepool on hobkin's globe, with how many agents work on each and how many of its steps are done.">
+        <div class="layer world-sea" aria-hidden="true">
+          <svg viewBox="0 0 1000 1000" class="world-grid" id="grid"></svg>
+          <svg viewBox="0 0 1000 1000" class="world-current" style="animation-duration: 170s"><circle cx="500" cy="500" r="190" stroke-dasharray="3 30"/></svg>
+          <svg viewBox="0 0 1000 1000" class="world-current" style="animation-duration: 240s; animation-direction: reverse"><circle cx="500" cy="500" r="315" stroke-dasharray="3 38"/></svg>
+          <svg viewBox="0 0 1000 1000" class="world-current" style="animation-duration: 320s"><circle cx="500" cy="500" r="440" stroke-dasharray="3 46"/></svg>
+        </div>
+        <div class="layer" id="lands" aria-hidden="true"></div>
+        <div class="layer world-clouds" aria-hidden="true">
+          <div class="world-weather">
+            <i class="world-cloud" style="left: 8%; top: 20%; width: 38%; height: 13%; rotate: -28deg"></i>
+            <i class="world-cloud" style="left: 52%; top: 10%; width: 30%; height: 10%; rotate: 24deg"></i>
+            <i class="world-cloud" style="left: 56%; top: 64%; width: 36%; height: 12%; rotate: -38deg"></i>
+            <i class="world-cloud" style="left: 12%; top: 70%; width: 26%; height: 9%; rotate: 32deg"></i>
+          </div>
+        </div>
+        <div class="layer" id="names" aria-hidden="true"></div>
+        <canvas id="agents" aria-hidden="true"></canvas>
+      </div>
+    </div>
+
+    <ul class="legend" aria-label="Key">
+      <li><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" style="fill: var(--hb-surface); stroke: var(--hb-border-strong); stroke-width: 1.5"/><path d="M4.6 12.4 C4.6 8.6 6 6 8 6 C10 6 11.4 8.6 11.4 12.4 Z" style="fill: oklch(0.62 0.11 262)"/></svg>an agent</li>
+      <li><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.5" style="fill: var(--hb-surface); stroke: var(--hb-accent); stroke-width: 2.2"/><path d="M5.2 13.8 C5.2 9.6 6.8 6.8 9 6.8 C11.2 6.8 12.8 9.6 12.8 13.8 Z" style="fill: var(--hb-sun-fg)"/></svg>the island's leader</li>
+      <li><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="3" style="fill: none; stroke: var(--hb-text); stroke-opacity: 0.65; stroke-width: 1.3"/></svg>work its leader wrote</li>
+      <li><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="3" style="fill: var(--hb-text); fill-opacity: 0.6"/></svg>done, waiting for a check</li>
+      <li><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="3.4" style="fill: var(--hb-bad)"/></svg>a check failed here</li>
+      <li><svg width="22" height="12" viewBox="0 0 22 12" aria-hidden="true"><path d="M2 9 Q11 -1 20 9" style="fill: none; stroke: var(--hb-accent); stroke-width: 1.6"/></svg>yellow waves: its leader is checking</li>
+    </ul>
+
+    <section class="run" aria-label="Agents running over the run">
+      <div class="h"><b>Agents running</b><span id="runNow">6 h 12 m in · 100 now</span></div>
+      <svg id="spark" viewBox="0 0 600 84" role="img" aria-label="Agents running over the run: five planners, a pause for the plan, a slow start on the foundation, then the full 100."></svg>
+    </section>
+
+    <p class="sample">Sample data on a made-up project. A minute of the run passes every second here.</p>
+    <ul class="sr" id="srList"></ul>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const NS = 'http://www.w3.org/2000/svg';
+  const svgEl = (tag, attrs, parent) => { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); if (parent) parent.appendChild(n); return n; };
+  const fmt = n => n.toLocaleString('en-US');
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const pick = list => list[Math.floor(Math.random() * list.length)];
+  const easeOut = t => 1 - Math.pow(1 - t, 3);
+  const shuffle = list => { for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; } return list; };
+
+  /* ---------- The Work world's own layout, from world-layout.ts ---------- */
+  const GLOBE = 1000, POLE = 500, TURN = Math.PI * 2, GOLDEN = Math.PI * (3 - Math.sqrt(5));
+  const SHORE = POLE - 26, SPREAD = POLE * 0.75, FIRST_BEARING = -2.2, LARGEST_ISLAND = POLE * 0.34;
+  const LAND_SHARE = 0.84, IDLE_SIZE = 0.84, NAME_DROP = 30, COAST_POINTS = 96;
+  const SWELLS = [[2, 0.24], [3, 0.18], [4, 0.11], [5, 0.08], [7, 0.05], [9, 0.035], [13, 0.026], [19, 0.016]];
+  const MOST_ISLETS = 2, ISLET_POINTS = 14, ISLET_SIDES = [-0.3, -0.15, 0, 0.15, 0.3];
+  const STANDING = [0.12, 0.26, 0.4, 0.54, 0.68], STANDING_BEARINGS = 36;
+  const LARGEST_AGENT = 54, SMALLEST_AGENT = 12, AGENT_SHARE = 1 - 2 * 0.1 - 0.02;
+  const HEIGHTS = [0.7, 0.44, 0.22];
+
+  function hash(value) { let r = 0; for (const c of value) r = (r * 31 + c.charCodeAt(0)) >>> 0; return r; }
+  function seeded(seed) {
+    let state = seed >>> 0;
+    return () => {
+      state = (state + 0x6d2b79f5) >>> 0;
+      let m = state;
+      m = Math.imul(m ^ (m >>> 15), m | 1);
+      m ^= m + Math.imul(m ^ (m >>> 7), m | 61);
+      return ((m ^ (m >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const between = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const along = (bearing, out) => ({ x: out * Math.cos(bearing), y: out * Math.sin(bearing) });
+  function closest(points) { let m = Infinity; for (let i = 0; i < points.length; i++) for (let j = i + 1; j < points.length; j++) m = Math.min(m, between(points[i], points[j])); return m; }
+  function leftBy(dent, bearing) { const off = Math.atan2(Math.sin(bearing - dent.at), Math.cos(bearing - dent.at)); return 1 - dent.depth * Math.exp(-((off / dent.width) ** 2)); }
+
+  function drawCoast(random) {
+    const swells = SWELLS.map(([capes, push]) => ({ capes, push: push * (0.45 + 0.55 * random()), phase: random() * TURN }));
+    const bay = { at: random() * TURN, depth: 0.2 + 0.28 * random(), width: 0.3 + 0.25 * random() };
+    const cove = { at: bay.at + 1.3 + 3.6 * random(), depth: 0.1 + 0.18 * random(), width: 0.14 + 0.14 * random() };
+    const unscaled = bearing => { let out = 1; for (const s of swells) out += s.push * Math.cos(s.capes * bearing + s.phase); return out * leftBy(bay, bearing) * leftBy(cove, bearing); };
+    const bearings = Array.from({ length: COAST_POINTS }, (_, i) => (i / COAST_POINTS) * TURN);
+    const longest = Math.max(...bearings.map(unscaled));
+    const reach = bearing => unscaled(bearing) / longest;
+    return { coast: bearings.map(b => along(b, reach(b))), reach, bay };
+  }
+  function isletCoast(size, turned) {
+    return Array.from({ length: ISLET_POINTS }, (_, i) => { const around = (i / ISLET_POINTS) * TURN; return along(around, (size * (1 + 0.25 * Math.cos(2 * around + turned) + 0.15 * Math.cos(3 * around - turned))) / 1.4); });
+  }
+  function drawIslets(random, reach, bayAt) {
+    const islets = [];
+    const bearings = [bayAt, bayAt + 2.1 + random(), random() * TURN];
+    for (const bearing of bearings) {
+      const size = 0.07 + 0.06 * random();
+      const turned = random() * TURN;
+      const shore = Math.max(...ISLET_SIDES.map(aside => reach(bearing + aside)));
+      const out = shore + size + 0.06;
+      const place = along(bearing, out);
+      if (islets.length === MOST_ISLETS || out + size > 1 || islets.some(o => between(o, place) < 0.35)) continue;
+      islets.push({ ...place, coast: isletCoast(size, turned) });
+    }
+    return islets;
+  }
+  function standingOrder(reach, facing) {
+    const ground = STANDING.flatMap((share, ring) => Array.from({ length: STANDING_BEARINGS }, (_, i) => { const b = facing + ((i + ring / 2) / STANDING_BEARINGS) * TURN; return along(b, share * reach(b)); }));
+    const taken = [];
+    const clear = p => Math.min(...taken.map(o => between(o, p)));
+    return count => {
+      while (taken.length < Math.min(count, ground.length)) {
+        taken.push(taken.length === 0 ? ground[0] : ground.reduce((best, p) => (clear(p) > clear(best) ? p : best)));
+      }
+      return taken.slice(0, count);
+    };
+  }
+  function shapeOf(slug) {
+    const random = seeded(hash(slug));
+    const { coast, reach, bay } = drawCoast(random);
+    const islets = drawIslets(random, reach, bay.at);
+    const stand = standingOrder(reach, random() * TURN);
+    const shores = [...coast.map(p => p.y), ...islets.flatMap(i => i.coast.map(p => i.y + p.y))];
+    return { coast, islets, north: Math.min(...shores), south: Math.max(...shores), peak: along(bay.at, -0.1), stand };
+  }
+  function coastline(points, scale = 1, shift = { x: 0, y: 0 }) {
+    const at = i => { const p = points[i % points.length]; return { x: p.x * scale + shift.x, y: p.y * scale + shift.y }; };
+    const w = p => `${p.x.toFixed(4)} ${p.y.toFixed(4)}`;
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    const curves = points.map((_, i) => `Q ${w(at(i))} ${w(mid(at(i), at(i + 1)))}`);
+    return `M ${w(mid(at(points.length - 1), at(0)))} ${curves.join(' ')} Z`;
+  }
+  function nameSide(is, all) {
+    const others = all.filter(o => o !== is);
+    const openSeaAt = y => Math.min(POLE - Math.hypot(is.x - POLE, y - POLE), ...others.map(o => Math.hypot(o.x - is.x, o.y - y) - o.radius));
+    const below = is.y + is.south * is.radius + NAME_DROP;
+    const above = is.y + is.north * is.radius - NAME_DROP;
+    return openSeaAt(below) >= openSeaAt(above) ? 'below' : 'above';
+  }
+
+  /* ---------- The plan: seven islands, Foundation at the pole ---------- */
+  // share: the plan's share of the workers. slots: the work spots on the land. total and done: the island's steps.
+  const PLAN = [
+    { slug: 'foundation', name: 'Foundation', share: 3, slots: 10, total: 14, done: 12 },
+    { slug: 'api', name: 'API', share: 17, slots: 34, total: 61, done: 24 },
+    { slug: 'web-app', name: 'Web app', share: 22, slots: 44, total: 88, done: 40 },
+    { slug: 'ios-app', name: 'iOS app', share: 18, slots: 36, total: 70, done: 30 },
+    { slug: 'shop-dashboard', name: 'Shop dashboard', share: 14, slots: 28, total: 41, done: 10 },
+    { slug: 'payments', name: 'Payments', share: 10, slots: 22, total: 30, done: 8 },
+    { slug: 'admin', name: 'Admin', share: 9, slots: 18, total: 26, done: 6 },
+  ];
+  const TIER = 100, MAX_CHECKS = 3, PER_STEP = 8, SPACING = 0.12;
+  const HUES = [262, 200, 150, 30, 330, 110, 0, 290];
+
+  function oklch(L, C, h) {
+    const a = C * Math.cos((h * Math.PI) / 180), b = C * Math.sin((h * Math.PI) / 180);
+    const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+    const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+    const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+    const f = x => { x = Math.max(0, Math.min(1, x)); return Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055)); };
+    return `rgb(${f(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)}, ${f(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)}, ${f(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)})`;
+  }
+  const TINTS = HUES.map(h => oklch(0.62, 0.11, h));
+
+  // Where each island sits and how large, as worldLayout does, but with Foundation at the pole.
+  const ISLANDS = (() => {
+    const n = PLAN.length;
+    const sites = PLAN.map((p, i) => {
+      const fromPole = i === 0 ? 0 : SPREAD * Math.sqrt((i + 0.5) / n);
+      const bearing = FIRST_BEARING + i * GOLDEN;
+      return { ...p, fromPole, x: POLE + fromPole * Math.cos(bearing), y: POLE + fromPole * Math.sin(bearing) };
+    });
+    const most = Math.max(...PLAN.map(p => p.share));
+    const islands = sites.map(site => {
+      const room = Math.min(GLOBE, ...sites.filter(o => o !== site).map(o => between(site, o)));
+      const largest = Math.min(LARGEST_ISLAND, SHORE - site.fromPole, (LAND_SHARE * room) / 2);
+      const radius = largest * (IDLE_SIZE + (1 - IDLE_SIZE) * Math.sqrt(site.share / most));
+      return { ...site, ...shapeOf(site.slug), room, radius };
+    });
+    for (const is of islands) {
+      is.label = nameSide(is, islands);
+      const points = is.stand(is.slots + 1);
+      const gap = closest(points);
+      is.size = Math.max(SMALLEST_AGENT, Math.min(LARGEST_AGENT, gap * is.radius * AGENT_SHARE));
+      const place = p => ({ x: is.x + p.x * is.radius, y: is.y + p.y * is.radius });
+      is.leaderAt = place(points[0]);
+      is.spotAt = points.slice(1).map(place);
+    }
+    return islands;
+  })();
+
+  /* ---------- The globe, drawn once ---------- */
+  const span = length => `${((length / GLOBE) * 100).toFixed(3)}cqw`;
+  const grid = $('grid');
+  for (const ring of [125, 250, 375]) svgEl('circle', { cx: POLE, cy: POLE, r: ring }, grid);
+  for (let t = 0; t < 12; t++) {
+    const a = (t * Math.PI) / 6;
+    svgEl('line', { x1: POLE + 40 * Math.cos(a), y1: POLE + 40 * Math.sin(a), x2: POLE + POLE * Math.cos(a), y2: POLE + POLE * Math.sin(a) }, grid);
+  }
+  svgEl('path', { d: `M ${POLE - 9} ${POLE} H ${POLE + 9} M ${POLE} ${POLE - 9} V ${POLE + 9}` }, grid);
+
+  const lands = $('lands'), names = $('names');
+  const view = ISLANDS.map((is, order) => {
+    const box = document.createElement('div');
+    box.className = 'world-island';
+    box.style.width = span(is.radius * 2);
+    box.style.height = span(is.radius * 2);
+    box.style.transform = `translate(${span(is.x - is.radius)}, ${span(is.y - is.radius)})`;
+    box.style.setProperty('--world-wait', `${(order * 1.7) % 9}s`);
+    box.style.setProperty('--world-entry', `${order * 55}ms`);
+    const rise = document.createElement('div');
+    rise.className = 'world-rise';
+    box.appendChild(rise);
+    const shore = coastline(is.coast);
+    for (let w = 0; w < 2; w++) { const r = svgEl('svg', { viewBox: '-1 -1 2 2', class: 'world-ripple' }, rise); svgEl('path', { d: shore }, r); }
+    const art = svgEl('svg', { viewBox: '-1 -1 2 2', class: 'world-art' }, rise);
+    svgEl('path', { d: shore, transform: 'scale(1.15)', class: 'world-shelf' }, art);
+    for (const islet of is.islets) svgEl('path', { d: coastline(islet.coast, 1, islet), class: 'world-land' }, art);
+    svgEl('path', { d: shore, class: 'world-land' }, art);
+    const heights = svgEl('g', {}, art);
+    lands.appendChild(box);
+
+    const name = document.createElement('div');
+    name.className = 'world-name';
+    name.style.left = span(is.x);
+    if (is.label === 'below') name.style.top = `calc(${span(is.y + is.south * is.radius)} + 5px)`;
+    else name.style.bottom = `calc(100cqw - ${span(is.y + is.north * is.radius)} + 5px)`;
+    name.innerHTML = `<b></b><span class="steps"></span><span class="world-working"></span>`;
+    name.firstChild.textContent = is.name;
+    names.appendChild(name);
+    return { box, rise, heights, tiers: -1, steps: name.querySelector('.steps'), working: name.querySelector('.world-working') };
+  });
+
+  function setTiers(i, tiers) {
+    const v = view[i];
+    if (v.tiers === tiers) return;
+    v.tiers = tiers;
+    v.heights.replaceChildren();
+    const is = ISLANDS[i];
+    HEIGHTS.slice(0, tiers).forEach((h, tier) => {
+      svgEl('path', { d: coastline(is.coast, h, { x: is.peak.x * (1 - h), y: is.peak.y * (1 - h) }), class: 'world-height', 'data-tier': tier }, v.heights);
+    });
+  }
+  function burst(i) {
+    if (still) return;
+    const ring = document.createElement('i');
+    ring.className = 'world-burst';
+    view[i].rise.appendChild(ring);
+    setTimeout(() => ring.remove(), 1300);
+  }
+
+  /* ---------- The run ---------- */
+  const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+  let still = motionQuery.matches;
+  const world = $('world');
+  const syncStill = () => { world.toggleAttribute('data-still', still); };
+  syncStill();
+  if (motionQuery.addEventListener) motionQuery.addEventListener('change', e => { still = e.matches; syncStill(); });
+
+  let state, agents, simT, spawned, lastSpawn, history, runMinute, nextSample, sampleMax, doneSince;
+
+  function freshIsland(is) {
+    return {
+      stepsDone: is.done, credit: 0, packetsLeft: (is.total - is.done) * PER_STEP,
+      spots: is.spotAt.map(p => ({ x: p.x, y: p.y, state: 'empty', at: -9, reserved: false, fix: false, inCheck: false })),
+      checking: false, checkEnd: 0, lastCheck: -rnd(0, 6), nextWrite: rnd(0.4, 2.5), finished: false, doneUnchecked: 0, heat: 0,
+    };
+  }
+
+  function baseHistory() {
+    const out = [];
+    for (let t = 0; t <= 372; t += 2) {
+      let r;
+      if (t < 38) r = 5;
+      else if (t < 52) r = 0;
+      else if (t < 90) r = Math.round(8 + ((t - 52) / 38) * 4);
+      else if (t < 170) r = Math.round(12 + ((t - 90) / 80) * 85);
+      else r = Math.min(100, Math.round(97 + 2 * Math.sin(t / 7) + 1.2 * Math.sin(t / 2.3)));
+      out.push([t, r]);
+    }
+    out.push([372, 100]);
+    return out;
+  }
+
+  function init() {
+    state = ISLANDS.map(freshIsland);
+    agents = [];
+    simT = 0; spawned = 4213; lastSpawn = 0; doneSince = null;
+    history = baseHistory(); runMinute = 372; nextSample = 1; sampleMax = 0;
+    ISLANDS.forEach((is, i) => {
+      const st = state[i];
+      const free = shuffle(st.spots.slice());
+      const take = Math.min(is.share, free.length, st.packetsLeft);
+      for (let k = 0; k < take; k++) {
+        const s = free.pop(); s.state = 'taken'; s.reserved = true; st.packetsLeft--;
+        agents.push({ i, spot: s, state: 'work', end: rnd(0.5, 20), x: s.x, y: s.y, tint: pick(TINTS), size: is.size, alpha: 1 });
+      }
+      const done = Math.min(Math.round(is.share * rnd(0.2, 0.6)), free.length, st.packetsLeft);
+      for (let k = 0; k < done; k++) { const s = free.pop(); s.state = 'done'; st.doneUnchecked++; st.packetsLeft--; }
+      const open = Math.min(2 + Math.floor(rnd(0, 3)), free.length, st.packetsLeft);
+      for (let k = 0; k < open; k++) { const s = free.pop(); s.state = 'open'; s.at = -9; st.packetsLeft--; }
+      setTiers(i, tiersOf(st.stepsDone / is.total));
+    });
+  }
+
+  const tiersOf = share => (share >= 0.25) + (share >= 0.5) + (share >= 0.8);
+  const openOf = st => st.spots.filter(s => s.state === 'open' && !s.reserved);
+  const leadersNow = () => state.filter(st => !st.finished).length;
+  const aliveAgents = () => agents.filter(a => a.state !== 'gone').length;
+
+  function weightedIsland(list) {
+    const sum = list.reduce((t, i) => t + ISLANDS[i].share, 0);
+    let r = Math.random() * sum;
+    for (const i of list) { r -= ISLANDS[i].share; if (r <= 0) return i; }
+    return list[list.length - 1];
+  }
+
+  function spawn() {
+    if (aliveAgents() >= TIER - leadersNow()) return;
+    if (simT - lastSpawn < (still ? 0 : SPACING)) return;
+    let home = -1, target = -1, spot = null;
+    for (let i = 0; i < state.length && !spot; i++) {
+      const fix = openOf(state[i]).find(s => s.fix);
+      if (fix) { home = i; target = i; spot = fix; }
+    }
+    if (!spot) {
+      const live = state.map((st, i) => i).filter(i => !state[i].finished && (state[i].packetsLeft > 0 || openOf(state[i]).length));
+      if (!live.length) return;
+      home = weightedIsland(live);
+      const mine = openOf(state[home]);
+      if (mine.length) { target = home; spot = pick(mine); }
+      else {
+        // Its island ran dry: the agent crosses to the nearest island with work waiting.
+        const others = state.map((st, i) => i).filter(i => openOf(state[i]).length).sort((a, b) => between(ISLANDS[a], ISLANDS[home]) - between(ISLANDS[b], ISLANDS[home]));
+        if (!others.length) return;
+        target = others[0]; spot = pick(openOf(state[target]));
+      }
+    }
+    spot.reserved = true;
+    const from = ISLANDS[home].leaderAt;
+    agents.push({ i: target, home, spot, state: 'drop', t0: simT, dur: still ? 0 : 0.38, fx: from.x, fy: from.y, x: from.x + rnd(-8, 8), y: from.y + 10 + rnd(0, 6), tint: pick(TINTS), size: ISLANDS[home].size, alpha: 0 });
+    spawned++;
+    lastSpawn = simT;
+  }
+
+  function startHop(a) {
+    const d = Math.hypot(a.spot.x - a.x, a.spot.y - a.y);
+    const cross = a.home !== undefined && a.home !== a.i;
+    a.state = 'hop'; a.t0 = simT;
+    a.hx = a.x; a.hy = a.y;
+    a.dur = still ? 0 : cross ? 0.6 : 0.35 + Math.min(0.15, d / 1000);
+    a.arc = cross ? Math.min(110, d * 0.3) : Math.min(40, 10 + d * 0.2);
+  }
+
+  function startCheck(i) {
+    const st = state[i];
+    st.checking = true; st.checkEnd = simT + rnd(3, 4.5);
+    for (const s of st.spots) if (s.state === 'done') s.inCheck = true;
+  }
+  function endCheck(i) {
+    const st = state[i], is = ISLANDS[i];
+    const covered = st.spots.filter(s => s.inCheck);
+    const failed = covered.length >= 4 && Math.random() < 0.12 ? pick(covered) : null;
+    for (const s of covered) {
+      s.inCheck = false;
+      if (s === failed) { s.state = 'open'; s.fix = true; s.reserved = false; s.at = simT; }
+      else { s.state = 'clearing'; s.at = simT; }
+    }
+    st.doneUnchecked -= covered.length;
+    st.credit += covered.length - (failed ? 1 : 0);
+    st.stepsDone = Math.min(is.total, is.done + Math.floor(st.credit / PER_STEP));
+    st.checking = false; st.lastCheck = simT;
+    if (!failed && covered.length) burst(i);
+  }
+
+  function step(dt) {
+    simT += dt;
+    for (const a of agents) {
+      if (a.state === 'drop' && simT - a.t0 >= a.dur) startHop(a);
+      else if (a.state === 'hop' && simT - a.t0 >= a.dur) { a.state = 'work'; a.end = simT + rnd(10, 26); a.spot.state = 'taken'; a.x = a.spot.x; a.y = a.spot.y; a.size = ISLANDS[a.i].size; }
+      else if (a.state === 'work' && simT >= a.end) {
+        const s = a.spot;
+        s.state = 'done'; s.at = simT; s.reserved = false; s.fix = false;
+        state[a.i].doneUnchecked++;
+        a.state = 'vanish'; a.t0 = simT; a.dur = still ? 0 : 0.3;
+      } else if (a.state === 'vanish' && simT - a.t0 >= a.dur) a.state = 'gone';
+    }
+    agents = agents.filter(a => a.state !== 'gone');
+
+    ISLANDS.forEach((is, i) => {
+      const st = state[i];
+      if (st.finished) return;
+      if (simT >= st.nextWrite) {
+        if (st.packetsLeft > 0) {
+          const empties = shuffle(st.spots.filter(s => s.state === 'empty'));
+          // A leader keeps a little more work written than its agents can take at once.
+          const wanted = Math.ceil(is.share * 0.3) + 2 - openOf(st).length;
+          const count = Math.max(0, Math.min(st.packetsLeft, empties.length, wanted));
+          for (let k = 0; k < count; k++) { empties[k].state = 'open'; empties[k].at = simT; st.packetsLeft--; }
+        }
+        st.nextWrite = simT + rnd(0.8, 1.6);
+      }
+      for (const s of st.spots) if (s.state === 'clearing' && simT - s.at >= (still ? 0 : 0.8)) s.state = 'empty';
+      if (st.checking && simT >= st.checkEnd) endCheck(i);
+    });
+
+    let checking = state.filter(st => st.checking).length;
+    if (checking < MAX_CHECKS) {
+      const ready = state.map((st, i) => i).filter(i => {
+        const st = state[i];
+        if (st.checking || st.finished || simT - st.lastCheck < 1.5 || !st.doneUnchecked) return false;
+        const winding = st.packetsLeft === 0 && !st.spots.some(s => s.state === 'open' || s.state === 'taken');
+        return winding || st.doneUnchecked >= Math.max(5, Math.round(ISLANDS[i].share * 0.6));
+      }).sort((a, b) => state[a].lastCheck - state[b].lastCheck);
+      for (const i of ready) { if (checking >= MAX_CHECKS) break; startCheck(i); checking++; }
+    }
+
+    ISLANDS.forEach((is, i) => {
+      const st = state[i];
+      if (!st.finished && st.packetsLeft === 0 && !st.checking && st.spots.every(s => s.state === 'empty')) { st.finished = true; st.stepsDone = is.total; }
+    });
+
+    spawn();
+
+    const running = aliveAgents() + leadersNow();
+    sampleMax = Math.max(sampleMax, running);
+    if (simT >= nextSample) {
+      runMinute++;
+      history.push([runMinute, sampleMax]);
+      sampleMax = 0;
+      nextSample += 1;
+    }
+
+    if (state.every(st => st.finished) && !agents.length) {
+      if (doneSince === null) doneSince = simT;
+      else if (simT - doneSince > 8) init();
+    }
+  }
+
+  /* ---------- Drawing the agents and the work spots ---------- */
+  const canvas = $('agents');
+  const ctx = canvas.getContext('2d');
+  const BODY = new Path2D('M34 182 C34 120 60 70 100 70 C140 70 166 120 166 182 Q166 188 160 188 L40 188 Q34 188 34 182 Z');
+  let colors = {};
+  let unit = 0.7;
+  function readColors() {
+    const css = getComputedStyle(document.documentElement);
+    const get = name => css.getPropertyValue(name).trim();
+    colors = { text: get('--hb-text'), surface: get('--hb-surface'), border: get('--hb-border-strong'), accent: get('--hb-accent'), sun: get('--hb-sun-fg'), bad: get('--hb-bad') };
+  }
+  function fitCanvas() {
+    const w = canvas.clientWidth || 700;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(w * dpr);
+    unit = w / GLOBE;
+  }
+  new ResizeObserver(fitCanvas).observe(canvas);
+
+  // An agent as the World draws one: a round chip on the surface, its ring, and the pet in its hood's colour.
+  function chip(x, y, d, tint, leader, alpha) {
+    const r = d / 2;
+    ctx.globalAlpha = alpha * 0.22;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(x, y + 2 / unit, r + 1.2 / unit, 0, TURN); ctx.fill();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = colors.surface;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TURN); ctx.fill();
+    ctx.lineWidth = (leader ? 2.2 : 1.5) / unit;
+    ctx.strokeStyle = leader ? colors.accent : colors.border;
+    ctx.stroke();
+    const box = d * 1.18;
+    ctx.save();
+    ctx.translate(x - box / 2, y - box / 2);
+    ctx.scale(box / 256, box / 256);
+    ctx.translate(28, 28);
+    ctx.fillStyle = tint;
+    ctx.fill(BODY);
+    ctx.beginPath(); ctx.ellipse(74, 190, 14.5, 7.5, 0, 0, TURN); ctx.moveTo(140.5, 190); ctx.ellipse(126, 190, 14.5, 7.5, 0, 0, TURN); ctx.fill();
+    ctx.fillStyle = colors.surface;
+    const eye = d * unit < 14 ? 13 : 9;
+    ctx.beginPath(); ctx.arc(84, 138, eye, 0, TURN); ctx.moveTo(116 + eye, 138); ctx.arc(116, 138, eye, 0, TURN); ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  function where(a) {
+    if (a.state === 'drop') {
+      const e = a.dur ? easeOut(Math.min(1, (simT - a.t0) / a.dur)) : 1;
+      return { x: a.fx + (a.x - a.fx) * e, y: a.fy + (a.y - a.fy) * e, alpha: e, scale: 0.5 + 0.5 * e };
+    }
+    if (a.state === 'hop') {
+      const e = a.dur ? easeOut(Math.min(1, (simT - a.t0) / a.dur)) : 1;
+      return { x: a.hx + (a.spot.x - a.hx) * e, y: a.hy + (a.spot.y - a.hy) * e - a.arc * 4 * e * (1 - e), alpha: 1, scale: 1 };
+    }
+    if (a.state === 'vanish') {
+      const e = a.dur ? Math.min(1, (simT - a.t0) / a.dur) : 1;
+      return { x: a.x, y: a.y, alpha: 1 - e, scale: 1 - 0.6 * e };
+    }
+    return { x: a.x, y: a.y, alpha: 1, scale: 1 };
+  }
+
+  function draw() {
+    ctx.setTransform(canvas.width / GLOBE, 0, 0, canvas.height / GLOBE, 0, 0);
+    ctx.clearRect(0, 0, GLOBE, GLOBE);
+    const dot = 2.7 / unit;
+    ISLANDS.forEach((is, i) => {
+      for (const s of state[i].spots) {
+        if (s.state === 'empty' || s.state === 'taken') continue;
+        if (s.state === 'open') {
+          const grow = still ? 1 : Math.min(1, (simT - s.at) / 0.35);
+          ctx.globalAlpha = 0.7 * grow;
+          if (s.fix) {
+            ctx.fillStyle = colors.bad;
+            ctx.beginPath(); ctx.arc(s.x, s.y, dot * 1.25, 0, TURN); ctx.fill();
+          } else {
+            ctx.strokeStyle = colors.text; ctx.lineWidth = 1.3 / unit;
+            ctx.beginPath(); ctx.arc(s.x, s.y, dot * grow, 0, TURN); ctx.stroke();
+          }
+        } else {
+          const fade = s.state === 'clearing' ? Math.max(0, 1 - (simT - s.at) / 0.8) : 1;
+          ctx.globalAlpha = 0.6 * fade;
+          ctx.fillStyle = colors.text;
+          ctx.beginPath(); ctx.arc(s.x, s.y, dot, 0, TURN); ctx.fill();
+        }
+      }
+    });
+    ctx.globalAlpha = 1;
+    ISLANDS.forEach((is, i) => { if (!state[i].finished) chip(is.leaderAt.x, is.leaderAt.y, is.size * 1.4, colors.sun, true, 1); });
+    for (const a of agents) {
+      const p = where(a);
+      chip(p.x, p.y, a.size * p.scale, a.tint, false, p.alpha);
+    }
+  }
+
+  /* ---------- Words and numbers around the map ---------- */
+  function agentsOn(i) { return agents.filter(a => a.i === i && a.state !== 'vanish').length; }
+
+  function updateWords() {
+    const counts = ISLANDS.map((_, i) => agentsOn(i));
+    const most = Math.max(1, ...counts);
+    ISLANDS.forEach((is, i) => {
+      const st = state[i], v = view[i];
+      st.heat += (Math.sqrt(counts[i] / most) - st.heat) * 0.5;
+      const heat = st.finished ? 0 : st.heat;
+      v.box.style.setProperty('--world-land', `color-mix(in oklab, var(--hb-accent) ${Math.round(14 + 86 * heat)}%, var(--world-soil))`);
+      v.box.style.setProperty('--world-heat', heat.toFixed(2));
+      v.box.toggleAttribute('data-check', st.checking);
+      setTiers(i, tiersOf(st.stepsDone / is.total));
+      v.steps.textContent = `${st.stepsDone} / ${is.total} steps`;
+      if (st.finished) { v.working.textContent = 'done'; v.working.setAttribute('data-done', ''); }
+      else { v.working.textContent = `${counts[i]} working${st.checking ? ' · checking' : ''}`; v.working.removeAttribute('data-done'); }
+    });
+    const leaders = leadersNow();
+    const workers = aliveAgents();
+    const running = workers + leaders;
+    $('tRun').innerHTML = `${running}<small> / ${TIER}</small>`;
+    $('tRunSub').textContent = `${leaders} leaders, ${workers} workers`;
+    $('tSpawn').textContent = fmt(spawned);
+    const steps = state.reduce((t, st) => t + st.stepsDone, 0);
+    const total = ISLANDS.reduce((t, is) => t + is.total, 0);
+    $('tSteps').innerHTML = `${steps}<small> / ${total}</small>`;
+    const checking = ISLANDS.filter((_, i) => state[i].checking).map(is => is.name);
+    $('tCheck').innerHTML = `${checking.length}<small> / ${MAX_CHECKS}</small>`;
+    $('tCheckSub').textContent = checking.length ? checking.join(', ') : 'none right now';
+    const finished = ISLANDS.filter((_, i) => state[i].finished).map(is => is.name);
+    const building = ISLANDS.length - finished.length;
+    const allDone = !building && !agents.length;
+    $('phaseTitle').textContent = allDone ? 'Done' : 'Building';
+    $('phaseLine').textContent = allDone
+      ? 'Every step on every island is checked. The pull request is ready for review. The sample starts again in a moment.'
+      : `${building} of 7 islands building${finished.length ? `. ${finished.join(' and ')} ${finished.length === 1 ? 'is' : 'are'} done` : ''}. Each agent comes out of its island's leader and takes work that leader wrote. Only leaders run checks.`;
+    const h = Math.floor(runMinute / 60), m = runMinute % 60;
+    $('runNow').textContent = `${h} h ${String(m).padStart(2, '0')} m in · ${running} now`;
+  }
+
+  function updateSpark() {
+    const svg = $('spark');
+    svg.replaceChildren();
+    const L = 30, R = 594, T = 8, B = 62;
+    const end = history[history.length - 1][0];
+    const x = t => L + (t / end) * (R - L);
+    const y = v => B - (v / 100) * (B - T);
+    svgEl('line', { x1: L, x2: R, y1: y(100), y2: y(100), class: 'tierline' }, svg);
+    svgEl('line', { x1: L, x2: R, y1: y(0), y2: y(0), class: 'grid0' }, svg);
+    svgEl('text', { x: L - 6, y: y(100) + 3.5, 'text-anchor': 'end', class: 'axis' }, svg).textContent = '100';
+    svgEl('text', { x: L - 6, y: y(0) + 3.5, 'text-anchor': 'end', class: 'axis' }, svg).textContent = '0';
+    svgEl('text', { x: L, y: 78, class: 'axis' }, svg).textContent = 'planning';
+    svgEl('text', { x: R, y: 78, 'text-anchor': 'end', class: 'axis' }, svg).textContent = 'now';
+    const line = history.map(([t, v]) => `${x(t).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    svgEl('polygon', { points: `${x(0)},${B} ${line} ${x(end)},${B}`, style: 'fill: var(--hb-accent); opacity: 0.3' }, svg);
+    svgEl('polyline', { points: line, style: 'fill: none; stroke: var(--hb-sun-fg); stroke-width: 1.6; stroke-linejoin: round' }, svg);
+    const [lt, lv] = history[history.length - 1];
+    svgEl('circle', { cx: x(lt), cy: y(lv), r: 3.2, style: 'fill: var(--hb-sun-fg)' }, svg);
+  }
+
+  function updateList() {
+    const list = $('srList');
+    list.replaceChildren();
+    ISLANDS.forEach((is, i) => {
+      const li = document.createElement('li');
+      li.textContent = `${is.name}: ${state[i].finished ? 'done' : `${agentsOn(i)} agents`}, ${state[i].stepsDone} of ${is.total} steps${state[i].checking ? ', its leader is checking' : ''}.`;
+      list.appendChild(li);
+    });
+  }
+
+  /* ---------- The clock ---------- */
+  init();
+  readColors();
+  fitCanvas();
+  updateWords(); updateSpark(); updateList();
+  if (motionQuery.addEventListener) motionQuery.addEventListener('change', readColors);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', readColors);
+  new MutationObserver(readColors).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+
+  let last = performance.now(), wordsAt = 0, sparkAt = 0, listAt = 0, heldFor = 0;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (still) {
+      // Held still: the run moves on in one jump every three seconds, with nothing hopping or pulsing.
+      heldFor += dt;
+      if (heldFor >= 3) {
+        for (let k = 0; k < 30; k++) step(0.1);
+        heldFor = 0;
+        draw(); updateWords(); updateSpark(); updateList();
+      }
+    } else {
+      step(dt);
+      draw();
+      if (now - wordsAt > 250) { updateWords(); wordsAt = now; }
+      if (now - sparkAt > 1000) { updateSpark(); sparkAt = now; }
+      if (now - listAt > 3000) { updateList(); listAt = now; }
+    }
+    requestAnimationFrame(frame);
+  }
+  draw();
+  requestAnimationFrame(frame);
+})();
+</script>
