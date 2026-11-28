@@ -3,9 +3,9 @@
   "id": "076-ludicrous-mode",
   "title": "Ludicrous mode",
   "kind": "work",
-  "status": "draft",
+  "status": "doing",
   "depends": ["011-work", "049-yolo-mode", "052-ten-times-lighter", "059-new-project", "068-run-guide", "070-load-skill"],
-  "updated": "2026-11-26"
+  "updated": "2026-11-27"
 }
 ---
 # Ludicrous mode
@@ -27,7 +27,7 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
 
 ### Two words for tier
 
-- The machine tier is how many Ludicrous agents run at once: 30, 50 or 100. It is a compute setting: the plan and the quality are the same at every tier, and the tier only decides how long the run takes and how much of the computer it uses. The model tiers are hobkin's `fast`, `mid`, `high` and `max` (`hobkin/src/cli/tiers.mjs`). The page and this spec always say which one they mean.
+- The machine tier is how many Ludicrous agents run at once: 30, 50 or 100. It is a compute setting: the plan and the quality are the same at every tier, and the tier only decides how long the run takes and how much of the computer it uses. The model tiers are hobkin's `fast`, `mid`, `high` and `max` (`packages/hobkin/src/cli/tiers.mjs`). The page and this spec always say which one they mean.
 
 ### The page
 
@@ -64,7 +64,7 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
 
 - Every Ludicrous agent is a Pi started in the background by hobkin's conductor, the runtime code that owns the run. It has Pi's own tools, skills (`load_skill`, 070) and the user's MCP servers, and no other extension: no tasks, teams, subagents, schedules or durable jobs. Agents never start agents. Only the conductor starts or stops a process.
 - Each agent runs in a process group of its own, with its session file in the run's folder in hobkin's home (`ludicrous/<run>/sessions/`). The window never streams their transcripts. The host gets at most one Ludicrous frame a second with the phase and the counts.
-- Their instructions are skills that ship with hobkin: `ludicrous-planner`, `ludicrous-leader`, `ludicrous-worker` and `ludicrous-compile`, with each system prompt in a `.md` file under `hobkin/src/prompts/`.
+- Their instructions are skills that ship with hobkin: `ludicrous-planner`, `ludicrous-leader`, `ludicrous-worker` and `ludicrous-compile`, with each system prompt in a `.md` file under `packages/hobkin/src/prompts/`.
 - Model tiers: planners and the planning lead run on `max`, leaders on `high`, and the compile on `high`. Each packet carries the tier its leader gives it: `mid` by default, `high` for hard work, `fast` for mechanical work.
 
 ### Planning
@@ -109,7 +109,7 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
 
 ### The subscription
 
-- When an agent ends on the provider's usage limit, or hobkin's usage readings (`hobkin/src/cli/work/usage.mjs`) show a window used up, the conductor starts nothing and the agents still running end as they fail. Their packets go back to the queue with their edits left in the tree. Nothing is compiled.
+- When an agent ends on the provider's usage limit, or hobkin's usage readings (`packages/hobkin/src/cli/work/usage.mjs`) show a window used up, the conductor starts nothing and the agents still running end as they fail. Their packets go back to the queue with their edits left in the tree. Nothing is compiled.
 - It plans the restart for the window's reset time plus one minute and shows it on the page. With no reset time known, it tries one agent every 30 minutes until one runs. Then it fills the tier again by itself.
 - Ludicrous never asks about pace. Work's daily budget and its pace question (`subscription.mjs`) do not count Ludicrous runs.
 
@@ -154,39 +154,39 @@ Work mode has a Ludicrous page beside YOLO mode. It builds a whole project as fa
 ## Proof
 
 - A1. check: the opening's words match the ones above; still renders of the page in every phase (vite build, an SSR entry, qlmanage), light and dark, then the live window.
-- A2. `ui/test/work-ludicrous-page.test.ts` › "an existing project says nobody else should work on it, and a folder with changes keeps Let's plan this disabled with the reason"; `hobkin/test/cli-ludicrous-run.test.mjs` › "Let's plan this pauses the project in Work until the run's pull request is merged or closed"
-- A3. `hobkin/test/cli-ludicrous-planning.test.mjs` › "Let's plan this runs five planners on max and nothing else, and building waits for Go Ludicrous"
-- A4. `hobkin/test/cli-ludicrous-conductor.test.mjs` › "the tier is never exceeded, and it fills again while packets are ready"
-- A5. `hobkin/test/cli-ludicrous-conductor.test.mjs` › "one leader for each open area, and workers start only from its queue"; `hobkin/test/cli-ludicrous-harness.test.mjs` › "a Ludicrous Pi loads only skills and MCP servers"
-- A6. `hobkin/test/ludicrous-land.test.mjs` › "two workers landing at once both keep every line" and › "a path that changed since it was read is refused, and the trail says so"
-- A7. `hobkin/test/cli-ludicrous-conductor.test.mjs` › "agents share the folder, and the only worktrees are the check worktrees"
+- A2. `ui/test/work-ludicrous-page.test.ts` › "an existing project says nobody else should work on it, and a folder with changes keeps Let's plan this disabled with the reason"; `packages/hobkin/test/cli-ludicrous-run.test.mjs` › "Let's plan this pauses the project in Work until the run's pull request is merged or closed"
+- A3. `packages/hobkin/test/cli-ludicrous-planning.test.mjs` › "Let's plan this runs five planners on max and nothing else, and building waits for Go Ludicrous"
+- A4. `packages/hobkin/test/cli-ludicrous-conductor.test.mjs` › "the tier is never exceeded, and it fills again while packets are ready"
+- A5. `packages/hobkin/test/cli-ludicrous-conductor.test.mjs` › "one leader for each open area, and workers start only from its queue"; `packages/hobkin/test/cli-ludicrous-harness.test.mjs` › "a Ludicrous Pi loads only skills and MCP servers"
+- A6. `packages/hobkin/test/ludicrous-land.test.mjs` › "two workers landing at once both keep every line" and › "a path that changed since it was read is refused, and the trail says so"
+- A7. `packages/hobkin/test/cli-ludicrous-conductor.test.mjs` › "agents share the folder, and the only worktrees are the check worktrees"
 - A8. `ui/test/work-ludicrous-page.test.ts` › "the map shows each area's agents, leader and steps, and never what an agent is doing"; `host/test/work-ludicrous.test.ts` › "Ludicrous agents are not running agents"
-- A9. `hobkin/test/cli-ludicrous-stop.test.mjs` › "Stop kills every process group and leaves nothing running" and › "the compile keeps only verified commits, saves the rest as patches, and opens a draft pull request"
-- A10. `hobkin/test/cli-ludicrous-stop.test.mjs` › "Go Ludicrous after a stop resumes from the trails, with each patch back on its packet"
-- A11. `hobkin/test/cli-ludicrous-subscription.test.mjs` › "a used-up window starts nothing and fills the tier again at its reset"
-- A12. `hobkin/test/cli-ludicrous-done.test.mjs` › "done marks the pull request ready and folds the trails into the area notes"
-- A13. `hobkin/test/cli-ludicrous-run.test.mjs` › "the tier hobkin picks from the computer's measure"; `ui/test/work-ludicrous-page.test.ts` › "a tier above the measure says what it risks"
+- A9. `packages/hobkin/test/cli-ludicrous-stop.test.mjs` › "Stop kills every process group and leaves nothing running" and › "the compile keeps only verified commits, saves the rest as patches, and opens a draft pull request"
+- A10. `packages/hobkin/test/cli-ludicrous-stop.test.mjs` › "Go Ludicrous after a stop resumes from the trails, with each patch back on its packet"
+- A11. `packages/hobkin/test/cli-ludicrous-subscription.test.mjs` › "a used-up window starts nothing and fills the tier again at its reset"
+- A12. `packages/hobkin/test/cli-ludicrous-done.test.mjs` › "done marks the pull request ready and folds the trails into the area notes"
+- A13. `packages/hobkin/test/cli-ludicrous-run.test.mjs` › "the tier hobkin picks from the computer's measure"; `ui/test/work-ludicrous-page.test.ts` › "a tier above the measure says what it risks"
 - A14. check: 052's benchmarks (`scripts/perf`) with 100 fake Ludicrous agents against none, and a Work run started on another project during them.
 - A15. `host/test/work-ludicrous.test.ts` › "only the window starts or stops Ludicrous"
-- A16. `hobkin/test/cli-ludicrous-conductor.test.mjs` › "a restart kills the old process groups and builds again from the trails"
-- A17. `hobkin/test/cli-ludicrous-stop.test.mjs` › "with no remote the branch stays local and the report says so"
-- A18. `hobkin/test/cli-ludicrous-conductor.test.mjs` › "the computer is held awake only while building"
-- A19. `hobkin/test/cli-ludicrous-harness.test.mjs` › "a worker's check command is refused and logged"; check: the trails of S10's run, read for the reasoning on each test.
-- A20. `hobkin/test/ludicrous-check.test.mjs` › "a leader checks only a committed head, one check an area, and waits for a free check worktree" and › "a failing check files a fix packet naming the check, the commit and the trail"
+- A16. `packages/hobkin/test/cli-ludicrous-conductor.test.mjs` › "a restart kills the old process groups and builds again from the trails"
+- A17. `packages/hobkin/test/cli-ludicrous-stop.test.mjs` › "with no remote the branch stays local and the report says so"
+- A18. `packages/hobkin/test/cli-ludicrous-conductor.test.mjs` › "the computer is held awake only while building"
+- A19. `packages/hobkin/test/cli-ludicrous-harness.test.mjs` › "a worker's check command is refused and logged"; check: the trails of S10's run, read for the reasoning on each test.
+- A20. `packages/hobkin/test/ludicrous-check.test.mjs` › "a leader checks only a committed head, one check an area, and waits for a free check worktree" and › "a failing check files a fix packet naming the check, the commit and the trail"
 
 Every test runs on a throwaway home with a fake Pi and a fake `gh`. Nothing touches `~/.hobkin`, a real provider or a real code host.
 
 ## Steps
 
-- [ ] S1 (A5, A7, A13, A20). Measure before building: a bare Pi agent's memory and CPU, the start spacing the computer takes without stalling the window, how Pi loads MCP servers with no other extension, and how many check runs at once the computer takes beside the tier, with a check worktree's disk cost. Fix the tier picks and the number of check worktrees from that, in `notes.md`.
-- [ ] S2 (A2, A13, A15). Runtime: the run record, its phases, the tier pick, the project's pause in Work, and the `outside` commands. Files: new `hobkin/src/cli/ludicrous/run.mjs`, `hobkin/src/cli/ludicrous/commands.mjs`, `hobkin/src/cli/work/controls.mjs`; tests new `hobkin/test/cli-ludicrous-run.test.mjs`.
-- [ ] S3 (A4, A5, A7, A16, A18). Runtime: the conductor, with the process pool, start spacing, process groups, area shares, the counts history, restart recovery and holding the computer awake. Files: new `hobkin/src/cli/ludicrous/conductor.mjs`, `hobkin/src/cli/harnesses.mjs`; tests new `hobkin/test/cli-ludicrous-conductor.test.mjs`, `hobkin/test/cli-ludicrous-harness.test.mjs`.
-- [ ] S4 (A3). Planning: the five lenses, the four rounds, the plan, the area specs and the questions. Files: new `hobkin/src/cli/ludicrous/planning.mjs`, the `ludicrous-planner` skill, new `hobkin/src/prompts/ludicrous-planner.md`; tests new `hobkin/test/cli-ludicrous-planning.test.mjs`.
-- [ ] S5 (A5, A6, A7, A19, A20). Leaders and workers: the queue and trail formats, the `ludicrous-leader` and `ludicrous-worker` skills, the `land` script, the `check` script with its check worktrees, and the stand-ins on a worker's `PATH`. Files: the two skills, new `hobkin/src/prompts/ludicrous-{leader,worker}.md`, `hobkin/src/cli/ludicrous/conductor.mjs`; tests new `hobkin/test/ludicrous-land.test.mjs`, new `hobkin/test/ludicrous-check.test.mjs`.
-- [ ] S6 (A9, A10, A12, A17). Stop and compile: the kill, the patches, the compile agent, the report, the push and the pull request, resume, and done. Files: new `hobkin/src/cli/ludicrous/{stop,compile}.mjs`, the `ludicrous-compile` skill, new `hobkin/src/prompts/ludicrous-compile.md`; tests new `hobkin/test/cli-ludicrous-{stop,done}.test.mjs`.
-- [ ] S7 (A11). The subscription wait and the restart at reset. Files: `hobkin/src/cli/ludicrous/conductor.mjs`, `hobkin/src/cli/work/usage.mjs`; tests new `hobkin/test/cli-ludicrous-subscription.test.mjs`.
-- [ ] S8 (A8, A14, A15). Host: the protocol, the commands and the frame of at most one a second. Files: `shared/protocol/work.ts`, `shared/commands/registry.ts`, new `host/src/ludicrous.ts`; tests new `host/test/work-ludicrous.test.ts`.
-- [ ] S9 (A1, A2, A8, A13). Window: the page, the opening, the map, the numbers, the history and the two controls. Files: new `ui/src/features/work/LudicrousScreen.tsx`, new `ui/src/features/work/ludicrous-page.ts`, new `ui/src/features/work/ludicrous-map.ts`, `ui/src/app/Canvas.tsx`, `ui/src/app/ScreenMenu.tsx`, `ui/src/features/work/WorkScreen.tsx`; tests new `ui/test/work-ludicrous-page.test.ts`.
+- [x] S1 (A5, A7, A13, A20). Measure before building: a bare Pi agent's memory and CPU, the start spacing the computer takes without stalling the window, how Pi loads MCP servers with no other extension, and how many check runs at once the computer takes beside the tier, with a check worktree's disk cost. Fix the tier picks and the number of check worktrees from that, in `notes.md`.
+- [x] S2 (A2, A13, A15). Runtime: the run record, its phases, the tier pick, the project's pause in Work, and the `outside` commands. Files: new `packages/hobkin/src/cli/ludicrous/run.mjs`, `packages/hobkin/src/cli/work/store.mjs`, `packages/hobkin/src/cli/work/controls.mjs`; the commands are the window's alone, in `shared/commands/registry.ts` (S8), so the runtime needs no command file of its own; tests new `packages/hobkin/test/cli-ludicrous-run.test.mjs`.
+- [x] S3 (A4, A5, A7, A16, A18). Runtime: the conductor, with the process pool, start spacing, process groups, area shares, the counts history, restart recovery and holding the computer awake. Files: new `packages/hobkin/src/cli/ludicrous/conductor.mjs`, new `packages/hobkin/src/cli/ludicrous/agents.mjs`, new `packages/hobkin/src/cli/ludicrous/areas.mjs`, `packages/hobkin/src/cli/harnesses.mjs`, `packages/hobkin/src/cli/stay-awake.mjs`, `packages/hobkin/src/cli/application.mjs`; tests new `packages/hobkin/test/cli-ludicrous-conductor.test.mjs`, `packages/hobkin/test/cli-ludicrous-harness.test.mjs`.
+- [x] S4 (A3). Planning: the five lenses, the four rounds, the plan, the area specs and the questions. Files: new `packages/hobkin/src/cli/ludicrous/planning.mjs`, new `packages/hobkin/src/cli/ludicrous/prompts.mjs`, the `ludicrous-planner` skill, new `packages/hobkin/src/prompts/ludicrous-planner.md` and `ludicrous-rounds.md`; tests new `packages/hobkin/test/cli-ludicrous-planning.test.mjs`.
+- [ ] S5 (A5, A6, A7, A19, A20). Leaders and workers: the queue and trail formats, the `ludicrous-leader` and `ludicrous-worker` skills, the `land` script, the `check` script with its check worktrees, the leader's `wait`, and the stand-ins on a worker's `PATH`. Files: the two skills with `land.mjs`, `check.mjs` and `wait.mjs`, new `packages/hobkin/src/prompts/ludicrous-{leader,worker,tasks}.md`, `packages/hobkin/src/cli/ludicrous/conductor.mjs`; its tests pass, and A19's reading of real trails waits for S10; tests new `packages/hobkin/test/ludicrous-land.test.mjs`, new `packages/hobkin/test/ludicrous-check.test.mjs`.
+- [x] S6 (A9, A10, A12, A17). Stop and compile: the kill, the patches, the compile agent, the report, the push and the pull request, resume, and done. Files: new `packages/hobkin/src/cli/ludicrous/{stop,compile}.mjs`, the `ludicrous-compile` skill, new `packages/hobkin/src/prompts/ludicrous-{compile,final}.md`; tests new `packages/hobkin/test/cli-ludicrous-{stop,done}.test.mjs`.
+- [x] S7 (A11). The subscription wait and the restart at reset. Files: `packages/hobkin/src/cli/ludicrous/conductor.mjs`, reading `packages/hobkin/src/cli/work/usage.mjs`; tests new `packages/hobkin/test/cli-ludicrous-subscription.test.mjs`.
+- [ ] S8 (A8, A14, A15). Host: the protocol, the commands and the frame of at most one a second. Files: new `shared/protocol/ludicrous.ts`, `shared/protocol/messages.ts`, `shared/commands/registry.ts`, new `host/src/ludicrous.ts`, `host/src/state-sync.ts`, `host/src/host.ts`, `host/src/backup.ts`; A14's benchmarks wait for S10; tests new `host/test/work-ludicrous.test.ts`.
+- [ ] S9 (A1, A2, A8, A13). Window: the page, the opening, the map, the numbers, the history and the two controls. Files: new `ui/src/features/work/LudicrousScreen.tsx`, new `ui/src/features/work/ludicrous-page.ts`, new `ui/src/features/work/ludicrous-map.ts`, new `ui/src/features/work/ludicrous-sample.ts`, new `ui/src/features/work/ludicrous.css`, `ui/src/app/Canvas.tsx`, `ui/src/app/ScreenMenu.tsx`, `ui/src/app/screens.ts`, `ui/src/app/key-map.ts`, `ui/src/app/keys.ts`, `ui/src/features/work/WorkScreen.tsx`, `ui/src/features/work/WorldMap.tsx`; its tests pass and the still renders were looked at in both themes, and A1's look in the live window waits for the host to start again; tests new `ui/test/work-ludicrous-page.test.ts`.
 - [ ] S10 (A4, A14). With the user's go-ahead, one real run on a throwaway project at the 30 tier, then the benchmarks with 100 agents.
 
 ## Open questions

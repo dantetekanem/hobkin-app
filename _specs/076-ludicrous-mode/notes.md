@@ -35,6 +35,21 @@ The computer: a Mac17,8 with 18 cores (6 performance), 64 GB of memory and 1,068
 - Start spacing: one agent a second. One start costs 0.35 s of CPU (0.85 s with MCP) and answers in under 0.4 s, so starting one each second uses less than one core. A full 100 tier takes 100 seconds to fill.
 - Free disk: planning needs at least 10 GB free, for the check worktrees and what the agents write.
 
+## Settled while building, on 2026-11-27
+
+- Check worktrees sit in the project's Work trees folder, `work/<slug>/trees/ludicrous-check-<n>`, which backups leave out. They are made on a check's first use.
+- A run's agent transcripts, logs, unfinished patches, tools and check logs are left out of backups too. Its record, counts and report are kept.
+- The live app's host already holds the Mac awake for its whole life (`keepsMacAwake` in `host/src/main.ts`). Ludicrous's own hold, which A18 proves, matters only on a host that does not.
+- While a run plans, only planners run, so the conductor commits each step's files itself.
+- A leader waits for its area with `wait`, which spends no tokens and returns within ten minutes. After about twenty waits it writes `leader.md` and ends, and a fresh leader picks up from it.
+- The final check commits its own verdict, so the verdict holds for the head it left. Any later commit asks for the check again.
+- With no reset time known, one agent tries every 30 minutes. The rest start once it has run two minutes without the limit.
+- The page shows a plain note, not the form, while its host is from before Ludicrous.
+
+## Not proven yet
+
+- A1 in the live window, A14's benchmarks with 100 agents, and A19's reading of real trails. Each needs the host to start again with this branch, and S10's real run needs the user's go-ahead.
+
 ## Open question from S1
 
 - The user's MCP servers in every agent. (a) As decided: every agent gets them all. On this computer that is 100 Gmail processes for a full tier, which brings the pick down to 50, plus 100 connections to Home Assistant, and every agent can send mail or switch a light. (b) Ludicrous agents get no MCP server unless the plan names one the project needs, such as a documentation server. That keeps the tier at 100 and keeps mail and the house out of reach. Pick: (b). The code takes either as one setting.
