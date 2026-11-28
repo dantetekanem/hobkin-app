@@ -20,7 +20,14 @@ declare module 'hobkin/src/cli/application.mjs' {
        */
       messageCheck(request: { scheduleId?: string; message?: string }): Promise<unknown>
     }
+    /** Ludicrous mode's conductor (076), which owns the one run and its agents. Left out by a hobkin from before it. */
+    ludicrous?: import('./ludicrous.ts').LudicrousConductor
   }
+}
+
+declare module 'hobkin/src/cli/ludicrous/run.mjs' {
+  /** Whether a project's folder can take a Ludicrous run now (no uncommitted changes), and why not. Only reads. */
+  export function folderState(root: string, slug: string): Promise<import('#shared/protocol/ludicrous.ts').LudicrousFolder>
 }
 
 declare module 'hobkin/src/cli/work/groups.mjs' {

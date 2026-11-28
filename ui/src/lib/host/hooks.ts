@@ -4,6 +4,7 @@ import type { StoreApi } from 'zustand/vanilla'
 import { sampleAgents, sampleModels, sampleProjects, sampleSessions, sampleStatus, type SampleAgent, type SampleProject, type SampleSession } from '@/app/sample.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
 import type { ProofsState } from '#shared/protocol/proofs.ts'
+import type { LudicrousState } from '#shared/protocol/ludicrous.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { hostStore, watchJob } from './client.ts'
@@ -162,4 +163,9 @@ export function useWork(): WorkState | null {
  */
 export function useProofs(): ProofsState | null {
   return useHost((state) => state.proofs ?? null)
+}
+
+/** Ludicrous mode's one run and the machine tiers this computer fits (076-ludicrous-mode). Null without a host and from a host from before it. */
+export function useLudicrous(): LudicrousState | null {
+  return useHost((state) => state.ludicrous ?? null)
 }

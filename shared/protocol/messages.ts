@@ -9,6 +9,7 @@ import type { ModelsState } from './models.ts'
 import type { Nudge } from './nudge.ts'
 import type { PendingQuestion } from './question.ts'
 import type { ProofsState } from './proofs.ts'
+import type { LudicrousState } from './ludicrous.ts'
 import type { SignInState } from './signin.ts'
 import type { WireSnapshot } from './snapshot.ts'
 import type { ShownMessage } from './timings.ts'
@@ -104,6 +105,8 @@ export interface StateMessage {
   themes?: KeptThemes
   /** TLA+ proof runs: the ones running and the 20 most recent, whole, at most twice a second per run, and with every reset. Left out by a host from before them. */
   proofs?: ProofsState
+  /** Ludicrous mode's run and the machine tiers, whole, at most once a second, and with every reset. Left out by a host from before it. */
+  ludicrous?: LudicrousState
 }
 
 export interface TurnMessage {

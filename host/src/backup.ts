@@ -42,6 +42,9 @@ const NOT_RECORDS: readonly RegExp[] = [
   /^jobs$/,
   // The search index over the notes, built again when it is missing.
   /^runtime\/\.qmd$/,
+  // A Ludicrous run's agent transcripts and logs, the unfinished project code Stop saved as patches, its tools and its check logs.
+  // The run's record, its counts and its report stay records.
+  /^ludicrous\/[^/]+\/(?:sessions|logs|unfinished|bin|tools|locks|checks|leaders)$/,
   // What a run leaves beside its report, in the places hobkin's runs leave it (handoffs, a project's folder and its pull
   // requests): `<name>-evidence`, `<name>.evidence`, `<name>-artifacts`, `<name>.artifacts`. A folder of the user's
   // named like that elsewhere, such as `memory/tax-evidence`, is a record.
@@ -67,6 +70,7 @@ const OWN_AT_HOME: Names = [
   'feedback', // feedback/outbox.mjs
   'hobkins', // hobkins.mjs
   'imported', // history.mjs, delivery.mjs, pi-session.mjs: what `hobkin import` brought
+  'ludicrous', // ludicrous/run.mjs, ludicrous/compile.mjs: each Ludicrous run's record, counts and report, and which run is the page's
   'memory.md', // memory.mjs
   'memories', // memories.mjs: one memory a file, with its `private/` and `forgotten/` folders and `changes.jsonl`
   'migration', // migration/journal.mjs: a migration's journal and its data

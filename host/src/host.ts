@@ -84,6 +84,7 @@ import { actionDismissalHandlers } from './action-dismissals.ts'
 import { reportHandlers } from './reports.ts'
 import { ReminderReader, reminderHandlers } from './reminders.ts'
 import { findTools, proofHandlers, ProofsKeeper } from './proofs.ts'
+import { LudicrousKeeper, ludicrousHandlers } from './ludicrous.ts'
 import { proofToolsHandlers } from './setup-proof.ts'
 import { setupNeedsHandlers } from './setup-needs.ts'
 import { ghBuild } from './setup/gh.ts'
@@ -412,6 +413,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     return changes.map((change) => ({ project: change.slug, item: change.item }))
   }
   const proofs = new ProofsKeeper({ home: () => owner.app?.runtime.directory ?? null, onChange: () => publish(), waiting: waitingChanges })
+  // Ludicrous mode's run, read from hobkin's conductor at most once a second (076-ludicrous-mode).
+  const ludicrous = new LudicrousKeeper({ conductor: () => owner.app?.ludicrous ?? null, onChange: () => publish() })
   const integrations = new Integrations({ source: options.integrations ?? (() => piMcpSourceFor({ live, root })), onChange: publish, log })
   // Skills and Pi extensions read Pi's resources only when a page asks, and change them only through `pi config`'s own code (039-skills-and-extensions).
   const skills = new Skills({ source: () => piSkillSourceFor({ live, root }), log })
@@ -497,6 +500,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     integrations: integrations.state,
     slices: loadedIntegrations.slices(),
     proofs: proofs.state,
+    ludicrous: ludicrous.state,
     canvas: canvases.main,
     canvases: canvases.others(),
     nudge: nudge.state,
@@ -867,6 +871,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...metricsHandlers({ data: () => hobkin().runtime.directory, root, reviews }),
     // TLA+ proof runs: read, stopped and repeated through hobkin's own proof functions, when the runtime running has them.
     ...proofHandlers({ keeper: proofs, home: () => hobkin().runtime.directory }),
+    // Ludicrous mode: Let's plan this, Go Ludicrous and Stop, from the window alone, passed to hobkin's conductor (076).
+    ...ludicrousHandlers({ conductor: () => hobkin().ludicrous ?? null, root: () => hobkin().runtime.directory, keeper: ludicrous }),
     // Its agents and routines, stopped or told something while they work, by run id (011-work).
     ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[], models: async () => (await signIn.refresh(), signIn.models ?? null), images: imagesForAgents, schedules: () => agentSchedules.read(owner.snapshot) }),
     // An agent's schedules, cancelled, paused or run now from the window's list, through hobkin's own methods (056).
@@ -1067,6 +1073,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         backups.close()
         integrations.close()
         proofs.close()
+        ludicrous.close()
         reviews.close()
         clearInterval(canvasRead)
         canvases.stop()

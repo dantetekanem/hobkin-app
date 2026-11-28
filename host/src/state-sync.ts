@@ -12,6 +12,7 @@ import type { OwnerState, StateMessage } from '#shared/protocol/messages.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
 import type { Nudge } from '#shared/protocol/nudge.ts'
 import type { ProofsState } from '#shared/protocol/proofs.ts'
+import type { LudicrousState } from '#shared/protocol/ludicrous.ts'
 import type { SignInState } from '#shared/protocol/signin.ts'
 import { shellFields, type ChatMessage, type WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
@@ -123,6 +124,8 @@ export interface HostFacts {
   work?: WorkState | null
   /** TLA+ proof runs, from hobkin's home. Left out by a host that reads none. */
   proofs?: ProofsState
+  /** Ludicrous mode's run and tiers (076), from hobkin's conductor. Left out by a host that reads none, or before hobkin runs. */
+  ludicrous?: LudicrousState
   /** The canvas panel. Left out by a host that has none. */
   canvas?: CanvasState
   /** Each durable hobkin's canvas by its id. Left out by a host that has none. */
@@ -155,6 +158,7 @@ export class StateSync {
   private slices = new Map<string, { value: unknown; json: string }>()
   private work: WorkState | null = null
   private proofs: ProofsState | null = null
+  private ludicrous: LudicrousState | null = null
   private canvas: CanvasState | null = null
   private canvases: Record<string, CanvasState> | null = null
   /** The last one-shot window instruction sent. Kept only so a repeat of the same one is not sent twice. */
@@ -173,7 +177,7 @@ export class StateSync {
   private readonly now: () => number
 
   constructor(
-    { owner, signIn, models, integrations, slices, proofs, canvas, canvases, appearance, themes }: Omit<HostFacts, 'snapshot'>,
+    { owner, signIn, models, integrations, slices, proofs, ludicrous, canvas, canvases, appearance, themes }: Omit<HostFacts, 'snapshot'>,
     { now = Date.now }: { now?: () => number } = {},
   ) {
     this.now = now
@@ -187,6 +191,7 @@ export class StateSync {
     this.integrations = integrations ?? null
     this.slices = new Map(Object.entries(slices ?? {}).map(([id, value]) => [id, { value, json: JSON.stringify(value) }]))
     this.proofs = proofs ?? null
+    this.ludicrous = ludicrous ?? null
   }
 
   /** The ids of the messages a UI shows now. */
@@ -225,6 +230,7 @@ export class StateSync {
       ...(this.slices.size ? { slices: this.slicesSent(true) } : {}),
       ...(this.work ? { work: this.work } : {}),
       ...(this.proofs ? { proofs: this.proofs } : {}),
+      ...(this.ludicrous ? { ludicrous: this.ludicrous } : {}),
       ...(this.canvas ? { canvas: this.canvas } : {}),
       ...(this.canvases ? { canvases: this.canvases } : {}),
       appearance: this.appearance,
@@ -236,7 +242,7 @@ export class StateSync {
    * What changed, or null when nothing did. A new owner state starts over, because its snapshot is another source.
    * Without `activity`, the jobs' feeds are only kept, not compared: no window that connects reads them whole.
    */
-  update({ owner, signIn, models, integrations, slices, work = null, proofs, canvas, canvases, nudge, appearance, themes, snapshot }: HostFacts, { activity: whole = true }: { activity?: boolean } = {}): StateMessage | null {
+  update({ owner, signIn, models, integrations, slices, work = null, proofs, ludicrous, canvas, canvases, nudge, appearance, themes, snapshot }: HostFacts, { activity: whole = true }: { activity?: boolean } = {}): StateMessage | null {
     const ownerChanged = this.differs('owner', owner, this.owner)
     const signInChanged = this.differs('signIn', signIn, this.signIn)
     const modelsChanged = models !== null && this.differs('models', models, this.models)
@@ -244,6 +250,7 @@ export class StateSync {
     const slicesChanged = slices === undefined ? [] : this.changedSlices(slices)
     const workChanged = this.differs('work', work, this.work)
     const proofsChanged = proofs !== undefined && this.differs('proofs', proofs, this.proofs)
+    const ludicrousChanged = ludicrous !== undefined && this.differs('ludicrous', ludicrous, this.ludicrous)
     const canvasChanged = canvas !== undefined && this.differs('canvas', canvas, this.canvas)
     const canvasesChanged = canvases !== undefined && this.differs('canvases', canvases, this.canvases)
     // A one-shot instruction is only ever sent when it is new, and never on a reset or in a full state, so the
@@ -257,6 +264,7 @@ export class StateSync {
     if (models) this.models = models
     if (integrations) this.integrations = integrations
     if (proofs) this.proofs = proofs
+    if (ludicrous) this.ludicrous = ludicrous
     if (canvas) this.canvas = canvas
     if (canvases) this.canvases = canvases
     if (nudge) this.nudge = nudge
@@ -297,6 +305,7 @@ export class StateSync {
       !slicesChanged.length &&
       !workChanged &&
       !proofsChanged &&
+      !ludicrousChanged &&
       !canvasChanged &&
       !canvasesChanged &&
       !nudgeChanged &&
@@ -326,6 +335,7 @@ export class StateSync {
       // Work mode goes whole, and null once the snapshot has none, so a UI never keeps one that is gone.
       ...(workChanged || (startOver && this.work) ? { work: this.work } : {}),
       ...(this.proofs && (proofsChanged || startOver) ? { proofs: this.proofs } : {}),
+      ...(this.ludicrous && (ludicrousChanged || startOver) ? { ludicrous: this.ludicrous } : {}),
       ...(this.canvas && (canvasChanged || startOver) ? { canvas: this.canvas } : {}),
       ...(this.canvases && (canvasesChanged || startOver) ? { canvases: this.canvases } : {}),
       // Only when new — never forced on a reset — so a reconnect never re-navigates the window or rewrites the draft.

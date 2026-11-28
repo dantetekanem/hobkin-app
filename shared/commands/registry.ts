@@ -48,6 +48,7 @@ import {
 } from '../protocol/setup.ts'
 import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import type { ProofRun } from '../protocol/proofs.ts'
+import type { LudicrousFolder, LudicrousState } from '../protocol/ludicrous.ts'
 import type { RoutineTemplatesList } from '../protocol/routine-templates.ts'
 import { METRICS_DAYS_MAX, type WorkMetrics } from '../protocol/metrics.ts'
 import type { ActivityEntry } from '../protocol/activity.ts'
@@ -1316,6 +1317,37 @@ export const COMMANDS = {
     },
     outside: true,
   },
+  // Ludicrous mode spends every token and the whole computer, so only the user's click in the window starts, approves or stops a run
+  // (076-ludicrous-mode). hobkin's `client` tool and every agent are refused these.
+  'work.ludicrous.plan': {
+    description:
+      "Let's plan this: Ludicrous mode's five planners plan the user's words for one project Work has, at a machine tier of 30, 50 or 100 agents running at once. The project's folder must have no uncommitted changes, since Ludicrous works in it on a branch of its own, and Work starts nothing on the project until the run's pull request is merged or closed. Nothing is built until Go Ludicrous.",
+    runs: 'host',
+    args: Type.Object(
+      { slug: projectSlug, idea: Type.String({ minLength: 1, maxLength: 20000 }), tier: Type.Union([Type.Literal(30), Type.Literal(50), Type.Literal(100)]) },
+      { additionalProperties: false },
+    ),
+    outside: true,
+  },
+  'work.ludicrous.go': {
+    description:
+      "Go Ludicrous: the user's approval of the plan, with their answers to the planners' questions, or after a stop the word to carry on. It fills the machine tier with agents that commit to the run's one branch until the project is done, then pushes that branch and opens one pull request. It never merges, deploys or sends anything else.",
+    runs: 'host',
+    args: Type.Object({ answers: Type.Optional(Type.Record(Type.String({ maxLength: 40 }), Type.String({ maxLength: 40 }))) }, { additionalProperties: false }),
+    outside: true,
+  },
+  'work.ludicrous.stop': {
+    description:
+      "Stop Ludicrous: every agent of the run is killed at once, with everything it started. After building, hobkin keeps what they committed, saves their unfinished work as patches, and opens the run's pull request as a draft.",
+    runs: 'host',
+    args: Type.Object({}, { additionalProperties: false }),
+    outside: true,
+  },
+  'work.ludicrous.folder': {
+    description: "Read whether a project's folder can take a Ludicrous run now, and why not. It only reads.",
+    runs: 'host',
+    args: Type.Object({ slug: projectSlug }, { additionalProperties: false }),
+  },
   // Proof runs of TLA+ models (050-tla-proofs). hobkin's own `hobkin proof` writes them, and these read, stop and repeat them.
   'proof.get': {
     description:
@@ -1877,6 +1909,11 @@ export interface CommandResults {
   'work.yolo.project': { slug: string; on: boolean }
   /** The rules in force after the change, for every project (`slug` null) or for the one named. */
   'work.yolo.rules': { slug: string | null; rules: YoloRules }
+  /** Ludicrous mode as it stands once the command is taken. */
+  'work.ludicrous.plan': LudicrousState
+  'work.ludicrous.go': LudicrousState
+  'work.ludicrous.stop': LudicrousState
+  'work.ludicrous.folder': LudicrousFolder
   /** The whole run. */
   'proof.get': ProofRun
   /** What happened to the run, in a line. */

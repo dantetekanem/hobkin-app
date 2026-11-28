@@ -8,6 +8,7 @@ import type { HostMessage, OwnerState, StateMessage } from '#shared/protocol/mes
 import type { ModelsState } from '#shared/protocol/models.ts'
 import type { Nudge } from '#shared/protocol/nudge.ts'
 import type { ProofsState } from '#shared/protocol/proofs.ts'
+import type { LudicrousState } from '#shared/protocol/ludicrous.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { SignInState } from '#shared/protocol/signin.ts'
 import type { ChatMessage, WireSnapshot } from '#shared/protocol/snapshot.ts'
@@ -51,6 +52,8 @@ export interface HostState {
   themes?: KeptThemes | null
   /** TLA+ proof runs, running and recent, and the tools found. Null until the host says, and always from a host from before them. */
   proofs?: ProofsState | null
+  /** Ludicrous mode's run and the machine tiers (076). Null until the host says, and always from a host from before it. */
+  ludicrous?: LudicrousState | null
   /** hobkin's snapshot, by top-level key. */
   snapshot: WireSnapshot
   /** The stored conversation. */
@@ -84,6 +87,7 @@ export const initialHostState: HostState = {
   appearance: null,
   themes: null,
   proofs: null,
+  ludicrous: null,
   snapshot: {},
   messages: [],
   live: null,
@@ -155,6 +159,8 @@ function applyState(state: HostState, message: StateMessage): HostState {
     themes: message.themes ?? (message.reset ? null : (state.themes ?? null)),
     // Proof runs come whole with every reset from a host that reads them, so one without them has none.
     proofs: message.proofs ?? (message.reset ? null : (state.proofs ?? null)),
+    // Ludicrous comes whole, at most once a second, and with every reset from a host that runs it.
+    ludicrous: message.ludicrous ?? (message.reset ? null : (state.ludicrous ?? null)),
     live: settleLive(message.reset ? null : state.live, messages, snapshot.busy),
     epoch: message.reset ? state.epoch + 1 : state.epoch,
   }
