@@ -49,7 +49,7 @@ test('the map shows each area\'s agents, leader and steps, and never what an age
     area('docs', { done: true, steps: { done: 4, total: 4 } }),
   ]
   const markup = renderToStaticMarkup(createElement(LudicrousMap, { areas, name: 'harbor' }))
-  for (const line of ['2 agents · leader on it · 3 of 4 steps', '7 agents · leader on it · 1 of 9 steps', 'waits for api', 'done · 4 of 4 steps']) assert.ok(shown(markup, line), line)
+  for (const line of ['2 agents · leader · 3/4 steps', '7 agents · leader · 1/9 steps', 'waits for api', 'done · 4 of 4 steps']) assert.ok(shown(markup, line), line)
   assert.ok(shown(markup, '4 areas · 1 done · 9 agents on them'))
   // Every island is drawn, and nothing names an agent, a packet or a path one works on.
   assert.equal(markup.match(/class="world-island /g)?.length, 4)

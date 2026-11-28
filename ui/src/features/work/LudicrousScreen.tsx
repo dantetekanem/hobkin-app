@@ -420,7 +420,13 @@ export function LudicrousMap({ areas, name }: { areas: readonly LudicrousArea[];
           <div key={island.slug} aria-hidden="true" className="absolute left-0 top-0" style={plotStyle(island)}>
             <span className="world-name" style={nameStyle(island)}>
               <span className="block truncate font-heading text-[13px] font-semibold leading-[1.25]">{area.name}</span>
-              <span className="block truncate font-mono text-[10px] leading-[1.35] text-muted-foreground">{areaLine(area)}</span>
+              {areaLine(area)
+                .split(/ · (?=\d+\/\d+ steps$)/)
+                .map((part) => (
+                  <span key={part} className="block truncate font-mono text-[10px] leading-[1.35] text-muted-foreground">
+                    {part}
+                  </span>
+                ))}
             </span>
           </div>
         ))}

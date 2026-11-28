@@ -57,8 +57,7 @@ const plural = (amount: number, one: string, many = `${one}s`) => `${amount} ${a
 export function areaLine(area: LudicrousArea): string {
   if (area.done) return `done · ${area.steps.done} of ${area.steps.total} steps`
   if (!area.open) return `waits for ${area.depends.join(', ')}`
-  const leader = area.leader ? 'leader on it' : 'no leader now'
-  return `${plural(area.agents, 'agent')} · ${leader} · ${area.steps.done} of ${area.steps.total} steps`
+  return `${plural(area.agents, 'agent')} · ${area.leader ? 'leader' : 'no leader'} · ${area.steps.done}/${area.steps.total} steps`
 }
 
 /** The map's heading line: areas, how many are done, and the agents on them. */
