@@ -144,7 +144,7 @@ export async function planRun(root, { slug, idea, tier }, { now = Date.now(), me
   // The same project after a stop in planning: the same run, its branch and its round files.
   if (current?.phase === 'stopped' && !current.planned && current.slug === slug) {
     await git(project.path, 'switch', '-q', current.branch);
-    return changeRun(root, current, { idea: words, tier, phase: 'planning', round: 1, stoppedAt: null, lines: [] });
+    return changeRun(root, current, { idea: words, tier, phase: 'planning', step: 'drafts', round: 1, stoppedAt: null, lines: [] });
   }
   if (current?.phase === 'stopped' && !current.planned) holdForLudicrous(root, current.slug, null);
 
@@ -156,7 +156,7 @@ export async function planRun(root, { slug, idea, tier }, { now = Date.now(), me
   const remote = (await gitOrNothing(folder, 'remote', 'get-url', 'origin')) || null;
   const run = {
     id: runIdOf(now, slug), slug, name: nameOf(project), folder, remote, base, baseCommit, branch, idea: words, tier,
-    phase: 'planning', round: 1, planned: false, approved: false, answers: {},
+    phase: 'planning', step: 'drafts', round: 1, planned: false, approved: false, answers: {},
     startedAt: iso(now), buildingSince: null, builtMs: 0, waitingUntil: null, stoppedAt: null, doneAt: null,
     spawned: 0, tokens: 0, pr: null, lines: remote ? [] : ['This project has no remote, so its branch stays on this computer and no pull request opens.'],
   };

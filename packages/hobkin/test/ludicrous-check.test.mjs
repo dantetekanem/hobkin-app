@@ -108,3 +108,20 @@ test('a failing check files a fix packet naming the check, the commit and the tr
   assert.equal(again.code, 1);
   assert.match(again.stdout, /Nothing new in api since [0-9a-f]{12}, which failed/);
 });
+
+const WAIT = fileURLToPath(new URL('../src/skills/ludicrous-leader/wait.mjs', import.meta.url));
+
+test('a leader\'s wait returns once a packet of its area lands, and says which', async t => {
+  const h = run(t);
+  const env = { ...process.env, LUDICROUS_BRANCH: BRANCH, LUDICROUS_AREA: 'api', LUDICROUS_RUN: h.directory, LUDICROUS_WAIT_POLL_MS: '50' };
+  const waiting = exec(process.execPath, [WAIT, '--low', '0', '--most', '20000'], { cwd: h.checkout, env });
+  await new Promise(done => setTimeout(done, 400));
+  writeFileSync(join(h.checkout, 'src', 'app.txt'), 'the second version\n');
+  git(h.checkout, 'commit', '-qam', 'api-3: the app again\n\nPacket: api-3');
+  const { stdout } = await waiting;
+  assert.match(stdout, /^Landed: [0-9a-f]+ api-3: the app again$/m);
+
+  // The next wait reports only what is new: with nothing new, it says so when its time runs out.
+  const quiet = await exec(process.execPath, [WAIT, '--low', '0', '--most', '300'], { cwd: h.checkout, env });
+  assert.equal(quiet.stdout, 'Nothing changed in your area while you waited.\n');
+});

@@ -26,6 +26,7 @@ import { memoryKeeperExtension } from './memory-keeper-extension.mjs';
 import { MEMORY_TOOLS, memoryTools } from './memory-tools.mjs';
 import { integrationExtension } from './integration-extension.mjs';
 import { loadSkillExtension } from './load-skill-extension.mjs';
+import { SHIPPED_SKILLS } from './skills-extension.mjs';
 import { outwardGuardExtension, RUN_KIND_ENV } from './outward-guard-extension.mjs';
 import { integrationEnvironment, isIntegrationCall, serveIntegration } from './integrations.mjs';
 
@@ -818,4 +819,28 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     }
   }
   return result;
+}
+
+// Pi's own MCP support is three of its built-in extensions: the servers, and the two ways their tools are reached (076 S1).
+const MCP_BUILT_INS = ['mcp', 'codemode', 'tool-search'];
+
+/**
+ * A Ludicrous agent's Pi (076): Pi's own tools, skills with `load_skill` (070), and the user's MCP servers through Pi's own MCP support,
+ * with no other extension: no tasks, teams, subagents, schedules or durable jobs, so it has no tool that starts an agent. It answers its
+ * one task and ends, with its session in the run's folder. `mcp` false leaves the MCP servers out too.
+ */
+export function ludicrousInvocation({ prompt, system, model, effort, sessionFile, skills = [], mcp = true, launcher }) {
+  if (launcher?.managedExtensions) throw Error('Ludicrous needs a Pi that starts with no extensions, and this launcher loads its own.');
+  if (!isAbsolute(sessionFile ?? '')) throw Error('A Ludicrous agent needs a session file in its run.');
+  if (typeof prompt !== 'string' || !prompt.trim() || typeof system !== 'string' || !system.trim()) throw Error('A Ludicrous agent needs its directions and its task.');
+  if (!efforts.pi.includes(effort) || typeof model !== 'string' || !model.includes('/')) throw Error('A Ludicrous agent needs a model as provider/model and an effort.');
+  return piCommand(launcher, [
+    '--print', '--mode', 'text', '--session', sessionFile, '--model', model, '--thinking', effort,
+    '--no-extensions', '--extension', loadSkillExtension,
+    ...(mcp ? MCP_BUILT_INS.flatMap(name => ['--extension', `builtin:${name}`]) : ['--no-mcp']),
+    ...[...SHIPPED_SKILLS, ...skills].flatMap(path => ['--skill', path]),
+    '--no-prompt-templates', '--no-themes',
+    '--append-system-prompt', system,
+    '--', prompt,
+  ]);
 }
