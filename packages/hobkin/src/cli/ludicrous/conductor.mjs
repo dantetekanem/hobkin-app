@@ -76,14 +76,16 @@ function writeExecutable(file, text) {
 }
 
 /**
- * The tools and stand-ins of a run, in its folder: `tools/` holds `land`, `check` and `wait` for its agents, and `bin/`, first on a
- * worker's PATH, a stand-in for each check command the plan names, which refuses with one line and logs the refusal (A19).
+ * The tools and stand-ins of a run, in its folder: `tools/` holds `land`, `check` and `wait` for its agents, and `bin/` a stand-in for
+ * each check command the plan names, which refuses with one line and logs the refusal (A19). They reach an agent through its shell file
+ * in `shells/`: Pi's bash tool runs each command with `bash -c`, and bash reads `$BASH_ENV` first, so a worker's commands meet the
+ * stand-ins before any real check command. Pi itself keeps the user's own PATH, since its launcher finds `node` there.
  */
 export function prepareTools(directory, plan) {
   const tools = join(directory, 'tools');
   const bin = join(directory, 'bin');
-  mkdirSync(tools, { recursive: true, mode: 0o700 });
-  mkdirSync(bin, { recursive: true, mode: 0o700 });
+  const shells = join(directory, 'shells');
+  for (const folder of [tools, bin, shells]) mkdirSync(folder, { recursive: true, mode: 0o700 });
 
   writeExecutable(join(tools, 'land'), runsScript(script('ludicrous-worker', 'land')));
   writeExecutable(join(tools, 'check'), runsScript(script('ludicrous-leader', 'check')));
@@ -95,7 +97,11 @@ export function prepareTools(directory, plan) {
   for (const name of refused) {
     writeExecutable(join(bin, name), standIn(name, refusalsFile(directory)));
   }
-  return { tools, bin, refused };
+
+  const files = { worker: join(shells, 'worker.sh'), leader: join(shells, 'leader.sh') };
+  writeFileSync(files.worker, `export PATH="${bin}:${tools}:$PATH"\n`, { mode: 0o600 });
+  writeFileSync(files.leader, `export PATH="${tools}:$PATH"\n`, { mode: 0o600 });
+  return { tools, bin, refused, shells: files };
 }
 
 /** Each line a stand-in logged: when, which agent, and the command it was refused. */
@@ -332,14 +338,15 @@ export class LudicrousConductor {
     });
   }
 
-  /** What an agent's process is given: Pi's own environment, the run's mark, and where its tools, branch and check worktrees are. */
+  /**
+   * What an agent's process is given: Pi's own environment, the run's mark, the shell file its bash commands start from (a worker's puts
+   * the stand-ins first), and where its branch and check worktrees are.
+   */
   environmentFor(run, { id, role, area, read, launcher }) {
     const directory = this.directory(run);
-    // A worker meets the stand-ins before any real check command.
-    const path = [...(role === 'worker' ? [join(directory, 'bin')] : []), join(directory, 'tools'), process.env.PATH].join(':');
     return {
       ...piEnvironment(launcher),
-      PATH: path,
+      BASH_ENV: join(directory, 'shells', role === 'worker' ? 'worker.sh' : 'leader.sh'),
       [MARK]: run.id,
       LUDICROUS_AGENT: id,
       LUDICROUS_RUN: directory,

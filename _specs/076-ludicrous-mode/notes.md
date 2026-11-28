@@ -45,6 +45,7 @@ The computer: a Mac17,8 with 18 cores (6 performance), 64 GB of memory and 1,068
 - The final check commits its own verdict, so the verdict holds for the head it left. Any later commit asks for the check again.
 - With no reset time known, one agent tries every 30 minutes. The rest start once it has run two minutes without the limit.
 - The page shows a plain note, not the form, while its host is from before Ludicrous.
+- Stand-ins first on a worker's whole `PATH` would have stopped the worker's own Pi: the `pi` launcher pnpm installs runs `node` from `PATH`, and a Node project's plan names `node` as a check command. So the worker's Pi keeps the user's `PATH`, and its bash commands start from a shell file (`BASH_ENV`) that puts the stand-ins first. Found on 2026-11-27, before S10's run.
 
 ## Not proven yet
 

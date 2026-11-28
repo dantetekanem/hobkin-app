@@ -44,7 +44,7 @@ const NOT_RECORDS: readonly RegExp[] = [
   /^runtime\/\.qmd$/,
   // A Ludicrous run's agent transcripts and logs, the unfinished project code Stop saved as patches, its tools and its check logs.
   // The run's record, its counts and its report stay records.
-  /^ludicrous\/[^/]+\/(?:sessions|logs|unfinished|bin|tools|locks|checks|leaders)$/,
+  /^ludicrous\/[^/]+\/(?:sessions|logs|unfinished|bin|tools|shells|locks|checks|leaders)$/,
   // What a run leaves beside its report, in the places hobkin's runs leave it (handoffs, a project's folder and its pull
   // requests): `<name>-evidence`, `<name>.evidence`, `<name>-artifacts`, `<name>.artifacts`. A folder of the user's
   // named like that elsewhere, such as `memory/tax-evidence`, is a record.

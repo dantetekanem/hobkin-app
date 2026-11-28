@@ -49,19 +49,30 @@ test('a Ludicrous Pi loads only its skills, and MCP servers only when the plan n
 
 test('a worker\'s check command is refused and logged', async t => {
   const directory = folder(t);
-  const { bin, tools, refused } = prepareTools(directory, { checkCommands: ['pnpm', 'vitest', 'node'] });
+  const { bin, tools, refused, shells } = prepareTools(directory, { checkCommands: ['pnpm', 'vitest', 'node'] });
   assert.deepEqual(refused.sort(), ['check', 'java', 'node', 'pnpm', 'vitest', 'wait']);
-  const env = { ...process.env, PATH: `${bin}:${tools}:${process.env.PATH}`, LUDICROUS_AGENT: '0007-worker-api' };
+  // A worker's Pi runs with the user's own PATH, and every command it runs in bash starts from the worker's shell file.
+  const env = { ...process.env, BASH_ENV: shells.worker, LUDICROUS_AGENT: '0007-worker-api' };
 
-  const ran = await exec('/bin/sh', ['-c', 'pnpm test --filter api'], { env }).catch(error => error);
+  const ran = await exec('bash', ['-c', 'pnpm test --filter api'], { env }).catch(error => error);
   assert.equal(ran.code, 1);
   assert.equal(ran.stderr, 'Workers don\'t run checks. Your leader does.\n');
   assert.match(refusalsOf(directory)[0], /^\d{4}-\d\d-\d\dT[\d:]+Z 0007-worker-api pnpm test --filter api$/);
 
-  // `land` runs on hobkin's own Node, so a stand-in for `node` does not stop it.
-  const landed = await exec('/bin/sh', ['-c', 'land api-1 "the users route"'], { env }).catch(error => error);
+  // Pi's own launcher finds the real `node`: a stand-in named `node` stops the worker's commands, never the worker's Pi.
+  const launcherNode = (await exec('/bin/sh', ['-c', 'command -v node'], { env })).stdout.trim();
+  assert.ok(!launcherNode.startsWith(bin), launcherNode);
+  assert.equal((await exec('bash', ['-c', 'command -v node'], { env })).stdout.trim(), join(bin, 'node'));
+
+  // `land` runs on hobkin's own Node, so the stand-in for `node` does not stop it either.
+  const landed = await exec('bash', ['-c', 'land api-1 "the users route"'], { env }).catch(error => error);
   assert.equal(landed.code, 2);
   assert.match(landed.stderr, /land runs only in a Ludicrous run/);
   assert.equal(refusalsOf(directory).length, 1);
   assert.match(readFileSync(join(tools, 'land'), 'utf8'), /^#!\/bin\/sh\nexec ".+" ".+land\.mjs" "\$@"\n$/);
+
+  // A leader's commands reach the leader's tools and every real check command.
+  const leader = { ...process.env, BASH_ENV: shells.leader };
+  assert.equal((await exec('bash', ['-c', 'command -v check'], { env: leader })).stdout.trim(), join(tools, 'check'));
+  assert.ok(!(await exec('bash', ['-c', 'command -v node'], { env: leader })).stdout.trim().startsWith(bin));
 });
