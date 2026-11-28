@@ -15,6 +15,8 @@ use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 mod backdrop;
 mod browser;
+#[cfg(target_os = "macos")]
+mod composer_shortcut;
 mod host_file;
 mod login_path;
 mod notices;
@@ -386,6 +388,12 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
                 backdrop::blur_behind(&window);
+                let _ = window.with_webview(|platform| {
+                    // Tauri supplies the main WKWebView on the AppKit thread.
+                    if let Some(view) = unsafe { platform.inner().cast::<objc2::runtime::AnyObject>().as_ref() } {
+                        unsafe { composer_shortcut::install(view) };
+                    }
+                });
             }
             Ok(())
         })
