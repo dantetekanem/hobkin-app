@@ -11,7 +11,7 @@ import { publishItem } from '../src/cli/work/controls.mjs';
 import { addIssue, filedIssues, githubRepoOf, projectOfRepo } from '../src/cli/work/issues.mjs';
 import { projectsView } from '../src/cli/work/reads.mjs';
 import {
-  chooseProject, prFile, paths, proposeProject, readItems, readMode, readProject, recordTokens, setProjectIssues, setProjectPaused, updateItem, writeMode,
+  chooseProject, fileItem, prFile, paths, proposeProject, readItems, readMode, readProject, recordTokens, setProjectIssues, setProjectPaused, updateItem, writeMode,
 } from '../src/cli/work/store.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 import { director, studied } from './helpers/work-director.mjs';
@@ -335,6 +335,43 @@ test('a project files its new open issues by itself, at most every 15 minutes, a
     ['gh-issue:acme/api#2', 'open'],
     ['gh-issue:acme/api#3', 'open'],
   ], 'each is filed once, and one the user dropped stays dropped');
+});
+
+test('a survey drops closed source issues before a picked item starts, keeping unavailable, open and unrelated work', async t => {
+  const h = director(t);
+  studied(h, 'api');
+  const add = n => addIssue(h.root, 'api', issue(n)).id;
+  const closed = add(62);
+  const open = add(63);
+  const unavailable = add(64);
+  const pull = add(65);
+  const history = { branch: 'local/prior-work', proof: 'The source issue was open.' };
+  updateItem(h.root, 'api', closed, history);
+  const mention = fileItem(h.root, 'api', { key: 'separate', kind: 'fix', title: 'Separate work', brief: issue(62).url });
+  const asked = [];
+  h.gh = async ([command, route]) => {
+    if (command !== 'api') return '[]';
+    asked.push(route);
+    const number = Number(route.split('/').at(-1));
+    if (number === 64) throw Error('Offline');
+    return JSON.stringify({ number, state: number === 63 ? 'open' : 'closed', ...(number === 65 ? { pull_request: {} } : {}) });
+  };
+  const queued = async () => (await runWorkCommand(h.root, ['queue'])).map(row => row.item).filter(Boolean);
+  assert.ok((await queued()).includes(closed));
+
+  await h.tick();
+
+  assert.equal(itemOf(h.root, closed).state, 'dropped');
+  assert.equal(h.calls.length, 0, 'the pick did not race the survey');
+  assert.deepEqual(asked.sort(), [62, 63, 64, 65].map(n => `repos/acme/api/issues/${n}`));
+  assert.equal(itemOf(h.root, closed).proof, history.proof);
+  assert.equal(itemOf(h.root, closed).branch, history.branch);
+  assert.deepEqual((await queued()).sort(), [open, unavailable, pull, mention.id].sort());
+  assert.equal(add(62), closed, 'filing the same source keeps its history');
+  await h.tick();
+  assert.equal(h.work(h.calls[0]).item.id, open, 'the next eligible pick starts');
+  assert.ok(!readMode(h.root).queueNext.includes(`item:api:${closed}`));
+  assert.equal(asked.length, 4, 'queue reads and intervening ticks do not recheck GitHub');
 });
 
 test('a project set to labeled asks GitHub only for its open issues labeled hobkin', async t => {

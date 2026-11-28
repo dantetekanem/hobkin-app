@@ -1013,7 +1013,7 @@ function projectToSurvey(root, reference) {
 /** The survey and closing pass now, of every project, or with `reference` only of that one. */
 export async function syncWork(root, reference) {
   const only = reference ? projectToSurvey(root, reference).slug : null;
-  const { settled, filed, retired, pulse } = await surveyAndClose(root, only ? { only } : {});
+  const { settled, filed, retired, closedIssues, pulse } = await surveyAndClose(root, only ? { only } : {});
   const merged = settled.filter(({ state }) => state === 'merged').length;
   const back = settled.length - merged;
   const found = [
@@ -1021,9 +1021,10 @@ export async function syncWork(root, reference) {
     back && `${back} back to a local branch, because a PR was closed`,
     filed.length && `${filed.length} ${filed.length === 1 ? 'branch' : 'branches'} to get ready to merge`,
     retired.length && `${retired.length} dropped as ${retired.length === 1 ? 'a backup of another branch' : 'backups of other branches'}`,
+    closedIssues.length && `${closedIssues.length} dropped because GitHub closed the source issue`,
     pulse.trouble.length && `${pulse.trouble.length} went wrong after landing`,
   ].filter(Boolean).join(', and ');
-  return reply(`Checked ${only ?? 'every project'}. ${found || 'Nothing was merged or closed'}.`, { settled, filed, retired });
+  return reply(`Checked ${only ?? 'every project'}. ${found || 'Nothing was merged or closed'}.`, { settled, filed, retired, closedIssues });
 }
 
 /** The user's word that a merge went wrong. It takes no proof: it closes the launch as `trouble` and files the fix, and `severe` is for data loss or an outage. */

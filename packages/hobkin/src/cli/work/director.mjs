@@ -17,6 +17,7 @@ import { tierBinding } from '../tiers.mjs';
 import { afterMerges } from './after-merge.mjs';
 import { budgetFor, fitsDay, fitsHour, hourShareOf, withStart } from './budget.mjs';
 import { discoveryMessage, hobkinCommand } from './chat.mjs';
+import { queuedIssue } from './closed-issues.mjs';
 import { retireClosedTrees, surveyAndClose } from './closing.mjs';
 import { declineStopped, toldStop } from './controls.mjs';
 import { fileOpenIssues } from './issues.mjs';
@@ -228,7 +229,8 @@ export class WorkDirector {
     retireSubscriptionPause(this.root, subscription.ahead, this.now());
     if (offerSubscriptionPause(this.root, subscription.ahead, this.now())) this.onChange();
     if (pause?.kind === 'day') this.askForAllowance(current, budget);
-    // Schedules are not held. Only new work waits, and the next tick picks it up.
+    // The survey may be about to retire this pick. Plan it again after the source checks, without waiting for reviews or merges.
+    if (this.checkingSources && queuedIssue(next?.item)) return;
     if (next && !this.runtime.workWaitsForChat) this.begin(next, budget, current);
   }
 
@@ -441,7 +443,9 @@ export class WorkDirector {
   surveyWork() {
     if (this.surveying || elapsedSince(readUnmerged(this.root).at, this.now()) < SURVEY_EVERY_MS) return;
     if (!chosenProjects(this.root).length) return;
+    this.checkingSources = true;
     this.surveying = surveyAndClose(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}), ...(this.fetch ? { fetch: this.fetch } : {}) })
+      .finally(() => { this.checkingSources = false; })
       // Only this survey, the owner's own, lets a change merge by itself, and only while the user has YOLO mode on (`yolo-pass.mjs`).
       .then(() => yoloPass(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}), ...(this.onHandOff ? { handOff: this.onHandOff } : {}) }))
       // Each project's YOLO report says what the pass found and did, written only where its words changed (`yolo-report.mjs`).

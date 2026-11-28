@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import lockfile from 'proper-lockfile';
 import { codeBranchClass, noteOutcome } from '../autonomy.mjs';
 import { atomicJson } from '../config.mjs';
+import { retireClosedIssues } from './closed-issues.mjs';
 import { readReviewGrades, reviewsFolder } from './grades.mjs';
 import { areaOf, isTestPath } from './patterns.mjs';
 import { readOnce } from './one-read.mjs';
@@ -770,6 +771,7 @@ async function surveyHeld(root, { now = Date.now(), gh = defaultGh, reviews = re
   const filed = [];
   const adopted = [];
   const retired = [];
+  const closedIssues = [];
   // A goal has no branches, and git would read the repository around its folder.
   const surveyed = chosenProjects(root).filter(project => !isGoal(project));
   for (const { slug, path } of surveyed.filter(project => !only || project.slug === only)) {
@@ -792,8 +794,9 @@ async function surveyHeld(root, { now = Date.now(), gh = defaultGh, reviews = re
       // A repository that cannot be read today keeps what it said last time, and closes nothing.
       if (previous[slug]) projects[slug] = previous[slug];
     }
+    closedIssues.push(...await retireClosedIssues(root, slug, { now, gh }));
   }
   const survey = only ? intoLatest(root, surveyed, projects) : { at: new Date(now).toISOString(), projects };
   atomicJson(surveyPath(root), survey);
-  return { ...survey, settled, filed, adopted, retired };
+  return { ...survey, settled, filed, adopted, retired, closedIssues };
 }
