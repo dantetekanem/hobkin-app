@@ -16,7 +16,7 @@ import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { NEEDS_AN_OWNER, weighedRows } from './reads.mjs';
 import { layerUnder } from './stacks.mjs';
 import {
-  answerAllowance, assertLevel, chooseProject, doableKinds, dropProject, fileItem, isGoal, itemTree, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, pickNow, prFile, putBackInQueue, readItems, readMode, readProject, realFolder,
+  answerAllowance, assertLevel, chooseProject, doableKinds, dropProject, fileItem, holdForLudicrous, isGoal, itemTree, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, pickNow, prFile, putBackInQueue, readItems, readMode, readProject, realFolder,
   requestCancel, retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeDirections, writeMode,
 } from './store.mjs';
 import { BRANCH_PREFIX, currentBranch, defaultBranch, gitOrNothing, gitWithin, isMerged, landBranch, realPlace, retireTree, startRepository, worktreeOn } from './tree.mjs';
@@ -160,9 +160,16 @@ export function stopMode(root) {
   return reply('Work mode is off. Running agents finish, a look for projects stops, and nothing new starts until it is on again.', { enabled });
 }
 
+// While a Ludicrous run holds a project (076), Work stays off it until the run's pull request is merged or closed.
+const ludicrousHolds = project => `Ludicrous mode is building ${nameOf(project)}, so Work stays paused there until its pull request is merged or closed.`;
+
 export function pauseWork(root, reference) {
   if (reference) {
     const project = findProject(root, reference);
+    if (project.ludicrous) {
+      holdForLudicrous(root, project.slug, project.ludicrous.run, { pausedBefore: true });
+      return reply(`${ludicrousHolds(project)} It stays paused after that too.`);
+    }
     setProjectPaused(root, project.slug, true);
     return reply(`Paused ${nameOf(project)}. Work mode stays on, agents there finish, and nothing new starts on it until hobkin work resume ${project.slug}.`);
   }
@@ -175,6 +182,7 @@ export function resumeWork(root, reference) {
   const pauseLeft = () => planWork(root, ownerView(root)).pause?.line;
   if (reference) {
     const project = findProject(root, reference);
+    if (project.ludicrous) throw Error(ludicrousHolds(project));
     setProjectPaused(root, project.slug, false);
     return reply(`Resumed ${nameOf(project)}. ${pauseLeft() ?? 'Its work is back in the queue.'}`);
   }

@@ -603,6 +603,19 @@ export function readProject(root, slug) {
 /** Events like any other on a project, so neither can be lost to the owner writing at the same moment, and `at` keeps meaning when it was answered. */
 export const setProjectPaused = (root, slug, paused) => appendEvent(projectsPath(root), { slug, paused });
 
+/**
+ * Ludicrous mode's hold on a project (076): while a run holds it, the project is paused, so Work starts nothing there. It keeps whether the
+ * project was paused before, so letting go (`run` null) puts that back. The user's own pause while it holds is kept the same way.
+ */
+export function holdForLudicrous(root, slug, run, { pausedBefore: paused } = {}) {
+  const project = readProject(root, slug);
+  if (!project) throw Error(`Unknown project: ${slug}`);
+  const pausedBefore = paused ?? project.ludicrous?.pausedBefore ?? project.paused === true;
+  const event = run ? { slug, paused: true, ludicrous: { run, pausedBefore } } : { slug, paused: pausedBefore, ludicrous: null };
+  appendEvent(projectsPath(root), event);
+  return readProject(root, slug);
+}
+
 export function setProjectLevel(root, slug, level) {
   assertLevel(level);
   appendEvent(projectsPath(root), { slug, level });
