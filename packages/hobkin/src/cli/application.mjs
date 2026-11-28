@@ -61,6 +61,10 @@ import { mergeRefreshed, refreshThenMerge } from './work/refresh.mjs';
 import { winsNow, yesterdayLine } from './work/wins.mjs';
 import { runReadiness } from './work/yolo.mjs';
 import { yoloReports } from './work/yolo-report.mjs';
+import { ludicrousReports } from './ludicrous/compile.mjs';
+import { LudicrousConductor } from './ludicrous/conductor.mjs';
+import { releaseHolds } from './ludicrous/run.mjs';
+import { ghWithin } from './work/unmerged.mjs';
 import { prView } from './work/reads.mjs';
 import { LandOffers, lastOfferAt, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { fileFirstPair } from './work/pairs.mjs';
@@ -213,6 +217,8 @@ const WALK_EVENTS = { merge: 'done_merged', decline: 'done_declined', ask: 'done
 const PENDING_LOOK_MS = 30000;
 // A question nobody was there to see waits this long for them to come back, then joins Decisions without opening.
 const UNSEEN_MS = 10 * 60000;
+// How often the code host is asked whether a Ludicrous run's pull request merged or closed, which lets Work back onto its project.
+const LUDICROUS_HOLDS_MS = 10 * 60000;
 // A decision as the main agent reads it when the user talks it over: its summary, then the question and each choice in words.
 const aboutDecision = ({ tldr, question, choices }) => ({ title: tldr, body: [question, '', ...choices.map(({ label }) => `- ${label}`)].join('\n') });
 
@@ -498,6 +504,9 @@ export class HobkinApplication {
           // Not awaited: it holds a question on screen for as long as it stays there.
           app.presentDecision();
           app.teamsTiers?.tick();
+          // Last, and only while a run is under way, so nothing above waits on a Ludicrous run's git and files.
+          if (app.ludicrous?.busy()) await app.ludicrous.tick();
+          app.releaseLudicrousHolds();
         },
       });
       app.hobkins = new Hobkins({ runtime: app.runtime, runner: app.runner, root: app.runtime.directory, config: () => app.config, now: app.now, warms,
@@ -522,6 +531,11 @@ export class HobkinApplication {
         // The deploy of a change YOLO mode merged by itself, for the main agent to hand to one session.
         onHandOff: job => app.handOff(job),
       });
+      // Ludicrous mode's one run (076). Its agents are its own processes, never hobkin's runs, so no list of agents shows them. What a
+      // run that was building left running when hobkin stopped is killed here, and the next tick builds again from its trails.
+      app.ludicrous = new LudicrousConductor({ root: app.runtime.directory, config: () => app.config, now: app.now, onChange: () => app.onLudicrousChange?.() });
+      await app.ludicrous.open();
+      app.ludicrousHoldsAt = app.now();
       signal?.throwIfAborted();
       // Before anything starts: a durable hobkin's turn that was running when hobkin stopped is over.
       await app.hobkins.open();
@@ -710,7 +724,7 @@ export class HobkinApplication {
         };
       });
     const reportIds = new Set();
-    const reports = [...runReports, ...sessionReports(this.runtime.directory, deleted), ...yoloReports(this.runtime.directory, deleted)]
+    const reports = [...runReports, ...sessionReports(this.runtime.directory, deleted), ...yoloReports(this.runtime.directory, deleted), ...ludicrousReports(this.runtime.directory, deleted)]
       .filter(report => {
         if (reportIds.has(report.id)) return false;
         reportIds.add(report.id);
@@ -1568,6 +1582,18 @@ export class HobkinApplication {
   }
 
   // Agents file work from their own processes, and nothing else tells the dashboard it changed.
+  /**
+   * Now and then, asks the code host about each project a Ludicrous run held (076), since a pull request merges there and nothing here
+   * hears it, and lets Work back onto each project whose run's work landed or was let go. It never holds up the tick.
+   */
+  releaseLudicrousHolds() {
+    if (this.now() - (this.ludicrousHoldsAt ?? -Infinity) < LUDICROUS_HOLDS_MS) return;
+    this.ludicrousHoldsAt = this.now();
+    void releaseHolds(this.runtime.directory, { gh: ghWithin(60000) })
+      .then(released => (released.length ? this.requestRefresh() : null))
+      .catch(() => {});
+  }
+
   async tickWork() {
     this.moods.notice();
     await this.director.tick();
@@ -2306,7 +2332,7 @@ export class HobkinApplication {
           // The dashboard has just cancelled any open question, and a quit must not reach the agent as an answer.
           const children = this.runtime.ownedLifecycle?.close();
           // A scheduled command running now stops too, and the next start counts its run as cut off.
-          await Promise.all([children, this.runtime.quitMain(), this.runner?.stop(), this.memoryIndex?.stop(), this.agentSchedules?.close()]);
+          await Promise.all([children, this.runtime.quitMain(), this.runner?.stop(), this.memoryIndex?.stop(), this.agentSchedules?.close(), this.ludicrous?.close()]);
           // A durable hobkin's turn stopped here reads as cut off, so its record is written before the store closes.
           await this.hobkins?.idle();
           // No turn runs now, so the processes kept for the hobkins' next turns close too.

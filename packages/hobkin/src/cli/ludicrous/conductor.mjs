@@ -208,12 +208,14 @@ export class LudicrousConductor {
     for (const folder of ['sessions', 'logs']) mkdirSync(join(directory, folder), { recursive: true, mode: 0o700 });
     const session = join(directory, 'sessions', `${id}.jsonl`);
     const log = join(directory, 'logs', `${id}.log`);
-    const { model, effort } = tierBinding(this.config, tier ?? roleTier);
-    const invocation = ludicrousInvocation({ prompt, system: systemPrompt(system), model, effort, sessionFile: session, skills: [skill(own)], mcp: this.mcp, launcher: this.config.launcher });
+    // hobkin's settings as they are now, since the user can change a tier while a run builds.
+    const config = typeof this.config === 'function' ? this.config() : this.config;
+    const { model, effort } = tierBinding(config, tier ?? roleTier);
+    const invocation = ludicrousInvocation({ prompt, system: systemPrompt(system), model, effort, sessionFile: session, skills: [skill(own)], mcp: this.mcp, launcher: config.launcher });
     const read = (await gitOrNothing(run.folder, 'rev-parse', '--verify', '--quiet', `refs/heads/${run.branch}`)) || run.baseCommit;
     const path = [...(role === 'worker' ? [join(directory, 'bin')] : []), join(directory, 'tools'), process.env.PATH].join(':');
     const env = {
-      ...piEnvironment(this.config.launcher), PATH: path, [MARK]: run.id, LUDICROUS_AGENT: id, LUDICROUS_RUN: directory, LUDICROUS_BRANCH: run.branch,
+      ...piEnvironment(config.launcher), PATH: path, [MARK]: run.id, LUDICROUS_AGENT: id, LUDICROUS_RUN: directory, LUDICROUS_BRANCH: run.branch,
       LUDICROUS_BASE: run.baseCommit, LUDICROUS_READ: read, LUDICROUS_CHECKS: paths(this.root, run.slug).trees, LUDICROUS_CHECK_SLOTS: String(this.machine().checks),
       ...(area ? { LUDICROUS_AREA: area } : {}),
     };
@@ -242,6 +244,11 @@ export class LudicrousConductor {
 
   spaced() {
     return this.now() - this.lastStartAt >= this.spacingMs;
+  }
+
+  /** Whether a tick has anything to do: a run under way, an agent still running, or an end not yet settled. */
+  busy() {
+    return this.live.size > 0 || this.ended.length > 0 || underWay(this.run);
   }
 
   /** hobkin's tick: what ended first, then the run's phase, then the counts. Nothing here throws into hobkin's tick. */
