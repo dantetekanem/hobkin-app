@@ -152,33 +152,41 @@ export interface ControlsInput {
 }
 
 const RUNNING_PHASES = ['planning', 'building', 'waiting', 'compiling']
+const STOPPABLE_PHASES = ['planning', 'plan-ready', 'building', 'waiting']
 
 /**
  * The two controls. The main button says Let's plan this before a plan exists and Go Ludicrous once it is ready or after a stop; while
  * planners or builders run it is disabled and keeps its place. With a stopped run on the page, another project opens the box for a new
  * run there, and Go Ludicrous resumes the stopped one on its own project. Stop works while anything of the run is running or waiting.
  */
+const GO = { label: 'Go Ludicrous', action: 'go' } as const
+const PLAN = { label: "Let's plan this", action: 'plan' } as const
+
 export function controlsOf({ state, slug, idea, folder }: ControlsInput): Controls {
   const run = state?.run ?? null
-  const stop = { disabled: !run || !['planning', 'plan-ready', 'building', 'waiting'].includes(run.phase) }
+  const stop = { disabled: !run || !STOPPABLE_PHASES.includes(run.phase) }
+
   if (run && RUNNING_PHASES.includes(run.phase)) {
-    const label = run.planned ? 'Go Ludicrous' : "Let's plan this"
-    return { main: { label, action: label === 'Go Ludicrous' ? 'go' : 'plan', disabled: true, reason: null }, stop, box: false }
+    const main = run.planned ? GO : PLAN
+    return { main: { ...main, disabled: true, reason: null }, stop, box: false }
   }
-  if (run?.phase === 'plan-ready') return { main: { label: 'Go Ludicrous', action: 'go', disabled: false, reason: null }, stop, box: false }
-  if (run?.phase === 'stopped' && run.planned && (slug === null || slug === run.slug)) {
-    return { main: { label: 'Go Ludicrous', action: 'go', disabled: false, reason: null }, stop, box: false }
+
+  const resumes = run?.phase === 'stopped' && run.planned && (slug === null || slug === run.slug)
+  if (run?.phase === 'plan-ready' || resumes) {
+    return { main: { ...GO, disabled: false, reason: null }, stop, box: false }
   }
-  const reason = !slug
-    ? 'Pick a project first.'
-    : folder && !folder.clean
-      ? folder.reason
-      : !idea.trim()
-        ? 'Write what you want first.'
-        : folder
-          ? null
-          : 'Reading the folder…'
-  return { main: { label: "Let's plan this", action: 'plan', disabled: reason !== null, reason }, stop, box: true }
+
+  const reason = planWaitsFor({ slug, idea, folder })
+  return { main: { ...PLAN, disabled: reason !== null, reason }, stop, box: true }
+}
+
+/** What Let's plan this still waits for, in the order the user meets it, or null when it can run. */
+function planWaitsFor({ slug, idea, folder }: Pick<ControlsInput, 'slug' | 'idea' | 'folder'>): string | null {
+  if (!slug) return 'Pick a project first.'
+  if (folder && !folder.clean) return folder.reason
+  if (!idea.trim()) return 'Write what you want first.'
+  if (!folder) return 'Reading the folder…'
+  return null
 }
 
 /** The tier the page starts on: the run's own, or the largest this computer fits. */

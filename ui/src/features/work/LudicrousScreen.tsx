@@ -177,6 +177,8 @@ function LudicrousRunPage({ state, projects, live, start = {} }: LudicrousPagePr
   )
 }
 
+const FOLDER_READ_MS = 4000
+
 /** The picked project's folder as the host reads it, again every few seconds while the box shows, so a commit enables the button. */
 function useFolder(live: boolean, slug: string | null): LudicrousFolder | null {
   const [folder, setFolder] = useState<LudicrousFolder | null>(null)
@@ -188,13 +190,13 @@ function useFolder(live: boolean, slug: string | null): LudicrousFolder | null {
       return
     }
     let gone = false
-    const read = () =>
-      runCommand('work.ludicrous.folder', { slug }).then(
-        (read) => (gone ? null : setFolder(read)),
-        (error: unknown) => (gone ? null : setFolder({ clean: false, reason: error instanceof Error ? error.message : String(error) })),
-      )
+    const show = (read: LudicrousFolder) => {
+      if (!gone) setFolder(read)
+    }
+    const failed = (error: unknown) => show({ clean: false, reason: error instanceof Error ? error.message : String(error) })
+    const read = () => runCommand('work.ludicrous.folder', { slug }).then(show, failed)
     void read()
-    const every = setInterval(() => void read(), 4000)
+    const every = setInterval(() => void read(), FOLDER_READ_MS)
     return () => {
       gone = true
       clearInterval(every)
@@ -276,37 +278,60 @@ const DETOUR_PATH: Record<Detour, string> = {
   stopped: `M ${X.building + 20} ${LINE_Y} C ${X.building + 50} 134, ${BUILD_END - 50} 134, ${BUILD_END - 20} ${LINE_Y}`,
 }
 const DETOUR_LABEL_Y: Record<Detour, number> = { waiting: 24, stopped: 146 }
+// A line stops this short of a step's node, and the flow after a step other than Building runs this far.
+const NODE_GAP = 14
+const FLOW_LENGTH = 106
+
+const isStep = (id: PathStep | Detour): id is PathStep => PATH_STEPS.some((step) => step.id === id)
+
+/** The line from each step to the next, solid once the run has gone along it. Building's runs on to Done, since Building is a stretch. */
+function pathSegments(path: Path) {
+  return PATH_STEPS.slice(0, -1).map((step, index) => {
+    const next = PATH_STEPS[index + 1]!
+    const end = step.id === 'building' ? X.done : X[next.id]
+    const gone = path.passed.includes(next.id) || (path.passed.includes(step.id) && path.at === next.id)
+    return { id: step.id, from: X[step.id] + NODE_GAP, to: end - NODE_GAP, passed: gone }
+  })
+}
+
+/** Where the live flow runs while agents work on a step of the line: Building's whole stretch, or a way along the line after any other. */
+function flowOf(path: Path): { from: number; to: number } | null {
+  if (!path.working || !isStep(path.at)) return null
+  const from = X[path.at] + NODE_GAP
+  return { from, to: path.at === 'building' ? BUILD_END : from + FLOW_LENGTH }
+}
+
+function stateOf(path: Path, id: PathStep | Detour): 'now' | 'passed' | 'ahead' {
+  if (path.at === id) return 'now'
+  return isStep(id) && path.passed.includes(id) ? 'passed' : 'ahead'
+}
+
+const whereLabel = (path: Path) => [...PATH_STEPS, ...DETOURS].find(({ id }) => id === path.at)?.label ?? 'its idea'
 
 /** The run's path: passed steps solid, steps ahead dotted, the detours fainter, and the step at work glowing with a flow along its line. */
 function RunPath({ path }: { path: Path }) {
   const still = useStill()
-  const segments = PATH_STEPS.slice(0, -1).map((step, index) => {
-    const next = PATH_STEPS[index + 1]!
-    const from = X[step.id] + 14
-    const to = step.id === 'building' ? X.done - 14 : X[next.id] - 14
-    return { id: step.id, from, to, passed: path.passed.includes(next.id) || (path.passed.includes(step.id) && path.at === next.id) }
-  })
-  const nodeState = (id: PathStep | Detour) => (path.at === id ? 'now' : path.passed.includes(id as PathStep) ? 'passed' : 'ahead')
+  const flow = flowOf(path)
   return (
     <nav aria-label="Where the run is" className="ludicrous-path rounded-3xl bg-background px-3 py-2" data-still={still || undefined}>
-      <svg viewBox="0 0 1000 156" role="img" aria-label={`The run is at ${[...PATH_STEPS, ...DETOURS].find(({ id }) => id === path.at)?.label ?? 'its idea'}.`} className="w-full">
-        {segments.map((segment) => (
+      <svg viewBox="0 0 1000 156" role="img" aria-label={`The run is at ${whereLabel(path)}.`} className="w-full">
+        {pathSegments(path).map((segment) => (
           <line key={segment.id} x1={segment.from} y1={LINE_Y} x2={segment.to} y2={LINE_Y} className="line" data-passed={segment.passed || undefined} />
         ))}
-        {path.working && path.at !== 'waiting' && path.at !== 'stopped' ? <line x1={X[path.at as PathStep] + 14} y1={LINE_Y} x2={path.at === 'building' ? BUILD_END : X[path.at as PathStep] + 120} y2={LINE_Y} className="flow" /> : null}
+        {flow ? <line x1={flow.from} y1={LINE_Y} x2={flow.to} y2={LINE_Y} className="flow" /> : null}
         {DETOURS.map(({ id, label }) => (
           <g key={id} className="detour" data-now={path.at === id || undefined}>
             <path d={DETOUR_PATH[id]} className="line" />
             {path.at === id && path.working ? <path d={DETOUR_PATH[id]} className="flow" /> : null}
-            <text x={(X.building + BUILD_END) / 2} y={DETOUR_LABEL_Y[id]} textAnchor="middle" className="label" data-state={nodeState(id)}>
+            <text x={(X.building + BUILD_END) / 2} y={DETOUR_LABEL_Y[id]} textAnchor="middle" className="label" data-state={stateOf(path, id)}>
               {label}
             </text>
           </g>
         ))}
         {PATH_STEPS.map(({ id, label }) => (
           <g key={id}>
-            <circle cx={X[id]} cy={LINE_Y} r={id === path.at ? 11 : 8} className="node" data-state={nodeState(id)} />
-            <text x={X[id]} y={id === 'building' ? LINE_Y - 20 : LINE_Y + 34} textAnchor="middle" className="label" data-state={nodeState(id)}>
+            <circle cx={X[id]} cy={LINE_Y} r={id === path.at ? 11 : 8} className="node" data-state={stateOf(path, id)} />
+            <text x={X[id]} y={id === 'building' ? LINE_Y - 20 : LINE_Y + 34} textAnchor="middle" className="label" data-state={stateOf(path, id)}>
               {label}
             </text>
           </g>

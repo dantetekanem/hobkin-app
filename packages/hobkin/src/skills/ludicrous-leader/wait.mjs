@@ -42,21 +42,25 @@ const queue = () => {
   return [...packets.values()];
 };
 
+const isFolder = path => existsSync(path) && statSync(path).isDirectory();
+const otherAreas = () => (existsSync(TRAILS) ? readdirSync(TRAILS) : []).filter(other => other !== area && isFolder(join(TRAILS, other)));
+const trailsOf = other => readdirSync(join(TRAILS, other)).filter(name => name.endsWith('.md') && !OWN.has(name));
+
+/** The lines under a trail's "## Needs" that name this area, each with the trail it came from. */
+function needsIn(other, name) {
+  const text = readFileSync(join(TRAILS, other, name), 'utf8');
+  const section = text.split(/\n## Needs\n/)[1]?.split(/\n## /)[0] ?? '';
+  const named = `- ${area}:`;
+  return section.split('\n').filter(line => line.startsWith(named)).map(line => `${other}/${name}: ${line.slice(named.length).trim()}`);
+}
+
 /** What the leader can see of its area now. */
 async function look() {
   const head = await git(['rev-parse', '--verify', `refs/heads/${branch}^{commit}`]);
   const folder = join(TRAILS, area);
   const trails = Object.fromEntries((existsSync(folder) ? readdirSync(folder) : []).filter(name => name.endsWith('.md') && !OWN.has(name))
     .map(name => [name, statSync(join(folder, name)).mtimeMs]));
-  const needs = [];
-  for (const other of existsSync(TRAILS) ? readdirSync(TRAILS) : []) {
-    if (other === area || !existsSync(join(TRAILS, other)) || !statSync(join(TRAILS, other)).isDirectory()) continue;
-    for (const name of readdirSync(join(TRAILS, other)).filter(each => each.endsWith('.md') && !OWN.has(each))) {
-      const text = readFileSync(join(TRAILS, other, name), 'utf8');
-      const section = text.split(/\n## Needs\n/)[1]?.split(/\n## /)[0] ?? '';
-      for (const line of section.split('\n')) if (line.startsWith(`- ${area}:`)) needs.push(`${other}/${name}: ${line.slice(area.length + 3).trim()}`);
-    }
-  }
+  const needs = otherAreas().flatMap(other => trailsOf(other).flatMap(name => needsIn(other, name)));
   const states = readJson(join(run, 'packets.json'), {});
   const mine = queue();
   const packets = Object.fromEntries(mine.filter(packet => states[packet.id]).map(packet => [packet.id, states[packet.id].state]));

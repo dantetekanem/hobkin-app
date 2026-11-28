@@ -38,20 +38,36 @@ export function factsOf(run, now = Date.now()) {
 
 /** The report hobkin writes itself when the compile agent leaves none: each area's steps, and the counts. */
 export function plainReport(run, { saved = [], now = Date.now() } = {}) {
-  let plan = null;
-  try {
-    plan = readPlan(run.folder);
-  } catch {
-    plan = null;
-  }
-  const rows = (plan?.areas ?? []).map(area => {
+  const areas = readableAreas(run.folder);
+  const rows = areas.map(area => {
     const { done, total } = stepsOf(run.folder, area.id);
-    return `| ${area.name} | ${done} of ${total} | ${total - done ? `${total - done} steps` : 'nothing'} |`;
+    const left = total - done ? `${total - done} steps` : 'nothing';
+    return `| ${area.name} | ${done} of ${total} | ${left} |`;
   });
-  const table = rows.length ? `| Area | Steps checked | Left |\n| --- | --- | --- |\n${rows.join('\n')}\n\n` : '';
+  const table = rows.length ? ['| Area | Steps checked | Left |', '| --- | --- | --- |', ...rows, '', ''].join('\n') : '';
   const patches = saved.length ? saved.map(({ packet, patch }) => `- ${packet ?? 'the rest'}: ${patch}`).join('\n') : '- None.';
-  return `Ludicrous built ${run.name} on ${run.branch}. The compile agent wrote no report, so hobkin wrote this one from the specs' boxes.\n\n${table}`
-    + `<details><summary>What hobkin counted</summary>\n\n${factsOf(run, now)}\n\nUnfinished work saved as patches, not in the branch:\n${patches}\n\n</details>\n`;
+  return [
+    `Ludicrous built ${run.name} on ${run.branch}. The compile agent wrote no report, so hobkin wrote this one from the specs' boxes.`,
+    '',
+    `${table}<details><summary>What hobkin counted</summary>`,
+    '',
+    factsOf(run, now),
+    '',
+    'Unfinished work saved as patches, not in the branch:',
+    patches,
+    '',
+    '</details>',
+    '',
+  ].join('\n');
+}
+
+/** The plan's areas, or none when the plan cannot be read: the report is still written. */
+function readableAreas(folder) {
+  try {
+    return readPlan(folder)?.areas ?? [];
+  } catch {
+    return [];
+  }
 }
 
 /** The run's report, kept in Reports under one id for the run: a later compile of the same run replaces it. */

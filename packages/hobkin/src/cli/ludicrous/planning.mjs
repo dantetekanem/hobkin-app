@@ -84,11 +84,23 @@ function promptFor(folder, run, step, { lens, writes }) {
  */
 export function planningTasks(folder, run) {
   const step = run.step ?? 'drafts';
-  const plan = planOrWhy(folder);
-  const tasks = owed(folder, step).filter(task => task.writes.some(path => !filled(folder, path)) || (step === 'plan' && plan.why))
-    .map(task => ({ key: `${step}:${task.lens}`, step, ...task, prompt: promptFor(folder, run, step, task) }));
-  const next = step === 'answers' ? 'building' : step === 'settle' ? 'plan-ready' : STEPS[STEPS.indexOf(step) + 1];
-  return { step, round: ROUND_OF[step], tasks, next };
+  // A plan that breaks a rule is owed again, by the delivery planner, with what is wrong.
+  const planToRedo = step === 'plan' && planOrWhy(folder).why !== null;
+  const stillOwed = task => planToRedo || task.writes.some(path => !filled(folder, path));
+  const tasks = owed(folder, step).filter(stillOwed).map(task => ({
+    key: `${step}:${task.lens}`,
+    step,
+    ...task,
+    prompt: promptFor(folder, run, step, task),
+  }));
+  return { step, round: ROUND_OF[step], tasks, next: stepAfter(step) };
+}
+
+/** What follows a step: the next one, a plan ready for the user after `settle`, and building after `answers`. */
+function stepAfter(step) {
+  if (step === 'answers') return 'building';
+  if (step === 'settle') return 'plan-ready';
+  return STEPS[STEPS.indexOf(step) + 1];
 }
 
 /** Whether the user's answers differ from any pick, so the plan needs the short `answers` step before building. */
