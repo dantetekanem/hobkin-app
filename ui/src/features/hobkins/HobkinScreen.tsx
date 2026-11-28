@@ -105,9 +105,9 @@ export function HobkinScreen() {
   const agentId = kept.current
   const id = hobkinOfAgent(agentId)
   const notes = useSentNotes()
-  const splitOwner = useSplit()?.owner ?? null
+  const hasSplit = useSplit() !== null
   const keptSplit = useRef(false)
-  if (present) keptSplit.current = id !== null && splitOwner === id
+  if (present) keptSplit.current = hasSplit
   const split = keptSplit.current
   const still = useStill()
   // The page on screen, and the one asked for while it gets ready. The talk box goes to the one asked for at once.
@@ -134,7 +134,7 @@ export function HobkinScreen() {
         recall={notes.recall}
       />
     ) : (
-      <RunPart key={agent} agentId={agent} />
+      <RunPart key={agent} agentId={agent} split={splits.current.get(agent) ?? false} />
     )
   }
 
@@ -179,7 +179,7 @@ export function HobkinScreen() {
           onTakenBack={(noteIds) => notes.drop(id, noteIds)}
         />
       ) : agentId ? (
-        <RunTalk key={`talk:${agentId}`} agentId={agentId} />
+        <RunTalk key={`talk:${agentId}`} agentId={agentId} split={split} />
       ) : null}
     </motion.div>
   )

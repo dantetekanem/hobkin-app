@@ -1165,6 +1165,7 @@ test('a session `hobkin session` asked for runs as a job: it shows, streams, tak
   const live = await app.refresh();
   const run = live.runs.find(item => item.id === `session:${started.name}`);
   assert.deepEqual([run.state, run.kind, run.title, run.cwd], ['running', 'background', 'Review routines', h.root]);
+  assert.equal(request.env.HOBKIN_CANVAS_RUN, run.id, 'the session shell and its agent page address the same canvas');
   assert.equal(live.jobActivity[run.id][0].name, 'read');
   const noteId = '00000000-0000-4000-8000-000000000001';
   await app.runner.messageCheck({ scheduleId: `session.${started.name}`, runId: run.id, noteId, message: 'Also the weekly one.' });

@@ -1,4 +1,5 @@
 import { isLocalPage, MAIN_CANVAS, type CanvasKind, type CanvasState } from '#shared/protocol/canvas.ts'
+import { sessionCanvasOwner } from 'hobkin/src/cli/canvas-owner.mjs'
 import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 
 /**
@@ -96,9 +97,11 @@ export function mainPill({ screen, split, main, seen }: { screen: string; split:
 type View = { screen: string; openAgent: string | null }
 type CanvasOf = (owner: string) => CanvasState | null | undefined
 
-/** The durable hobkin whose split shows: its page is on screen and its canvas is open. */
+export const agentCanvasOwner = (agent: string | null) => hobkinOfAgent(agent) ?? sessionCanvasOwner(agent)
+
+/** Show a split only on the page of the conversation that opened it. */
 export function splitOwner({ screen, openAgent }: View, canvasOf: CanvasOf): string | null {
-  const id = screen === 'agent' ? hobkinOfAgent(openAgent) : null
+  const id = screen === 'agent' ? agentCanvasOwner(openAgent) : null
   return id && isOpen(canvasOf(id)) ? id : null
 }
 

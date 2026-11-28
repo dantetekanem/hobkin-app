@@ -78,6 +78,7 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
     mkdirSync(join(root, 'jobs'), { recursive: true, mode: 0o700 });
     const run = await runner.runHarness({
       id: request.harnessId,
+      env: { HOBKIN_CANVAS_RUN: request.id },
       harness: 'pi',
       cwd: request.cwd,
       model: request.model,

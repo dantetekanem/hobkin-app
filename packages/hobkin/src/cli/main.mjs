@@ -143,7 +143,7 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   }
   if (options.command === 'canvas') {
     const { runCanvasCommand } = await import('./canvas.mjs');
-    const result = await runCanvasCommand(workspaceRoot(options.root), options.args, { hobkin: options.hobkin, title: options.title, input: dependencies.input });
+    const result = await runCanvasCommand(workspaceRoot(options.root), options.args, { hobkin: options.hobkin, title: options.title, input: dependencies.input, env: dependencies.env });
     output.write(`${JSON.stringify(result)}\n`);
     return 0;
   }

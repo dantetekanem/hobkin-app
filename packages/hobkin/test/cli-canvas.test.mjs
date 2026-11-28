@@ -93,6 +93,14 @@ test('the canvases are read back as they were written', () => {
   assert.deepEqual(readCanvases(root), {});
 });
 
+test('a session shell opens its own preview without naming a canvas', async () => {
+  const root = temp();
+  const env = { HOBKIN_CANVAS_RUN: 'session:hobkin-preview-abcd' };
+  await runCanvasCommand(root, ['show', 'http://localhost:3187'], { env });
+  assert.deepEqual(Object.keys(readCanvases(root)), ['session-hobkin-preview-abcd']);
+  await assert.rejects(runCanvasCommand(root, ['close'], { env, hobkin: 'main' }));
+});
+
 test('the real command writes the store of a home and prints one line of JSON', () => {
   const root = temp();
   const home = join(root, 'home');

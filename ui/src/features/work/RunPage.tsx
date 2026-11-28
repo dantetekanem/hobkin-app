@@ -77,7 +77,7 @@ function useRun(agentId: string): { agent: RunningAgent | undefined; finished: b
 }
 
 /** A run's header, lines and steps. */
-export function RunPart({ agentId }: { agentId: string }) {
+export function RunPart({ agentId, split }: { agentId: string; split: boolean }) {
   const { agent, finished } = useRun(agentId)
   const question = questionOf(agentId)
   const waiting = Boolean(agent?.asks) && !finished
@@ -94,7 +94,7 @@ export function RunPart({ agentId }: { agentId: string }) {
     <PartFrame>
       <PageHeader
         agentId={agentId}
-        split={false}
+        split={split}
         face={
           // A run on Claude Code has the crab pal beside its face. A finished run's record says how it ended.
           agent?.onClaudeCode ? (
@@ -456,10 +456,10 @@ function Said({ note }: { note: AgentNote }) {
 }
 
 /** The talk box for a run, at the bottom of its page for as long as the page shows it. Nothing for an agent with no record. */
-export function RunTalk({ agentId }: { agentId: string }) {
+export function RunTalk({ agentId, split }: { agentId: string; split: boolean }) {
   const { agent, finished } = useRun(agentId)
   if (!agent) return null
-  return <TalkInput agentId={agentId} name={agent.title} hue={agent.hue} mood={agent.mood} answering={Boolean(agent.asks) && !finished} finished={finished} />
+  return <TalkInput agentId={agentId} split={split} name={agent.title} hue={agent.hue} mood={agent.mood} answering={Boolean(agent.asks) && !finished} finished={finished} />
 }
 
 /**
@@ -469,7 +469,7 @@ export function RunTalk({ agentId }: { agentId: string }) {
  */
 const TalkInput = memo(TalkBox)
 
-function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: string; name: string; hue: number; mood: Mood; answering: boolean; finished: boolean }) {
+function TalkBox({ agentId, split, name, hue, mood, answering, finished }: { agentId: string; split: boolean; name: string; hue: number; mood: Mood; answering: boolean; finished: boolean }) {
   const sendNote = useAgentThreads((threads) => threads.send)
   const live = useHasHost()
   const images = useAgentImageInput(agentId, !finished)
@@ -590,10 +590,10 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
               if (event.key === 'Escape') {
                 // Back onto the same agent in the list. One the list no longer holds leaves the key to the frame,
                 // which leaves the page.
-                if (!finished && focusAgentsDock()) event.preventDefault()
+                if (!split && !finished && focusAgentsDock()) event.preventDefault()
               } else if (event.key === 'ArrowUp' && !draft && !event.defaultPrevented) {
                 // Up from an empty input walks the agent's steps, newest first, or else goes to the agents list.
-                if (focusNewestStep(event.currentTarget) || (!finished && focusAgentsDock())) event.preventDefault()
+                if (focusNewestStep(event.currentTarget) || (!split && !finished && focusAgentsDock())) event.preventDefault()
               } else if (event.key === 'ArrowDown' && !draft && !event.defaultPrevented && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
                 // Down from an empty input opens its agents' navigator, as in pi-extended-teams.
                 if (openNavigator(agentId)) event.preventDefault()

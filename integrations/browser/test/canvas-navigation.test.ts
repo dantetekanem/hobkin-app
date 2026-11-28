@@ -3,12 +3,15 @@ import { test } from 'node:test'
 import { readCanvas } from 'hobkin/src/cli/canvas.mjs'
 import { answered, callTool, readyPart, stateOf } from './support.ts'
 
-test('a durable agent opens its visible canvas, then reads the page the user navigated to without starting Chrome', async t => {
+for (const [agent, owner] of [
+  ['hobkin:0a1b2c3d:4', '0a1b2c3d'],
+  ['session:hobkin-preview-abcd', 'session-hobkin-preview-abcd'],
+] as const) test(`${agent} opens and navigates its own visible canvas`, async t => {
   const { part, root, engine } = await readyPart(t)
-  const owner = '0a1b2c3d', agent = `hobkin:${owner}:4`
   const opened = await callTool(part, { target: 'canvas', do: 'open', url: 'https://example.org/' }, agent)
   assert.equal(opened.failed, false, opened.text)
   assert.equal(readCanvas(root, owner).state.url, 'https://example.org/')
+  assert.equal(readCanvas(root, 'main').state.open, false)
   const pending = callTool(part, { target: 'canvas', do: 'read' }, agent)
   await new Promise(resolve => setImmediate(resolve))
   const [request] = stateOf(part).navigation!
@@ -43,7 +46,7 @@ test('interactive steps reach only the visible canvas, without exposing typed te
   assert.equal(engine.calls.length, 0)
 })
 
-test('canvas commands never fall back to isolated automation or let a background run take a canvas', async t => {
+test('canvas commands never fall back to isolated automation or let an unrelated background job take a canvas', async t => {
   const { part, engine } = await readyPart(t)
   for (const [agent, input] of [['#main', { do: 'eval', code: '1' }], ['work-123', { do: 'open', url: 'https://example.org' }]] as const) {
     assert.equal((await callTool(part, { target: 'canvas', ...input }, agent)).failed, true)

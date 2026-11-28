@@ -2,16 +2,18 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, copyFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, extname, isAbsolute, join } from 'node:path';
+import { AGENT_CANVAS_OWNER, sessionCanvasOwner } from './canvas-owner.mjs';
 
 export const DRAWING_MAX_BYTES = 2 * 1024 * 1024;
 const TITLE_MAX = 120;
-const OWNER = /^(main|[0-9a-f]{8})$/;
 
 const folder = root => join(root, 'canvas');
 const stateFile = root => join(folder(root), 'state.json');
 
+const isOwner = owner => owner === 'main' || (typeof owner === 'string' && AGENT_CANVAS_OWNER.test(owner));
+
 function owned(owner) {
-  if (typeof owner !== 'string' || !OWNER.test(owner)) throw Error('A canvas belongs to main or to a durable hobkin by its eight-character id.');
+  if (!isOwner(owner)) throw Error('A canvas belongs to main, a durable hobkin or a temporary session.');
   return owner;
 }
 
@@ -50,7 +52,7 @@ export function readCanvases(root) {
   }
   const canvases = {};
   for (const [owner, entry] of Object.entries(parsed?.canvases ?? {})) {
-    if (!OWNER.test(owner) || !validEntry(entry)) continue;
+    if (!isOwner(owner) || !validEntry(entry)) continue;
     canvases[owner] = {
       open: entry.open,
       kind: entry.kind === 'page' || entry.kind === 'drawing' ? entry.kind : null,
@@ -219,9 +221,14 @@ function readDrawingFile(file) {
 }
 
 /** `hobkin canvas show|draw|read|save|close`. Writes the store files only; the running app follows them. */
-export async function runCanvasCommand(root, args, { hobkin, title, input, downloads, home } = {}) {
+export async function runCanvasCommand(root, args, { hobkin, title, input, downloads, home, env = process.env } = {}) {
   const [action, argument, ...extra] = args;
-  const owner = hobkin ?? 'main';
+  const session = sessionCanvasOwner(env.HOBKIN_CANVAS_RUN);
+  if (env.HOBKIN_CANVAS_RUN !== undefined && (!session || (hobkin !== undefined && hobkin !== session))) {
+    throw Error('A session can only use its own canvas.');
+  }
+  if (env.HOBKIN_RUN && !session && !hobkin) throw Error('This run has no canvas assigned.');
+  const owner = session ?? hobkin ?? 'main';
   if (extra.length) throw Error('Too many arguments for hobkin canvas.');
   if (action === 'show') {
     if (!argument) throw Error('Usage: hobkin canvas show <url> [--title text] [--hobkin id]');

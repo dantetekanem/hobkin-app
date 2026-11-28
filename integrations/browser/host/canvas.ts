@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { closeCanvas, readCanvas, showPage } from 'hobkin/src/cli/canvas.mjs'
+import { sessionCanvasOwner } from 'hobkin/src/cli/canvas-owner.mjs'
 import type { HostContext } from '#host/integration-contract.ts'
 import type { CanvasAction, CanvasRequest } from '../protocol.ts'
 import type { BrowserStep } from './engine.ts'
@@ -27,7 +28,7 @@ export function canvasNavigation(context: HostContext) {
       return null
     },
     async run(agent: string, step: BrowserStep, signal?: AbortSignal): Promise<string> {
-      const owner = agent === '#main' ? 'main' : /^hobkin:([0-9a-f]{8}):\d+$/.exec(agent)?.[1]
+      const owner = agent === '#main' ? 'main' : /^hobkin:([0-9a-f]{8}):\d+$/.exec(agent)?.[1] ?? sessionCanvasOwner(agent)
       if (!owner) throw Error('Only a conversation with its own canvas can navigate it.')
       signal?.throwIfAborted()
       if (!context.connected()) throw Error('No Hobkin window is connected.')

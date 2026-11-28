@@ -112,12 +112,15 @@ test("the split's sizes: the right side grows by the chat and the divider, the p
   assert.equal(canvasGrowth({ screen: 'agent', canvasEngaged: false, conversationWidth: 460, split: true }), splitSizes(1440, 460).grow)
 })
 
-test("the split shows on a durable hobkin's page while its canvas is open, and the canvas on screen knows its agent", () => {
+test("the split shows only on the durable or temporary agent page that owns the open canvas", () => {
   const canvases: Record<string, CanvasState> = { '0123abcd': DRAWING, main: DRAWING }
   const canvasOf = (owner: string) => canvases[owner] ?? null
   const page = { screen: 'agent' as const, openAgent: 'hobkin:0123abcd' }
   assert.equal(splitOwner(page, canvasOf), '0123abcd')
-  assert.equal(splitOwner({ ...page, openAgent: 'job-1' }, canvasOf), null, 'not a durable hobkin')
+  const run = { ...page, openAgent: 'session:hobkin-preview-abcd' }
+  canvases['session-hobkin-preview-abcd'] = DRAWING
+  assert.deepEqual(showingCanvas(run, canvasOf), { owner: 'session-hobkin-preview-abcd', agent: 'talk' })
+  assert.equal(splitOwner({ ...run, openAgent: 'session:hobkin-other-abcd' }, canvasOf), null)
   assert.equal(splitOwner({ screen: 'work', openAgent: 'hobkin:0123abcd' }, canvasOf), null, 'away from its page')
   assert.equal(splitOwner(page, (owner) => (owner === '0123abcd' ? CLOSED : DRAWING)), null, 'its canvas closed')
 

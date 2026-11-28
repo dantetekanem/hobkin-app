@@ -9,7 +9,7 @@ import { defineIntegration } from '#shared/integration/manifest.ts'
 
 const nothing = Type.Object({}, { additionalProperties: false })
 
-const receipt = { id: Type.String({ maxLength: 64 }), owner: Type.String({ maxLength: 16 }) }
+const receipt = { id: Type.String({ maxLength: 64 }), owner: Type.String({ maxLength: 72 }) }
 
 export default defineIntegration({
   id: 'browser',

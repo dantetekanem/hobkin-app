@@ -6,6 +6,7 @@ import type { ExtensionsState, SkillFile, SkillsState } from '../pi-resources/wi
 import { BUILT_IN_THEMES, paletteProblems } from '../protocol/appearance.ts'
 import type { CatchUpState } from '../protocol/reports.ts'
 import { KEPT_ASKED_MAX, KEPT_ID_PATTERN, KEPT_NAME_MAX, type KeptThemes } from '../protocol/theme-history.ts'
+import { AGENT_CANVAS_OWNER } from 'hobkin/src/cli/canvas-owner.mjs'
 import { DRAWING_MAX_BYTES, type CanvasContent, type CanvasSaved, type CanvasState } from '../protocol/canvas.ts'
 import { HOBKIN_CLAUDE_EFFORTS, HOBKIN_MESSAGE_MAX, HOBKIN_TELL_MAX, HOBKIN_TITLE_MAX, type HobkinConversation, type HobkinReach, type HobkinSummary, type KeptNote } from '../protocol/hobkins.ts'
 import { CLAUDE_AGENT_KINDS, CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_PERMISSIONS, type ClaudeCodeState } from '../protocol/claude-code.ts'
@@ -143,8 +144,9 @@ const oneOf = <const Word extends string>(choices: readonly Word[]) => Type.Unsa
 /** One of hobkin's four tiers for delegated work, and the model and thinking level a tier holds (`017-model-tiers`). */
 const tierName = oneOf(TIER_IDS)
 const tierSetting = Type.Object({ model: Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,63}/\\S{1,256}$' }), effort: oneOf(MAIN_EFFORTS) }, { additionalProperties: false })
-/** A durable hobkin by its id (`034-durable-hobkins`). On a canvas command it names whose canvas; left out, the main hobkin's. */
+/** A durable hobkin by its id (`034-durable-hobkins`). */
 const hobkinId = Type.String({ pattern: '^[0-9a-f]{8}$' })
+const canvasOwner = Type.String({ pattern: AGENT_CANVAS_OWNER.source })
 /** What a durable hobkin runs on: a tier, Claude Code with nothing asked, or a model Pi can reach with a thinking level. */
 const hobkinEngine = Type.Union([
   Type.Object({ kind: Type.Literal('tier'), tier: tierName }, { additionalProperties: false }),
@@ -771,39 +773,39 @@ export const COMMANDS = {
       "Open the canvas, the right side of the user's window, on a web page, so the user can see work happening for real, such as a local app under test. Only when the user asks for it. `url` is an http or https address. `title` names the page.",
     runs: 'host',
     args: Type.Object(
-      { url: Type.String({ pattern: '^https?://\\S', maxLength: 4096 }), title: Type.Optional(words(120)), hobkin: Type.Optional(hobkinId) },
+      { url: Type.String({ pattern: '^https?://\\S', maxLength: 4096 }), title: Type.Optional(words(120)), hobkin: Type.Optional(canvasOwner) },
       { additionalProperties: false },
     ),
     hobkin: true,
   },
   'canvas.close': {
-    description: "Close the canvas. `hobkin` names a durable hobkin's canvas; left out, the main one.",
+    description: "Close the canvas. `hobkin` names an agent's canvas; left out, the main one.",
     runs: 'host',
-    args: Type.Object({ hobkin: Type.Optional(hobkinId) }, { additionalProperties: false }),
+    args: Type.Object({ hobkin: Type.Optional(canvasOwner) }, { additionalProperties: false }),
     hobkin: true,
   },
   'canvas.draw': {
     description:
-      "Draw on the canvas: `html` is one whole HTML document that stands by itself, such as a diagram, a whiteboard or a mock-up, and it replaces the drawing that was there. Only when the user asks for a drawing; never on your own. The user sees it change in place, so keep each element's `id` from one drawing to the next. The canvas opens on it. `title` names it. `hobkin` names a durable hobkin's canvas; left out, the main one.",
+      "Draw on the canvas: `html` is one whole HTML document that stands by itself, such as a diagram, a whiteboard or a mock-up, and it replaces the drawing that was there. Only when the user asks for a drawing; never on your own. The user sees it change in place, so keep each element's `id` from one drawing to the next. The canvas opens on it. `title` names it. `hobkin` names an agent's canvas; left out, the main one.",
     runs: 'host',
     args: Type.Object(
-      { html: Type.String({ minLength: 1, maxLength: DRAWING_MAX_BYTES }), title: Type.Optional(words(120)), hobkin: Type.Optional(hobkinId) },
+      { html: Type.String({ minLength: 1, maxLength: DRAWING_MAX_BYTES }), title: Type.Optional(words(120)), hobkin: Type.Optional(canvasOwner) },
       { additionalProperties: false },
     ),
     hobkin: true,
   },
   'canvas.read': {
     description:
-      "What a canvas shows now: open or closed, a page or a drawing, its title, and the file that holds its drawing, to read before changing it. `hobkin` names a durable hobkin's canvas; left out, the main one.",
+      "What a canvas shows now: open or closed, a page or a drawing, its title, and the file that holds its drawing, to read before changing it. `hobkin` names an agent's canvas; left out, the main one.",
     runs: 'host',
-    args: Type.Object({ hobkin: Type.Optional(hobkinId) }, { additionalProperties: false }),
+    args: Type.Object({ hobkin: Type.Optional(canvasOwner) }, { additionalProperties: false }),
     hobkin: true,
   },
   'canvas.save': {
     description:
       "Save the canvas's drawing as an HTML file: at `path` (absolute or under ~), or in Downloads under a name made from the title. It never replaces a file. Answers with where it went.",
     runs: 'host',
-    args: Type.Object({ path: Type.Optional(words(1024)), hobkin: Type.Optional(hobkinId) }, { additionalProperties: false }),
+    args: Type.Object({ path: Type.Optional(words(1024)), hobkin: Type.Optional(canvasOwner) }, { additionalProperties: false }),
     hobkin: true,
   },
   // Durable hobkins (`034-durable-hobkins`): the hobkins the user starts with Command+N and drives themselves. Starting

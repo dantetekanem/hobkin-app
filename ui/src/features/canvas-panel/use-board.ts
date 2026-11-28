@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CANVAS_CLOSED, MAIN_CANVAS, type CanvasState } from '#shared/protocol/canvas.ts'
-import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import { useStill } from '@/app/still.ts'
 import { splitSizes, useView } from '@/app/view-store.ts'
 import { useHasHost, useHost } from '@/lib/host/index.ts'
-import { splitOwner, windowCanvas } from './rules.ts'
+import { agentCanvasOwner, splitOwner, windowCanvas } from './rules.ts'
 import { useCanvasBoards } from './store.ts'
 
 /**
@@ -29,11 +28,11 @@ export function useBoard(owner: string | null): CanvasState | null {
   }, [owner, host, closed, dev, hasHost])
 }
 
-/** The durable hobkin whose split shows now, with its canvas: its page is on screen and its canvas is open. */
+/** The agent whose page is on screen, if its canvas is open. */
 export function useSplit(): { owner: string; canvas: CanvasState & { url: string } } | null {
   const screen = useView((view) => view.screen)
   const openAgent = useView((view) => view.openAgent)
-  const id = screen === 'agent' ? hobkinOfAgent(openAgent) : null
+  const id = screen === 'agent' ? agentCanvasOwner(openAgent) : null
   const canvas = useBoard(id)
   return useMemo(() => {
     const owner = splitOwner({ screen, openAgent }, () => canvas)

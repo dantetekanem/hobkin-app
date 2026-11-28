@@ -1,6 +1,6 @@
 # The browser tool
 
-Use `target: "canvas"` on each call when the user wants to see or share the page. Open the URL, then read the page before acting on it. The user's clicks and the tool's actions work on the same page. After navigation, read again. Leave the canvas open unless asked to close it. No Chrome installation is needed, and a failed canvas step never falls back to Chrome.
+Use `target: "canvas"` on each call when the user wants to see or share the page. In a temporary session, the preview opens beside that session’s conversation, not in the main chat. Open the URL, then read the page before acting on it. The user's clicks and the tool's actions work on the same page. After navigation, read again. Leave the canvas open unless asked to close it. No Chrome installation is needed, and a failed canvas step never falls back to Chrome.
 
 Canvas `read` gives refs for controls, including buttons, links, text fields, file inputs and selects. Use a ref, an exact label, or `css:selector`. `fill` replaces a value, `type` inserts at the caret, `press` sends a key to the focused control, and `select` chooses a native option. Use `drag` with `on` and `to` for page drag/drop; hover, scroll, back, forward and reload are also available. Verify the resulting page state rather than assuming that an event was accepted.
 
