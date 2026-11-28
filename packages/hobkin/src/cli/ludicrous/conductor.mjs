@@ -12,7 +12,9 @@ import { gitOrNothing } from '../work/tree.mjs';
 import { areasNow, readPlan } from './areas.mjs';
 import { groupsLeft, killGroup, lastError, MARK, startProcess, sweep, tokensSince } from './agents.mjs';
 import { answersChangePlan, PLANNERS, planningTasks, planView, ROUND_OF } from './planning.mjs';
+import { factsOf, fileReport, foldTrails, plainReport, publishRun, reportFile } from './compile.mjs';
 import { systemPrompt, taskPrompt } from './prompts.mjs';
+import { saveUnfinished } from './stop.mjs';
 import { approveRun, buildingMs, changeRun, machineTiers, measureComputer, planRun, readRun, runDirectory, START_SPACING_MS, underWay } from './run.mjs';
 
 /**
@@ -29,11 +31,13 @@ const MINUTE_MS = 60000;
 // A worker that ends this many times without landing its packet is left for its leader to rewrite.
 const MOST_TRIES = 3;
 const MOST_PLANNER_TRIES = 2;
+const MOST_FINAL_ROUNDS = 3;
 // A leader that ends this soon after it started rests this long first, so a leader that cannot start does not spin.
 const LEADER_REST_MS = 60000;
 // With no reset time known, one agent tries this often until one runs (076, The subscription).
 const PROBE_EVERY_MS = 30 * MINUTE_MS;
 const RESET_MARGIN_MS = MINUTE_MS;
+const PROBE_HOLDS_MS = 2 * MINUTE_MS;
 const MOST_HISTORY = 24 * 60;
 // Commands a worker is always refused besides the ones the plan names: TLC runs on Java, and the leader's own two.
 const ALWAYS_REFUSED = ['java', 'check', 'wait'];
@@ -83,8 +87,8 @@ function byShare(areas, running) {
 }
 
 export class LudicrousConductor {
-  constructor({ root, config, now = Date.now, start = startProcess, kill = killGroup, left = groupsLeft, sweepRun = sweep, awake = holdAwake, measure = measureComputer, spacingMs = START_SPACING_MS, mcp = true, onChange = () => {}, publish = null, saveUnfinished = null } = {}) {
-    Object.assign(this, { root, config, now, start, kill, left, sweepRun, awake, measure, spacingMs, mcp, onChange, publish, saveUnfinished });
+  constructor({ root, config, now = Date.now, start = startProcess, kill = killGroup, left = groupsLeft, sweepRun = sweep, awake = holdAwake, measure = measureComputer, spacingMs = START_SPACING_MS, mcp = true, onChange = () => {}, gh } = {}) {
+    Object.assign(this, { root, config, now, start, kill, left, sweepRun, awake, measure, spacingMs, mcp, onChange, gh });
     this.live = new Map();
     this.ended = [];
     this.lastStartAt = -Infinity;
@@ -136,7 +140,11 @@ export class LudicrousConductor {
   async killAll(run, withinMs = 10000) {
     const agents = [...this.live.values()];
     for (const { record } of agents) if (record.pid) this.kill(record.pid);
-    await Promise.race([Promise.all(agents.map(({ child }) => child.exited)), new Promise(done => setTimeout(done, withinMs).unref?.())]);
+    let timer;
+    await Promise.race([Promise.all(agents.map(({ child }) => child.exited)), new Promise(done => {
+      timer = setTimeout(done, withinMs);
+    })]);
+    clearTimeout(timer);
     if (run) await this.sweepRun(run.id);
     return agents.map(({ record }) => record);
   }
@@ -246,7 +254,7 @@ export class LudicrousConductor {
       if (now.phase === 'planning') await this.planning(now);
       else if (now.phase === 'building') await this.building(now);
       else if (now.phase === 'waiting') this.waiting(now);
-      else if (now.phase === 'compiling') await this.compiling?.(now);
+      else if (now.phase === 'compiling') await this.compiling(now);
       this.count(this.run);
     } catch (error) {
       const current = this.run;
@@ -270,7 +278,7 @@ export class LudicrousConductor {
       if (record.role === 'worker') await this.workerEnded(directory, run, record, { limited: Boolean(limit) });
       if (record.role === 'leader') this.leaderEnds.set(record.area, { at: this.now(), quick: this.now() - Date.parse(record.startedAt) < LEADER_REST_MS });
       if (record.role === 'planner' && limit) this.plannerTries.set(record.key, Math.max(0, (this.plannerTries.get(record.key) ?? 1) - 1));
-      this.ending?.(record, result);
+      await this.ending(record);
       this.writeAgents(run);
     }
   }
@@ -333,17 +341,22 @@ export class LudicrousConductor {
     }
     this.holdAwake();
     const areas = areasNow(run.folder, plan, readJson(packetsFile(directory), {}));
-    if (areas.every(area => area.done)) return this.allDone?.(run, areas);
+    if (areas.every(area => area.done)) return this.allDone(run);
     const running = this.running();
-    if (running.length >= run.tier || !this.spaced() || (run.probing && running.length)) return;
+    // With no reset known, one new agent tries first, and the rest wait until it has run a while (`count`).
+    if (running.length >= run.tier || !this.spaced() || (run.probing && run.probe)) return;
     const resting = area => {
       const ended = this.leaderEnds.get(area.id);
       return ended?.quick && this.now() - ended.at < LEADER_REST_MS;
     };
     const leaderless = areas.find(area => area.open && !resting(area) && !running.some(agent => agent.role === 'leader' && agent.area === area.id));
-    if (leaderless) return this.startLeader(run, leaderless);
+    const started = leaderless ? await this.startLeader(run, leaderless) : await this.startNextWorker(run, areas, running);
+    if (started && run.probing) changeRun(this.root, readRun(this.root, run.id), { probe: { id: started.id, at: started.startedAt } });
+  }
+
+  startNextWorker(run, areas, running) {
     const area = byShare(areas.filter(each => each.open && each.ready.length), running);
-    if (area) return this.startWorker(run, area, area.ready[0]);
+    return area ? this.startWorker(run, area, area.ready[0]) : null;
   }
 
   startLeader(run, area, finalFailures = '') {
@@ -363,15 +376,130 @@ export class LudicrousConductor {
     return this.startAgent(run, { role: 'worker', tier: ['fast', 'mid', 'high'].includes(packet.tier) ? packet.tier : 'mid', area: area.id, packet, prompt });
   }
 
+  /**
+   * Stop (A9): every agent killed at once, its whole process group, then anything left with the run's mark, such as a dev server. A run
+   * stopped while it planned compiles nothing. After building, the compile keeps what the agents finished and puts it in the pull request.
+   */
+  async stop() {
+    const asked = this.run;
+    if (!asked || !['planning', 'plan-ready', 'building', 'waiting'].includes(asked.phase)) throw Error('Ludicrous has nothing running to stop.');
+    const killed = await this.killAll(asked);
+    this.live.clear();
+    this.ended = [];
+    this.writeAgents(asked);
+    this.letGoAwake();
+    const run = readRun(this.root, asked.id);
+    const now = this.now();
+    const stopped = { stoppedAt: iso(now), builtMs: buildingMs(run, now), buildingSince: null, waitingUntil: null, probing: false };
+    this.plannerTries.clear();
+    if (!run.planned) changeRun(this.root, run, { ...stopped, phase: 'stopped', step: null });
+    else {
+      const workers = killed.filter(agent => agent.role === 'worker' && agent.packet).map(({ packet, area }) => ({ packet, area }));
+      changeRun(this.root, run, { ...stopped, phase: 'compiling', compile: { reason: 'stop', step: 'save', killed: workers, saved: [] } });
+    }
+    this.onChange();
+    return this.run;
+  }
+
+  /** The compile, a step a tick: the unfinished work saved and taken out, the compile agent, then the report, the push and the pull request. */
+  async compiling(run) {
+    const compile = run.compile ?? { reason: 'stop', step: 'save', killed: [] };
+    const directory = this.directory(run);
+    if (compile.step === 'save') {
+      const { saved } = await saveUnfinished(run, { directory, packets: compile.killed ?? [] });
+      const packets = readJson(packetsFile(directory), {});
+      for (const { packet } of compile.killed ?? []) if (packets[packet]?.state === 'running') packets[packet] = { ...packets[packet], state: 'back' };
+      for (const each of saved) if (each.packet && packets[each.packet]) packets[each.packet] = { ...packets[each.packet], state: 'back', patch: each.patch };
+      atomicJson(packetsFile(directory), packets);
+      return changeRun(this.root, run, { compile: { ...compile, step: 'agent', saved: saved.map(({ packet, patch, applies }) => ({ packet, patch, applies })) } });
+    }
+    if (compile.step === 'agent') {
+      if (compile.agentStarted || this.running('compile').length) return;
+      changeRun(this.root, run, { compile: { ...compile, agentStarted: true } });
+      const unfinished = compile.saved?.length ? compile.saved.map(({ packet, patch }) => `- ${packet ?? 'Everything else'}: ${patch}`).join('\n') : '- None.';
+      const prompt = taskPrompt('ludicrous-tasks', 'compile', {
+        name: run.name, ended: compile.reason === 'done' ? 'is done: every area passed the final check' : 'was stopped by the user',
+        report: reportFile(directory), facts: factsOf(run, this.now()), unfinished,
+      });
+      return this.startAgent(run, { role: 'compile', prompt });
+    }
+    if (compile.step === 'publish') {
+      if (compile.reason === 'done') await foldTrails(run);
+      const body = existsSync(reportFile(directory)) ? readFileSync(reportFile(directory), 'utf8') : plainReport(run, { saved: compile.saved ?? [], now: this.now() });
+      fileReport(this.root, run, body, this.now());
+      const published = await publishRun(run, { body, ready: compile.reason === 'done', ...(this.gh ? { gh: this.gh } : {}) }).catch(error => ({ pr: run.pr, line: error.message }));
+      const done = compile.reason === 'done';
+      changeRun(this.root, readRun(this.root, run.id), { phase: done ? 'done' : 'stopped', doneAt: done ? iso(this.now()) : null, pr: published.pr ?? run.pr ?? null, compile: null, lines: [published.line] });
+      this.onChange();
+    }
+  }
+
+  /**
+   * What the end of a compile or final agent moves on. The final check commits its own verdict, so its verdict holds for the head it left,
+   * and any commit after that asks for a final check again.
+   */
+  async ending(record) {
+    const run = this.run;
+    if (record.role === 'compile' && run.phase === 'compiling') changeRun(this.root, run, { compile: { ...run.compile, step: 'publish' } });
+    if (record.role === 'final' && run.final?.state === 'running') {
+      const final = readJson(join(run.folder, '_specs', 'ludicrous', 'final.json'), { passed: false, failures: [] });
+      const head = (await gitOrNothing(run.folder, 'rev-parse', '--verify', '--quiet', `refs/heads/${run.branch}`)) || run.final.head;
+      changeRun(this.root, run, { final: { ...run.final, head, state: final.passed ? 'passed' : 'failed', failures: final.passed ? [] : final.failures ?? [], leaders: [] } });
+    }
+  }
+
+  /**
+   * Every area says it is done: once their last agents end, one agent on the high tier runs the whole suite and the run guide end to end
+   * (A12). It passing compiles the run as done. A failure goes to the leaders of the areas that own it, and the final check runs again once
+   * they are done again, on a new head.
+   */
+  async allDone(run) {
+    const head = (await gitOrNothing(run.folder, 'rev-parse', '--verify', '--quiet', `refs/heads/${run.branch}`)) || run.baseCommit;
+    const final = run.final?.head === head ? run.final : null;
+    // A leader whose area is done has nothing left to lead. One started for a failure of the final check on this head is fixing its area.
+    const fixing = new Set(final?.state === 'failed' ? final.leaders : []);
+    for (const agent of this.running('leader')) if (!fixing.has(agent.area)) this.kill(agent.pid);
+    if (this.running().some(agent => !fixing.has(agent.area))) return;
+    if (final?.state === 'passed') return changeRun(this.root, run, { phase: 'compiling', builtMs: buildingMs(run, this.now()), buildingSince: null, compile: { reason: 'done', step: 'save', killed: [], saved: [] } });
+    if (final?.state === 'running') return;
+    if (final?.state === 'failed') return this.fixFinal(run, final);
+    changeRun(this.root, run, { final: { state: 'running', head, rounds: (run.final?.rounds ?? 0) + 1 } });
+    return this.startAgent(run, { role: 'final', prompt: taskPrompt('ludicrous-tasks', 'final', { name: run.name }) });
+  }
+
+  /** A failed final check goes to the leader of each area that owns a failure. Three rounds that change nothing stop the run, and say why. */
+  async fixFinal(run, final) {
+    const owners = [...new Set(final.failures.map(failure => failure.area))];
+    const waiting = owners.filter(area => !final.leaders.includes(area));
+    if (!waiting.length) {
+      if (this.running('leader').length) return;
+      if ((final.rounds ?? 1) >= MOST_FINAL_ROUNDS) {
+        changeRun(this.root, run, { lines: [`The final check failed ${final.rounds} times and nothing changed, so the run waits for you: press Stop to compile what is there.`] });
+        return;
+      }
+      return changeRun(this.root, run, { final: { ...final, leaders: [], rounds: (final.rounds ?? 1) + 1 } });
+    }
+    if (!this.spaced()) return;
+    const area = readPlan(run.folder).areas.find(each => each.id === waiting[0]);
+    if (!area) return changeRun(this.root, run, { final: { ...final, leaders: [...final.leaders, waiting[0]] } });
+    changeRun(this.root, run, { final: { ...final, leaders: [...final.leaders, area.id] } });
+    const failures = final.failures.filter(failure => failure.area === area.id).map(({ what, evidence }) => `- ${what}${evidence ? ` (${evidence})` : ''}`).join('\n');
+    const words = `The final check failed in your area:\n${failures}\nSet "done" back to false in your status.json, write the fix packets, and finish the area again.`;
+    return this.startLeader(run, { ...area, depends: area.depends ?? [] }, words);
+  }
+
   // The subscription (076): a used-up window starts nothing until it resets, and then the tier fills again by itself.
 
   subscriptionEnded({ retryAt }) {
     const run = this.run;
     if (!['building', 'waiting'].includes(run.phase)) return;
-    const until = retryAt ?? this.resetFromReadings();
+    const reset = retryAt ?? this.resetFromReadings();
+    const known = reset ? reset + RESET_MARGIN_MS : null;
+    // Agents that fail on the same limit later never bring a known reset forward, nor put an unknown one in its place.
+    if (run.phase === 'waiting' && (run.waitingKnown ? !known || known <= Date.parse(run.waitingUntil) : !known)) return;
     changeRun(this.root, run, {
-      phase: 'waiting', builtMs: buildingMs(run, this.now()), buildingSince: null, probing: false,
-      waitingUntil: iso(until ? until + RESET_MARGIN_MS : this.now() + PROBE_EVERY_MS), waitingKnown: Boolean(until),
+      phase: 'waiting', builtMs: buildingMs(run, this.now()), buildingSince: null, probing: false, probe: null,
+      waitingUntil: iso(known ?? this.now() + PROBE_EVERY_MS), waitingKnown: Boolean(known),
     });
     this.letGoAwake();
   }
@@ -386,7 +514,7 @@ export class LudicrousConductor {
   /** At the reset, building again: the whole tier at once with a known reset, one agent first without one, until it runs. */
   waiting(run) {
     if (this.now() < Date.parse(run.waitingUntil)) return;
-    changeRun(this.root, run, { phase: 'building', buildingSince: iso(this.now()), waitingUntil: null, probing: !run.waitingKnown, probeSince: iso(this.now()) });
+    changeRun(this.root, run, { phase: 'building', buildingSince: iso(this.now()), waitingUntil: null, probing: !run.waitingKnown, probe: null });
   }
 
   /** One line a minute: the most agents that ran in it, the spawned total and each area's agents, plus the tokens read since. */
@@ -395,7 +523,8 @@ export class LudicrousConductor {
     const now = this.now();
     const minute = Math.floor(now / MINUTE_MS);
     const running = this.running().length;
-    if (run.probing && running && now - Date.parse(run.probeSince) > 2 * MINUTE_MS) changeRun(this.root, run, { probing: false });
+    // The agent that tried has run two minutes without the limit: the subscription is back, and the tier fills again.
+    if (run.probing && run.probe && this.live.has(run.probe.id) && now - Date.parse(run.probe.at) > PROBE_HOLDS_MS) changeRun(this.root, run, { probing: false, probe: null });
     if (this.minute && this.minute.at !== minute) {
       for (const { record } of this.live.values()) this.addTokens(run, record);
       const areas = {};
